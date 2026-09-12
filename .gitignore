@@ -1,0 +1,45 @@
+# --- Rust ---
+/target/
+**/*.rs.bk
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Vendor-derived material (see .agent/decisions/0015-open-source-shape.md) ---
+# Antelope's binaries and anything decompiled from them stay local. The publishable
+# artifacts are the protocol spec, the tooling, and our Rust implementation, so that
+# anyone can regenerate these from their own copy of the Antelope software.
+/refs/bin/
+/refs/extracted/
+/refs/decompiled/
+
+# Third-party tools. Kept locally for convenience, never redistributed here:
+# pyinstxtractor is GPL-3.0 and this repository is MIT, so vendoring it would put the
+# tree under conflicting terms. Install it from upstream instead -- see
+# .agent/reference/decompilation.md. pycdc is a separate C++ checkout.
+/refs/tools/pyinstxtractor.py
+/refs/tools/PYINSTXTRACTOR-LICENSE
+/refs/tools/PYINSTXTRACTOR-README.md
+/refs/tools/pycdc/
+
+# --- Secrets (see .agent/decisions/0014-credentials-removed.md) ---
+# The Antelope/iLok auth blobs once sat at repo root. Never again.
+herd
+ilok
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+credentials.json
+secrets.*
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

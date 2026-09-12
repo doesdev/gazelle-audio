@@ -1,0 +1,852 @@
+{
+  "source": "zenstudiotb_report_format.py",
+  "unresolved_constants": [
+    "?.Altec436C",
+    "?.Altec436C.max_instances",
+    "?.Api550",
+    "?.Api550.max_instances",
+    "?.Api550B",
+    "?.Api550B.max_instances",
+    "?.Ba6a",
+    "?.Ba6a.max_instances",
+    "?.Compressor",
+    "?.Compressor.max_instances",
+    "?.Dbx160",
+    "?.Dbx160.max_instances",
+    "?.Dbx903",
+    "?.Dbx903.max_instances",
+    "?.Equalizer",
+    "?.Equalizer.max_instances",
+    "?.Equalizer.num_parts",
+    "?.Equalizer.num_strips",
+    "?.GuitarAmp",
+    "?.GuitarAmp.max_instances",
+    "?.GuitarCab",
+    "?.GuitarCab.max_instances",
+    "?.GyratecX",
+    "?.GyratecX.max_instances",
+    "?.Harrison32C",
+    "?.Harrison32C.max_instances",
+    "?.Helios69",
+    "?.Helios69.max_instances",
+    "?.LangPeq2",
+    "?.LangPeq2.max_instances",
+    "?.Liverpool",
+    "?.Liverpool.max_instances",
+    "?.NeumannPev",
+    "?.NeumannPev.max_instances",
+    "?.NeumannW492",
+    "?.NeumannW492.max_instances",
+    "?.NeumannW495",
+    "?.NeumannW495.max_instances",
+    "?.Neve1023",
+    "?.Neve1023.max_instances",
+    "?.Neve1073",
+    "?.Neve1073.max_instances",
+    "?.Neve1084",
+    "?.Neve1084.max_instances",
+    "?.PowerGate",
+    "?.PowerGate.max_instances",
+    "?.PultecEQP",
+    "?.PultecEQP.max_instances",
+    "?.PultecHLF",
+    "?.PultecHLF.max_instances",
+    "?.PultecMEQ",
+    "?.PultecMEQ.max_instances",
+    "?.SslBlack",
+    "?.SslBlack.max_instances",
+    "?.SslBrown",
+    "?.SslBrown.max_instances",
+    "?.SslOrange",
+    "?.SslOrange.max_instances",
+    "?.SslPink",
+    "?.SslPink.max_instances",
+    "?.StayLevin",
+    "?.StayLevin.max_instances",
+    "?.Studer089",
+    "?.Studer089.max_instances",
+    "?.Studer169",
+    "?.Studer169.max_instances",
+    "?.Studer900",
+    "?.Studer900.max_instances",
+    "?.Summit100A",
+    "?.Summit100A.max_instances",
+    "?.Tube176",
+    "?.Tube176.max_instances",
+    "?.Tubechild670",
+    "?.Tubechild670.max_instances",
+    "?.Uad1176",
+    "?.Uad1176.max_instances",
+    "?.Uad1178",
+    "?.Uad1178.max_instances",
+    "constants.AfxType.ALTEC_436C",
+    "constants.AfxType.API_550",
+    "constants.AfxType.API_550B",
+    "constants.AfxType.BA6A",
+    "constants.AfxType.COMPRESSOR",
+    "constants.AfxType.DBX_160",
+    "constants.AfxType.DBX_903",
+    "constants.AfxType.EQUALIZER",
+    "constants.AfxType.GUITAR_AMP",
+    "constants.AfxType.GUITAR_CAB",
+    "constants.AfxType.GYRATEC_X",
+    "constants.AfxType.HARRISON_32C",
+    "constants.AfxType.HELIOS_69",
+    "constants.AfxType.LANG_PEQ2",
+    "constants.AfxType.LIVERPOOL",
+    "constants.AfxType.NEUMANN_PEV",
+    "constants.AfxType.NEUMANN_W492",
+    "constants.AfxType.NEUMANN_W495",
+    "constants.AfxType.NEVE_1023",
+    "constants.AfxType.NEVE_1073",
+    "constants.AfxType.NEVE_1084",
+    "constants.AfxType.POWERGATE",
+    "constants.AfxType.PULTEC_EQP",
+    "constants.AfxType.PULTEC_HLF",
+    "constants.AfxType.PULTEC_MEQ",
+    "constants.AfxType.SSL_BLACK",
+    "constants.AfxType.SSL_BROWN",
+    "constants.AfxType.SSL_ORANGE",
+    "constants.AfxType.SSL_PINK",
+    "constants.AfxType.STAYLEVIN",
+    "constants.AfxType.STUDER_089",
+    "constants.AfxType.STUDER_169",
+    "constants.AfxType.STUDER_900",
+    "constants.AfxType.SUMMIT_100A",
+    "constants.AfxType.TUBECHILD670",
+    "constants.AfxType.TUBE_176",
+    "constants.AfxType.UAD_1176",
+    "constants.AfxType.UAD_1178"
+  ],
+  "in_scope_zero_counts": [],
+  "report_version": null,
+  "authoritative": true,
+  "scope": "intersection(35) \u2014 Studio+ lacks the 28 Quadro-only commands; its 44 AFX-only commands are out of scope",
+  "count": 35,
+  "missing": [
+    "get_afx_max_available_instances",
+    "get_afx_remaining_featured_instances",
+    "get_afx_strip_order",
+    "get_assignment_request",
+    "get_assignment_status",
+    "get_cmd_set_assignment",
+    "get_daw_mode",
+    "get_feature_mask",
+    "get_mic_emulations",
+    "get_panning_law",
+    "get_reverb_returns",
+    "get_reverb_sends",
+    "get_sonarworks_ir",
+    "get_trim_configs",
+    "get_upload_result",
+    "set_dc_coupled",
+    "set_dim",
+    "set_hard_mute",
+    "set_mic_emulation",
+    "set_mixer",
+    "set_monitor_out",
+    "set_panning_law",
+    "set_pre_phase_inv",
+    "set_predefined_preset",
+    "set_reverb_return",
+    "set_reverb_send",
+    "set_trim_config",
+    "set_usb_channels"
+  ],
+  "commands": {
+    "get_adats_links": {
+      "name": "get_adats_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 2,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_afx_available_instances": {
+      "name": "get_afx_available_instances",
+      "report_id": "0x74",
+      "ext2": 12,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "type_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "inst_count",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_afx_links": {
+      "name": "get_afx_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 5,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_afx_order": {
+      "name": "get_afx_order",
+      "report_id": "0x74",
+      "ext2": 9,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "slots",
+          "type": "{\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]], \"count\": 8}",
+          "size": 16
+        }
+      ]
+    },
+    "get_mixer": {
+      "name": "get_mixer",
+      "report_id": "0x74",
+      "ext2": 4,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "name": "pan",
+          "type": "uint8"
+        },
+        {
+          "name": "mute",
+          "type": "uint8"
+        },
+        {
+          "name": "solo",
+          "type": "uint8"
+        },
+        {
+          "name": "send",
+          "type": "uint8"
+        }
+      ]
+    },
+    "get_mixer_links": {
+      "name": "get_mixer_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 4,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_preamps_links": {
+      "name": "get_preamps_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_reverb_config": {
+      "name": "get_reverb_config",
+      "report_id": "0x74",
+      "ext2": 10,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "mixer_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "room_size",
+          "type": "ubyte"
+        },
+        {
+          "name": "color",
+          "type": "ubyte"
+        },
+        {
+          "name": "predelay",
+          "type": "ubyte"
+        },
+        {
+          "name": "density",
+          "type": "ubyte"
+        },
+        {
+          "name": "early_ref_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "late_ref_delay",
+          "type": "ubyte"
+        },
+        {
+          "name": "richness",
+          "type": "ubyte"
+        },
+        {
+          "name": "reverb_time",
+          "type": "ubyte"
+        },
+        {
+          "name": "reverb_level",
+          "type": "ubyte"
+        },
+        {
+          "name": "on",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_routing": {
+      "name": "get_routing",
+      "report_id": "0x74",
+      "ext2": 3,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "bank_idx",
+          "type": "uint8"
+        },
+        {
+          "name": "bank_configs",
+          "type": "{\"fields\": [[\"in_periph_id\", \"uint8\"], [\"in_chann\", \"uint8\"]], \"count\": 32}",
+          "size": 64
+        }
+      ]
+    },
+    "get_spdifs_links": {
+      "name": "get_spdifs_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 3,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "get_tb_latency": {
+      "name": "get_tb_latency",
+      "report_id": "0xE2",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "mode",
+          "type": "int32"
+        },
+        {
+          "name": "buffer_adjust_in",
+          "type": "int32"
+        },
+        {
+          "name": "buffer_adjust_out",
+          "type": "int32"
+        },
+        {
+          "name": "latency_adjust_in",
+          "type": "int32"
+        },
+        {
+          "name": "latency_adjust_out",
+          "type": "int32"
+        }
+      ]
+    },
+    "preset_recall": {
+      "name": "preset_recall",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 6,
+      "params": [
+        {
+          "name": "preset_idx",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "preset_save": {
+      "name": "preset_save",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 5,
+      "params": [
+        {
+          "name": "preset_idx",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_adat_gain": {
+      "name": "set_adat_gain",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 25,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        }
+      ]
+    },
+    "set_afx_bypass": {
+      "name": "set_afx_bypass",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 22,
+      "params": [
+        {
+          "name": "inst_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "type_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "enabled",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_afx_order": {
+      "name": "set_afx_order",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "ch_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "slots",
+          "type": "{\"elem_type\": {\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]]}, \"count\": 8}",
+          "size": 16
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_brightness": {
+      "name": "set_brightness",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 13,
+      "params": [
+        {
+          "name": "brightness",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_config_feature": {
+      "name": "set_config_feature",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 2,
+      "params": [
+        {
+          "name": "feature",
+          "type": "ubyte"
+        },
+        {
+          "name": "status",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_mute": {
+      "name": "set_mute",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 8,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "mute",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_none": {
+      "name": "set_none",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 0,
+      "params": []
+    },
+    "set_peak_source": {
+      "name": "set_peak_source",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 9,
+      "params": [
+        {
+          "name": "bank_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "source_id",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_power": {
+      "name": "set_power",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 1,
+      "params": [
+        {
+          "name": "power",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_pre_gain": {
+      "name": "set_pre_gain",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 15,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        }
+      ]
+    },
+    "set_pre_phantom": {
+      "name": "set_pre_phantom",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 16,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "phantom",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_pre_type": {
+      "name": "set_pre_type",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 14,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "pretype",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_reverb_config": {
+      "name": "set_reverb_config",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 23,
+      "params": [
+        {
+          "name": "mixer_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "room_size",
+          "type": "ubyte"
+        },
+        {
+          "name": "color",
+          "type": "ubyte"
+        },
+        {
+          "name": "predelay",
+          "type": "ubyte"
+        },
+        {
+          "name": "density",
+          "type": "ubyte",
+          "bit_width": 8,
+          "default": 100
+        },
+        {
+          "name": "early_ref_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "late_ref_delay",
+          "type": "ubyte"
+        },
+        {
+          "name": "richness",
+          "type": "ubyte"
+        },
+        {
+          "name": "reverb_time",
+          "type": "ubyte"
+        },
+        {
+          "name": "reverb_level",
+          "type": "ubyte"
+        },
+        {
+          "name": "on",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_routing": {
+      "name": "set_routing",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 18,
+      "params": [
+        {
+          "name": "bank_idx",
+          "type": "ubyte"
+        },
+        {
+          "name": "bank_configs",
+          "type": "{\"elem_type\": \"ubyte * 2\", \"count\": 32}",
+          "size": 64
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_samp_rate": {
+      "name": "set_samp_rate",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 3,
+      "params": [
+        {
+          "name": "srate_idx",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_sine_gen": {
+      "name": "set_sine_gen",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 10,
+      "params": [
+        {
+          "name": "freq_left",
+          "type": "ubyte"
+        },
+        {
+          "name": "freq_right",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "ubyte"
+        },
+        {
+          "name": "mute_left",
+          "type": "ubyte"
+        },
+        {
+          "name": "mute_right",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_spdif_gain": {
+      "name": "set_spdif_gain",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 26,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        }
+      ]
+    },
+    "set_spdif_src": {
+      "name": "set_spdif_src",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 12,
+      "params": [
+        {
+          "name": "spdif_src",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_stereo_link": {
+      "name": "set_stereo_link",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 31,
+      "params": [
+        {
+          "name": "periph_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "channel_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_sync_source": {
+      "name": "set_sync_source",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 4,
+      "params": [
+        {
+          "name": "src_index",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_tb_latency": {
+      "name": "set_tb_latency",
+      "report_id": "0xE0",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "mode",
+          "type": "int32"
+        },
+        {
+          "name": "buffer_adjust_in",
+          "type": "int32",
+          "bit_width": 32,
+          "default": 0
+        },
+        {
+          "name": "buffer_adjust_out",
+          "type": "int32",
+          "bit_width": 32,
+          "default": 0
+        },
+        {
+          "name": "latency_adjust_in",
+          "type": "int32",
+          "bit_width": 32,
+          "default": 0
+        },
+        {
+          "name": "latency_adjust_out",
+          "type": "int32",
+          "bit_width": 32,
+          "default": 0
+        }
+      ]
+    },
+    "set_volume": {
+      "name": "set_volume",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 7,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "volume",
+          "type": "ubyte"
+        }
+      ]
+    }
+  },
+  "device": "zenstudiotb"
+}

@@ -1,0 +1,12 @@
+[package]
+name = "antelope-transport"
+version = "0.1.0"
+edition = "2021"
+description = "Transport-agnostic framing, segmentation, and request/response correlation for the Antelope Audio Synergy Core wire protocol"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+antelope-protocol = { path = "../antelope-protocol" }
+
+[dev-dependencies]
+serde_json = "1"

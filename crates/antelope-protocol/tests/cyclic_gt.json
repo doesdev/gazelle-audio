@@ -1,0 +1,663 @@
+{
+ "report": "73000000b7914eb100000000000000000d000f03460000000000000064320000000102030405060708090a0b0cd7000000000000000000000004c8000000000000000000000000000000000000000000fffefdfcfbfaf9f80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+ "layout": [
+  [
+   "current_preset",
+   "ubyte",
+   3
+  ],
+  [
+   "power_on",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved1",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved1_0",
+   "ubyte",
+   2
+  ],
+  [
+   "device_updated",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved2",
+   "ubyte",
+   1
+  ],
+  [
+   "locked_wc",
+   "ubyte",
+   1
+  ],
+  [
+   "locked_atomic",
+   "ubyte",
+   1
+  ],
+  [
+   "usb_present",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved3",
+   "ubyte",
+   1
+  ],
+  [
+   "adat_present",
+   "ubyte",
+   1
+  ],
+  [
+   "spdif_present",
+   "ubyte",
+   1
+  ],
+  [
+   "tbolt_present",
+   "ubyte",
+   1
+  ],
+  [
+   "base_index",
+   "byte",
+   4
+  ],
+  [
+   "reserved4",
+   "ubyte",
+   2
+  ],
+  [
+   "reserved5",
+   "ubyte",
+   2
+  ],
+  [
+   "sync_source",
+   "ubyte"
+  ],
+  [
+   "osc_freq_left",
+   "ubyte",
+   2
+  ],
+  [
+   "osc_freq_right",
+   "ubyte",
+   2
+  ],
+  [
+   "osc_level",
+   "ubyte",
+   2
+  ],
+  [
+   "osc_mute_left",
+   "ubyte",
+   1
+  ],
+  [
+   "osc_mute_right",
+   "ubyte",
+   1
+  ],
+  [
+   "sync_freq_hi",
+   "ubyte"
+  ],
+  [
+   "sync_freq_mid",
+   "ubyte"
+  ],
+  [
+   "sync_freq_low",
+   "ubyte"
+  ],
+  [
+   "adc_trim",
+   "ubyte",
+   3
+  ],
+  [
+   "reserved6",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved6_0",
+   "ubyte",
+   4
+  ],
+  [
+   "spdif_src",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved7",
+   "ubyte",
+   1
+  ],
+  [
+   "monitor_trim",
+   "ubyte",
+   3
+  ],
+  [
+   "line_out_trim",
+   "ubyte",
+   3
+  ],
+  [
+   "brightness",
+   "ubyte"
+  ],
+  [
+   "adat_avail_channels",
+   "ubyte"
+  ],
+  [
+   "monitor_vol",
+   "ubyte",
+   7
+  ],
+  [
+   "monitor_mute",
+   "ubyte",
+   1
+  ],
+  [
+   "hp1_vol",
+   "ubyte",
+   7
+  ],
+  [
+   "hp1_mute",
+   "ubyte",
+   1
+  ],
+  [
+   "hp2_vol",
+   "ubyte",
+   7
+  ],
+  [
+   "hp2_mute",
+   "ubyte",
+   1
+  ],
+  [
+   "line_out_vol",
+   "ubyte",
+   7
+  ],
+  [
+   "line_out_mute",
+   "ubyte",
+   1
+  ],
+  [
+   "reamp_vol",
+   "ubyte",
+   7
+  ],
+  [
+   "reamp_mute",
+   "ubyte",
+   1
+  ],
+  [
+   "preamp_gains",
+   "byte * 12"
+  ],
+  [
+   "preamps",
+   {
+    "fields": [
+     [
+      "pretype",
+      "ubyte",
+      4
+     ],
+     [
+      "phantom",
+      "ubyte",
+      1
+     ],
+     [
+      "hpf",
+      "ubyte",
+      1
+     ],
+     [
+      "phase_inv",
+      "ubyte",
+      1
+     ],
+     [
+      "zero_cross",
+      "ubyte",
+      1
+     ]
+    ],
+    "count": 12
+   }
+  ],
+  [
+   "reserved9",
+   "ubyte",
+   2
+  ],
+  [
+   "hp1_enabled",
+   "ubyte",
+   1
+  ],
+  [
+   "hp2_enabled",
+   "ubyte",
+   1
+  ],
+  [
+   "mon_enabled",
+   "ubyte",
+   1
+  ],
+  [
+   "talkback_on",
+   "ubyte",
+   1
+  ],
+  [
+   "reserved10",
+   "ubyte",
+   2
+  ],
+  [
+   "tb_mic_volume",
+   "ubyte"
+  ],
+  [
+   "reserved10_0",
+   "ubyte * 21"
+  ],
+  [
+   "line_gains",
+   "byte * 8"
+  ],
+  [
+   "adat_gains",
+   "byte * 16"
+  ],
+  [
+   "spdif_gains",
+   "byte * 2"
+  ],
+  [
+   "reserved12",
+   "ubyte * 26"
+  ],
+  [
+   "pm_bank_src",
+   "ubyte * 4"
+  ],
+  [
+   "peaks_meters",
+   "ubyte * 32"
+  ],
+  [
+   "peaks_mixer",
+   "ubyte * 32"
+  ],
+  [
+   "reserved13",
+   "ubyte * 16"
+  ],
+  [
+   "peaks_adat",
+   "ubyte * 16"
+  ],
+  [
+   "peaks_preamp",
+   "ubyte * 12"
+  ],
+  [
+   "peaks_line",
+   "ubyte * 8"
+  ],
+  [
+   "peaks_spdif",
+   "ubyte * 2"
+  ],
+  [
+   "peaks_reverb",
+   {
+    "fields": [
+     [
+      "in_peaks",
+      "ubyte * 2"
+     ],
+     [
+      "out_peaks",
+      "ubyte * 2"
+     ]
+    ],
+    "count": 1
+   }
+  ]
+ ],
+ "expected": {
+  "current_preset": 5,
+  "power_on": 1,
+  "reserved1": 0,
+  "reserved1_0": 0,
+  "device_updated": 0,
+  "reserved2": 0,
+  "locked_wc": 0,
+  "locked_atomic": 0,
+  "usb_present": 0,
+  "reserved3": 0,
+  "adat_present": 0,
+  "spdif_present": 0,
+  "tbolt_present": 0,
+  "base_index": -1,
+  "reserved4": 0,
+  "reserved5": 0,
+  "sync_source": 3,
+  "osc_freq_left": 2,
+  "osc_freq_right": 1,
+  "osc_level": 0,
+  "osc_mute_left": 1,
+  "osc_mute_right": 0,
+  "sync_freq_hi": 0,
+  "sync_freq_mid": 0,
+  "sync_freq_low": 0,
+  "adc_trim": 0,
+  "reserved6": 0,
+  "reserved6_0": 0,
+  "spdif_src": 0,
+  "reserved7": 0,
+  "monitor_trim": 0,
+  "line_out_trim": 0,
+  "brightness": 0,
+  "adat_avail_channels": 0,
+  "monitor_vol": 100,
+  "monitor_mute": 0,
+  "hp1_vol": 50,
+  "hp1_mute": 0,
+  "hp2_vol": 0,
+  "hp2_mute": 0,
+  "line_out_vol": 0,
+  "line_out_mute": 0,
+  "reamp_vol": 0,
+  "reamp_mute": 0,
+  "preamp_gains": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12
+  ],
+  "preamps": {
+   "pretype": 7,
+   "phantom": 1,
+   "hpf": 0,
+   "phase_inv": 1,
+   "zero_cross": 1
+  },
+  "reserved9": 0,
+  "hp1_enabled": 1,
+  "hp2_enabled": 0,
+  "mon_enabled": 0,
+  "talkback_on": 0,
+  "reserved10": 0,
+  "tb_mic_volume": 200,
+  "reserved10_0": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "line_gains": [
+   -1,
+   -2,
+   -3,
+   -4,
+   -5,
+   -6,
+   -7,
+   -8
+  ],
+  "adat_gains": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "spdif_gains": [
+   0,
+   0
+  ],
+  "reserved12": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "pm_bank_src": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_meters": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_mixer": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "reserved13": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_adat": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_preamp": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_line": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "peaks_spdif": [
+   0,
+   0
+  ],
+  "peaks_reverb": {
+   "in_peaks": [
+    0,
+    0
+   ],
+   "out_peaks": [
+    0,
+    0
+   ]
+  }
+ }
+}

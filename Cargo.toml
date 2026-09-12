@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/antelope-protocol",
+    "crates/antelope-transport",
+    "crates/antelope-server",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+# Derived from the newest std features used, not from testing on that toolchain:
+# `std::iter::repeat_n` (1.82) is the binding constraint; `div_ceil` (1.73) and
+# `Option::is_some_and` (1.70) are older. Developed and tested on 1.97.
+rust-version = "1.82"
