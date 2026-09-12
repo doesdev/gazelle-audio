@@ -111,11 +111,22 @@ def norm_fields(fields):
             entry["size"] = struct_size(t)
         elif isinstance(t, str) and any(s in t for s in (" *", "*")):
             entry["size"] = field_size(t)
-        # 4-tuple form: ["name", "type", bit_width, default_value]. The 3rd element is
-        # the field's bit width and the 4th its default value (e.g. ["density","ubyte",8,100],
-        # ["buffer_adjust_in","int32",32,0]). Capture both; they matter for wire layout.
-        if len(f) >= 4 and isinstance(t, str):
+        # Field tuples carry an optional bit width and an optional default:
+        #
+        #   ["name", "type"]                     -- full native width, no default
+        #   ["name", "type", bit_width]          -- sub-byte field, no default
+        #   ["name", "type", bit_width, default] -- both
+        #
+        # The original module's own docstring states the form as
+        # ('field_name_str', 'field_type_str', bitlength, default_value) with bitlength
+        # "optional for all the default types" (recovered via pyc_inspect.py).
+        #
+        # The 3-element form was previously ignored, which silently discarded the bit
+        # width on 21 Quadro fields. set_mixer's pan(6)/mute(1)/solo(1) then occupied
+        # three whole bytes instead of one, making the command's wire layout wrong.
+        if len(f) >= 3 and isinstance(t, str):
             entry["bit_width"] = f[2]
+        if len(f) >= 4 and isinstance(t, str):
             entry["default"] = f[3]
         out.append(entry)
     return out
@@ -348,8 +359,20 @@ def main():
                 if isinstance(t, str) and t.startswith("{") and '"count": 0' in t:
                     zero_counts.append("%s.%s.%s" % (cname, sec, f["name"]))
     unresolved = sorted(_Default.SEEN)
+    # Cyclic reports are the device -> host direction: unsolicited state pushes keyed by
+    # report id. They use the same field grammar as requests, so the same normaliser
+    # applies. Without these the event stream has no layout to decode against.
+    cyclic = {}
+    for rid, spec_ in (rf.get("cyclic_reports") or {}).items():
+        fields = spec_.get("fields", []) if isinstance(spec_, dict) else spec_
+        cyclic[str(rid)] = {
+            "report_id": str(rid),
+            "fields": norm_fields(fields),
+        }
+
     doc = {
         "source": os.path.basename(path),
+        "cyclic_reports": cyclic,
         "unresolved_constants": unresolved,
         "in_scope_zero_counts": zero_counts,
         "report_version": rf.get("version"),
@@ -363,7 +386,8 @@ def main():
         # Unresolved constants collapse to 0 here too (sizes as well as counts);
         # they are surfaced via unresolved_constants / in_scope_zero_counts.
         json.dump(doc, f, indent=2, default=lambda o: 0)
-    print("wrote %s (%d commands, %d missing)" % (out, len(result), len(missing)))
+    print("wrote %s (%d commands, %d cyclic reports, %d missing)"
+          % (out, len(result), len(cyclic), len(missing)))
     if zero_counts:
         print("WARNING: %d IN-SCOPE field(s) have a zero-length array, which is almost"
               " certainly a constant that could not be resolved: %s"

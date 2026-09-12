@@ -1,5 +1,313 @@
 {
   "source": "app_report_format.py",
+  "cyclic_reports": {
+    "0x73": {
+      "report_id": "0x73",
+      "fields": [
+        {
+          "name": "current_preset",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "power_on",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "usb_mode",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "device_updated",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "oven",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "locked",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "locked_atomic",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "comp_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "madi_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "adat_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "spdif_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "comp2_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "base_index",
+          "type": "byte",
+          "bit_width": 4
+        },
+        {
+          "name": "us_pull_mode",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "eu_pull_mode",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "sync_source",
+          "type": "ubyte"
+        },
+        {
+          "name": "freq_left",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "freq_right",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "level",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "mute_left",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "mute_right",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "sync_freq_hi",
+          "type": "ubyte"
+        },
+        {
+          "name": "sync_freq_mid",
+          "type": "ubyte"
+        },
+        {
+          "name": "sync_freq_low",
+          "type": "ubyte"
+        },
+        {
+          "name": "adc_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "usb_available_ch_ix",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved01",
+          "type": "ubyte",
+          "bit_width": 4
+        },
+        {
+          "name": "reserved02",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "lock_sync_src",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "monitor_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "line_out_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "brightness",
+          "type": "ubyte"
+        },
+        {
+          "name": "adat_avail_channels",
+          "type": "ubyte"
+        },
+        {
+          "name": "volumes",
+          "type": "{\"fields\": [[\"volume\", \"ubyte\", 8], [\"mute\", \"ubyte\", 1], [\"dim_on\", \"ubyte\", 1], [\"mono\", \"ubyte\", 1], [\"trim\", \"ubyte\", 5]], \"count\": 6}",
+          "size": 30
+        },
+        {
+          "name": "preamp_gains",
+          "type": "byte * 4",
+          "size": 4
+        },
+        {
+          "name": "preamps",
+          "type": "{\"fields\": [[\"type\", \"ubyte\", 4], [\"phantom\", \"ubyte\", 1], [\"hpf\", \"ubyte\", 1], [\"phase_inv\", \"ubyte\", 1], [\"zero_cross\", \"ubyte\", 1]], \"count\": 4}",
+          "size": 20
+        },
+        {
+          "name": "adat_gains",
+          "type": "byte * 8",
+          "size": 8
+        },
+        {
+          "name": "spdif_gains",
+          "type": "byte * 2",
+          "size": 2
+        },
+        {
+          "name": "hard_mute",
+          "type": "byte"
+        },
+        {
+          "name": "dc_coupled_in",
+          "type": "byte"
+        },
+        {
+          "name": "dc_coupled_out",
+          "type": "byte"
+        },
+        {
+          "name": "reserved4",
+          "type": "ubyte * 61",
+          "size": 61
+        },
+        {
+          "name": "pm_bank_src",
+          "type": "ubyte * 4",
+          "size": 4
+        },
+        {
+          "name": "peaks_preamp",
+          "type": "ubyte * 4",
+          "size": 4
+        },
+        {
+          "name": "peaks_spdif",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_adat",
+          "type": "ubyte * 8",
+          "size": 8
+        },
+        {
+          "name": "peaks_usb_play",
+          "type": "ubyte * 18",
+          "size": 18
+        },
+        {
+          "name": "peaks_mixer",
+          "type": "ubyte * 32",
+          "size": 32
+        },
+        {
+          "name": "peaks_usb_play2",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_usb_rec2",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "reserved_b30",
+          "type": "ubyte * 28",
+          "size": 28
+        },
+        {
+          "name": "peaks_monitor",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_hp1",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_hp2",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "line_out",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_spdif_out",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_usb_rec",
+          "type": "ubyte * 16",
+          "size": 16
+        },
+        {
+          "name": "peaks_b4_reserved",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_reverb",
+          "type": "{\"fields\": [[\"in_peaks\", \"ubyte * 2\"], [\"out_peaks\", \"ubyte * 2\"]], \"count\": 1}",
+          "size": 4
+        }
+      ]
+    },
+    "0x83": {
+      "report_id": "0x83",
+      "fields": [
+        {
+          "name": "afx_meters",
+          "type": "{\"fields\": [[\"data\", \"ubyte * 304\"]]}",
+          "size": 304
+        }
+      ]
+    }
+  },
   "unresolved_constants": [],
   "in_scope_zero_counts": [],
   "report_version": 20,
@@ -83,15 +391,18 @@
         },
         {
           "name": "pan",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 6
         },
         {
           "name": "mute",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         },
         {
           "name": "solo",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         }
       ]
     },
@@ -558,23 +869,28 @@
       "params": [
         {
           "name": "freq_left",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "freq_right",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "level",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "mute_left",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         },
         {
           "name": "mute_right",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         }
       ]
     },
@@ -897,11 +1213,13 @@
       "returns": [
         {
           "name": "level",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 7
         },
         {
           "name": "mute",
-          "type": "byte"
+          "type": "byte",
+          "bit_width": 1
         }
       ]
     },
@@ -919,15 +1237,18 @@
         },
         {
           "name": "pan",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 6
         },
         {
           "name": "mute",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         },
         {
           "name": "solo",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         }
       ]
     },
@@ -1108,15 +1429,18 @@
         },
         {
           "name": "pan",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 6
         },
         {
           "name": "mute",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         },
         {
           "name": "solo",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         }
       ],
       "auto_send_notification": true
@@ -1199,11 +1523,13 @@
         },
         {
           "name": "level",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 7
         },
         {
           "name": "mute",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         }
       ]
     },
@@ -1228,15 +1554,18 @@
         },
         {
           "name": "pan",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 6
         },
         {
           "name": "mute",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         },
         {
           "name": "solo",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         }
       ]
     },

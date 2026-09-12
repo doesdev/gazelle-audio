@@ -189,7 +189,14 @@ class Request:
                     fields = params["fields"]
                 else:
                     payload_id = self.format_dict.get("payload_id")
-                    fields = [[f["name"], f["type"], None, f.get("default", 0)] for f in params]
+                    # bit_width must be carried through: Payload sizes itself from the
+                    # sum of field BIT lengths, so passing None here silently widened
+                    # every sub-byte field to a whole byte (set_mixer's pan/mute/solo
+                    # became 3 bytes instead of 1).
+                    fields = [
+                        [f["name"], f["type"], f.get("bit_width"), f.get("default", 0)]
+                        for f in params
+                    ]
                 self.payload = Payload(payload_id, fields)
                 payload_field = [("payload", self.payload.struct)]
             class RequestStruct(ctypes.Structure):

@@ -35,13 +35,51 @@ pub fn from_json_doc(doc: &Value) -> Result<Registry, WireError> {
         let cmd = Command::from_json(entry)?;
         by_name.insert(name.clone(), cmd);
     }
-    Ok(Registry { by_name })
+    // Cyclic report layouts are optional: an older schema may not carry them, in which
+    // case the registry simply has none and callers report reports as undecoded rather
+    // than guessing a layout.
+    let mut cyclic = HashMap::new();
+    if let Some(obj) = doc.get("cyclic_reports").and_then(Value::as_object) {
+        for (rid, entry) in obj {
+            let report_id = parse_id(&entry["report_id"]).or_else(|_| {
+                parse_id(&Value::String(rid.clone()))
+            })?;
+            let fields = parse_fields(entry.get("fields"))?;
+            cyclic.insert(report_id, CyclicReport { report_id, fields });
+        }
+    }
+
+    Ok(Registry { by_name, cyclic })
 }
 
 /// A loaded command registry.
 #[derive(Clone, Debug)]
 pub struct Registry {
     by_name: HashMap<String, Command>,
+    /// Cyclic (device-initiated) report layouts, keyed by report id.
+    ///
+    /// These are the device -> host direction: unsolicited state pushes such as meters
+    /// and transport status. They share the request field grammar but are not commands,
+    /// so they are indexed separately, by id rather than by name.
+    cyclic: HashMap<u32, CyclicReport>,
+}
+
+/// The field layout of one cyclic report.
+#[derive(Clone, Debug)]
+pub struct CyclicReport {
+    /// The report id (the `cmd` header word), e.g. `0x73`.
+    pub report_id: u32,
+    pub fields: Vec<crate::field::Field>,
+}
+
+impl CyclicReport {
+    /// Decode a report's contents (everything after the 16-byte header).
+    pub fn parse_contents(
+        &self,
+        contents: &[u8],
+    ) -> Result<HashMap<String, crate::payload::Value>, WireError> {
+        Command::parse_field_list(&self.fields, contents)
+    }
 }
 
 impl Registry {
@@ -59,6 +97,20 @@ impl Registry {
 
     pub fn names(&self) -> impl Iterator<Item = &String> {
         self.by_name.keys()
+    }
+
+    /// The cyclic report layout for a report id, if this device declares one.
+    pub fn cyclic(&self, report_id: u32) -> Option<&CyclicReport> {
+        self.cyclic.get(&report_id)
+    }
+
+    /// Every cyclic report id this device declares.
+    pub fn cyclic_ids(&self) -> impl Iterator<Item = &u32> {
+        self.cyclic.keys()
+    }
+
+    pub fn cyclic_len(&self) -> usize {
+        self.cyclic.len()
     }
 
     /// Build the request bytes for a named command.

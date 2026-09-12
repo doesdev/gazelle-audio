@@ -63,12 +63,28 @@ pub async fn device_commands(
         .map(command_json)
         .collect();
 
+    // Cyclic layouts too: a client rendering meters needs to know what the event stream
+    // will contain before the first event arrives.
+    let mut cyclic: Vec<Json2> = model
+        .registry
+        .cyclic_ids()
+        .filter_map(|id| model.registry.cyclic(*id))
+        .map(|c| {
+            json!({
+                "report_id": format!("0x{:X}", c.report_id),
+                "fields": c.fields.iter().map(field_json).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    cyclic.sort_by(|a, b| a["report_id"].as_str().cmp(&b["report_id"].as_str()));
+
     Ok(Json(json!({
         "device_id": id,
         "slug": model.slug,
         "model": model.model,
         "count": commands.len(),
         "commands": commands,
+        "cyclic_reports": cyclic,
     })))
 }
 

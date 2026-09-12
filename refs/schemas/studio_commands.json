@@ -1,5 +1,355 @@
 {
   "source": "zenstudiotb_report_format.py",
+  "cyclic_reports": {
+    "0x73": {
+      "report_id": "0x73",
+      "fields": [
+        {
+          "name": "current_preset",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "power_on",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved1",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved1_0",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "device_updated",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved2",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "locked_wc",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "locked_atomic",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "usb_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved3",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "adat_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "spdif_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "tbolt_present",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "base_index",
+          "type": "byte",
+          "bit_width": 4
+        },
+        {
+          "name": "reserved4",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "reserved5",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "sync_source",
+          "type": "ubyte"
+        },
+        {
+          "name": "osc_freq_left",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "osc_freq_right",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "osc_level",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "osc_mute_left",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "osc_mute_right",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "sync_freq_hi",
+          "type": "ubyte"
+        },
+        {
+          "name": "sync_freq_mid",
+          "type": "ubyte"
+        },
+        {
+          "name": "sync_freq_low",
+          "type": "ubyte"
+        },
+        {
+          "name": "adc_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "reserved6",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved6_0",
+          "type": "ubyte",
+          "bit_width": 4
+        },
+        {
+          "name": "spdif_src",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved7",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "monitor_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "line_out_trim",
+          "type": "ubyte",
+          "bit_width": 3
+        },
+        {
+          "name": "brightness",
+          "type": "ubyte"
+        },
+        {
+          "name": "adat_avail_channels",
+          "type": "ubyte"
+        },
+        {
+          "name": "monitor_vol",
+          "type": "ubyte",
+          "bit_width": 7
+        },
+        {
+          "name": "monitor_mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "hp1_vol",
+          "type": "ubyte",
+          "bit_width": 7
+        },
+        {
+          "name": "hp1_mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "hp2_vol",
+          "type": "ubyte",
+          "bit_width": 7
+        },
+        {
+          "name": "hp2_mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "line_out_vol",
+          "type": "ubyte",
+          "bit_width": 7
+        },
+        {
+          "name": "line_out_mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reamp_vol",
+          "type": "ubyte",
+          "bit_width": 7
+        },
+        {
+          "name": "reamp_mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "preamp_gains",
+          "type": "byte * 12",
+          "size": 12
+        },
+        {
+          "name": "preamps",
+          "type": "{\"fields\": [[\"pretype\", \"ubyte\", 4], [\"phantom\", \"ubyte\", 1], [\"hpf\", \"ubyte\", 1], [\"phase_inv\", \"ubyte\", 1], [\"zero_cross\", \"ubyte\", 1]], \"count\": 12}",
+          "size": 60
+        },
+        {
+          "name": "reserved9",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "hp1_enabled",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "hp2_enabled",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "mon_enabled",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "talkback_on",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "reserved10",
+          "type": "ubyte",
+          "bit_width": 2
+        },
+        {
+          "name": "tb_mic_volume",
+          "type": "ubyte"
+        },
+        {
+          "name": "reserved10_0",
+          "type": "ubyte * 21",
+          "size": 21
+        },
+        {
+          "name": "line_gains",
+          "type": "byte * 8",
+          "size": 8
+        },
+        {
+          "name": "adat_gains",
+          "type": "byte * 16",
+          "size": 16
+        },
+        {
+          "name": "spdif_gains",
+          "type": "byte * 2",
+          "size": 2
+        },
+        {
+          "name": "reserved12",
+          "type": "ubyte * 26",
+          "size": 26
+        },
+        {
+          "name": "pm_bank_src",
+          "type": "ubyte * 4",
+          "size": 4
+        },
+        {
+          "name": "peaks_meters",
+          "type": "ubyte * 32",
+          "size": 32
+        },
+        {
+          "name": "peaks_mixer",
+          "type": "ubyte * 32",
+          "size": 32
+        },
+        {
+          "name": "reserved13",
+          "type": "ubyte * 16",
+          "size": 16
+        },
+        {
+          "name": "peaks_adat",
+          "type": "ubyte * 16",
+          "size": 16
+        },
+        {
+          "name": "peaks_preamp",
+          "type": "ubyte * 12",
+          "size": 12
+        },
+        {
+          "name": "peaks_line",
+          "type": "ubyte * 8",
+          "size": 8
+        },
+        {
+          "name": "peaks_spdif",
+          "type": "ubyte * 2",
+          "size": 2
+        },
+        {
+          "name": "peaks_reverb",
+          "type": "{\"fields\": [[\"in_peaks\", \"ubyte * 2\"], [\"out_peaks\", \"ubyte * 2\"]], \"count\": 1}",
+          "size": 4
+        }
+      ]
+    },
+    "0x83": {
+      "report_id": "0x83",
+      "fields": [
+        {
+          "name": "channel_peaks",
+          "type": "{\"fields\": [[\"effect_peaks\", \"ubyte * 8\"]], \"count\": 16}",
+          "size": 128
+        },
+        {
+          "name": "channel_gain_reductions",
+          "type": "{\"fields\": [[\"values\", \"ubyte * 8\"]], \"count\": 16}",
+          "size": 128
+        }
+      ]
+    }
+  },
   "unresolved_constants": [
     "?.Altec436C",
     "?.Altec436C.max_instances",
@@ -121,7 +471,7 @@
   "in_scope_zero_counts": [],
   "report_version": null,
   "authoritative": true,
-  "scope": "intersection(35) \u2014 Studio+ lacks the 28 Quadro-only commands; its 44 AFX-only commands are out of scope",
+  "scope": "intersection(35) \u2014 Studio+ lacks the 28 Quadro-only commands; its AFX-only commands are out of scope",
   "count": 35,
   "missing": [
     "get_afx_max_available_instances",
@@ -229,15 +579,18 @@
         },
         {
           "name": "pan",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 6
         },
         {
           "name": "mute",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         },
         {
           "name": "solo",
-          "type": "uint8"
+          "type": "uint8",
+          "bit_width": 1
         },
         {
           "name": "send",
@@ -708,23 +1061,28 @@
       "params": [
         {
           "name": "freq_left",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "freq_right",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "level",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 2
         },
         {
           "name": "mute_left",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         },
         {
           "name": "mute_right",
-          "type": "ubyte"
+          "type": "ubyte",
+          "bit_width": 1
         }
       ]
     },

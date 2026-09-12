@@ -137,6 +137,16 @@ impl Command {
     /// from a running bit position; full-width scalars are read as little-endian
     /// integers. Arrays and elem-arrays decode to raw bytes; struct arrays recurse
     /// so their nested fields are decoded too.
+    /// Decode an arbitrary field list against a buffer.
+    ///
+    /// Public so cyclic report layouts, which are not commands, can use the same decoder.
+    pub fn parse_field_list(
+        fields: &[Field],
+        contents: &[u8],
+    ) -> Result<HashMap<String, Value>, WireError> {
+        Self::parse_contents(fields, contents)
+    }
+
     fn parse_contents(
         fields: &[Field],
         contents: &[u8],

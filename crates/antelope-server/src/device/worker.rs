@@ -252,11 +252,25 @@ fn publish(ctx: &WorkerContext, report: Report) {
     (ctx.events)(event);
 }
 
-fn decode_cyclic(_registry: &Registry, _report: &Report) -> Option<HashMap<String, Value>> {
-    // Cyclic layouts are keyed by report id in the panel format. The registry currently
-    // indexes requests only, so cyclic decoding is reported as Undecoded until the cyclic
-    // table is loaded alongside it. Deliberately not guessed.
-    None
+/// Decode a device-initiated report against its declared cyclic layout.
+///
+/// Returns `None` when the device's registry declares no layout for this report id, in
+/// which case the caller emits an `Undecoded` event rather than inventing fields.
+fn decode_cyclic(registry: &Registry, report: &Report) -> Option<HashMap<String, Value>> {
+    let layout = registry.cyclic(report.cmd())?;
+    match layout.parse_contents(&report.contents) {
+        Ok(fields) => Some(fields),
+        Err(e) => {
+            // A declared layout that does not fit the bytes is worth surfacing: it means
+            // either a truncated report or a layout mismatch, both of which matter.
+            tracing::debug!(
+                report_id = format!("0x{:X}", report.cmd()),
+                len = report.contents.len(),
+                "cyclic report did not match its declared layout: {e:?}"
+            );
+            None
+        }
+    }
 }
 
 fn decode_returns(

@@ -143,3 +143,49 @@ fn registry_errors_are_returned_not_printed() {
     let doc = serde_json::json!({"commands": {"bad": {"name": "bad"}}});
     assert!(from_json_doc(&doc).is_err(), "a command without a report_id must fail");
 }
+
+/// Sub-byte fields declared with the 3-tuple form must pack into shared bytes.
+///
+/// `set_mixer` declares `pan`(6 bits), `mute`(1) and `solo`(1) — one byte between them,
+/// not three. The extractor previously read a bit width only from the 4-element field
+/// form, so the 3-element form silently lost it and every sub-byte field widened to a
+/// full byte. That made the command's wire layout wrong and, because no field in the
+/// registry then had a bit width, left the entire bit-packing path untested.
+#[test]
+fn set_mixer_packs_pan_mute_solo_into_one_byte() {
+    use antelope_protocol::payload::PayloadValues;
+    let r = registry();
+    let c = r.get("set_mixer").expect("set_mixer");
+
+    // mixer_id, channel, level are whole bytes; pan/mute/solo share the fourth.
+    let bytes = c
+        .build_request(
+            &PayloadValues::default()
+                .with_scalar("mixer_id", 0)
+                .with_scalar("channel", 1)
+                .with_scalar("level", 0x40)
+                .with_scalar("pan", 0b10_1010)
+                .with_scalar("mute", 1)
+                .with_scalar("solo", 0),
+        )
+        .expect("build");
+
+    // 16-byte header, then payload_id|nparams, nbytes, then 4 user bytes.
+    let body = &bytes[16..];
+    assert_eq!(body[1], 4, "user payload is 4 bytes, not 6");
+    let packed = body[5];
+    assert_eq!(packed & 0b0011_1111, 0b10_1010, "pan occupies the low 6 bits");
+    assert_eq!((packed >> 6) & 1, 1, "mute is bit 6");
+    assert_eq!((packed >> 7) & 1, 0, "solo is bit 7");
+}
+
+/// A command whose fields are all sub-byte collapses to a single-byte payload.
+#[test]
+fn set_sine_gen_is_one_user_byte() {
+    let r = registry();
+    let c = r.get("set_sine_gen").expect("set_sine_gen");
+    let bytes = c.build_request(&Default::default()).expect("build");
+    // 2+2+2+1+1 = 8 bits = 1 byte, so the short-payload layout applies:
+    // one header byte, no nbytes byte.
+    assert_eq!(bytes.len(), 16 + 2, "header + packed byte + one user byte");
+}
