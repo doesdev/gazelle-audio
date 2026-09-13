@@ -4,6 +4,7 @@ members = [
     "crates/gazelle-audio-protocol",
     "crates/gazelle-audio-transport",
     "crates/gazelle-audio-server",
+    "crates/gazelle-audio-capture",
 ]
 
 [workspace.package]

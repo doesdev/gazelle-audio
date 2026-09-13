@@ -1,0 +1,31 @@
+[package]
+name = "gazelle-audio-capture"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+# rmcp (sub-project 3) requires 1.88; scoped to this crate so the workspace stays at 1.82.
+rust-version = "1.88"
+description = "Vendor-neutral USB capture loop for mapping audio interface control parameters"
+
+[[bin]]
+name = "gazelle-capture"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+clap = { version = "~4.5.61", features = ["derive"] }
+futures-util = "0.3"
+getrandom = "0.3"
+pcap-file = "=2.0.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tokio-tungstenite = "0.24"
+tower = { version = "0.5", features = ["util"] }
