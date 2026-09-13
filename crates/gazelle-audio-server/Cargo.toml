@@ -17,7 +17,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
-rust-embed = { version = "8.12", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
+rust-embed = { version = "=8.11.0", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
 
 [features]
 default = ["web-ui"]
