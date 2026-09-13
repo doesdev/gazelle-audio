@@ -12,11 +12,14 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message;
 
-/// Start the server on an ephemeral port and return its ws:// URL.
-async fn serve() -> String {
-    let registries = RegistrySet::builtin().expect("registries");
-    let devices = DeviceManager::new(registries);
-    devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
+use gazelle_audio_protocol::field::Field;
+use gazelle_audio_protocol::wire::{Header, WireError};
+use gazelle_audio_server::device::descriptor::DeviceId;
+use gazelle_audio_transport::{Device, RawPacket, Report};
+use std::time::{Duration, Instant};
+
+/// Start the server on an ephemeral port for these devices and return its ws:// URL.
+async fn serve_with(devices: Arc<DeviceManager>) -> String {
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
     let app = http::router(AppState {
         devices,
@@ -24,13 +27,19 @@ async fn serve() -> String {
         force_dry_run: false,
         backend: "loopback".into(),
     });
-
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     format!("ws://{addr}/api/v1/ws")
+}
+
+/// Start the server on an ephemeral port and return its ws:// URL.
+async fn serve() -> String {
+    let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
+    devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
+    serve_with(devices).await
 }
 
 async fn next_json<S>(stream: &mut S) -> Value
@@ -125,4 +134,90 @@ async fn malformed_frame_does_not_drop_the_connection() {
     .unwrap();
     let reply = next_json(&mut ws).await;
     assert_eq!(reply["type"], "rpc_response");
+}
+
+/// Never answers a request, but pushes a 0x73 state report every 20 ms.
+struct SilentChattyDevice {
+    contents: Vec<u8>,
+    last: Instant,
+}
+
+impl Device for SilentChattyDevice {
+    fn send(&mut self, _report: &Report) -> Result<bool, WireError> {
+        Ok(true)
+    }
+    fn on_received_data(&mut self, _packet: RawPacket) {}
+    fn max_packet_size(&self) -> usize {
+        304
+    }
+    fn vid(&self) -> u16 {
+        9189
+    }
+    fn pid(&self) -> u16 {
+        PID_QUADRO
+    }
+    fn poll_reports(&mut self) -> Vec<Report> {
+        if self.last.elapsed() < Duration::from_millis(20) {
+            return Vec::new();
+        }
+        self.last = Instant::now();
+        vec![Report { header: Header::new(0x73, 0, 0, 0), contents: self.contents.clone() }]
+    }
+}
+
+/// A request stuck waiting on its device must not hold back events on the same socket.
+///
+/// The device emits ~50 reports/s and never answers, so the RPC runs to the 3 s timeout.
+/// Before the fix the socket loop awaited the RPC inline and delivered nothing meanwhile;
+/// only the handful of frames already in flight when the RPC arrived could get through.
+#[tokio::test]
+async fn a_pending_rpc_does_not_stall_events() {
+    let registries = RegistrySet::builtin().expect("registries");
+    let size: usize = registries
+        .for_pid(PID_QUADRO)
+        .unwrap()
+        .registry
+        .cyclic(0x73)
+        .expect("0x73 layout")
+        .fields
+        .iter()
+        .map(Field::size)
+        .sum();
+    let devices = DeviceManager::new(registries);
+    devices.attach(
+        DeviceId::loopback(0),
+        Box::new(SilentChattyDevice { contents: vec![0xA5; size.max(256)], last: Instant::now() }),
+        "loopback",
+        true,
+    );
+
+    let url = serve_with(devices).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
+    let _hello = next_json(&mut ws).await;
+    // Prove events flow before the request.
+    while next_json(&mut ws).await["type"] != "cyclic" {}
+
+    ws.send(Message::Text(
+        json!({"id": 1, "device_id": "loopback-0", "command": "set_mixer",
+               "args": {"level": 64}})
+        .to_string(),
+    ))
+    .await
+    .unwrap();
+
+    let sent = Instant::now();
+    let mut cyclic = 0;
+    while sent.elapsed() < Duration::from_millis(1500) {
+        let remaining = Duration::from_millis(1500).saturating_sub(sent.elapsed());
+        match tokio::time::timeout(remaining, next_json(&mut ws)).await {
+            Ok(frame) if frame["type"] == "cyclic" => cyclic += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    assert!(
+        cyclic >= 20,
+        "only {cyclic} cyclic events in the 1.5 s after sending an RPC; the socket loop is \
+         blocked on the request"
+    );
 }

@@ -10,6 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 
 use crate::device::descriptor::DeviceId;
 use crate::device::manager::ServerEvent;
@@ -38,6 +39,11 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sink, mut stream) = socket.split();
     let mut events = state.devices.subscribe();
+    // RPCs run as their own tasks and report back here, so a request waiting on a device
+    // (up to the 3 s device timeout) never holds back events. Per-device ordering is
+    // unaffected: the device worker still serves one request at a time. Unbounded is safe
+    // here because every entry corresponds to a frame this client sent.
+    let (rpc_tx, mut rpc_rx) = mpsc::unbounded_channel::<Json>();
 
     // Send the current device list first, so a client never has to poll HTTP to bootstrap.
     let hello = json!({
@@ -52,19 +58,17 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
 
     loop {
-        tokio::select! {
+        let frame = tokio::select! {
             // Outbound: device and lifecycle events.
-            ev = events.recv() => {
-                let frame = match ev {
-                    Ok(e) => event_frame(&e),
-                    // A slow client falls behind rather than stalling a device worker.
-                    Err(RecvError::Lagged(n)) => json!({"type":"lagged","missed":n}),
-                    Err(RecvError::Closed) => break,
-                };
-                if sink.send(Message::Text(frame.to_string().into())).await.is_err() {
-                    break;
-                }
-            }
+            ev = events.recv() => match ev {
+                Ok(e) => event_frame(&e),
+                // A slow client falls behind rather than stalling a device worker.
+                Err(RecvError::Lagged(n)) => json!({"type":"lagged","missed":n}),
+                Err(RecvError::Closed) => break,
+            },
+            // Outbound: finished RPCs, in completion order. `rpc_tx` lives in this
+            // function, so the channel never closes while the loop runs.
+            Some(frame) = rpc_rx.recv() => frame,
             // Inbound: RPC calls.
             msg = stream.next() => {
                 let Some(Ok(msg)) = msg else { break };
@@ -74,11 +78,16 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     // Ping/Pong are handled by the transport; binary frames are not used.
                     _ => continue,
                 };
-                let frame = handle_rpc(&state, &text).await;
-                if sink.send(Message::Text(frame.to_string().into())).await.is_err() {
-                    break;
-                }
+                let (state, tx) = (state.clone(), rpc_tx.clone());
+                tokio::spawn(async move {
+                    // The client may have gone; nothing to do with an undeliverable reply.
+                    let _ = tx.send(handle_rpc(&state, &text).await);
+                });
+                continue;
             }
+        };
+        if sink.send(Message::Text(frame.to_string().into())).await.is_err() {
+            break;
         }
     }
 }
