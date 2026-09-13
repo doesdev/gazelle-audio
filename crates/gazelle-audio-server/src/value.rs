@@ -1,7 +1,8 @@
 //! Conversion between protocol [`Value`]s and JSON.
 //!
-//! The mapping is deliberately symmetric: whatever shape a field decodes to is the shape
-//! accepted when setting it.
+//! The mapping is deliberately symmetric for every shape but `List`: whatever shape a field
+//! decodes to is the shape accepted when setting it, except `List`, which is output only and
+//! is never accepted as a set value.
 //!
 //! | Protocol | JSON |
 //! |---|---|

@@ -20,9 +20,9 @@ sections — plus an HTTP/WebSocket API that a web or mobile client can drive.
 
 | Crate | What it does | Tests |
 |---|---|---|
-| `gazelle-audio-protocol` | The byte-level wire protocol: 16-byte header, field grammar, payload serialization, CRC32. Transport-agnostic. | 22 |
+| `gazelle-audio-protocol` | The byte-level wire protocol: 16-byte header, field grammar, payload serialization, CRC32. Transport-agnostic. | 28 |
 | `gazelle-audio-transport` | Framing, segmentation, request/response correlation, and a hardware-free loopback device. | 25 |
-| `gazelle-audio-server` | Multi-device HTTP + WebSocket control server. Loopback-backed; no hardware adapter yet. | 31 |
+| `gazelle-audio-server` | Multi-device HTTP + WebSocket control server. Loopback-backed; no hardware adapter yet. | 48 |
 
 ```bash
 cargo test
