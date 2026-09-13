@@ -1,4 +1,4 @@
-use gazelle_audio_capture::capture::decode::{usbpcap, ByteOrder};
+use gazelle_audio_capture::capture::decode::{usbpcap, ByteOrder, DecodeError};
 use gazelle_audio_capture::capture::event::{Direction, SetupPacket, TransferType, UrbStage, UsbEvent};
 use gazelle_audio_capture::capture::pipeline::{DeviceFilter, DeviceMap, PayloadPolicy, Pipeline};
 use gazelle_audio_capture::capture::rate::RateMeter;
@@ -113,6 +113,43 @@ fn session_flag_keeps_stream_payloads() {
     let out = run(DeviceFilter::Address { bus: 1, device: 5 }, PayloadPolicy { keep_stream_payloads: true });
     assert_eq!(out[3].1.data, vec![9; 64]);
     assert!(!out[3].1.payload_dropped);
+}
+
+#[test]
+fn short_descriptor_completion_does_not_panic_and_learns_nothing() {
+    let mut map = DeviceMap::default();
+    let submit = ev(5, TransferType::Control, UrbStage::Submit, Direction::In, Some(GET_DEVICE_DESCRIPTOR), vec![]);
+    map.observe(&submit);
+    // A truncated completion: right descriptor type byte, but far fewer than the 12 bytes
+    // needed to reach the VID/PID fields.
+    let short_complete = ev(5, TransferType::Control, UrbStage::Complete, Direction::In, None, vec![18, 1, 0, 0, 0]);
+    map.observe(&short_complete);
+    assert_eq!(map.get(1, 5), None, "a short completion must not be learned as a device");
+}
+
+#[test]
+fn descriptor_completion_without_a_held_submit_learns_nothing() {
+    let mut map = DeviceMap::default();
+    // No prior GET_DESCRIPTOR submit was observed for device 5.
+    let complete = ev(5, TransferType::Control, UrbStage::Complete, Direction::In, None, device_descriptor(0x1234, 0xABCD));
+    map.observe(&complete);
+    assert_eq!(map.get(1, 5), None, "a completion with no matching held submit must not be learned");
+}
+
+#[test]
+fn process_propagates_a_decode_error_for_a_malformed_frame() {
+    // Header length (u16 at offset 0) declared far larger than the frame itself.
+    let mut data = vec![0u8; usbpcap::BASE_HEADER_LEN];
+    data[0..2].copy_from_slice(&5000u16.to_le_bytes());
+    let frame = RawFrame { ts_ns: 0, link_type: 249, index: 0, orig_len: data.len() as u32, byte_order: ByteOrder::Little, data };
+    let mut p = Pipeline::new(DeviceFilter::All, PayloadPolicy::default());
+    let result = p.process(frame);
+    match result {
+        Err(DecodeError::BadHeaderLen { declared, frame }) => {
+            assert_eq!((declared, frame), (5000, usbpcap::BASE_HEADER_LEN));
+        }
+        other => panic!("expected Err(DecodeError::BadHeaderLen {{ .. }}), got {other:?}"),
+    }
 }
 
 #[test]
