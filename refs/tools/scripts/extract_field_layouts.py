@@ -4,7 +4,7 @@
 The decompiled report_format.py files are valid Python, so we import their REPORT_FORMAT
 dict directly (via ast.literal_eval on the module) rather than regex-slicing.
 
-For each command name in IN_SCOPE, emit:
+For each command name in the device's scope (see SCOPES), emit:
   { name, report_id, ext2, ext3, payload_id, auto_send_notification?,
     params: [ {name, type, size?}, ... ],
     returns: [ ... ] (from the matching cyclic report, if any) }
@@ -16,13 +16,12 @@ Type grammar (as emitted by the panels):
 
 Sizes are computed so the Rust side can lay out the wire buffer without the Python source.
 """
-import ast, json, os, sys
+import argparse, ast, json, os, sys
 
-# In-scope = INTERSECTION(35) + Quadro-only(28) = 63, taken verbatim from
-# extract_commands.py output. Do NOT hand-filter: the shared 35 includes a few
-# AFX-adjacent commands (get_afx_available_instances/links/order, set_afx_bypass/order)
-# that are shared by both devices and therefore in scope.
-IN_SCOPE = [
+# Scope is per device. Taken verbatim from extract_commands.py output; do NOT hand-filter:
+# the shared 35 include a few AFX-adjacent commands (get_afx_available_instances/links/order,
+# set_afx_bypass/order) that both devices carry and are therefore in scope.
+SHARED = [
  "get_adats_links","get_afx_available_instances","get_afx_links","get_afx_order",
  "get_mixer","get_mixer_links","get_preamps_links","get_reverb_config","get_routing",
  "get_spdifs_links","get_tb_latency","preset_recall","preset_save","set_adat_gain",
@@ -30,6 +29,8 @@ IN_SCOPE = [
  "set_none","set_peak_source","set_power","set_pre_gain","set_pre_phantom","set_pre_type",
  "set_reverb_config","set_routing","set_samp_rate","set_sine_gen","set_spdif_gain",
  "set_spdif_src","set_stereo_link","set_sync_source","set_tb_latency","set_volume",
+]
+QUADRO_ONLY = [
  "get_afx_max_available_instances","get_afx_remaining_featured_instances",
  "get_afx_strip_order","get_assignment_request","get_assignment_status",
  "get_cmd_set_assignment","get_daw_mode","get_feature_mask","get_mic_emulations",
@@ -39,6 +40,18 @@ IN_SCOPE = [
  "set_predefined_preset","set_reverb_return","set_reverb_send","set_trim_config",
  "set_usb_channels",
 ]
+# Studio+'s own mix/monitoring commands: its equivalents of set_mixer, set_trim_config and
+# set_pre_phase_inv under different names, plus line gain and talkback. Its AFX-only
+# commands stay out of scope.
+STUDIO_ONLY = [
+ "get_lines_links","set_line_gain","set_mixer_cfg","set_pre_phaseinv",
+ "set_talk","set_tbk_enable","set_tbk_vol","set_trim",
+]
+SCOPES = {
+    "zenquadrosc_usb2": ("intersection(35) + quadro-only(28)", SHARED + QUADRO_ONLY),
+    "zenstudiotb": ("intersection(35) + studio-only mix/monitoring(8)", SHARED + STUDIO_ONLY),
+}
+assert len(SHARED) == 35 and len(QUADRO_ONLY) == 28 and len(STUDIO_ONLY) == 8
 
 TYPE_SIZE = {
  "bit":1,"bool":1,"ubyte":1,"byte":1,"uint8":1,"int8":1,"char":1,"sbyte":1,
@@ -334,15 +347,19 @@ def build(rf, name):
     return entry
 
 def main():
-    path = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else "quadro_commands.json"
-    # Optional: a directory of raw bytecode blobs, used to resolve constants whose
-    # module was never decompiled.
-    blob_dir = sys.argv[3] if len(sys.argv) > 3 else None
+    ap = argparse.ArgumentParser(description="Extract a device's in-scope command layouts.")
+    ap.add_argument("report_format")
+    ap.add_argument("out")
+    ap.add_argument("blob_dir", nargs="?",
+                    help="raw bytecode blobs, to resolve constants whose module was never decompiled")
+    ap.add_argument("--device", required=True, choices=sorted(SCOPES))
+    args = ap.parse_args()
+    path, out, blob_dir = args.report_format, args.out, args.blob_dir
+    scope_label, scope = SCOPES[args.device]
     rf = load_report_format(path, blob_dir)
     result = {}
     missing = []
-    for name in IN_SCOPE:
+    for name in scope:
         e = build(rf, name)
         if e is None:
             missing.append(name)
@@ -372,12 +389,13 @@ def main():
 
     doc = {
         "source": os.path.basename(path),
+        "device": args.device,
         "cyclic_reports": cyclic,
         "unresolved_constants": unresolved,
         "in_scope_zero_counts": zero_counts,
         "report_version": rf.get("version"),
         "authoritative": rf.get("authorative"),
-        "scope": "intersection(35) + quadro-only(28)",
+        "scope": scope_label,
         "count": len(result),
         "missing": missing,
         "commands": result,
@@ -398,6 +416,12 @@ def main():
               % len(unresolved), file=sys.stderr)
     if missing:
         print("MISSING: %s" % ", ".join(missing))
+    if missing:
+        # An in-scope command the report format does not define means the scope list or the
+        # extraction is wrong. Fail loudly rather than write a quietly smaller registry.
+        print("ERROR: %d in-scope command(s) not found for %s: %s"
+              % (len(missing), args.device, ", ".join(missing)), file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

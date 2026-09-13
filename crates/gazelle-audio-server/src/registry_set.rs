@@ -1,8 +1,9 @@
 //! Per-model command registries.
 //!
 //! The command surface differs by device model, so the server holds one registry per model
-//! and selects by application pid. Quadro exposes 63 in-scope commands; Studio+ exposes the
-//! shared 35 (see `.agent/reference/devices.md`).
+//! and selects by application pid. Quadro exposes 63 in-scope commands (the shared 35 +
+//! 28 Quadro-only); Studio+ exposes 43 (the shared 35 + 8 Studio+-only) (see
+//! `.agent/reference/devices.md`).
 
 use gazelle_audio_protocol::registry::{from_json_doc, Registry};
 use std::collections::HashMap;
@@ -92,7 +93,7 @@ mod tests {
         let q = set.for_pid(PID_QUADRO).expect("quadro registry");
         let s = set.for_pid(PID_STUDIO).expect("studio registry");
         assert_eq!(q.registry.len(), 63, "Quadro in-scope surface is 63 commands");
-        assert_eq!(s.registry.len(), 35, "Studio+ shares 35 in-scope commands");
+        assert_eq!(s.registry.len(), 43, "Studio+ in-scope surface is 43 commands");
         assert_eq!(q.slug, "zenquadrosc_usb2");
         assert_eq!(s.slug, "zenstudiotb");
     }
@@ -103,15 +104,27 @@ mod tests {
         assert!(set.for_pid(0x0000).is_none());
     }
 
+    /// Studio+'s own mix/monitoring commands, which a shared-only scope silently dropped.
+    const STUDIO_ONLY: [&str; 8] = [
+        "get_lines_links", "set_line_gain", "set_mixer_cfg", "set_pre_phaseinv",
+        "set_talk", "set_tbk_enable", "set_tbk_vol", "set_trim",
+    ];
+
     #[test]
-    fn quadro_only_commands_absent_from_studio() {
+    fn each_family_exposes_exactly_its_scope() {
         let set = RegistrySet::builtin().unwrap();
-        let q = &set.for_pid(PID_QUADRO).unwrap().registry;
-        let s = &set.for_pid(PID_STUDIO).unwrap().registry;
-        // set_mixer is Quadro-only; set_routing is shared.
-        assert!(q.get("set_mixer").is_some());
-        assert!(s.get("set_mixer").is_none(), "set_mixer is Quadro-only");
-        assert!(q.get("set_routing").is_some());
-        assert!(s.get("set_routing").is_some(), "set_routing is shared");
+        let quadro = &set.for_pid(PID_QUADRO).unwrap().registry;
+        let studio = &set.for_pid(PID_STUDIO).unwrap().registry;
+
+        assert_eq!(quadro.len(), 63, "shared 35 + Quadro-only 28");
+        assert_eq!(studio.len(), 43, "shared 35 + Studio+-only 8");
+        for name in STUDIO_ONLY {
+            assert!(studio.get(name).is_some(), "Studio+ is missing {name}");
+            assert!(quadro.get(name).is_none(), "Quadro unexpectedly has {name}");
+        }
+        for name in ["set_mixer", "set_trim_config", "set_dim"] {
+            assert!(quadro.get(name).is_some(), "Quadro is missing {name}");
+            assert!(studio.get(name).is_none(), "Studio+ unexpectedly has {name}");
+        }
     }
 }

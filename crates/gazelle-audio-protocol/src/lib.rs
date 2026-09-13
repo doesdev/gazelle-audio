@@ -6,11 +6,11 @@
 //! against ground-truth byte vectors (see the `tests` module) before any real
 //! hardware is attached.
 //!
-//! The recovered command set lives in `refs/schemas/quadro_commands.json` (63
-//! in-scope commands: the shared 35 + the 28 Quadro-only commands). Each
-//! command carries a `report_id`, `ext2`/`ext3` selectors, an optional
-//! `payload_id`, and a list of `Field`s for its request params and/or its
-//! response `returns`.
+//! The recovered command sets live in `refs/schemas/quadro_commands.json` (63:
+//! the shared 35 + 28 Quadro-only) and `refs/schemas/studio_commands.json` (43:
+//! the shared 35 + 8 Studio+-only). Each command carries a `report_id`,
+//! `ext2`/`ext3` selectors, an optional `payload_id`, and a list of `Field`s
+//! for its request params and/or its response `returns`.
 
 /// Absolute path to the recovered command registry, resolved at compile time.
 ///
@@ -19,6 +19,10 @@
 /// inconsistent and cwd-fragile.
 pub const QUADRO_COMMANDS_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/quadro_commands.json");
+
+/// Absolute path to the Studio+ command registry, resolved at compile time.
+pub const STUDIO_COMMANDS_PATH: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/studio_commands.json");
 
 pub mod crc32;
 pub mod field;

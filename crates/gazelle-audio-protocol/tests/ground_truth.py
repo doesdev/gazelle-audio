@@ -1,14 +1,14 @@
 """Generate ground-truth request bytes from the decompiled Antelope Payload/Request
 classes, for cross-checking against the Rust implementation.
 
-Run:  python3 ground_truth.py
+Run:  python3 ground_truth.py [SCHEMA OUT]
 Output: JSON mapping command name -> hex bytes (with default/zero values).
 """
 import sys, ctypes, struct, json
 import os
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-IN_SCOPE = os.path.join(_ROOT, "refs", "schemas", "quadro_commands.json")
+QUADRO_SCHEMA = os.path.join(_ROOT, "refs", "schemas", "quadro_commands.json")
 DECOMPILED_MANAGER = os.path.join(_ROOT, "refs", "decompiled", "manager")
 OUT = os.path.join(_HERE, "ground_truth.json")
 
@@ -227,7 +227,10 @@ class Request:
 
 
 def main():
-    doc = json.load(open(IN_SCOPE))
+    # Usage: ground_truth.py [SCHEMA OUT] — defaults generate the Quadro vectors.
+    schema = sys.argv[1] if len(sys.argv) > 1 else QUADRO_SCHEMA
+    out_path = sys.argv[2] if len(sys.argv) > 2 else OUT
+    doc = json.load(open(schema))
     cmds = doc["commands"]
     out = {}
     for name, c in cmds.items():
@@ -235,10 +238,9 @@ def main():
         inst = r.create_request("app")
         b = bytes(memoryview(inst).tobytes())
         out[name] = b.hex()
-    result = json.dumps(out, indent=1)
-    with open(OUT, "w") as f:
-        f.write(result)
-    print(result)
+    with open(out_path, "w") as f:
+        f.write(json.dumps(out, indent=1))
+    print("wrote %s (%d commands)" % (out_path, len(out)))
 
 
 if __name__ == "__main__":

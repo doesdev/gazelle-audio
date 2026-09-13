@@ -1,5 +1,6 @@
 {
   "source": "app_report_format.py",
+  "device": "zenquadrosc_usb2",
   "cyclic_reports": {
     "0x73": {
       "report_id": "0x73",
@@ -1605,6 +1606,5 @@
         }
       ]
     }
-  },
-  "device": "zenquadrosc_usb2"
+  }
 }

@@ -1,5 +1,6 @@
 {
   "source": "zenstudiotb_report_format.py",
+  "device": "zenstudiotb",
   "cyclic_reports": {
     "0x73": {
       "report_id": "0x73",
@@ -471,38 +472,9 @@
   "in_scope_zero_counts": [],
   "report_version": null,
   "authoritative": true,
-  "scope": "intersection(35) \u2014 Studio+ lacks the 28 Quadro-only commands; its AFX-only commands are out of scope",
-  "count": 35,
-  "missing": [
-    "get_afx_max_available_instances",
-    "get_afx_remaining_featured_instances",
-    "get_afx_strip_order",
-    "get_assignment_request",
-    "get_assignment_status",
-    "get_cmd_set_assignment",
-    "get_daw_mode",
-    "get_feature_mask",
-    "get_mic_emulations",
-    "get_panning_law",
-    "get_reverb_returns",
-    "get_reverb_sends",
-    "get_sonarworks_ir",
-    "get_trim_configs",
-    "get_upload_result",
-    "set_dc_coupled",
-    "set_dim",
-    "set_hard_mute",
-    "set_mic_emulation",
-    "set_mixer",
-    "set_monitor_out",
-    "set_panning_law",
-    "set_pre_phase_inv",
-    "set_predefined_preset",
-    "set_reverb_return",
-    "set_reverb_send",
-    "set_trim_config",
-    "set_usb_channels"
-  ],
+  "scope": "intersection(35) + studio-only mix/monitoring(8)",
+  "count": 43,
+  "missing": [],
   "commands": {
     "get_adats_links": {
       "name": "get_adats_links",
@@ -1204,7 +1176,155 @@
           "type": "ubyte"
         }
       ]
+    },
+    "get_lines_links": {
+      "name": "get_lines_links",
+      "report_id": "0x74",
+      "ext2": 11,
+      "ext3": 1,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_line_gain": {
+      "name": "set_line_gain",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 24,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        }
+      ]
+    },
+    "set_mixer_cfg": {
+      "name": "set_mixer_cfg",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 19,
+      "params": [
+        {
+          "name": "mixer_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "channel",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "ubyte"
+        },
+        {
+          "name": "pan",
+          "type": "ubyte",
+          "bit_width": 6
+        },
+        {
+          "name": "mute",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "solo",
+          "type": "ubyte",
+          "bit_width": 1
+        },
+        {
+          "name": "send",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_pre_phaseinv": {
+      "name": "set_pre_phaseinv",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 17,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "phase_inv",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_talk": {
+      "name": "set_talk",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 28,
+      "params": [
+        {
+          "name": "on",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_tbk_enable": {
+      "name": "set_tbk_enable",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 27,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "enabled",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_tbk_vol": {
+      "name": "set_tbk_vol",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 29,
+      "params": [
+        {
+          "name": "volume",
+          "type": "ubyte"
+        }
+      ]
+    },
+    "set_trim": {
+      "name": "set_trim",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 11,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        },
+        {
+          "name": "trim_idx",
+          "type": "ubyte"
+        }
+      ]
     }
-  },
-  "device": "zenstudiotb"
+  }
 }

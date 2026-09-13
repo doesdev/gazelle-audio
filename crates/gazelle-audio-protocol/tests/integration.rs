@@ -7,19 +7,22 @@ use gazelle_audio_protocol::payload::Value;
 use gazelle_audio_protocol::registry::{from_json_doc, Registry};
 use gazelle_audio_protocol::payload::PayloadValues;
 use gazelle_audio_protocol::Command;
-fn load_registry() -> Registry {
-    let path = gazelle_audio_protocol::QUADRO_COMMANDS_PATH;
-    let doc = std::fs::read_to_string(path).expect("read quadro_commands.json");
+fn load_registry_at(path: &str) -> Registry {
+    let doc = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let parsed: serde_json::Value = serde_json::from_str(&doc).expect("parse json");
     from_json_doc(&parsed).expect("load registry")
 }
 
-/// Load the ground-truth request bytes (name -> hex) generated from the
-/// decompiled `Payload`/`Request` classes with default/zero values.
-fn load_ground_truth() -> serde_json::Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ground_truth.json");
-    let doc = std::fs::read_to_string(path).expect("read ground_truth.json");
-    serde_json::from_str(&doc).expect("parse ground_truth.json")
+fn load_registry() -> Registry {
+    load_registry_at(gazelle_audio_protocol::QUADRO_COMMANDS_PATH)
+}
+
+/// Load ground-truth request bytes (name -> hex) generated from the decompiled
+/// `Payload`/`Request` classes with default/zero values.
+fn load_ground_truth_at(file: &str) -> serde_json::Value {
+    let path = format!("{}/tests/{file}", env!("CARGO_MANIFEST_DIR"));
+    let doc = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    serde_json::from_str(&doc).expect("parse ground truth")
 }
 
 fn hex(b: &[u8]) -> String {
@@ -29,11 +32,8 @@ fn hex(b: &[u8]) -> String {
 /// Every command's default-valued request must match the decompiled reference
 /// byte-for-byte. This is the automated regression guard for the serialization
 /// rules (payload header layout, null payload_id, bit-packing, zero defaults).
-#[test]
-fn all_commands_match_ground_truth() {
-    let reg = load_registry();
-    let gt = load_ground_truth();
-    let gt_cmds = gt.as_object().expect("ground_truth.json is an object");
+fn assert_matches_ground_truth(reg: &Registry, gt: &serde_json::Value) {
+    let gt_cmds = gt.as_object().expect("ground truth is an object");
     assert_eq!(
         reg.len(),
         gt_cmds.len(),
@@ -42,21 +42,25 @@ fn all_commands_match_ground_truth() {
         gt_cmds.len()
     );
     for name in reg.names() {
-        let values = PayloadValues::default();
         let out = reg
-            .build_request(name, &values)
+            .build_request(name, &PayloadValues::default())
             .unwrap_or_else(|e| panic!("failed to build request for {name}: {e}"));
         let expected = gt_cmds[name]
             .as_str()
             .unwrap_or_else(|| panic!("ground_truth entry for {name} is not a hex string"));
-        assert_eq!(
-            hex(&out),
-            expected,
-            "{name}: Rust != ground truth\n  got:      {}\n  expected: {}",
-            hex(&out),
-            expected
-        );
+        assert_eq!(hex(&out), expected, "{name}: Rust != ground truth");
     }
+}
+
+#[test]
+fn all_commands_match_ground_truth() {
+    assert_matches_ground_truth(&load_registry(), &load_ground_truth_at("ground_truth.json"));
+}
+
+#[test]
+fn studio_commands_match_ground_truth() {
+    let reg = load_registry_at(gazelle_audio_protocol::STUDIO_COMMANDS_PATH);
+    assert_matches_ground_truth(&reg, &load_ground_truth_at("ground_truth_studio.json"));
 }
 
 #[test]
@@ -214,14 +218,7 @@ fn schema_cyclic_layout_matches_independent_ground_truth() {
     // cyclic_gt.json is generated from the STUDIO+ report format, so it must be compared
     // against the Studio+ schema. The two devices declare different 0x73 layouts -- 60
     // fields on Quadro, 67 on Studio+ -- so crossing them produces a real mismatch.
-    let studio_path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../refs/schemas/studio_commands.json"
-    );
-    let doc: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(studio_path).expect("studio schema"))
-            .expect("parse studio schema");
-    let reg = from_json_doc(&doc).expect("load studio registry");
+    let reg = load_registry_at(gazelle_audio_protocol::STUDIO_COMMANDS_PATH);
 
     let layout = reg
         .cyclic(0x73)
