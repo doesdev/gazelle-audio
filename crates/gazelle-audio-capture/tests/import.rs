@@ -87,12 +87,43 @@ fn tsresol_conversion_table() {
 
 #[test]
 fn tsresol_conversion_overflow_is_reported_not_panicked() {
-    // Decimal exponent 48+ (10^39 scaling) overflows u64 arithmetic.
+    // Decimal exponent 48+ (10^39+ scaling) overflows even a u128 intermediate.
     assert!(epb_units_to_ns(5, 48).is_err());
     assert!(epb_units_to_ns(u64::MAX, 63).is_err());
-    // Binary exponent 64 or more can't be a valid right-shift amount for a 64-bit value.
-    assert!(epb_units_to_ns(5, 0x80 | 64).is_err());
-    assert!(epb_units_to_ns(5, 0xFF).is_err());
+    // A genuine final-value overflow: a small binary exponent barely scales the raw units
+    // down at all, so multiplying a near-u64::MAX raw count by 1e9 doesn't fit in a u64 ns
+    // result even though the arithmetic itself (done in a u128 intermediate) doesn't overflow.
+    assert!(epb_units_to_ns(u64::MAX, 0x80).is_err());
+    assert!(epb_units_to_ns(u64::MAX, 0x80 | 1).is_err());
+    // A large binary exponent is not, by itself, out of range: it just means a very fine
+    // (sub-nanosecond) unit, so a small raw count legitimately rounds down to 0 ns rather
+    // than being rejected. This used to error only because the old implementation shifted a
+    // u64 by >= 64 bits; the corrected (u128) arithmetic has headroom for any 7-bit exponent.
+    assert_eq!(epb_units_to_ns(5, 0x80 | 64).unwrap(), 0);
+    assert_eq!(epb_units_to_ns(5, 0xFF).unwrap(), 0);
+}
+
+#[test]
+fn epb_units_to_ns_handles_realistic_epoch_scale_binary_timestamps() {
+    // Regression for the overflow-ordering bug: `raw * 1e9` was computed in u64 before the
+    // shift, so any real epoch-scale timestamp with a binary if_tsresol overflowed even though
+    // the true result fits comfortably in a u64. Expected ns is derived independently, from a
+    // known epoch second count times 2^exponent (the natural construction of `raw` for a
+    // binary-resolution interface), not by re-deriving it with the function's own formula.
+    const EPOCH_SECS: u64 = 1_700_000_000;
+    const EXPECTED_NS: u64 = EPOCH_SECS * 1_000_000_000;
+    for exp in [4u8, 10, 20, 30] {
+        let raw = EPOCH_SECS * (1u64 << exp);
+        assert_eq!(epb_units_to_ns(raw, 0x80 | exp).unwrap(), EXPECTED_NS, "exponent {exp}");
+    }
+}
+
+#[test]
+fn epb_units_to_ns_handles_realistic_epoch_scale_decimal_timestamp() {
+    // A realistic-magnitude decimal (microsecond) case alongside the binary ones above.
+    const EPOCH_SECS: u64 = 1_700_000_000;
+    let raw_micros = EPOCH_SECS * 1_000_000;
+    assert_eq!(epb_units_to_ns(raw_micros, 6).unwrap(), EPOCH_SECS * 1_000_000_000);
 }
 
 #[test]
@@ -137,49 +168,91 @@ fn big_endian_usbmon_frames_cannot_be_stored() {
     assert!(w.write(&f).is_err());
 }
 
+/// Builds one pcapng block by hand: type, honest total length, body, trailing total length.
+/// Used to construct hostile/malformed pcapng streams that pcap-file's own writer refuses to
+/// produce (it validates interface ids and lengths before writing).
+fn ng_block(block_type: u32, body: &[u8]) -> Vec<u8> {
+    let total_len = (4 + 4 + body.len() + 4) as u32;
+    let mut out = Vec::with_capacity(total_len as usize);
+    out.extend_from_slice(&block_type.to_le_bytes());
+    out.extend_from_slice(&total_len.to_le_bytes());
+    out.extend_from_slice(body);
+    out.extend_from_slice(&total_len.to_le_bytes());
+    out
+}
+
+/// Section Header Block: byte-order magic + version 1.0 + section_length -1, no options.
+fn ng_section_header() -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(&0x1A2B_3C4Du32.to_le_bytes());
+    body.extend_from_slice(&1u16.to_le_bytes());
+    body.extend_from_slice(&0u16.to_le_bytes());
+    body.extend_from_slice(&(-1i64).to_le_bytes());
+    ng_block(0x0A0D_0D0A, &body)
+}
+
+/// Interface Description Block declaring one interface with the given link type.
+fn ng_interface_description(linktype: u16) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(&linktype.to_le_bytes());
+    body.extend_from_slice(&0u16.to_le_bytes()); // reserved
+    body.extend_from_slice(&0u32.to_le_bytes()); // snaplen
+    ng_block(1, &body)
+}
+
+/// Enhanced Packet Block with an explicit (possibly dishonest) `captured_len`, independent of
+/// how many `data` bytes actually follow it in the block.
+fn ng_enhanced_packet(interface_id: u32, captured_len: u32, original_len: u32, data: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(&interface_id.to_le_bytes());
+    body.extend_from_slice(&0u32.to_le_bytes()); // timestamp high
+    body.extend_from_slice(&0u32.to_le_bytes()); // timestamp low
+    body.extend_from_slice(&captured_len.to_le_bytes());
+    body.extend_from_slice(&original_len.to_le_bytes());
+    body.extend_from_slice(data);
+    ng_block(6, &body)
+}
+
 #[test]
 fn pcapng_unknown_interface_id_does_not_panic() {
     // A hostile pcapng that references an interface id which was never declared. pcap-file's
     // own `PcapNgWriter` refuses to write this (`InvalidInterfaceId`), so the bytes are built
     // by hand here to exercise the reader's own guard against a malicious/corrupt file.
-    fn block(block_type: u32, body: &[u8]) -> Vec<u8> {
-        let total_len = (4 + 4 + body.len() + 4) as u32;
-        let mut out = Vec::with_capacity(total_len as usize);
-        out.extend_from_slice(&block_type.to_le_bytes());
-        out.extend_from_slice(&total_len.to_le_bytes());
-        out.extend_from_slice(body);
-        out.extend_from_slice(&total_len.to_le_bytes());
-        out
-    }
-
-    let mut bytes = Vec::new();
-    // Section Header Block: byte-order magic + version 1.0 + section_length -1, no options.
-    let mut shb_body = Vec::new();
-    shb_body.extend_from_slice(&0x1A2B_3C4Du32.to_le_bytes());
-    shb_body.extend_from_slice(&1u16.to_le_bytes());
-    shb_body.extend_from_slice(&0u16.to_le_bytes());
-    shb_body.extend_from_slice(&(-1i64).to_le_bytes());
-    bytes.extend(block(0x0A0D_0D0A, &shb_body));
-
-    // Interface Description Block: only interface 0 is declared.
-    let mut idb_body = Vec::new();
-    idb_body.extend_from_slice(&249u16.to_le_bytes()); // LINKTYPE_USBPCAP
-    idb_body.extend_from_slice(&0u16.to_le_bytes()); // reserved
-    idb_body.extend_from_slice(&0u32.to_le_bytes()); // snaplen
-    bytes.extend(block(1, &idb_body));
-
-    // Enhanced Packet Block referencing interface 7, which was never declared.
-    let data = [1u8, 2, 3, 4];
-    let mut epb_body = Vec::new();
-    epb_body.extend_from_slice(&7u32.to_le_bytes()); // interface_id
-    epb_body.extend_from_slice(&0u32.to_le_bytes()); // timestamp high
-    epb_body.extend_from_slice(&0u32.to_le_bytes()); // timestamp low
-    epb_body.extend_from_slice(&(data.len() as u32).to_le_bytes()); // captured_len
-    epb_body.extend_from_slice(&(data.len() as u32).to_le_bytes()); // original_len
-    epb_body.extend_from_slice(&data);
-    bytes.extend(block(6, &epb_body));
-
+    let mut bytes = ng_section_header();
+    bytes.extend(ng_interface_description(249)); // only interface 0 is declared
+    bytes.extend(ng_enhanced_packet(7, 4, 4, &[1, 2, 3, 4])); // references interface 7
     let mut it = pcapng_frames(Cursor::new(bytes)).unwrap();
+    assert!(it.next().unwrap().is_err());
+}
+
+#[test]
+fn oversized_pcapng_captured_len_is_reported_not_panicked() {
+    // `captured_len` claims far more payload than the block actually contains.
+    let mut bytes = ng_section_header();
+    bytes.extend(ng_interface_description(249));
+    bytes.extend(ng_enhanced_packet(0, 1_000_000, 4, &[1, 2, 3, 4]));
+    let mut it = pcapng_frames(Cursor::new(bytes)).unwrap();
+    assert!(it.next().unwrap().is_err());
+}
+
+#[test]
+fn oversized_pcap_incl_len_is_reported_not_panicked() {
+    // A classic pcap record whose `incl_len` claims a huge payload with no data behind it.
+    let mut bytes = Vec::new();
+    // Global header: magic bytes for little-endian, microsecond resolution.
+    bytes.extend_from_slice(&[0xD4, 0xC3, 0xB2, 0xA1]);
+    bytes.extend_from_slice(&2u16.to_le_bytes()); // version_major
+    bytes.extend_from_slice(&4u16.to_le_bytes()); // version_minor
+    bytes.extend_from_slice(&0i32.to_le_bytes()); // ts_correction
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // ts_accuracy
+    bytes.extend_from_slice(&65535u32.to_le_bytes()); // snaplen
+    bytes.extend_from_slice(&220u32.to_le_bytes()); // datalink (usbmon)
+    // Record header claiming a huge captured length, with no data behind it.
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // ts_sec
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // ts_frac
+    bytes.extend_from_slice(&1_000_000u32.to_le_bytes()); // incl_len
+    bytes.extend_from_slice(&4u32.to_le_bytes()); // orig_len
+    let mut it = pcap_frames(Cursor::new(bytes)).unwrap();
     assert!(it.next().unwrap().is_err());
 }
 

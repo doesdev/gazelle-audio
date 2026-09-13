@@ -31,26 +31,31 @@ fn format_err(e: pcap_file::PcapError) -> CaptureError {
 /// the interface's `if_tsresol`, so `raw` is in interface units: `10^-v` s when bit 7 of `v` is
 /// clear, `2^-v` s when set. Absent `if_tsresol` means 6 (microseconds).
 ///
-/// `tsresol` comes straight from the capture file, so a hostile or corrupt value (an
-/// out-of-range decimal exponent, or a binary exponent that would shift a 64-bit value by 64
-/// or more) must be reported, not panic the import. All arithmetic is checked; any overflow or
-/// invalid shift amount is `CaptureError::Format`.
+/// `tsresol` comes straight from the capture file, so a hostile or corrupt value must be
+/// reported, not panic the import. The intermediate scaling (`raw * 10^k` or `raw * 1e9`) is
+/// done in `u128`, which has enough headroom that it cannot overflow for any `u64` `raw` and
+/// any 7-bit exponent; only the exponent-to-scale step (decimal `10^k` for a large `k`) and the
+/// final narrowing back to `u64` can fail, and both are checked. Fix round 1: an earlier version
+/// multiplied by `1_000_000_000` in `u64` *before* shifting, which overflowed for realistic
+/// epoch-scale timestamps at ordinary binary exponents (4, 10, 20, 30, ...) even though the
+/// true nanosecond value fit easily in a `u64` — computing in `u128` and narrowing only once,
+/// at the end, avoids that.
 pub fn epb_units_to_ns(raw: u64, tsresol: u8) -> Result<u64, CaptureError> {
     let bad = || CaptureError::Format(format!("if_tsresol {tsresol} out of range for raw timestamp {raw}"));
-    if tsresol & 0x80 == 0 {
-        let exp = (tsresol & 0x7F) as u32;
+    let exp = (tsresol & 0x7F) as u32;
+    let ns: u128 = if tsresol & 0x80 == 0 {
         if exp <= 9 {
-            let scale = 10u64.checked_pow(9 - exp).ok_or_else(bad)?;
-            raw.checked_mul(scale).ok_or_else(bad)
+            let scale = 10u128.checked_pow(9 - exp).ok_or_else(bad)?;
+            (raw as u128).checked_mul(scale).ok_or_else(bad)?
         } else {
-            let scale = 10u64.checked_pow(exp - 9).ok_or_else(bad)?;
-            Ok(raw / scale)
+            let scale = 10u128.checked_pow(exp - 9).ok_or_else(bad)?;
+            (raw as u128).checked_div(scale).ok_or_else(bad)?
         }
     } else {
-        let exp = (tsresol & 0x7F) as u32;
-        let scaled = raw.checked_mul(1_000_000_000).ok_or_else(bad)?;
-        scaled.checked_shr(exp).filter(|_| exp < 64).ok_or_else(bad)
-    }
+        let scaled = (raw as u128).checked_mul(1_000_000_000).ok_or_else(bad)?;
+        scaled.checked_shr(exp).ok_or_else(bad)?
+    };
+    u64::try_from(ns).map_err(|_| bad())
 }
 
 /// Frames from a classic pcap stream (file or a tool's stdout).
