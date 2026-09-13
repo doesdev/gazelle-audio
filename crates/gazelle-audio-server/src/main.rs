@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use gazelle_audio_server::config::default_workspace_path;
 use gazelle_audio_server::device::manager::DeviceManager;
-use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO, PID_STUDIO};
+use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
 
@@ -75,20 +75,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
-    let devices = DeviceManager::new(registries);
 
     let pids: Vec<u16> = args
         .loopback_models
         .iter()
-        .filter_map(|m| match m.as_str() {
-            "quadro" => Some(PID_QUADRO),
-            "studio" => Some(PID_STUDIO),
-            other => {
-                tracing::warn!("unknown loopback model '{other}', skipping");
-                None
+        .filter_map(|m| {
+            let pid = registries.models().find(|(_, r)| r.family == m.as_str()).map(|(pid, _)| *pid);
+            if pid.is_none() {
+                tracing::warn!("unknown loopback model '{m}', skipping");
             }
+            pid
         })
         .collect();
+
+    let devices = DeviceManager::new(registries);
     devices.attach_loopbacks(&pids, 64);
 
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {

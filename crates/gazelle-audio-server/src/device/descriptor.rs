@@ -44,6 +44,8 @@ pub struct DeviceDescriptor {
     pub slug: Option<String>,
     /// Human-readable model name. `None` when the model is unknown.
     pub model: Option<String>,
+    /// Stable model key (`quadro`, `studio`) for clients to switch on. `None` when unknown.
+    pub family: Option<String>,
     /// How many commands this device's registry exposes. `None` when unknown.
     pub command_count: Option<usize>,
     /// False when `id` is derived from bus topology and may change across a replug.

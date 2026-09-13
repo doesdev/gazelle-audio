@@ -79,6 +79,7 @@ impl DeviceManager {
             pid,
             slug: model.map(|m| m.slug.to_string()),
             model: model.map(|m| m.model.to_string()),
+            family: model.map(|m| m.family.to_string()),
             command_count: model.map(|m| m.registry.len()),
             identity_stable,
             backend: backend.to_string(),

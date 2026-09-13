@@ -17,6 +17,8 @@ pub const PID_STUDIO: u16 = 0xa100;
 /// A named registry plus the model it belongs to.
 #[derive(Clone)]
 pub struct ModelRegistry {
+    /// Stable short key clients switch on: `quadro` or `studio`.
+    pub family: &'static str,
     /// Device slug, e.g. `zenquadrosc_usb2`.
     pub slug: &'static str,
     /// Human-readable model name.
@@ -46,14 +48,15 @@ impl RegistrySet {
         ));
 
         let mut set = RegistrySet::default();
-        set.insert(PID_QUADRO, "zenquadrosc_usb2", "Zen Quadro Synergy Core", QUADRO_JSON)?;
-        set.insert(PID_STUDIO, "zenstudiotb", "Zen Studio+", STUDIO_JSON)?;
+        set.insert(PID_QUADRO, "quadro", "zenquadrosc_usb2", "Zen Quadro Synergy Core", QUADRO_JSON)?;
+        set.insert(PID_STUDIO, "studio", "zenstudiotb", "Zen Studio+", STUDIO_JSON)?;
         Ok(set)
     }
 
     fn insert(
         &mut self,
         pid: u16,
+        family: &'static str,
         slug: &'static str,
         model: &'static str,
         json: &str,
@@ -64,7 +67,7 @@ impl RegistrySet {
             .map_err(|e| format!("{slug}: schema could not be loaded: {e:?}"))?;
         self.by_pid.insert(
             pid,
-            ModelRegistry { slug, model, registry: Arc::new(registry) },
+            ModelRegistry { family, slug, model, registry: Arc::new(registry) },
         );
         Ok(())
     }

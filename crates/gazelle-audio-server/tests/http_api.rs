@@ -292,3 +292,12 @@ async fn element_arrays_encode_like_flat_hex() {
     assert_eq!(s2, StatusCode::OK, "{as_hex}");
     assert_eq!(as_pairs["sent_hex"], as_hex["sent_hex"]);
 }
+
+/// Clients narrow command types on `family`; its values match the `--loopback-models` keys.
+#[tokio::test]
+async fn descriptors_carry_the_model_family() {
+    let (status, body) = get(app(), "/api/v1/devices").await;
+    assert_eq!(status, StatusCode::OK);
+    let families: Vec<Value> = body.as_array().unwrap().iter().map(|d| d["family"].clone()).collect();
+    assert_eq!(families, vec![json!("quadro"), json!("studio")]);
+}
