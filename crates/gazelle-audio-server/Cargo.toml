@@ -17,6 +17,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
+rust-embed = { version = "8.12", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
+
+[features]
+default = ["web-ui"]
+# Serve the built web UI from the binary. Needs no Node at build time: when
+# web/apps/web/dist is missing, a notice page is embedded instead.
+web-ui = ["dep:rust-embed"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

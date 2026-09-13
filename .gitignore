@@ -37,6 +37,12 @@ ilok
 credentials.json
 secrets.*
 
+# --- Web workspace build output and dependencies. ---
+# Phase 3 builds the web UI into web/apps/web/dist, which the server embeds; neither the
+# build output nor node_modules belongs in the tree.
+web/**/dist/
+web/**/node_modules/
+
 # --- OS / editor ---
 .DS_Store
 Thumbs.db

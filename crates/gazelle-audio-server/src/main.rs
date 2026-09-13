@@ -48,6 +48,11 @@ struct Args {
     /// Which loopback devices to create, by model.
     #[arg(long, value_delimiter = ',', default_values_t = ["quadro".to_string(), "studio".to_string()])]
     loopback_models: Vec<String>,
+
+    /// Serve only the API, not the embedded web UI.
+    #[cfg_attr(not(feature = "web-ui"), allow(dead_code))]
+    #[arg(long)]
+    no_web_ui: bool,
 }
 
 #[tokio::main]
@@ -110,6 +115,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let app = http::router(state);
+    #[cfg(feature = "web-ui")]
+    let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
 
     tracing::info!(
