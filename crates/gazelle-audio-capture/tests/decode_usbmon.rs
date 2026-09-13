@@ -150,7 +150,10 @@ fn frame_shorter_than_len_cap_is_capped_not_indexed_past() {
     b[36..40].copy_from_slice(&50u32.to_le_bytes()); // len_cap
     b.extend_from_slice(&[9, 9]);
     let ev = usbmon::decode(&frame(ByteOrder::Little, b)).unwrap().unwrap();
-    assert_eq!((ev.data_len, ev.data, ev.payload_dropped), (50, vec![9, 9], false));
+    // Only 2 of the declared 50 bytes are present, so payload_dropped must be true even
+    // though len_cap and length agree with each other (fix round 1: payload_dropped must
+    // track data.len() < data_len, not just len_cap < length).
+    assert_eq!((ev.data_len, ev.data, ev.payload_dropped), (50, vec![9, 9], true));
 }
 
 #[test]

@@ -8,10 +8,12 @@
 //! Fields are in the capturing host's byte order, which the file's byte order records.
 //!
 //! `length` (@32) is the full transfer size the kernel reports; `len_cap` (@36) is how much
-//! of it usbmon actually captured into this record. `data_len` is taken from `length`, and
-//! `payload_dropped` is `len_cap < length` — matching USBPcap's use of its own declared
-//! length. `data` never holds more than `min(len_cap, length)` bytes, and is further capped
-//! to whatever is physically present in the frame so decoding never reads past its end.
+//! of it usbmon actually captured into this record. `data_len` is taken from `length`.
+//! `data` never holds more than `min(len_cap, length)` bytes, and is further capped to
+//! whatever is physically present in the frame so decoding never reads past its end.
+//! `payload_dropped` is `data.len() < data_len`, matching [`UsbEvent::payload_dropped`]'s
+//! contract and USBPcap's use of its own declared length — this holds even for a
+//! doubly-corrupted frame where `len_cap`/`length` both overstate what is present.
 
 use super::{ByteOrder, DecodeError};
 use crate::capture::event::{Direction, SetupPacket, TransferType, UrbStage, UsbEvent};
@@ -96,7 +98,10 @@ pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
         status: u32_at(b, 28, order) as i32,
         data_len: length,
         data: payload[..captured].to_vec(),
-        payload_dropped: len_cap < length,
+        // Fix round 1: must reflect what was actually decoded into `data`, not just
+        // len_cap vs length — a doubly-corrupted frame where both declared fields
+        // overstate what's physically present must still report a drop.
+        payload_dropped: (captured as u64) < length as u64,
     }))
 }
 
