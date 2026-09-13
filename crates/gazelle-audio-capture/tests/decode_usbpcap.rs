@@ -122,6 +122,21 @@ fn irp_info_is_not_an_event_and_bad_lengths_are_errors() {
 }
 
 #[test]
+fn excess_payload_is_capped_to_data_len() {
+    let b = [usbpcap_header(27, 1, 0, 0x00, 1, 5, 0x02, 1, 4), vec![1, 2, 3, 4, 5, 6]].concat();
+    let ev = usbpcap::decode(&frame(b)).unwrap().unwrap();
+    assert_eq!((ev.data_len, ev.data.len(), ev.payload_dropped), (4, 4, false));
+    assert_eq!(ev.data, vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn control_header_too_short_is_an_error() {
+    // header_len 27 is a valid base header, but the control minimum is 28 (base + stage byte).
+    let b = usbpcap_header(27, 1, 0, 0, 1, 5, 0, 2, 0);
+    assert_eq!(usbpcap::decode(&frame(b)), Err(DecodeError::BadHeaderLen { declared: 27, frame: 27 }));
+}
+
+#[test]
 fn dispatch_rejects_unknown_link_types() {
     let mut f = frame(vec![0; 64]);
     f.link_type = 1;

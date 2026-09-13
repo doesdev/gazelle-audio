@@ -66,6 +66,7 @@ pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
         }
     }
     let payload_dropped = (payload.len() as u64) < data_len as u64;
+    let captured = (payload.len() as u64).min(data_len as u64) as usize;
     Ok(Some(UsbEvent {
         ts_ns: frame.ts_ns,
         packet_index: frame.index,
@@ -79,7 +80,7 @@ pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
         setup,
         status: u32_at(b, 10) as i32,
         data_len,
-        data: payload.to_vec(),
+        data: payload[..captured].to_vec(),
         payload_dropped,
     }))
 }
