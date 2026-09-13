@@ -1,5 +1,6 @@
 //! Link-layer decoders: everything downstream sees only [`UsbEvent`].
 
+pub mod usbmon;
 pub mod usbpcap;
 
 use crate::capture::event::UsbEvent;
@@ -26,6 +27,7 @@ pub enum DecodeError {
 pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
     match frame.link_type {
         usbpcap::LINKTYPE_USBPCAP => usbpcap::decode(frame),
+        usbmon::LINKTYPE_USB_LINUX_MMAPPED => usbmon::decode(frame),
         other => Err(DecodeError::UnsupportedLinkType(other)),
     }
 }
@@ -34,6 +36,7 @@ pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
 pub fn header_len(frame: &RawFrame) -> Result<usize, DecodeError> {
     match frame.link_type {
         usbpcap::LINKTYPE_USBPCAP => usbpcap::header_len(&frame.data),
+        usbmon::LINKTYPE_USB_LINUX_MMAPPED => usbmon::header_len(&frame.data, frame.byte_order),
         other => Err(DecodeError::UnsupportedLinkType(other)),
     }
 }
