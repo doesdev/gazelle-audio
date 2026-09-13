@@ -335,7 +335,7 @@ def build(rf, name):
 
 def main():
     path = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else "in_scope_commands.json"
+    out = sys.argv[2] if len(sys.argv) > 2 else "quadro_commands.json"
     # Optional: a directory of raw bytecode blobs, used to resolve constants whose
     # module was never decompiled.
     blob_dir = sys.argv[3] if len(sys.argv) > 3 else None

@@ -37,7 +37,7 @@ python3 pyc_inspect.py get     out/quadro/antelope_ui_afx_platform_afx_pool.pyc 
 #    module was never decompiled)
 python3 extract_field_layouts.py \
     refs/decompiled/quadro/app_report_format.py \
-    refs/schemas/in_scope_commands.json \
+    refs/schemas/quadro_commands.json \
     refs/extracted/quadro/PYZ_extracted
 
 # 4. compare two devices

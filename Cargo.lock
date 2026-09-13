@@ -62,41 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "antelope-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "antelope-server"
-version = "0.1.0"
-dependencies = [
- "antelope-protocol",
- "antelope-transport",
- "axum",
- "clap",
- "futures-util",
- "http-body-util",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "antelope-transport"
-version = "0.1.0"
-dependencies = [
- "antelope-protocol",
- "serde_json",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -340,6 +305,41 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gazelle-audio-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gazelle-audio-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "futures-util",
+ "gazelle-audio-protocol",
+ "gazelle-audio-transport",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "gazelle-audio-transport"
+version = "0.1.0"
+dependencies = [
+ "gazelle-audio-protocol",
+ "serde_json",
 ]
 
 [[package]]
