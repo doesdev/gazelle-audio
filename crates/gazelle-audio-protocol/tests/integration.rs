@@ -119,6 +119,20 @@ fn assert_values_match(
                     _ => panic!("{path}.{key}: expected number, got {got_val:?}"),
                 }
             }
+            serde_json::Value::Array(arr) if !arr.is_empty() && arr.iter().all(serde_json::Value::is_object) => {
+                let items = match got_val {
+                    Value::List(items) => items,
+                    _ => panic!("{path}.{key}: expected a list of structs, got {got_val:?}"),
+                };
+                assert_eq!(items.len(), arr.len(), "{path}.{key}: element count");
+                for (i, (item, exp)) in items.iter().zip(arr).enumerate() {
+                    let s = match item {
+                        Value::Struct(s) => s,
+                        _ => panic!("{path}.{key}[{i}]: expected struct, got {item:?}"),
+                    };
+                    assert_values_match(s, exp, &format!("{path}.{key}[{i}]"));
+                }
+            }
             serde_json::Value::Array(arr) => {
                 let got_bytes = match got_val {
                     Value::Bytes(b) => b.clone(),

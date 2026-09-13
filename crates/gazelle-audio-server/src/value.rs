@@ -32,6 +32,7 @@ pub fn value_to_json(v: &Value) -> Json {
             }
             Json::Object(m)
         }
+        Value::List(items) => Json::Array(items.iter().map(value_to_json).collect()),
     }
 }
 
@@ -207,5 +208,13 @@ mod tests {
         let v = json_to_payload_values(&serde_json::json!({})).unwrap();
         // Nothing set: the protocol layer will apply declared defaults, then zero.
         assert!(v.get_bytes("anything").is_err());
+    }
+
+    #[test]
+    fn lists_render_as_json_arrays() {
+        let mut s = HashMap::new();
+        s.insert("in_chann".to_string(), Value::U64(3));
+        let v = Value::List(vec![Value::Struct(s.clone()), Value::Struct(s)]);
+        assert_eq!(value_to_json(&v), serde_json::json!([{"in_chann": 3}, {"in_chann": 3}]));
     }
 }

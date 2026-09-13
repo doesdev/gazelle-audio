@@ -184,8 +184,10 @@ pub enum Value {
     U64(u64),
     I64(i64),
     Bytes(Vec<u8>),
-    /// A nested struct (from a `StructArray` field), decoded into its fields.
+    /// A nested struct: one element of a StructArray.
     Struct(std::collections::HashMap<String, Value>),
+    /// Every element of a `StructArray` field, in wire order.
+    List(Vec<Value>),
 }
 
 

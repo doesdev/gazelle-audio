@@ -214,8 +214,8 @@ impl Command {
                 }
                 Field::StructArray { fields, count, name } => {
                     // Struct array: each element is a packed sub-struct. Parse
-                    // element 0 recursively (bit-packed fields included) and
-                    // return it as a nested struct value. Advance past the whole
+                    // every element recursively (bit-packed fields included) into a
+                    // list of structs. Advance past the whole
                     // array, not just one element. The element size is the total
                     // bit width of its fields divided into whole bytes, not the
                     // sum of each field's byte size.
@@ -230,19 +230,16 @@ impl Command {
                     if start + array_size > contents.len() {
                         return Err(WireError::TruncatedPayload);
                     }
-                    if *count == 0 {
-                        // A zero-length array decodes to no element. This is not
-                        // hypothetical: get_afx_order.slots and
-                        // get_afx_strip_order.slots really carry count 0, because their
-                        // real count comes from afx_pool.PHY_AFX_STRIP_SIZE, which was
-                        // never decompiled (see .agent/reference/devices.md). Slicing
-                        // one element here panicked.
-                        out.insert(name.clone(), Value::Struct(HashMap::new()));
-                    } else {
-                        let elem_buf = &contents[start..start + elem_size];
-                        let elem_out = Self::parse_contents(fields, elem_buf)?;
-                        out.insert(name.clone(), Value::Struct(elem_out));
+                    // Every element, in wire order. `count: 0` (get_afx_order.slots, whose real
+                    // count comes from the never-decompiled afx_pool.PHY_AFX_STRIP_SIZE) yields
+                    // an empty list rather than slicing past the buffer.
+                    let mut elems = Vec::with_capacity(*count);
+                    for i in 0..*count {
+                        let off = start + i * elem_size;
+                        let elem = Self::parse_contents(fields, &contents[off..off + elem_size])?;
+                        elems.push(Value::Struct(elem));
                     }
+                    out.insert(name.clone(), Value::List(elems));
                     bit_pos += array_size * 8;
                 }
             }

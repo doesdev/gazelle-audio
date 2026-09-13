@@ -161,13 +161,16 @@ def set_values(r):
     c.hp1_vol = 50
     Pg = ctypes.c_int8 * 12
     c.preamp_gains = Pg(*[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-    # preamps struct array: set element 0
-    P = ctypes.c_uint8 * 12
-    c.preamps[0].pretype = 7
-    c.preamps[0].phantom = 1
-    c.preamps[0].hpf = 0
-    c.preamps[0].phase_inv = 1
-    c.preamps[0].zero_cross = 1
+    # Every element gets distinct values: a decoder that reads only element 0 must fail.
+    # Element 0 keeps its historical values (7, 1, 0, 1, 1).
+    for i in range(12):
+        c.preamps[i].pretype = (7 + i) % 16
+        c.preamps[i].phantom = (1 + i) % 2
+        c.preamps[i].hpf = i % 2
+        c.preamps[i].phase_inv = 1 if i % 3 == 0 else 0
+        c.preamps[i].zero_cross = 1 if i % 2 == 0 else 0
+    c.peaks_reverb[0].in_peaks = (ctypes.c_uint8 * 2)(3, 4)
+    c.peaks_reverb[0].out_peaks = (ctypes.c_uint8 * 2)(5, 6)
     c.hp1_enabled = 1
     c.tb_mic_volume = 200 - 256  # -56 as signed byte
     Lg = ctypes.c_int8 * 8
@@ -183,15 +186,17 @@ def read_back():
     for spec in FIELDS:
         name = spec[0]
         if len(spec) == 2:
-            # dict form: struct array -> read element 0
-            v = getattr(c, name)[0]
-            inner = {}
-            for (fn, ft, fb) in spec[1]["fields"]:
-                ev = getattr(v, fn)
-                if isinstance(ev, ctypes.Array):
-                    ev = list(ev)
-                inner[fn] = ev
-            expected[name] = inner
+            # dict form: struct array -> every element, in order
+            elems = []
+            for v in getattr(c, name):
+                inner = {}
+                for (fn, ft, fb) in spec[1]["fields"]:
+                    ev = getattr(v, fn)
+                    if isinstance(ev, ctypes.Array):
+                        ev = list(ev)
+                    inner[fn] = ev
+                elems.append(inner)
+            expected[name] = elems
             continue
         v = getattr(c, name)
         if isinstance(v, ctypes.Array):

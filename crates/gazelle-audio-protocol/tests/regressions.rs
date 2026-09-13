@@ -16,19 +16,66 @@ fn registry() -> Registry {
     from_json_doc(&doc).unwrap()
 }
 
-/// A `count: 0` struct array must decode to an empty struct, not panic.
+/// A `count: 0` struct array must decode to an empty list, not panic.
 ///
-/// `get_afx_order.slots` and `get_afx_strip_order.slots` really carry count 0, because
-/// their count comes from `afx_pool.PHY_AFX_STRIP_SIZE`, which was never decompiled.
+/// No in-scope command currently declares `count: 0` in either schema — `get_afx_order.slots`
+/// and `get_afx_strip_order.slots` were once thought to (their count was assumed to come from
+/// `afx_pool.PHY_AFX_STRIP_SIZE`, which was never decompiled), but both schemas actually carry
+/// count 8 for them, and have since the first commit. The decoder's count-0 branch still
+/// exists, so this test exercises it directly with a synthetic field list instead of relying
+/// on a real command.
 #[test]
 fn zero_count_struct_array_does_not_panic() {
+    use gazelle_audio_protocol::payload::Value;
+    use gazelle_audio_protocol::Command;
+
+    let fields = vec![Field::StructArray {
+        name: "slots".into(),
+        fields: vec![
+            Field::Scalar { name: "type".into(), ty: Scalar::U8, bit_width: None, default: None },
+            Field::Scalar { name: "inst".into(), ty: Scalar::U8, bit_width: None, default: None },
+        ],
+        count: 0,
+    }];
+
+    let out = Command::parse_field_list(&fields, &[])
+        .unwrap_or_else(|e| panic!("count-0 struct array must decode, got {e:?}"));
+    match out.get("slots") {
+        Some(Value::List(items)) => {
+            assert!(items.is_empty(), "count 0 must decode to an empty list")
+        }
+        other => panic!("expected an empty list, got {other:?}"),
+    }
+}
+
+/// Every element of a struct array must decode, not just the first.
+///
+/// `get_routing` returns 64 routing slots; the decoder used to return slot 0 only, and the
+/// cyclic ground truth read element 0 only, so both sides agreed on the wrong answer.
+#[test]
+fn struct_arrays_decode_every_element() {
+    use gazelle_audio_protocol::payload::Value;
     let r = registry();
-    for name in ["get_afx_order", "get_afx_strip_order"] {
-        let c = r.get(name).unwrap_or_else(|| panic!("{name} in registry"));
-        let out = c
-            .parse_response(&[0u8; 64])
-            .unwrap_or_else(|e| panic!("{name} must decode, got {e:?}"));
-        assert!(out.contains_key("slots"), "{name} should still yield a slots key");
+    let c = r.get("get_routing").expect("get_routing");
+
+    let mut buf = vec![0u8; 16];
+    buf.push(1); // bank_idx
+    for i in 0..64u8 {
+        buf.extend_from_slice(&[i, i.wrapping_mul(2)]);
+    }
+    let out = c.parse_response(&buf).expect("decode");
+
+    let items = match out.get("bank_configs") {
+        Some(Value::List(items)) => items,
+        other => panic!("bank_configs: expected a list, got {other:?}"),
+    };
+    assert_eq!(items.len(), 64);
+    match &items[63] {
+        Value::Struct(s) => {
+            assert!(matches!(s.get("in_periph_id"), Some(Value::U64(63))));
+            assert!(matches!(s.get("in_chann"), Some(Value::U64(126))));
+        }
+        other => panic!("element 63: expected struct, got {other:?}"),
     }
 }
 
