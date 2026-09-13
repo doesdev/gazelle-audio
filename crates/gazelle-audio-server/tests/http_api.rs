@@ -276,3 +276,19 @@ async fn all_commands_lists_every_model() {
     let total: usize = models.iter().map(|m| m["count"].as_u64().unwrap() as usize).sum();
     assert_eq!(total, 63 + 35);
 }
+
+/// `set_routing` accepts its 32 routing pairs as an array of pairs, producing exactly the bytes
+/// of the equivalent flat hex string.
+#[tokio::test]
+async fn element_arrays_encode_like_flat_hex() {
+    let pairs: Vec<Value> = (0..32u8).map(|i| json!([i, 31 - i])).collect();
+    let flat: String = (0..32u8).map(|i| format!("{i:02x}{:02x}", 31 - i)).collect();
+    let uri = "/api/v1/devices/loopback-0/command/set_routing?dry_run=true";
+
+    let (s1, as_pairs) = send(app(), "POST", uri, json!({"bank_idx": 2, "bank_configs": pairs})).await;
+    let (s2, as_hex) = send(app(), "POST", uri, json!({"bank_idx": 2, "bank_configs": flat})).await;
+
+    assert_eq!(s1, StatusCode::OK, "{as_pairs}");
+    assert_eq!(s2, StatusCode::OK, "{as_hex}");
+    assert_eq!(as_pairs["sent_hex"], as_hex["sent_hex"]);
+}

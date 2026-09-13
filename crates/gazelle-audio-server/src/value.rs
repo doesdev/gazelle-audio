@@ -8,10 +8,13 @@
 //! | `U64` / `I64` | number |
 //! | `Bytes` | lowercase hex **string** |
 //! | `Struct` | object |
+//! | `List` | array (output only) |
 //!
 //! Byte arrays are hex rather than arrays of numbers because in-scope commands carry arrays
 //! up to 300 bytes (`get_sonarworks_ir`), where a JSON number array is both unreadable and
 //! several times larger.
+//!
+//! On input, element arrays may be given one entry per element; they are concatenated.
 
 use gazelle_audio_protocol::payload::{PayloadValues, Value};
 use serde_json::{Map, Value as Json};
@@ -74,6 +77,28 @@ pub fn json_to_value(name: &str, j: &Json) -> Result<Value, ServerError> {
             Ok(Value::Struct(fields))
         }
         Json::Array(items) => {
+            if items.iter().any(Json::is_object) {
+                return Err(ServerError::BadValue(format!(
+                    "field '{name}': arrays of objects are not accepted as input; give one entry \
+                     per element as a hex string or an array of bytes"
+                )));
+            }
+            // Element arrays (`[[1,2],[3,4]]` or `["0102","0304"]`) concatenate in order; the
+            // protocol layer checks the total length against the field's declared size.
+            if !items.is_empty() && items.iter().all(|it| it.is_string() || it.is_array()) {
+                let mut bytes = Vec::new();
+                for (i, it) in items.iter().enumerate() {
+                    match json_to_value(&format!("{name}[{i}]"), it)? {
+                        Value::Bytes(b) => bytes.extend(b),
+                        other => {
+                            return Err(ServerError::BadValue(format!(
+                                "field '{name}'[{i}]: expected bytes, got {other:?}"
+                            )))
+                        }
+                    }
+                }
+                return Ok(Value::Bytes(bytes));
+            }
             // An array of small integers is accepted as a byte array, so clients that
             // prefer arrays to hex are not locked out.
             let mut bytes = Vec::with_capacity(items.len());
@@ -216,5 +241,21 @@ mod tests {
         s.insert("in_chann".to_string(), Value::U64(3));
         let v = Value::List(vec![Value::Struct(s.clone()), Value::Struct(s)]);
         assert_eq!(value_to_json(&v), serde_json::json!([{"in_chann": 3}, {"in_chann": 3}]));
+    }
+
+    #[test]
+    fn element_arrays_concatenate_in_order() {
+        for input in [serde_json::json!([[1, 2], [3, 4]]), serde_json::json!(["0102", "0304"])] {
+            match json_to_value("x", &input).unwrap() {
+                Value::Bytes(b) => assert_eq!(b, vec![1, 2, 3, 4], "{input}"),
+                other => panic!("expected bytes, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn arrays_of_objects_are_rejected_with_guidance() {
+        let e = json_to_value("slots", &serde_json::json!([{"type": 1}])).unwrap_err();
+        assert!(e.to_string().contains("one entry per element"), "{e}");
     }
 }
