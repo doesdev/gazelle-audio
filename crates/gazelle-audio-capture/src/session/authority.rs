@@ -12,7 +12,6 @@ pub struct OperatorAuthority {
 impl OperatorAuthority {
     // Called by the synthetic operator (Task 10) and the panel (Task 12); until then only
     // the state machine's unit tests use it.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn grant() -> Self {
         Self { _private: () }
     }

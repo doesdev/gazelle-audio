@@ -2,3 +2,4 @@
 
 pub mod capture;
 pub mod session;
+pub mod synth;
