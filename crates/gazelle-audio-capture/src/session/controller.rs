@@ -11,7 +11,7 @@ use tokio::sync::watch;
 
 use super::authority::OperatorAuthority;
 use super::clock::Clock;
-use super::marks::PacketClock;
+use super::marks::{Mark, PacketClock};
 use super::model::{Parameter, PlanError, ProbePlan};
 use super::plan::{expand, StepKind, StepSpec};
 use super::step::{OperatorCommand, ProbeRun, RunStatus, StepError, StepState, StepTiming};
@@ -292,9 +292,9 @@ impl Controller {
         let active = inner.active.as_mut().ok_or(StepError::NotRunning)?;
         let clock = lock(&active.stats).last_packet;
         let marks = active.run.abandon(now, clock)?;
-        inner.store.append_marks(&marks)?;
-        finish_capture(&mut inner)?;
-        self.publish(&mut inner)
+        // `abandon` above only returns `Ok` after already setting the run's in-memory status to
+        // `Abandoned`, so the run is unconditionally no longer `Running` here.
+        self.conclude(&mut inner, &marks, true)
     }
 
     /// Operator commands. Requires the proof only the panel holds.
@@ -305,29 +305,41 @@ impl Controller {
         let clock = lock(&active.stats).last_packet;
         let marks = active.run.operator(authority, command, now, clock)?;
         let finished = active.run.status() != RunStatus::Running;
-        inner.store.append_marks(&marks)?;
-        if finished {
-            finish_capture(&mut inner)?;
-        }
-        self.publish(&mut inner)
+        self.conclude(&mut inner, &marks, finished)
     }
 
     /// Advances step timers and refreshes the packet rate. Call every ~100 ms.
     pub fn tick(&self) -> Result<(), ControlError> {
         let mut inner = lock(&self.inner);
         let now = inner.clock.now_ns();
-        if let Some(active) = inner.active.as_mut() {
-            if active.run.status() == RunStatus::Running {
-                let clock = lock(&active.stats).last_packet;
-                let marks = active.run.tick(now, clock);
-                let finished = active.run.status() != RunStatus::Running;
-                inner.store.append_marks(&marks)?;
-                if finished {
-                    finish_capture(&mut inner)?;
-                }
-            }
+        let Some(active) = inner.active.as_mut() else {
+            return self.publish(&mut inner);
+        };
+        if active.run.status() != RunStatus::Running {
+            return self.publish(&mut inner);
         }
-        self.publish(&mut inner)
+        let clock = lock(&active.stats).last_packet;
+        let marks = active.run.tick(now, clock);
+        let finished = active.run.status() != RunStatus::Running;
+        self.conclude(&mut inner, &marks, finished)
+    }
+
+    /// Final review F2: once a run has left `Running` (`finished`), `finish_capture` — stopping
+    /// the source and joining the capture thread — must run regardless of whether `marks` (which
+    /// describe that transition) actually made it to disk: a full disk or an AV lock on
+    /// `marks.jsonl` must not leave the source running and the thread unjoined (on Windows, the
+    /// underlying process still running) just because the very last append failed. So: try the
+    /// append, finish the capture if the run is done, publish the resulting state either way, and
+    /// only then surface whichever error happened — `finish_capture`'s takes priority, since it
+    /// reflects the capture itself possibly still not being torn down, which matters more than a
+    /// mark that failed to log an already-in-memory transition.
+    fn conclude(&self, inner: &mut Inner, marks: &[Mark], finished: bool) -> Result<(), ControlError> {
+        let appended = inner.store.append_marks(marks);
+        let finished_result = if finished { finish_capture(inner) } else { Ok(()) };
+        let published = self.publish(inner);
+        finished_result?;
+        appended?;
+        published
     }
 
     fn publish(&self, inner: &mut Inner) -> Result<(), ControlError> {
@@ -346,7 +358,12 @@ fn finish_capture(inner: &mut Inner) -> Result<(), ControlError> {
         stop.stop();
     }
     if let Some(thread) = active.thread.take() {
-        let _ = thread.join();
+        // Final review F3: a join `Err` means the capture thread panicked — without this, the
+        // panel would show a clean stop (no `failure`) even though nothing after the panic point
+        // ran, including `writer.finish()`.
+        if thread.join().is_err() {
+            lock(&active.stats).failure = Some("capture thread panicked".to_string());
+        }
     }
     let descriptor = lock(&active.stats).descriptor.clone();
     if let Some(d) = descriptor {

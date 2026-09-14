@@ -12,7 +12,7 @@ use gazelle_audio_capture::panel::{self, security, PanelApp};
 use gazelle_audio_capture::session::clock::{Clock, SystemClock};
 use gazelle_audio_capture::session::controller::{ControlError, Controller};
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
-use gazelle_audio_capture::session::step::{RunStatus, StepTiming};
+use gazelle_audio_capture::session::step::{RunStatus, StepError, StepTiming};
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
 use gazelle_audio_capture::synth::device::{DeviceModel, SimpleDevice};
 use gazelle_audio_capture::synth::frames::device_frames;
@@ -245,7 +245,11 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // From here on a Ctrl-C can arrive at any point: while a hub is being discovered, while
     // waiting for Enter, while `start_probe` is already spawning the capture thread, or once
     // the probe is running. Before this point nothing has been started (no capture thread, no
-    // marks appended), so letting the default disposition (kill the process) apply is fine.
+    // marks appended), so there is nothing yet to clean up — but `ctrl_c` (registered above,
+    // before any of that blocking work ran) has already installed the OS-level handler, so a
+    // Ctrl-C here is captured and queued, not left to the default disposition (which would kill
+    // the process); it is just not *observed* (via `ctrl_c.recv()`) until Phase 1a's `select!`,
+    // below.
 
     // Phase 1a: prepare the capture source. `build_source` (specifically USBPcap hub discovery)
     // runs on a blocking thread rather than directly in this async task — partly so it cannot
@@ -361,16 +365,23 @@ async fn abandon_after_start(
     abandon(controller, ctrl_c).await
 }
 
-/// Cancels the running probe. Surfaces (rather than swallows) both a task panic and
-/// `abandon_probe`'s own error: on either, `finish_capture` may never run, so the capture
-/// thread is left unstopped and unjoined and the pcapng file never finalised (parked Task 11
-/// minor #5) — the operator needs to see that, and `serve` must exit non-zero so it's obvious
-/// the shutdown was not clean.
+/// Cancels the running probe. `Controller::abandon_probe` now always runs `finish_capture` —
+/// stopping the source and joining the capture thread — once the run is no longer `Running`,
+/// even when appending the abandon mark itself fails (final review F2), so a returned `Err`
+/// here means only that the mark, or `finish_capture`'s own descriptor-metadata update, failed
+/// to land — not that the capture was left unstopped or unjoined. That's still surfaced (rather
+/// than swallowed), along with a task panic, since either means the shutdown was not fully clean
+/// and `serve` should exit non-zero so the operator can see it.
+///
+/// `StepError::NotRunning` is not such a failure: it means Ctrl-C raced the probe's own natural
+/// completion (final review F4) — `finished` (in `serve`, above) already observed a terminal
+/// status through the same controller, so there is nothing left to abandon. Treat that as a
+/// clean exit rather than reporting a shutdown failure.
 async fn abandon(controller: &Controller, ctrl_c: &mut SigintListener) -> Result<(), BoxError> {
     let controller = controller.clone();
     let mut handle = tokio::task::spawn_blocking(move || controller.abandon_probe());
     match wait_or_force_exit(&mut handle, ctrl_c).await {
-        Ok(Ok(())) => Ok(()),
+        Ok(Ok(())) | Ok(Err(ControlError::Step(StepError::NotRunning))) => Ok(()),
         Ok(Err(e)) => {
             eprintln!("error: could not abandon the probe cleanly: {e}");
             Err(e.into())
@@ -443,4 +454,52 @@ fn hubs(exe: &Path) -> Result<(), BoxError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn controller_with_a_finished_probe(dir: &std::path::Path) -> Controller {
+        let store = SessionStore::create(dir, &SessionInfo { vid: 0x1234, pid: 0xABCD, ..SessionInfo::default() }).unwrap();
+        store
+            .declare_parameter(Parameter { id: "monitor_level".into(), label: "Monitor level".into(), kind: ParameterKind::Continuous, domain: ParameterDomain::default(), location: String::new() })
+            .unwrap();
+        store
+            .declare_parameter(Parameter {
+                id: "mute".into(),
+                label: "Mute".into(),
+                kind: ParameterKind::Toggle,
+                domain: ParameterDomain { values: vec!["off".into(), "on".into()], unit: None },
+                location: String::new(),
+            })
+            .unwrap();
+        let controller = Controller::new(store, Arc::new(SystemClock), StepTiming::default(), Some(false)).unwrap();
+        let plan = ProbePlan { parameter: "monitor_level".into(), value_a: "0 dB".into(), value_b: vec!["-6 dB".into()], sweep: vec![], repeats: 1, control_parameter: "mute".into() };
+        let planned = controller.plan_probe(plan, 1).unwrap();
+        controller.start_probe(&planned.probe_id, Box::new(MemorySource::new("memory", Vec::new()))).unwrap();
+        // Abandoning it "for real" leaves the run in the same left-`Running` state that a
+        // natural completion (`RunStatus::Completed`) would also leave: `abandon_probe` is only
+        // reachable while `Running`.
+        controller.abandon_probe().unwrap();
+        controller
+    }
+
+    /// Final review F4: if Ctrl-C wins `serve`'s `select!` right as the probe finishes on its
+    /// own, `abandon_probe` sees a run that has already left `Running` and returns
+    /// `StepError::NotRunning` — not a real shutdown failure. `abandon` (above) must treat that
+    /// specific error as a clean exit, matched on the actual `ControlError` variant, rather than
+    /// reporting "could not abandon the probe cleanly" and exiting non-zero.
+    ///
+    /// This drives the exact code path the race would hit (`abandon_probe` called when the run
+    /// is no longer `Running`) without needing to reproduce the `select!` race's timing from
+    /// outside the process, which an external, process-level test (`tests/cli.rs`) cannot do
+    /// deterministically — see the final fix report for why no such test is added there.
+    #[tokio::test]
+    async fn abandon_treats_a_not_running_probe_as_a_clean_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let controller = controller_with_a_finished_probe(dir.path());
+        let mut ctrl_c = SigintListener::new().unwrap();
+        assert!(abandon(&controller, &mut ctrl_c).await.is_ok());
+    }
 }

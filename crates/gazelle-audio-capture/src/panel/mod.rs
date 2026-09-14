@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -88,12 +88,23 @@ pub fn spawn_ticker(controller: Controller, period: Duration) -> tokio::task::Jo
 /// can use it. It still passes the Host check (`with_host_check`, applied by `serve`) and, like
 /// the WS upgrade, rejects a present-but-foreign `Origin` while allowing an absent one
 /// (`security::origin_allowed`); every other HTTP and WS call still requires the bearer token.
+///
+/// Final review F1: a same-origin `GET /` carries no `Origin` at all when it is the top-level
+/// navigation of an attacker's iframe, so the Origin check above cannot stop that framing (the
+/// framed page then opens its own WS with its own, allowed, Origin). `frame-ancestors 'none'` /
+/// `X-Frame-Options: DENY` refuse the framing itself, and `Cache-Control: no-store` keeps the
+/// token-bearing HTML out of the disk cache.
 async fn page(State(app): State<PanelApp>, headers: HeaderMap) -> Response {
     let origin = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok());
     if !security::origin_allowed(origin, app.port) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    Html(PAGE.replace(TOKEN_PLACEHOLDER, &app.token)).into_response()
+    let mut response = Html(PAGE.replace(TOKEN_PLACEHOLDER, &app.token)).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("frame-ancestors 'none'"));
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn api_state(State(app): State<PanelApp>, headers: HeaderMap) -> Response {

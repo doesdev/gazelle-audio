@@ -1,9 +1,10 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::*;
 use crate::capture::import::{ImportSource, MemorySource};
-use crate::capture::CaptureStream;
+use crate::capture::{CaptureStream, FrameIter, RawFrame};
 use crate::session::clock::ManualClock;
 use crate::session::marks::MarkKind;
 use crate::session::model::{ParameterDomain, ParameterKind};
@@ -27,11 +28,72 @@ fn plan() -> ProbePlan {
 }
 
 /// Target 1:5 plus neighbour 1:3, one second of traffic at T0.
-fn source() -> (Box<dyn CaptureSource>, u64) {
+fn raw_frames() -> (Vec<RawFrame>, u64) {
     let mut devices: Vec<Box<dyn DeviceModel>> = vec![Box::new(SimpleDevice::new(0x1234, 0xABCD, 1, 5)), Box::new(SimpleDevice::new(0x046D, 0xC52B, 1, 3))];
     let frames = device_frames(&mut devices, T0, S);
     let target = frames.iter().filter(|f| u16::from_le_bytes([f.data[19], f.data[20]]) == 5).count() as u64;
+    (frames, target)
+}
+
+fn source() -> (Box<dyn CaptureSource>, u64) {
+    let (frames, target) = raw_frames();
     (Box::new(MemorySource::new("memory", frames)), target)
+}
+
+/// A source whose frame iterator repeats `frames` on a loop until `StopHandle::stop()` is
+/// called, then ends — unlike `MemorySource`, whose frames run out on their own. Models a live
+/// capture for the final review's F2 and F5: what actually happens once a stop signal has to
+/// interrupt an otherwise-endless stream, rather than a source that was always going to end.
+struct StoppableSource {
+    frames: Vec<RawFrame>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl StoppableSource {
+    /// Returns the source and a flag that becomes `true` once its `StopHandle` has been used.
+    fn new(frames: Vec<RawFrame>) -> (Self, Arc<AtomicBool>) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        (Self { frames, stopped: stopped.clone() }, stopped)
+    }
+}
+
+impl CaptureSource for StoppableSource {
+    fn describe(&self) -> String {
+        "stoppable".into()
+    }
+
+    fn start(&mut self) -> Result<CaptureStream, CaptureError> {
+        let for_stop = Arc::clone(&self.stopped);
+        let for_iter = Arc::clone(&self.stopped);
+        let mut cycle = self.frames.clone().into_iter().cycle();
+        let frames: FrameIter = Box::new(std::iter::from_fn(move || -> Option<Result<RawFrame, CaptureError>> {
+            if for_iter.load(Ordering::SeqCst) {
+                return None;
+            }
+            // A small pace, like a real live source, so a test that lets "a few frames flow"
+            // sees a bounded, sane number of them rather than spinning a tight loop.
+            std::thread::sleep(Duration::from_micros(200));
+            cycle.next().map(Ok)
+        }));
+        Ok(CaptureStream { frames, stop: StopHandle::new(move || for_stop.store(true, Ordering::SeqCst)) })
+    }
+}
+
+/// A source whose capture thread panics as soon as it starts reading frames, for the final
+/// review's F3 test.
+struct PanickingSource;
+
+impl CaptureSource for PanickingSource {
+    fn describe(&self) -> String {
+        "panicking".into()
+    }
+
+    fn start(&mut self) -> Result<CaptureStream, CaptureError> {
+        let frames: FrameIter = Box::new(std::iter::from_fn(|| -> Option<Result<RawFrame, CaptureError>> {
+            panic!("synthetic capture thread panic (final review F3 test)")
+        }));
+        Ok(CaptureStream { frames, stop: StopHandle::noop() })
+    }
 }
 
 fn setup(dir: &std::path::Path) -> (Controller, Arc<ManualClock>) {
@@ -268,4 +330,91 @@ fn a_failed_create_capture_leaves_no_probe_started_mark_or_skipped_id() {
         .filter(|m| m.probe == "p1" && matches!(m.kind, MarkKind::ProbeStarted { .. }))
         .count();
     assert_eq!(started, 1);
+}
+
+/// Final review F2: `abandon`'s marks already move the run's in-memory status to `Abandoned`
+/// before `append_marks` is ever called, so a failure appending the very last mark (full disk, an
+/// AV lock, ...) must not skip `finish_capture` — the source still needs stopping and the thread
+/// still needs joining (so the pcapng gets `writer.finish()`ed and, on Windows, the underlying
+/// process actually stops), and the panel still needs to see the resulting state. Before the fix,
+/// the early `?` on `append_marks` returned before any of that ran.
+///
+/// Unix-only: relies on a non-root user actually being denied a write-mode open on a file with
+/// its write bits cleared, matching the existing `a_failed_marks_append_...` test.
+#[cfg(unix)]
+#[test]
+fn a_failed_final_marks_append_still_finishes_the_capture() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    let (frames, target) = raw_frames();
+    let (src, stopped) = StoppableSource::new(frames);
+    c.start_probe("p1", Box::new(src)).unwrap();
+    wait_packets(&c, target);
+
+    let marks_path = dir.path().join("marks.jsonl");
+    let original_mode = std::fs::metadata(&marks_path).unwrap().permissions().mode();
+    std::fs::set_permissions(&marks_path, std::fs::Permissions::from_mode(0o400)).unwrap();
+
+    let result = c.abandon_probe();
+
+    std::fs::set_permissions(&marks_path, std::fs::Permissions::from_mode(original_mode)).unwrap();
+
+    assert!(matches!(result, Err(ControlError::Session(SessionError::Io(_)))), "{result:?}");
+    assert!(stopped.load(Ordering::SeqCst), "the source's stop handle was never called");
+    assert!(!c.state().capture.running, "the capture thread was not joined");
+    assert!(c.state().probe.unwrap().status == RunStatus::Abandoned);
+    let stored = ImportSource::new(dir.path().join("captures/p1.pcapng")).start().unwrap().frames.count() as u64;
+    assert!(stored >= target, "expected at least {target} imported frames, got {stored}");
+}
+
+/// Final review F3: `finish_capture`'s `let _ = thread.join()` swallowed a capture-thread panic
+/// outright, so the panel would show a clean stop with no `failure` even though nothing after the
+/// panic point ran (including `writer.finish()`). A join `Err` must now surface as
+/// `stats.failure`.
+#[test]
+fn a_panicking_capture_thread_is_reported_as_a_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    c.start_probe("p1", Box::new(PanickingSource)).unwrap();
+    // Give the thread a moment to actually panic before abandoning it.
+    std::thread::sleep(Duration::from_millis(20));
+    c.abandon_probe().unwrap();
+    assert_eq!(c.state().capture.failure.as_deref(), Some("capture thread panicked"));
+}
+
+/// Final review F5: the other controller tests all use sources whose frames run out on their
+/// own; none covers a source that has to be *stopped* mid-stream. This starts a probe, lets a
+/// few frames flow (bounded polling of stats, not a bare sleep), abandons it, and checks the
+/// thread was joined, no failure was recorded, and the pcapng imports the frames that were
+/// written before the stop.
+#[test]
+fn abandon_stops_a_live_source_cleanly_and_finalises_an_importable_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    let (frames, _target) = raw_frames();
+    let (src, stopped) = StoppableSource::new(frames);
+    c.start_probe("p1", Box::new(src)).unwrap();
+
+    // Let a few frames flow: bounded polling of stats, not a bare sleep as sync.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while c.state().capture.packets < 3 {
+        assert!(Instant::now() < deadline, "capture thread stalled before any frames flowed");
+        std::thread::sleep(Duration::from_millis(5));
+        c.tick().unwrap();
+    }
+    let packets_before_stop = c.state().capture.packets;
+
+    c.abandon_probe().unwrap();
+
+    assert!(stopped.load(Ordering::SeqCst), "the source's stop handle was never called");
+    assert!(!c.state().capture.running, "the capture thread was not joined");
+    assert_eq!(c.state().capture.failure, None);
+    assert_eq!(c.state().probe.unwrap().status, RunStatus::Abandoned);
+    let stored = ImportSource::new(dir.path().join("captures/p1.pcapng")).start().unwrap().frames.count() as u64;
+    assert!(stored >= packets_before_stop, "expected at least {packets_before_stop} imported frames, got {stored}");
 }

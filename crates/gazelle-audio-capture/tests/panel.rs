@@ -84,6 +84,11 @@ impl CaptureSource for SlowStopSource {
 /// Requests go through `with_host_check` the same way `serve` applies it, so these tests
 /// exercise the Host check as it actually runs in production, not just `router` alone.
 async fn get(app: &PanelApp, uri: &str, host: &str, bearer: Option<&str>) -> (StatusCode, String) {
+    let (status, _headers, body) = get_with_headers(app, uri, host, bearer).await;
+    (status, body)
+}
+
+async fn get_with_headers(app: &PanelApp, uri: &str, host: &str, bearer: Option<&str>) -> (StatusCode, axum::http::HeaderMap, String) {
     let mut req = Request::get(uri).header("host", host);
     if let Some(t) = bearer {
         req = req.header("authorization", format!("Bearer {t}"));
@@ -91,8 +96,9 @@ async fn get(app: &PanelApp, uri: &str, host: &str, bearer: Option<&str>) -> (St
     let guarded = with_host_check(router(app.clone()), app.port);
     let resp = guarded.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
     let status = resp.status();
+    let headers = resp.headers().clone();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
-    (status, String::from_utf8_lossy(&body).into_owned())
+    (status, headers, String::from_utf8_lossy(&body).into_owned())
 }
 
 #[tokio::test]
@@ -109,6 +115,21 @@ async fn page_embeds_the_token_and_host_is_checked() {
     assert_eq!(get(&h.app, "/", "localhost:8430", None).await.0, StatusCode::OK);
     assert_eq!(get(&h.app, "/", "attacker.example:8430", None).await.0, StatusCode::FORBIDDEN);
     assert_eq!(get(&h.app, "/", "127.0.0.1:9999", None).await.0, StatusCode::FORBIDDEN);
+}
+
+/// Final review F1: an iframe navigation to `GET /` carries no `Origin` at all, so the Origin
+/// check alone cannot stop the page being framed (clickjacking Done/Redo/Skip). The response
+/// must also refuse framing directly and must not be cacheable, since it carries the bearer
+/// token.
+#[tokio::test]
+async fn page_response_refuses_framing_and_caching() {
+    let mut h = harness().await;
+    h.app.port = 8430;
+    let (status, headers, _body) = get_with_headers(&h.app, "/", "127.0.0.1:8430", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-security-policy").map(|v| v.to_str().unwrap()), Some("frame-ancestors 'none'"));
+    assert_eq!(headers.get("x-frame-options").map(|v| v.to_str().unwrap()), Some("DENY"));
+    assert_eq!(headers.get("cache-control").map(|v| v.to_str().unwrap()), Some("no-store"));
 }
 
 #[tokio::test]
