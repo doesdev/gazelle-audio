@@ -6,6 +6,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gazelle_audio_capture::agent::mcp;
 use gazelle_audio_capture::agent::openai::{self, AgentApp};
+use gazelle_audio_capture::agent::relay;
 use gazelle_audio_capture::ops::service::Ops;
 use gazelle_audio_capture::analysis::run::analyze_probe;
 use gazelle_audio_capture::capture::import::ImportSource;
@@ -42,6 +43,8 @@ enum Command {
     Analyze(AnalyzeArgs),
     /// Serve one session to agents: the panel, MCP at /mcp and OpenAI tools at /openai/*.
     Agent(AgentArgs),
+    /// Relay MCP on stdio to a running `agent` helper (for clients that launch MCP servers).
+    McpStdio(McpStdioArgs),
     /// List USBPcap root hubs and attached devices (Windows).
     Hubs {
         #[arg(long, default_value = DEFAULT_EXE)]
@@ -142,6 +145,16 @@ struct AgentArgs {
 }
 
 #[derive(Args)]
+struct McpStdioArgs {
+    /// The helper's MCP endpoint.
+    #[arg(long, default_value = "http://127.0.0.1:8430/mcp")]
+    url: String,
+    /// Bearer token; read from the token file the helper writes when omitted.
+    #[arg(long)]
+    token: Option<String>,
+}
+
+#[derive(Args)]
 struct AnalyzeArgs {
     /// Session directory.
     #[arg(long)]
@@ -176,6 +189,7 @@ async fn main() {
         Command::Synth(args) => synth(args),
         Command::Analyze(args) => analyze(args),
         Command::Agent(args) => agent(args).await,
+        Command::McpStdio(args) => mcp_stdio(args).await,
         Command::Hubs { usbpcap_exe } => hubs(&usbpcap_exe),
     };
     if let Err(e) = result {
@@ -286,6 +300,20 @@ async fn agent(args: AgentArgs) -> Result<(), BoxError> {
     server.abort();
     println!("stopped");
     Ok(())
+}
+
+/// Relays stdio to the helper until the client closes stdin. Stdout carries only MCP messages;
+/// logs go to stderr.
+async fn mcp_stdio(args: McpStdioArgs) -> Result<(), BoxError> {
+    let token = match args.token {
+        Some(token) => token,
+        None => {
+            let path = security::token_path(|k| std::env::var(k).ok()).ok_or("no LOCALAPPDATA or HOME to find the token file; pass --token")?;
+            let token = std::fs::read_to_string(&path).map_err(|e| format!("token file {}: {e}; is `gazelle-capture agent` running?", path.display()))?;
+            token.trim().to_string()
+        }
+    };
+    relay::Relay::connect(&args.url, &token).await?.serve_on(rmcp::transport::stdio()).await
 }
 
 /// A Ctrl-C listener, created once and kept alive for the whole of `serve`. Both

@@ -147,6 +147,31 @@ fn agent_serves_the_panel_mcp_and_openai_tools_for_one_session() {
     assert!(body.contains("this helper serves"), "{body}");
 
     assert_eq!(http_post(port, "/mcp", None, "{}").0, 401, "MCP needs the token");
+
+    // mcp-stdio finds the token through the same LOCALAPPDATA and speaks newline-delimited
+    // JSON-RPC on stdio.
+    let mut relay = Command::new(BIN)
+        .args(["mcp-stdio", "--url", &format!("http://127.0.0.1:{port}/mcp")])
+        .env("LOCALAPPDATA", dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut stdin = relay.stdin.take().unwrap();
+    let mut replies = BufReader::new(relay.stdout.take().unwrap()).lines();
+    let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cli-test","version":"0"}}}"#;
+    writeln!(stdin, "{initialize}").unwrap();
+    let reply: Value = serde_json::from_str(&replies.next().expect("initialize reply").unwrap()).unwrap();
+    assert_eq!(reply["result"]["serverInfo"]["name"], "gazelle-capture", "{reply}");
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#).unwrap();
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":2,"method":"tools/list"}}"#).unwrap();
+    let reply: Value = serde_json::from_str(&replies.next().expect("tools/list reply").unwrap()).unwrap();
+    assert_eq!(reply["result"]["tools"].as_array().map(Vec::len), Some(12), "{reply}");
+    drop(stdin);
+    let status = wait_with_timeout(&mut relay, Duration::from_secs(10)).expect("mcp-stdio exits when stdin closes");
+    assert!(status.success(), "{status}");
+
     child.kill().unwrap();
     child.wait().unwrap();
 }

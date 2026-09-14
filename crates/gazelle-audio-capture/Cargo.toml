@@ -17,7 +17,7 @@ clap = { version = "~4.5.61", features = ["derive"] }
 futures-util = "0.3"
 getrandom = "0.3"
 pcap-file = "=2.0.0"
-rmcp = { version = "3.3", features = ["server", "macros", "transport-streamable-http-server"] }
+rmcp = { version = "3.3", features = ["server", "client", "macros", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -28,7 +28,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
-rmcp = { version = "3.3", features = ["client", "transport-streamable-http-client-reqwest"] }
 tempfile = "3"
 tokio-tungstenite = "0.24"
 tower = { version = "0.5", features = ["util"] }
