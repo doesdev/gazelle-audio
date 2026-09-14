@@ -5,6 +5,7 @@ use super::*;
 use crate::capture::import::{ImportSource, MemorySource};
 use crate::capture::CaptureStream;
 use crate::session::clock::ManualClock;
+use crate::session::marks::MarkKind;
 use crate::session::model::{ParameterDomain, ParameterKind};
 use crate::session::store::SessionInfo;
 use crate::session::timeline::probe_timelines;
@@ -235,4 +236,36 @@ fn a_failed_marks_append_stops_the_source_and_leaves_no_capture_file() {
     assert!(!dir.path().join("captures/p1.pcapng").exists());
     c.start_probe("p1", source().0).unwrap();
     assert_eq!(probe(&c).probe_id, "p1");
+}
+
+/// Fix round 2: `a_probe_never_reuses_a_capture_file` (above) checks the returned error when
+/// `create_capture` fails after the source has already started; this checks that the same
+/// failure leaves no side effects in the marks log — no `ProbeStarted` mark for the id (which
+/// would otherwise make `next_probe_id` permanently skip one) and no orphan entry, and that a
+/// retry once the obstacle is gone records exactly one `ProbeStarted`.
+#[test]
+fn a_failed_create_capture_leaves_no_probe_started_mark_or_skipped_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    std::fs::write(dir.path().join("captures/p1.pcapng"), b"old").unwrap();
+    assert!(matches!(c.start_probe("p1", source().0), Err(ControlError::Session(SessionError::CaptureExists(_)))));
+
+    let store = SessionStore::open(dir.path()).unwrap();
+    assert!(store.marks().unwrap().is_empty(), "no marks should have been written for the failed attempt");
+
+    // Nothing was counted as started, so the next plan mints "p2", not "p3".
+    let p2 = c.plan_probe(plan(), 2).unwrap();
+    assert_eq!(p2.probe_id, "p2");
+
+    // Once the obstacle is gone, retrying "p1" succeeds and records exactly one ProbeStarted.
+    std::fs::remove_file(dir.path().join("captures/p1.pcapng")).unwrap();
+    c.start_probe("p1", source().0).unwrap();
+    let started = store
+        .marks()
+        .unwrap()
+        .iter()
+        .filter(|m| m.probe == "p1" && matches!(m.kind, MarkKind::ProbeStarted { .. }))
+        .count();
+    assert_eq!(started, 1);
 }
