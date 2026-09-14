@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gazelle capture</title>
+<style>
+  :root { color-scheme: light dark; --accent: #2563eb; --warn: #b45309; --bad: #b91c1c; }
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 1rem 1.5rem; }
+  header { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; opacity: .85; }
+  #rate { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .warn { color: var(--warn); font-weight: 600; }
+  #progress { margin: 2rem 0 .25rem; opacity: .75; }
+  #instruction { font-size: clamp(1.8rem, 4.5vw, 3.2rem); line-height: 1.2; margin: 0 0 1rem; }
+  #instruction strong { color: var(--accent); }
+  #countdown { min-height: 1.5em; font-size: 1.25rem; }
+  .buttons { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0; }
+  button { font: inherit; font-size: 1.25rem; padding: .6rem 1.4rem; border-radius: .5rem; border: 1px solid; cursor: pointer; }
+  #done { background: var(--accent); color: white; border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  #error { color: var(--bad); min-height: 1.5em; }
+  #flags { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <span id="device">Gazelle capture</span>
+  <span id="elevation" class="warn" hidden>Not elevated: USBPcap will ask for administrator rights, or capture will fail</span>
+  <span id="capture"></span>
+  <span id="rate">0 packets/s</span>
+</header>
+<main>
+  <p id="progress"></p>
+  <h1 id="instruction">Waiting for a probe…</h1>
+  <p id="countdown"></p>
+  <div class="buttons">
+    <button id="done" disabled>Done (Space)</button>
+    <button id="redo" disabled>Redo</button>
+    <button id="skip" disabled>Skip</button>
+  </div>
+  <form id="actual" hidden>
+    <label>UI settled at <input id="actual-value" autocomplete="off" placeholder="actual value"></label>
+    <button type="submit">Record</button>
+  </form>
+  <p id="error" role="alert"></p>
+  <p id="flags"></p>
+</main>
+<script>
+const TOKEN = "__GAZELLE_TOKEN__";
+const $ = (id) => document.getElementById(id);
+let socket = null;
+let running = false;
+
+function escapeHtml(text) {
+  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function withBold(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function send(command) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    $("error").textContent = "";
+    socket.send(JSON.stringify(command));
+  }
+}
+
+function hex4(n) {
+  return n.toString(16).padStart(4, "0");
+}
+
+function render(state) {
+  $("device").textContent = `Target ${hex4(state.vid)}:${hex4(state.pid)}`;
+  $("elevation").hidden = state.elevated !== false;
+  const cap = state.capture;
+  $("rate").textContent = `${cap.packets_per_second.toFixed(0)} packets/s`;
+  $("capture").textContent = cap.failure ? `Capture failed: ${cap.failure}` : (cap.source || "");
+  $("capture").className = cap.failure ? "warn" : "";
+  const probe = state.probe;
+  running = !!probe && probe.status === "running";
+  if (!probe) {
+    $("progress").textContent = "";
+    $("instruction").textContent = "Waiting for a probe…";
+    $("countdown").textContent = "";
+  } else if (!running) {
+    $("progress").textContent = `probe ${probe.probe_id}`;
+    $("instruction").textContent = probe.status === "completed" ? "Probe complete — thank you" : "Probe abandoned";
+    $("countdown").textContent = "";
+  } else {
+    $("progress").textContent = `probe ${probe.probe_id} · ${probe.progress} · overall ${probe.step_index + 1} of ${probe.step_count}` + (probe.attempt ? ` · attempt ${probe.attempt + 1}` : "");
+    $("instruction").innerHTML = withBold(probe.instruction);
+    let countdown = "";
+    if (probe.step_state === "armed" && probe.ready_in_ms > 0) countdown = `Get ready… ${(probe.ready_in_ms / 1000).toFixed(1)} s`;
+    else if (probe.step_state === "armed" && probe.kind === "idle") countdown = "Hands off";
+    else if (probe.step_state === "armed") countdown = "Go";
+    else if (probe.step_state === "done") countdown = "Settling… keep still";
+    $("countdown").textContent = countdown;
+    if (probe.actual_value) $("countdown").textContent += ` · recorded actual value ${probe.actual_value}`;
+  }
+  const armed = running && probe.step_state === "armed";
+  $("done").disabled = !(armed && probe.kind !== "idle" && probe.ready_in_ms === 0);
+  $("redo").disabled = !running;
+  $("skip").disabled = !running;
+  $("actual").hidden = !(running && probe.accepts_actual_value);
+  $("flags").textContent = probe && probe.flagged_steps.length ? `Clock suspect on steps: ${probe.flagged_steps.map((s) => s + 1).join(", ")}` : "";
+}
+
+function connect() {
+  socket = new WebSocket(`ws://${location.host}/panel/ws?token=${TOKEN}`);
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === "state") render(message.state);
+    else if (message.type === "error") $("error").textContent = message.message;
+  };
+  socket.onclose = () => {
+    $("error").textContent = "Disconnected from helper — reconnecting…";
+    setTimeout(connect, 1000);
+  };
+}
+
+$("done").onclick = () => send({ op: "done" });
+$("redo").onclick = () => send({ op: "redo" });
+$("skip").onclick = () => {
+  const reason = prompt("Why skip this step?");
+  if (reason && reason.trim()) send({ op: "skip", reason });
+};
+$("actual").onsubmit = (event) => {
+  event.preventDefault();
+  const value = $("actual-value").value.trim();
+  if (value) send({ op: "actual_value", value });
+  $("actual-value").value = "";
+};
+document.addEventListener("keydown", (event) => {
+  if (event.code === "Space" && document.activeElement.tagName !== "INPUT") {
+    event.preventDefault();
+    if (running) send({ op: "done" });
+  }
+});
+connect();
+</script>
+</body>
+</html>
