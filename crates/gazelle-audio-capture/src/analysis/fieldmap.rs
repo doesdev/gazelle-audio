@@ -13,6 +13,9 @@ use crate::session::step::RunStatus;
 use crate::session::timeline::ProbeTimeline;
 
 pub const SCHEMA_VERSION: u32 = 1;
+/// Fewer distinct values than this leave the bit range and encoding underdetermined: two
+/// points always fit a line.
+pub const MIN_VALUES_FOR_ENCODING: usize = 3;
 
 /// Everything one probe's analysis needs, already loaded.
 pub struct ProbeInput<'a> {
@@ -146,6 +149,11 @@ pub fn field_map(input: &ProbeInput<'_>, parameter: &str) -> FieldMap {
     if timeline.plan.repeats < 3 {
         recommendations.push(format!("Only {} repeat(s): probe again with repeats ≥ 3", timeline.plan.repeats));
     }
+    let fewest_values = command.iter().chain(&readback_entry).map(|e| e.values.len()).min();
+    if let Some(n) = fewest_values.filter(|&n| n < MIN_VALUES_FOR_ENCODING) {
+        caveats.push(format!("bit range and encoding rest on only {n} distinct values"));
+        recommendations.push(format!("Add a sweep of {parameter} over more values to pin down its bit range and encoding"));
+    }
     if confidence < 1.0 && (command.is_some() || readback_entry.is_some()) {
         recommendations.push("Confidence is reduced by redos, differing actual values or clock-suspect steps: repeat ×5".into());
     }
@@ -272,6 +280,29 @@ fn encoding_text(e: &Encoding) -> String {
     }
 }
 
+/// Shortest run of identical trailing bytes worth collapsing in the report.
+const COLLAPSE_RUN: usize = 8;
+
+/// A template for people: a trailing run of at least [`COLLAPSE_RUN`] identical bytes becomes
+/// `… N × xx`. `70 ?? 01 ?? 00 00 00 00 00 00 00 00` → `70 ?? 01 ?? … 8 × 00`.
+pub fn short_template(template: &str) -> String {
+    let bytes: Vec<&str> = template.split(' ').collect();
+    let Some(&last) = bytes.last() else {
+        return template.to_string();
+    };
+    let run = bytes.iter().rev().take_while(|b| **b == last).count();
+    if run < COLLAPSE_RUN || last == "??" {
+        return template.to_string();
+    }
+    let head = &bytes[..bytes.len() - run];
+    let tail = format!("… {run} × {last}");
+    if head.is_empty() {
+        tail
+    } else {
+        format!("{} {tail}", head.join(" "))
+    }
+}
+
 fn entry_lines(title: &str, entry: &Option<FieldEntry>, lines: &mut Vec<String>) {
     lines.push(format!("## {title}"));
     lines.push(String::new());
@@ -281,7 +312,7 @@ fn entry_lines(title: &str, entry: &Option<FieldEntry>, lines: &mut Vec<String>)
         return;
     };
     lines.push(format!("- Channel: {}", channel_ref_text(&e.channel)));
-    lines.push(format!("- Template: `{}`", e.template));
+    lines.push(format!("- Template: `{}`", short_template(&e.template)));
     lines.push(format!("- Field: byte {}, bits {}–{}", e.field.byte, e.field.bits[0], e.field.bits[1]));
     lines.push(format!("- Encoding: {}", encoding_text(&e.encoding)));
     lines.push(format!("- Confidence: {:.2}", e.confidence));

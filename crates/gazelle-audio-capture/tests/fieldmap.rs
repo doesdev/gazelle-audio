@@ -1,7 +1,7 @@
 //! Field maps and reports from synthetic probes (spec §8, field map; §11 row 2).
 
 use gazelle_audio_capture::analysis::encoding::Model;
-use gazelle_audio_capture::analysis::fieldmap::{descriptor_hash, field_map, report, FieldMap, ProbeInput, SCHEMA_VERSION};
+use gazelle_audio_capture::analysis::fieldmap::{descriptor_hash, field_map, report, short_template, FieldMap, ProbeInput, SCHEMA_VERSION};
 use gazelle_audio_capture::capture::event::Direction;
 use gazelle_audio_capture::capture::pipeline::PayloadPolicy;
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
@@ -19,11 +19,19 @@ fn parameters() -> Vec<Parameter> {
     ]
 }
 
+fn plan() -> ProbePlan {
+    ProbePlan { parameter: "monitor_level".into(), value_a: "0 dB".into(), value_b: vec!["-6 dB".into(), "-12 dB".into()], sweep: vec![], repeats: 3, control_parameter: "mute".into() }
+}
+
 fn map_for(target: RichDevice, operator: ScriptedOperator) -> FieldMap {
+    map_with_plan(target, operator, plan())
+}
+
+fn map_with_plan(target: RichDevice, operator: ScriptedOperator, plan: ProbePlan) -> FieldMap {
     let dir = tempfile::tempdir().unwrap();
     let spec = SynthSpec {
         parameters: parameters(),
-        plan: ProbePlan { parameter: "monitor_level".into(), value_a: "0 dB".into(), value_b: vec!["-6 dB".into(), "-12 dB".into()], sweep: vec![], repeats: 3, control_parameter: "mute".into() },
+        plan,
         seed: 5,
         timing: StepTiming::default(),
         start_ns: 1_700_000_000_000_000_000,
@@ -82,10 +90,32 @@ fn a_clean_probe_yields_a_complete_field_map() {
     assert_eq!(json["command"]["channel"]["transfer"], "interrupt");
     assert!(json["command"]["channel"].get("request").is_none(), "absent control fields are omitted");
 
+    assert!(!map.caveats.iter().any(|c| c.contains("distinct values")), "three values are enough: {:?}", map.caveats);
+
     let md = report(&map);
-    for needle in ["# Field map: monitor_level", "## Command", "ep 0x01 out interrupt disc 0x70", "## Readback", "| -6 dB | 0x01 (1) |", "## Evidence"] {
+    // RichDevice commands are 32 bytes: 4 header/value bytes then 28 zeros, collapsed for people.
+    let short = format!("`70 ?? {:02x} ?? … 28 × 00`", 1);
+    for needle in ["# Field map: monitor_level", "## Command", "ep 0x01 out interrupt disc 0x70", short.as_str(), "## Readback", "| -6 dB | 0x01 (1) |", "## Evidence"] {
         assert!(md.contains(needle), "{needle:?} missing from:\n{md}");
     }
+    assert!(command.template.ends_with("00 00 00"), "the JSON keeps the full template");
+}
+
+#[test]
+fn two_values_are_flagged_as_too_few_for_an_encoding() {
+    let two = ProbePlan { value_b: vec!["-6 dB".into()], ..plan() };
+    let map = map_with_plan(target(), ScriptedOperator::default(), two);
+    assert_eq!(map.command.as_ref().unwrap().values.len(), 2);
+    assert!(map.caveats.iter().any(|c| c.contains("only 2 distinct values")), "{:?}", map.caveats);
+    assert!(map.recommendations.iter().any(|r| r.contains("Add a sweep of monitor_level")), "{:?}", map.recommendations);
+}
+
+#[test]
+fn short_templates_collapse_only_long_trailing_runs() {
+    assert_eq!(short_template("70 ?? 01 ?? 00 00 00 00 00 00 00 00"), "70 ?? 01 ?? … 8 × 00");
+    assert_eq!(short_template("70 ?? 00 00 00"), "70 ?? 00 00 00");
+    assert_eq!(short_template("?? ?? ?? ?? ?? ?? ?? ??"), "?? ?? ?? ?? ?? ?? ?? ??");
+    assert_eq!(short_template("60 60 60 60 60 60 60 60"), "… 8 × 60");
 }
 
 #[test]
