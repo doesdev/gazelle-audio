@@ -7,8 +7,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "gen-types": "node tools/gen-types/src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "tsc -p tsconfig.json && node --test \"packages/*/test/**/*.test.ts\" \"tools/*/test/**/*.test.ts\""
+    "test": "node tools/gen-types/src/main.ts --check && tsc -p tsconfig.json && node --test \"packages/*/test/**/*.test.ts\" \"tools/*/test/**/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "24.13.4",
