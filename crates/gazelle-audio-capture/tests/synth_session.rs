@@ -117,8 +117,7 @@ fn usbmon_link_type_produces_the_same_events() {
     let pcap = generate(a.path(), 249, ScriptedOperator::default());
     let mon = generate(b.path(), 220, ScriptedOperator::default());
     assert_eq!(import(&mon.capture), mon.events);
-    let strip = |es: &[UsbEvent]| es.iter().map(|e| UsbEvent { ts_ns: e.ts_ns / 1000, ..e.clone() }).collect::<Vec<_>>();
-    assert_eq!(strip(&pcap.events), strip(&mon.events));
+    assert_eq!(pcap.events, mon.events);
 }
 
 #[test]
