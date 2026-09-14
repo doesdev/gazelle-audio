@@ -1,5 +1,6 @@
 // Reference screenshots for design review: the devices and workspace pages in each bundled theme,
-// written to test-results/e2e/screenshots. They are for people to look at, not compared.
+// written to web/test-results/design. That is outside Playwright's output directory, which every
+// run clears. They are for people to look at, not compared.
 
 import { expect, test } from "@playwright/test";
 
@@ -22,9 +23,9 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
     await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("—");
     await page.evaluate(() => document.fonts.ready);
     const file = theme.replace(":", "-");
-    await page.screenshot({ path: `${REPO_ROOT}/web/test-results/e2e/screenshots/${file}-devices.png` });
+    await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-devices.png` });
     await page.goto(`${server.url}/#/workspace`);
     await expect(page.locator("ga-workspace input").first()).toBeVisible();
-    await page.screenshot({ path: `${REPO_ROOT}/web/test-results/e2e/screenshots/${file}-workspace.png` });
+    await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-workspace.png` });
   });
 }
