@@ -7,10 +7,12 @@
 //! Its output is classic pcap, link type 249.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use super::decode;
 use super::pipeline::DeviceMap;
-use super::{CaptureError, CaptureSource, CaptureStream, FrameIter};
+use super::{CaptureError, CaptureSource, CaptureStream, FrameIter, RawFrame};
 
 pub const DEFAULT_EXE: &str = r"C:\Program Files\USBPcap\USBPcapCMD.exe";
 pub const DEFAULT_SNAPLEN: u32 = 65_535;
@@ -150,6 +152,68 @@ pub fn discover_target(frames: FrameIter, vid: u16, pid: u16, max_frames: usize)
     Ok(None)
 }
 
+/// Maps a live child's exit to a final tool error, or `None` if nothing should be reported.
+/// A requested stop, a still-running process (`code: None`, couldn't be reaped), or a clean
+/// exit (`code: Some(0)`) all report nothing; any other exit is a tool failure worth surfacing.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only called from cfg(windows) platform::start; exercised directly by usbpcap_tests.rs on every platform"))]
+fn exit_tool_error(stopped: bool, code: Option<i32>) -> Option<CaptureError> {
+    if stopped {
+        return None;
+    }
+    match code {
+        Some(0) | None => None,
+        Some(code) => Some(CaptureError::Tool(format!("USBPcapCMD exited with status {code}"))),
+    }
+}
+
+/// Wraps a live source's frame iterator so that:
+/// - an error surfacing after `stop()` was requested (typically a truncated pcap record from
+///   killing the process mid-write) ends the stream cleanly instead of propagating as an error;
+/// - once the stream ends on its own, `reap` (the only platform-specific part — `Child::wait` in
+///   the live backend) is called exactly once, and a non-zero, unrequested exit is reported as
+///   one final `Err` before the stream truly ends.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only constructed by cfg(windows) platform::start; exercised directly by usbpcap_tests.rs on every platform"))]
+struct Supervised<F> {
+    inner: FrameIter,
+    stopped: Arc<AtomicBool>,
+    reap: F,
+    reaped: bool,
+}
+
+impl<F: FnMut() -> Option<i32> + Send> Iterator for Supervised<F> {
+    type Item = Result<RawFrame, CaptureError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            Some(Err(_)) if self.stopped.load(Ordering::Relaxed) => None,
+            Some(item) => Some(item),
+            None if self.reaped => None,
+            None => {
+                self.reaped = true;
+                let stopped = self.stopped.load(Ordering::Relaxed);
+                exit_tool_error(stopped, (self.reap)()).map(Err)
+            }
+        }
+    }
+}
+
+/// Tries hubs in order via `probe`, which reports whether the target device was found on that
+/// hub. A hub that fails to start or errors during discovery is skipped and its error
+/// remembered, so one bad hub does not abort the search. Returns the first hub whose probe
+/// finds the target; if none do, returns the last such error, or `Ok(None)` if none occurred.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only called from cfg(windows) platform::find_hub; exercised directly by usbpcap_tests.rs on every platform"))]
+fn select_hub(hubs: Vec<HubInterface>, mut probe: impl FnMut(&HubInterface) -> Result<bool, CaptureError>) -> Result<Option<String>, CaptureError> {
+    let mut last_err = None;
+    for hub in hubs {
+        match probe(&hub) {
+            Ok(true) => return Ok(Some(hub.value)),
+            Ok(false) => {}
+            Err(e) => last_err = Some(e),
+        }
+    }
+    last_err.map_or(Ok(None), Err)
+}
+
 pub struct UsbPcapSource {
     cfg: UsbPcapConfig,
 }
@@ -208,17 +272,37 @@ mod platform {
             .spawn()?;
         let stdout = child.stdout.take().ok_or_else(|| CaptureError::Tool("USBPcapCMD has no stdout".into()))?;
         let child = Arc::new(Mutex::new(child));
+        let stopped = Arc::new(AtomicBool::new(false));
         let for_stop = Arc::clone(&child);
+        let stopped_for_stop = Arc::clone(&stopped);
         let stop = StopHandle::new(move || {
+            // Set before killing: a truncated record the kill causes then reads as a clean end
+            // (Supervised checks this flag), and the end-of-stream reap below skips reporting an
+            // exit the operator asked for.
+            stopped_for_stop.store(true, Ordering::Relaxed);
             let mut c = for_stop.lock().unwrap_or_else(|p| p.into_inner());
             let _ = c.kill();
             let _ = c.wait();
         });
         match pcap_frames(stdout) {
-            Ok(frames) => Ok(CaptureStream { frames, stop }),
+            Ok(frames) => {
+                let for_reap = Arc::clone(&child);
+                let reap = move || for_reap.lock().unwrap_or_else(|p| p.into_inner()).wait().ok().and_then(|s| s.code());
+                let supervised: FrameIter = Box::new(Supervised { inner: frames, stopped: Arc::clone(&stopped), reap, reaped: false });
+                Ok(CaptureStream { frames: supervised, stop })
+            }
             Err(e) => {
-                stop.stop();
-                Err(e)
+                // The header read failed, most likely because USBPcapCMD exited before writing
+                // any output (bad device path, no permission, ...). Reap it directly here rather
+                // than through `stop` (which would mark this a requested stop): kill defensively
+                // first, in case it's still running for some other reason, then prefer its exit
+                // status over the raw pcap-parse error, which would otherwise read as a
+                // confusing "capture file: ..." message with no sign the tool itself failed.
+                let mut c = child.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = c.kill();
+                let code = c.wait().ok().and_then(|s| s.code());
+                drop(c);
+                Err(exit_tool_error(false, code).unwrap_or(e))
             }
         }
     }
@@ -247,25 +331,28 @@ mod platform {
     }
 
     pub fn find_hub(exe: &Path, vid: u16, pid: u16) -> Result<Option<String>, CaptureError> {
-        for hub in parse_extcap_interfaces(&run_text(exe, &extcap_interfaces_args())?) {
-            let stream = start(&UsbPcapConfig::new(exe, hub.value.clone()))?;
-            let stop = Arc::new(Mutex::new(Some(stream.stop)));
-            let watchdog_stop = Arc::clone(&stop);
-            std::thread::spawn(move || {
-                std::thread::sleep(DISCOVERY_TIMEOUT);
-                if let Some(s) = watchdog_stop.lock().unwrap_or_else(|p| p.into_inner()).take() {
-                    s.stop();
-                }
-            });
-            let found = discover_target(stream.frames, vid, pid, 4096);
-            if let Some(s) = stop.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        let hubs = parse_extcap_interfaces(&run_text(exe, &extcap_interfaces_args())?);
+        select_hub(hubs, |hub| probe_hub(exe, hub, vid, pid))
+    }
+
+    /// Starts a capture on `hub` and watches it for up to [`DISCOVERY_TIMEOUT`], reporting
+    /// whether the target's descriptor appeared. A start or discovery failure is returned to the
+    /// caller, which decides (in [`select_hub`]) whether to keep trying other hubs.
+    fn probe_hub(exe: &Path, hub: &HubInterface, vid: u16, pid: u16) -> Result<bool, CaptureError> {
+        let stream = start(&UsbPcapConfig::new(exe, hub.value.clone()))?;
+        let stop = Arc::new(Mutex::new(Some(stream.stop)));
+        let watchdog_stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            std::thread::sleep(DISCOVERY_TIMEOUT);
+            if let Some(s) = watchdog_stop.lock().unwrap_or_else(|p| p.into_inner()).take() {
                 s.stop();
             }
-            if found?.is_some() {
-                return Ok(Some(hub.value));
-            }
+        });
+        let found = discover_target(stream.frames, vid, pid, 4096);
+        if let Some(s) = stop.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            s.stop();
         }
-        Ok(None)
+        Ok(found?.is_some())
     }
 }
 
@@ -293,3 +380,7 @@ mod platform {
         Err(CaptureError::Unsupported(WHY.into()))
     }
 }
+
+#[cfg(test)]
+#[path = "usbpcap_tests.rs"]
+mod tests;

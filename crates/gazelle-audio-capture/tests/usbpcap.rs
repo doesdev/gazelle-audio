@@ -98,6 +98,68 @@ fn frame(index: u64, ev: &UsbEvent) -> RawFrame {
     RawFrame { ts_ns: ev.ts_ns, link_type: 249, index, orig_len: data.len() as u32, byte_order: ByteOrder::Little, data }
 }
 
+/// A GET_DESCRIPTOR(DEVICE) submit/complete pair for one (bus, device), as USBPcapCMD injects it.
+fn descriptor_pair(ts_ns: u64, bus: u16, device: u16, urb_id: u64, vid: u16, pid: u16) -> [UsbEvent; 2] {
+    let req = UsbEvent {
+        ts_ns,
+        packet_index: 0,
+        bus,
+        device,
+        endpoint: 0,
+        direction: Direction::In,
+        transfer: TransferType::Control,
+        stage: UrbStage::Submit,
+        urb_id,
+        setup: Some(SetupPacket { request_type: 0x80, request: 6, value: 0x0100, index: 0, length: 18 }),
+        status: 0,
+        data_len: 0,
+        data: Vec::new(),
+        payload_dropped: false,
+    };
+    let v = vid.to_le_bytes();
+    let p = pid.to_le_bytes();
+    let descriptor = vec![18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, v[0], v[1], p[0], p[1], 0x00, 0x01, 1, 2, 3, 1];
+    let mut done = req.clone();
+    done.ts_ns = ts_ns + 1;
+    done.stage = UrbStage::Complete;
+    done.setup = None;
+    done.data_len = descriptor.len() as u32;
+    done.data = descriptor;
+    [req, done]
+}
+
+/// Fix round 1, finding 1 (reviewer test-gap): the `break` once a live frame follows a learned
+/// descriptor was not covered by any test — removing it left all four discovery tests passing,
+/// because in each of them the target's own descriptor already appears before any live traffic.
+/// This constructs an unrelated device's descriptor (learns `descriptor_seen`), then a live
+/// frame, then the *target's* descriptor further down the stream: discovery must stop at the
+/// live frame and never reach the target's descriptor, returning `None`.
+#[test]
+fn discovery_stops_before_a_later_target_descriptor_once_live_traffic_begins() {
+    let [unrelated_req, unrelated_done] = descriptor_pair(1, 2, 3, 0, 0x046D, 0xC52B);
+    let live = UsbEvent {
+        ts_ns: 3,
+        packet_index: 0,
+        bus: 2,
+        device: 9,
+        endpoint: 1,
+        direction: Direction::In,
+        transfer: TransferType::Interrupt,
+        stage: UrbStage::Complete,
+        urb_id: 1,
+        setup: None,
+        status: 0,
+        data_len: 4,
+        data: vec![0xA0, 0, 0, 0],
+        payload_dropped: false,
+    };
+    let [target_req, target_done] = descriptor_pair(4, 2, 7, 0, 0x1234, 0xABCD);
+
+    let events = [unrelated_req, unrelated_done, live, target_req, target_done];
+    let frames: FrameIter = Box::new(events.iter().enumerate().map(|(i, e)| Ok(frame(i as u64, e))).collect::<Vec<_>>().into_iter());
+    assert_eq!(discover_target(frames, 0x1234, 0xABCD, 4096).unwrap(), None);
+}
+
 /// Amendment (plan-amendments.md, Task 13): discovery must stop at the first live frame only
 /// after at least one descriptor has been learned, not merely after the first frame overall
 /// (the old `seen > 0` condition). This constructs two live (non-injected) frames *before* any
