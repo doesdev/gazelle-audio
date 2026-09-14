@@ -182,10 +182,16 @@ impl Controller {
 
     /// Starts the capture, then arms the first step.
     ///
-    /// The source is started before the capture file is created: if creating the file, or the
-    /// pcapng writer wrapping it, fails afterward, the source is stopped and any file just
-    /// created is removed, so a failed call leaves no capture file behind and a retry with the
-    /// same probe id does not hit `CaptureExists`.
+    /// Every fallible step — starting the source, recording the `ProbeStarted`/`Armed` marks,
+    /// creating the capture file, and building the pcapng writer around it — happens before the
+    /// capture thread is spawned. `ProbeRun::start` is called with `last_packet: None`, which is
+    /// always correct here: no packets can have been read before the thread that reads them
+    /// exists. Once the thread is spawned, nothing left in this method can fail, so a failure at
+    /// any earlier step can only ever have a started source (stopped on the way out) and,
+    /// depending on how far it got, a capture file (removed on the way out) — never a running,
+    /// untracked thread or an unstopped source. That keeps the amendment's guarantee ("a failed
+    /// `start_probe` must leave no capture file, so a retry does not hit `CaptureExists`") true
+    /// for every failure path, not just a source that fails to start.
     pub fn start_probe(&self, probe_id: &str, mut source: Box<dyn CaptureSource>) -> Result<(), ControlError> {
         let mut inner = lock(&self.inner);
         if inner.active.as_ref().is_some_and(|a| a.run.status() == RunStatus::Running) {
@@ -194,6 +200,12 @@ impl Controller {
         let (plan, seed) = inner.planned.get(probe_id).cloned().ok_or_else(|| ControlError::UnknownProbe(probe_id.into()))?;
         let info = inner.store.info()?;
         let stream = source.start()?;
+        let now = inner.clock.now_ns();
+        let (run, marks) = ProbeRun::start(probe_id, &plan, seed, inner.timing, now, None);
+        if let Err(e) = inner.store.append_marks(&marks) {
+            stream.stop.stop();
+            return Err(e.into());
+        }
         let file = match inner.store.create_capture(probe_id) {
             Ok(f) => f,
             Err(e) => {
@@ -259,9 +271,6 @@ impl Controller {
                 }
             })
         };
-        let now = inner.clock.now_ns();
-        let (run, marks) = ProbeRun::start(probe_id, &plan, seed, inner.timing, now, lock(&stats).last_packet);
-        inner.store.append_marks(&marks)?;
         inner.planned.remove(probe_id);
         inner.active = Some(Active { run, source: source.describe(), stats, stop: Some(stream.stop), thread: Some(thread) });
         self.publish(&mut inner)

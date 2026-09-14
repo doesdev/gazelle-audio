@@ -208,3 +208,31 @@ fn running_is_false_once_the_capture_thread_finishes_on_its_own() {
     assert!(!c.state().capture.running);
     assert_eq!(c.state().probe.unwrap().status, RunStatus::Running);
 }
+
+/// Fix round 1: a failure that surfaces after the source has started but before the capture
+/// thread is spawned (here, `marks.jsonl` refusing writes) must still stop the source and leave
+/// no capture file — not just a source that fails to start outright.
+///
+/// Unix-only: relies on a non-root user actually being denied a write-mode open on a file with
+/// its write bits cleared, which `set_readonly` gives on Unix but not on Windows.
+#[cfg(unix)]
+#[test]
+fn a_failed_marks_append_stops_the_source_and_leaves_no_capture_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    let marks_path = dir.path().join("marks.jsonl");
+    let original_mode = std::fs::metadata(&marks_path).unwrap().permissions().mode();
+    std::fs::set_permissions(&marks_path, std::fs::Permissions::from_mode(0o400)).unwrap();
+
+    let result = c.start_probe("p1", source().0);
+
+    std::fs::set_permissions(&marks_path, std::fs::Permissions::from_mode(original_mode)).unwrap();
+
+    assert!(matches!(result, Err(ControlError::Session(SessionError::Io(_)))), "{result:?}");
+    assert!(!dir.path().join("captures/p1.pcapng").exists());
+    c.start_probe("p1", source().0).unwrap();
+    assert_eq!(probe(&c).probe_id, "p1");
+}
