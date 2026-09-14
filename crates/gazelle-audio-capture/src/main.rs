@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use gazelle_audio_capture::analysis::fieldmap::{field_map, report, ProbeInput};
+use gazelle_audio_capture::analysis::run::analyze_probe;
 use gazelle_audio_capture::capture::import::{ImportSource, MemorySource};
 use gazelle_audio_capture::capture::pipeline::{DeviceFilter, PayloadPolicy, Pipeline};
 use gazelle_audio_capture::capture::usbpcap::{self, UsbPcapConfig, UsbPcapSource, DEFAULT_EXE};
@@ -15,7 +15,6 @@ use gazelle_audio_capture::session::controller::{ControlError, Controller, Envir
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
 use gazelle_audio_capture::session::step::{RunStatus, StepError, StepTiming};
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
-use gazelle_audio_capture::session::timeline::probe_timelines;
 use gazelle_audio_capture::synth::device::{DeviceModel, SimpleDevice};
 use gazelle_audio_capture::synth::frames::device_frames;
 use gazelle_audio_capture::synth::session::{generate_session, ScriptedOperator, SynthSpec};
@@ -501,41 +500,9 @@ fn synth(args: SynthArgs) -> Result<(), BoxError> {
 
 fn analyze(args: AnalyzeArgs) -> Result<(), BoxError> {
     let store = SessionStore::open(&args.session)?;
-    let info = store.info()?;
-    let marks = store.marks()?;
-    let timelines = probe_timelines(&marks);
-    let timeline = match &args.probe {
-        Some(id) => timelines.iter().find(|t| &t.probe == id).ok_or_else(|| format!("no probe {id} in {}", args.session.display()))?,
-        None => timelines.last().ok_or_else(|| format!("{} has no probes", args.session.display()))?,
-    };
-    let capture = store.capture_path(&timeline.probe);
-    let mut pipeline = Pipeline::new(DeviceFilter::Target { vid: info.vid, pid: info.pid }, PayloadPolicy { keep_stream_payloads: info.keep_stream_payloads });
-    let mut events = Vec::new();
-    for frame in ImportSource::new(&capture).start()?.frames {
-        events.extend(pipeline.process(frame?)?.into_iter().map(|(_, ev)| ev));
-    }
-    events.sort_by_key(|e| e.ts_ns);
-
-    let parameter = timeline.plan.parameter.clone();
-    let input = ProbeInput {
-        timeline,
-        events: &events,
-        capture: format!("captures/{}.pcapng", timeline.probe),
-        vid: info.vid,
-        pid: info.pid,
-        descriptor_hex: info.device_descriptor_hex.as_deref(),
-    };
-    let map = field_map(&input, &parameter);
-    let dir = store.root().join("analysis");
-    std::fs::create_dir_all(&dir)?;
-    // Parameter ids name files; keep them to a portable character set.
-    let stem: String = parameter.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    let json = dir.join(format!("{stem}.json"));
-    let md = dir.join(format!("{stem}.md"));
-    std::fs::write(&json, serde_json::to_vec_pretty(&map)?)?;
-    std::fs::write(&md, report(&map))?;
-    println!("{}", json.display());
-    println!("{}", md.display());
+    let analysis = analyze_probe(&store, args.probe.as_deref())?;
+    println!("{}", analysis.json.display());
+    println!("{}", analysis.report.display());
     Ok(())
 }
 
