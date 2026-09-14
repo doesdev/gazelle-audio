@@ -1,10 +1,14 @@
-//! Field attribution by the fixed rules of spec §8 step 5. A byte of a channel is attributed to
-//! parameter P only if it
-//! 1. is carried by a matching message on every Set step of P, with the same raw value for the
-//!    same UI value and different raw values for different UI values;
-//! 2. is not changed by a No-op step of P;
+//! Field attribution by the rules of spec §8 step 5, decided by majority vote (the user's choice
+//! on 2026-09-14, over all-or-nothing). A byte of a channel is attributed to parameter P when more
+//! than half of its votes agree that it
+//! 1. carries P's value on Set steps: each UI value's raw is the most common raw among the Set
+//!    steps that reached it, different UI values have different raws, and every Set step votes
+//!    on whether it matched;
+//! 2. is not changed by a No-op step of P (one vote per No-op window showing the message);
 //! 3. is not changed by a Control step — if it is, the field is reported shared, not P's;
-//! 4. is not changed during Idle.
+//! 4. is not changed during Idle (one vote per Idle window showing the message).
+//!
+//! The share of agreeing votes is the field's `consistency`.
 //!
 //! A channel's *template* is the bytes identical across the last messages of P's Set steps. A
 //! message *matches* when it agrees with every template byte, so a channel that multiplexes
@@ -25,7 +29,10 @@ use super::segment::Segment;
 use crate::capture::event::Direction;
 use crate::session::plan::StepKind;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// A field is attributed only when strictly more than this share of its votes agree.
+pub const MAJORITY: f64 = 0.5;
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Field {
     pub channel: ChannelKey,
     /// Offset into the message bytes (see [`Message::bytes`]).
@@ -37,8 +44,10 @@ pub struct Field {
     pub template: String,
     /// Raw byte per UI value, in first-seen order.
     pub values: Vec<(String, u8)>,
-    /// `(step, packet_index)` of the message each Set step contributed.
+    /// `(step, packet_index)` of the message each agreeing Set step contributed.
     pub evidence: Vec<(usize, u64)>,
+    /// Share of the field's votes that agreed with the attribution; 1.0 when none disagreed.
+    pub consistency: f64,
     /// Within some step window the byte returned to a value it had left. A setting moves once
     /// per change; a meter that tracks it dips and recovers (the Studio+ peak meters did).
     pub oscillates: bool,
@@ -51,7 +60,7 @@ pub struct MaskedByte {
     pub class: ByteClass,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Attribution {
     pub fields: Vec<Field>,
     /// Fields meeting rules 1, 2 and 4 that a Control step also changed.
@@ -71,6 +80,10 @@ pub fn attribute_readback(segments: &[Segment<'_>], channels: &Channels, noise: 
 }
 
 type ByChannel<'a> = HashMap<ChannelKey, Vec<Message<'a>>>;
+
+/// One Set step's vote input: segment index, UI value, and the byte with its packet index when a
+/// matching message carried it.
+type SetObservation = (usize, String, Option<(u8, u64)>);
 
 fn by_channel<'a>(segment: &Segment<'a>, channels: &Channels, direction: Direction) -> ByChannel<'a> {
     let mut map: ByChannel<'a> = HashMap::new();
@@ -131,27 +144,52 @@ fn judge(
     let matches = |m: &Message<'_>| template.iter().enumerate().all(|(p, t)| t.is_none_or(|v| m.bytes.get(p) == Some(&v)));
     let last_match = |i: usize| observed[i].get(&channel).and_then(|ms| ms.iter().rev().find(|m| matches(m)));
 
-    // Rule 1.
+    // Rule 1, by majority: each UI value's raw is the most common one among the Set steps that
+    // reached it (ties go to the lowest raw), and different UI values need different raws.
+    let observations: Vec<SetObservation> = set_steps
+        .iter()
+        .filter_map(|&i| {
+            let value = segments[i].value.clone()?;
+            let seen = last_match(i).and_then(|m| m.bytes.get(byte).map(|b| (*b, m.event.packet_index)));
+            Some((i, value, seen))
+        })
+        .collect();
     let mut values: Vec<(String, u8)> = Vec::new();
-    let mut evidence = Vec::new();
-    for &i in set_steps {
-        let value = segments[i].value.clone()?;
-        let m = last_match(i)?;
-        let raw = *m.bytes.get(byte)?;
-        match values.iter().find(|(v, _)| *v == value) {
-            Some((_, known)) if *known != raw => return None,
-            Some(_) => {}
-            None if values.iter().any(|(_, r)| *r == raw) => return None,
-            None => values.push((value, raw)),
+    for (_, value, _) in &observations {
+        if values.iter().any(|(v, _)| v == value) {
+            continue;
         }
-        evidence.push((segments[i].window.step, m.event.packet_index));
+        let mut counts: Vec<(u8, usize)> = Vec::new();
+        for (raw, _) in observations.iter().filter(|(_, v, _)| v == value).filter_map(|(_, _, seen)| *seen) {
+            match counts.iter_mut().find(|(r, _)| *r == raw) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((raw, 1)),
+            }
+        }
+        if let Some(&(raw, _)) = counts.iter().max_by_key(|(r, n)| (*n, std::cmp::Reverse(*r))) {
+            values.push((value.clone(), raw));
+        }
     }
-    if values.len() < 2 {
+    if values.len() < 2 || values.iter().enumerate().any(|(k, (_, r))| values[..k].iter().any(|(_, other)| other == r)) {
         return None;
     }
-
-    // Rules 2–4, walking the steps in order with P's current raw value.
     let raw_of = |value: &str| values.iter().find(|(v, _)| v == value).map(|(_, r)| *r);
+
+    let (mut votes, mut agree) = (0usize, 0usize);
+    let mut evidence = Vec::new();
+    for (i, value, seen) in &observations {
+        votes += 1;
+        if let (Some((raw, packet)), Some(expected)) = (seen, raw_of(value)) {
+            if *raw == expected {
+                agree += 1;
+                evidence.push((segments[*i].window.step, *packet));
+            }
+        }
+    }
+
+    // Rules 2–4, walking the steps in order with P's current raw value. No-op and Idle windows
+    // that show the message vote; a Control change marks the field shared and moves the current
+    // raw, since the device state really moved.
     let mut current: Option<u8> = None;
     let mut shared = false;
     for (i, segment) in segments.iter().enumerate() {
@@ -161,13 +199,15 @@ fn judge(
         match segment.kind {
             StepKind::Set if on_parameter => current = segment.value.as_deref().and_then(raw_of),
             StepKind::NoOp if on_parameter => {
-                if changed {
-                    return None;
+                if current.is_some() && seen.is_some() {
+                    votes += 1;
+                    agree += usize::from(!changed);
                 }
             }
             StepKind::Idle => {
-                if changed {
-                    return None;
+                if current.is_some() && seen.is_some() {
+                    votes += 1;
+                    agree += usize::from(!changed);
                 }
             }
             StepKind::Control | StepKind::Set | StepKind::NoOp => {
@@ -177,6 +217,10 @@ fn judge(
                 }
             }
         }
+    }
+    let consistency = agree as f64 / votes as f64;
+    if consistency <= MAJORITY {
+        return None;
     }
 
     let oscillates = (0..segments.len()).any(|i| {
@@ -195,5 +239,5 @@ fn judge(
     let mask = values.iter().flat_map(|(_, a)| values.iter().map(move |(_, b)| a ^ b)).fold(0u8, |acc, x| acc | x);
     let bits = (mask.trailing_zeros() as u8, 7 - mask.leading_zeros() as u8);
     let template = template.iter().map(|t| t.map_or_else(|| "??".to_string(), |v| format!("{v:02x}"))).collect::<Vec<_>>().join(" ");
-    Some((Field { channel, byte, bits, template, values, evidence, oscillates }, shared))
+    Some((Field { channel, byte, bits, template, values, evidence, consistency, oscillates }, shared))
 }

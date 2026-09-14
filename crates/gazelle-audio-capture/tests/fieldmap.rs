@@ -144,6 +144,17 @@ fn spillover_leaves_no_attribution_and_recommends_probing_the_control() {
 }
 
 #[test]
+fn an_outvoted_step_lowers_command_confidence_but_keeps_the_field() {
+    let map = map_for(target().with_command_glitch(2), ScriptedOperator::default());
+    let command = map.command.as_ref().expect("majority voting keeps the command field");
+    assert_eq!(command.field.byte, RICH_VALUE);
+    assert!(command.confidence < 1.0 && command.confidence > 0.9, "{}", command.confidence);
+    assert_eq!(map.readback.as_ref().unwrap().confidence, 1.0);
+    assert!(map.caveats.iter().any(|c| c.contains("outvoted")), "{:?}", map.caveats);
+    assert!(map.recommendations.iter().any(|r| r.contains("repeat ×5")), "{:?}", map.recommendations);
+}
+
+#[test]
 fn a_redo_lowers_confidence_and_asks_for_more_repeats() {
     // Step 3 is a Set step of the parameter (Idle, Set A, No-op A, Set b1, ...).
     let map = map_for(target(), ScriptedOperator { redo_once: vec![3], ..ScriptedOperator::default() });

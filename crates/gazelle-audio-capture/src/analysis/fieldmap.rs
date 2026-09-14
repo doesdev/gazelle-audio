@@ -177,8 +177,8 @@ pub fn field_map(input: &ProbeInput<'_>, parameter: &str) -> FieldMap {
         caveats.push(format!("bit range and encoding rest on only {n} distinct values"));
         recommendations.push(format!("Add a sweep of {parameter} over more values to pin down its bit range and encoding"));
     }
-    if confidence < 1.0 && (command.is_some() || readback_entry.is_some()) {
-        recommendations.push("Confidence is reduced by redos, differing actual values or clock-suspect steps: repeat ×5".into());
+    if command.iter().chain(&readback_entry).any(|e| e.confidence < 1.0) {
+        recommendations.push("Confidence is reduced by redos, differing actual values, clock-suspect steps or outvoted steps: repeat ×5".into());
     }
 
     FieldMap {
@@ -215,19 +215,23 @@ fn primary(attribution: &Attribution, what: &str, confidence: f64, caveats: &mut
     if first.oscillates {
         caveats.push(format!("the reported {what} byte dips and recovers within a step and may be a meter"));
     }
+    if first.consistency < 1.0 {
+        caveats.push(format!("the {what} field agreed with {:.0}% of its votes; the rest of the steps disagreed and were outvoted", first.consistency * 100.0));
+    }
     Some(FieldEntry {
         channel: first.channel.into(),
         template: first.template.clone(),
         field: position(first),
         encoding: fit(&first.values),
         values: first.values.clone(),
-        confidence,
+        confidence: confidence * first.consistency,
         sequence: Vec::new(),
     })
 }
 
 /// 1.0 reduced ×0.9 per clock-suspect Set step of the parameter, ×0.9 per such step whose
 /// recorded actual value differs from the requested one, and ×0.95 per redo of such a step.
+/// Each reported field's confidence is this times the field's vote `consistency`.
 pub fn confidence(timeline: &ProbeTimeline, parameter: &str) -> f64 {
     let mut c: f64 = 1.0;
     for w in &timeline.windows {

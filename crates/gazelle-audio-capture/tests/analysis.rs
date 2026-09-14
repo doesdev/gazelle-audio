@@ -160,6 +160,33 @@ fn spillover_from_the_control_parameter_is_reported_shared_not_attributed() {
 }
 
 #[test]
+fn a_glitched_set_command_is_outvoted_not_fatal() {
+    // Change #2 is the first Set of value_b; its command carries a corrupted value on the wire.
+    let dir = tempfile::tempdir().unwrap();
+    let a = Analysed::new(dir.path(), ScriptedOperator::default(), Box::new(rich_target().with_command_glitch(2)));
+    let timeline = a.timeline();
+    let segs = a.segments(&timeline);
+    let channels = a.channels();
+
+    let commands = attribute_commands(&segs, &channels, "monitor_level");
+    let set = rich_channel(RICH_COMMAND_ENDPOINT, Direction::Out, RICH_SET);
+    assert_eq!(commands.fields.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(), vec![(set, RICH_VALUE)], "strict rules would have rejected this field");
+    let field = &commands.fields[0];
+    assert!(field.consistency < 1.0 && field.consistency > 0.9, "one bad Set step among many: {}", field.consistency);
+    let device = rich_target();
+    for (value, raw) in &field.values {
+        assert_eq!(Some(*raw), device.raw_value("monitor_level", value), "the majority raw wins for {value}");
+    }
+    let set_steps = segs.iter().filter(|s| s.kind == StepKind::Set && s.parameter.as_deref() == Some("monitor_level")).count();
+    assert_eq!(field.evidence.len(), set_steps - 1, "the outvoted step is not cited");
+
+    let readback = attribute_readback(&segs, &channels, &noise_model(&segs, &channels), "monitor_level");
+    let status = rich_channel(RICH_STATUS_ENDPOINT, Direction::In, RICH_STATUS);
+    let steady = readback.fields.iter().find(|f| f.channel == status && f.byte == RICH_READBACK_BASE).unwrap();
+    assert_eq!(steady.consistency, 1.0, "the device took the right value; only the wire message was bad");
+}
+
+#[test]
 fn discriminators_split_the_rich_device_endpoints() {
     let dir = tempfile::tempdir().unwrap();
     let a = Analysed::new(dir.path(), ScriptedOperator::default(), Box::new(rich_target()));

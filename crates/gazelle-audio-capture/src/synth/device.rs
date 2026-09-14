@@ -191,7 +191,14 @@ pub struct RichDevice {
     spillover: Vec<(String, String)>,
     /// Status reports left in each parameter's peak-meter dip.
     dip: Vec<u8>,
+    /// Changes so far, counting from 1.
+    changes: usize,
+    /// Changes (by count) whose Set command carries a corrupted value on the wire.
+    glitches: Vec<usize>,
 }
+
+/// Bits a command glitch flips in the value sent on the wire.
+pub const RICH_GLITCH_BITS: u8 = 0x40;
 
 /// Bit a spillover flips in the affected parameter's raw value.
 pub const RICH_SPILL_BIT: u8 = 0x80;
@@ -213,7 +220,17 @@ impl RichDevice {
             urb: 0,
             spillover: Vec::new(),
             dip: Vec::new(),
+            changes: 0,
+            glitches: Vec::new(),
         }
+    }
+
+    /// The `nth` change (counting every parameter, from 1) sends its Set command with
+    /// [`RICH_GLITCH_BITS`] flipped in the value, while the device itself takes the right value
+    /// (its readback stays correct): one bad message among good ones.
+    pub fn with_command_glitch(mut self, nth: usize) -> Self {
+        self.glitches.push(nth);
+        self
     }
 
     /// Deliberate spillover: every change of `changed` also flips [`RICH_SPILL_BIT`] of
@@ -350,7 +367,9 @@ impl DeviceModel for RichDevice {
         };
         self.raw[position] = raw;
         self.dip[position] = RICH_DIP_REPORTS;
-        let set = self.command(RICH_SET, position, raw);
+        self.changes += 1;
+        let wire = if self.glitches.contains(&self.changes) { raw ^ RICH_GLITCH_BITS } else { raw };
+        let set = self.command(RICH_SET, position, wire);
         self.send(t_ns, set, out);
         let commit = self.command(RICH_COMMIT, position, 0);
         self.send(t_ns + 2_000_000, commit, out);
