@@ -16,6 +16,10 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 fn app() -> axum::Router {
+    app_with_themes(None)
+}
+
+fn app_with_themes(themes_dir: Option<std::path::PathBuf>) -> axum::Router {
     let registries = RegistrySet::builtin().expect("registries");
     let devices = DeviceManager::new(registries);
     devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
@@ -25,6 +29,7 @@ fn app() -> axum::Router {
         store,
         force_dry_run: false,
         backend: "loopback".into(),
+        themes_dir,
     })
 }
 
@@ -55,6 +60,66 @@ async fn send(app: axum::Router, method: &str, uri: &str, body: Value) -> (Statu
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
     let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     (status, json)
+}
+
+/// Groups carry an optional colour (the web UI colour-codes them); an unset colour is omitted,
+/// and anything but `#rrggbb` is rejected without changing the stored workspace.
+#[tokio::test]
+async fn group_colours_round_trip_and_are_validated() {
+    let app = app();
+    let workspace = json!({
+        "version": 1,
+        "groups": [{"id": "g1", "name": "Drums", "color": "#b5473a", "children": [{"id": "g2", "name": "Kick"}]}],
+        "links": [],
+        "aliases": {}
+    });
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["groups"][0]["color"], "#b5473a");
+    assert!(body["groups"][0]["children"][0].get("color").is_none(), "an unset colour is omitted: {body}");
+
+    let bad = json!({
+        "version": 1,
+        "groups": [{"id": "g1", "name": "Drums", "children": [{"id": "g2", "name": "Kick", "color": "red"}]}],
+        "links": [],
+        "aliases": {}
+    });
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", bad).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], "bad_value");
+    assert!(body["error"]["message"].as_str().unwrap().contains("g2"), "{body}");
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["groups"][0]["color"], "#b5473a", "a rejected save changes nothing");
+}
+
+/// User themes are JSON files in the themes directory: each is listed with its parsed theme,
+/// or with the reason it could not be used. A missing or unconfigured directory lists nothing.
+#[tokio::test]
+async fn user_themes_are_listed_from_the_themes_directory() {
+    let dir = std::env::temp_dir().join(format!("gazelle-themes-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("b-graphite.json"), r##"{"name": "Graphite", "type": "dark", "colors": {"accent": "#3fb6d9"}}"##).unwrap();
+    std::fs::write(dir.join("a-broken.json"), "{ not json").unwrap();
+    std::fs::write(dir.join("c-list.json"), "[1, 2]").unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a theme").unwrap();
+
+    let (status, body) = get(app_with_themes(Some(dir.clone())), "/api/v1/themes").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let list = body.as_array().expect("a list");
+    let files: Vec<&str> = list.iter().map(|e| e["file"].as_str().unwrap()).collect();
+    assert_eq!(files, ["a-broken.json", "b-graphite.json", "c-list.json"]);
+    assert!(list[0].get("theme").is_none() && !list[0]["error"].as_str().unwrap().is_empty(), "{body}");
+    assert_eq!(list[1]["theme"]["name"], "Graphite");
+    assert!(list[1].get("error").is_none());
+    assert!(list[2]["error"].as_str().unwrap().contains("object"), "{body}");
+
+    let (_, body) = get(app_with_themes(Some(dir.join("missing"))), "/api/v1/themes").await;
+    assert_eq!(body, json!([]));
+    let (_, body) = get(app(), "/api/v1/themes").await;
+    assert_eq!(body, json!([]));
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Ground-truth vectors, the same file the protocol crate asserts against.
@@ -226,6 +291,7 @@ async fn server_wide_dry_run_cannot_be_overridden() {
         store,
         force_dry_run: true,
         backend: "loopback".into(),
+        themes_dir: None,
     });
 
     // Explicitly asking for dry_run=false must NOT defeat the server-wide safety setting.

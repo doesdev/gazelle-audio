@@ -16,6 +16,7 @@ export type {
   Timers,
   TypedDevice,
   UntypedDevice,
+  UserTheme,
 } from "./client.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";

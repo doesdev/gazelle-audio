@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gazelle_audio_server::config::default_workspace_path;
+use gazelle_audio_server::config::{default_themes_dir, default_workspace_path};
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
@@ -48,6 +48,11 @@ struct Args {
     /// Which loopback devices to create, by model.
     #[arg(long, value_delimiter = ',', default_values_t = ["quadro".to_string(), "studio".to_string()])]
     loopback_models: Vec<String>,
+
+    /// Directory of user theme JSON files for the web UI. Defaults to `themes` in the config
+    /// directory, beside the workspace file.
+    #[arg(long)]
+    themes_dir: Option<PathBuf>,
 
     /// Make each loopback device also push its cyclic reports every MS milliseconds, with a
     /// moving test pattern, so clients see state and meter traffic without hardware.
@@ -120,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store,
         force_dry_run: args.dry_run,
         backend: format!("{:?}", args.backend).to_lowercase(),
+        themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
     };
 
     let app = http::router(state);

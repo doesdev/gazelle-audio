@@ -307,6 +307,19 @@ test("the workspace goes over HTTP, and failures become GazelleError", async () 
   await client.close();
 });
 
+test("user themes are listed over HTTP", async () => {
+  const listed = [{ file: "graphite.json", theme: { name: "Graphite", type: "dark" } }, { file: "broken.json", error: "expected value" }];
+  const urls: string[] = [];
+  const fetch: FetchLike = async (url) => {
+    urls.push(url);
+    return { ok: true, status: 200, json: async () => listed };
+  };
+  const { client } = await open({ fetch });
+  assert.deepEqual(await client.themes(), listed);
+  assert.deepEqual(urls, ["http://127.0.0.1:8420/api/v1/themes"]);
+  await client.close();
+});
+
 test("a device of unknown model has no typed commands", async () => {
   const { client } = await open();
   const dev = client.device("usb:1:2:3:4");

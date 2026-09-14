@@ -95,7 +95,16 @@ export interface Client {
   /** Throws `unknown_device` when the id is not currently known. */
   device(id: string): DeviceHandle;
   readonly workspace: { get(): Promise<Workspace>; put(workspace: Workspace): Promise<Workspace> };
+  /** User theme files from the server's themes directory; the UI validates each theme. */
+  themes(): Promise<UserTheme[]>;
   close(): Promise<void>;
+}
+
+/** One file from the server's themes directory: its parsed JSON, or why it cannot be used. */
+export interface UserTheme {
+  file: string;
+  theme?: Record<string, unknown>;
+  error?: string;
 }
 
 /** The part of the standard WebSocket the client uses; tests inject a fake. */
@@ -207,9 +216,14 @@ class Connection implements Client {
   readonly #maxMs: number;
 
   readonly workspace = {
-    get: (): Promise<Workspace> => this.#http("GET"),
-    put: (workspace: Workspace): Promise<Workspace> => this.#http("PUT", workspace),
+    get: async (): Promise<Workspace> => (await this.#http("GET", "workspace")) as Workspace,
+    put: async (workspace: Workspace): Promise<Workspace> => (await this.#http("PUT", "workspace", workspace)) as Workspace,
   };
+
+  async themes(): Promise<UserTheme[]> {
+    const listed = await this.#http("GET", "themes");
+    return Array.isArray(listed) ? (listed as UserTheme[]) : [];
+  }
 
   constructor(baseUrl: string, options: ConnectOptions) {
     const Socket = options.WebSocket ?? ((globalThis as { WebSocket?: unknown }).WebSocket as SocketFactory | undefined);
@@ -514,11 +528,12 @@ class Connection implements Client {
     for (const entry of [...listeners]) if (entry.reportId === key) entry.listener(fields);
   }
 
-  async #http(method: "GET" | "PUT", workspace?: Workspace): Promise<Workspace> {
-    const url = new URL(`${API_PATH}/workspace`, this.#base).toString();
+  /** A JSON request to `API_PATH/<path>`; failures become GazelleError. */
+  async #http(method: "GET" | "PUT", path: string, body?: unknown): Promise<unknown> {
+    const url = new URL(`${API_PATH}/${path}`, this.#base).toString();
     let response: Awaited<ReturnType<FetchLike>>;
     try {
-      response = await this.#fetch(url, workspace === undefined ? { method } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(workspace) });
+      response = await this.#fetch(url, body === undefined ? { method } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     } catch (e) {
       throw new GazelleError("not_connected", `${method} ${url} failed: ${String(e)}`);
     }
@@ -534,6 +549,6 @@ class Connection implements Client {
       const message = typeof error["message"] === "string" ? error["message"] : `${method} ${url} returned HTTP ${response.status}`;
       throw new GazelleError(code, message, error["detail"]);
     }
-    return payload as Workspace;
+    return payload;
   }
 }

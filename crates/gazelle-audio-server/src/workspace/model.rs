@@ -48,6 +48,9 @@ pub struct Group {
     pub collapsed: bool,
     #[serde(default)]
     pub hidden: bool,
+    /// `#rrggbb` when the user colour-codes the group; omitted when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     /// Channels in this group, each naming its device.
     #[serde(default)]
     pub members: Vec<ChannelRef>,

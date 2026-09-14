@@ -23,6 +23,7 @@ fn app() -> axum::Router {
         store,
         force_dry_run: false,
         backend: "loopback".into(),
+        themes_dir: None,
     }))
 }
 

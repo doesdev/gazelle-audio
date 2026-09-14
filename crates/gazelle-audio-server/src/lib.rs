@@ -35,6 +35,8 @@ pub struct AppState {
     /// When set, every command is non-mutating regardless of per-request options.
     pub force_dry_run: bool,
     pub backend: String,
+    /// Where user theme JSON files for the web UI live; `None` lists no user themes.
+    pub themes_dir: Option<std::path::PathBuf>,
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

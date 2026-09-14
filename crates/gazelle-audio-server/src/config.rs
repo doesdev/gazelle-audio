@@ -2,23 +2,31 @@
 
 use std::path::PathBuf;
 
-/// The workspace file to use when `--workspace` is not given.
+/// The server's configuration directory as the environment names it, or `None` when it names
+/// none (the server then uses the working directory).
 ///
 /// `var` looks up an environment variable; it is a parameter so the precedence can be
 /// tested without mutating the process environment.
-pub fn default_workspace_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+pub fn config_dir(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     // A set-but-empty variable is treated as unset, per the XDG Base Directory spec.
     let var = |name: &str| var(name).filter(|v| !v.is_empty());
     if let Some(dir) = var("GAZELLE_CONFIG_DIR") {
-        return PathBuf::from(dir).join("workspace.json");
+        return Some(PathBuf::from(dir));
     }
     if let Some(dir) = var("XDG_CONFIG_HOME") {
-        return PathBuf::from(dir).join("gazelle").join("workspace.json");
+        return Some(PathBuf::from(dir).join("gazelle"));
     }
-    if let Some(home) = var("HOME") {
-        return PathBuf::from(home).join(".config").join("gazelle").join("workspace.json");
-    }
-    PathBuf::from("workspace.json")
+    var("HOME").map(|home| PathBuf::from(home).join(".config").join("gazelle"))
+}
+
+/// The workspace file to use when `--workspace` is not given.
+pub fn default_workspace_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    config_dir(var).map_or_else(|| PathBuf::from("workspace.json"), |dir| dir.join("workspace.json"))
+}
+
+/// The directory of user theme files for the web UI when `--themes-dir` is not given.
+pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))
 }
 
 #[cfg(test)]
@@ -66,5 +74,14 @@ mod tests {
     fn empty_xdg_config_home_is_treated_as_unset() {
         let p = default_workspace_path(env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/home/u")]));
         assert_eq!(p, PathBuf::from("/home/u/.config/gazelle/workspace.json"));
+    }
+
+    #[test]
+    fn themes_live_beside_the_workspace_in_the_config_dir() {
+        assert_eq!(default_themes_dir(env(&[("GAZELLE_CONFIG_DIR", "/srv/gazelle")])), PathBuf::from("/srv/gazelle/themes"));
+        assert_eq!(default_themes_dir(env(&[("XDG_CONFIG_HOME", "/xdg")])), PathBuf::from("/xdg/gazelle/themes"));
+        assert_eq!(default_themes_dir(env(&[("HOME", "/home/u")])), PathBuf::from("/home/u/.config/gazelle/themes"));
+        assert_eq!(default_themes_dir(env(&[])), PathBuf::from("themes"));
+        assert_eq!(config_dir(env(&[])), None);
     }
 }

@@ -113,6 +113,7 @@ mod tests {
             name: "Drums".into(),
             collapsed: true,
             hidden: false,
+            color: Some("#b5473a".into()),
             members: vec![],
             children: vec![],
         });

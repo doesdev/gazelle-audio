@@ -12,6 +12,8 @@ export interface Group {
   name: string;
   collapsed: boolean;
   hidden: boolean;
+  /** `#rrggbb` when the group is colour-coded; the server omits it when unset. */
+  color?: string;
   members: ChannelRef[];
   /** Nested sub-groups. */
   children: Group[];

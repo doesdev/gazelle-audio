@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod devices;
 pub mod health;
+pub mod themes;
 pub mod workspace;
 
 use axum::routing::{get, post};
@@ -26,6 +27,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/workspace",
             get(workspace::get_workspace).put(workspace::put_workspace),
         )
+        .route("/api/v1/themes", get(themes::list_themes))
         .route("/api/v1/ws", get(crate::ws::ws_handler))
         .with_state(state)
 }
