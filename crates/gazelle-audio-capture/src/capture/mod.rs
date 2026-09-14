@@ -5,6 +5,7 @@ pub mod event;
 pub mod import;
 pub mod pipeline;
 pub mod rate;
+pub mod usbpcap;
 pub mod writer;
 
 use decode::ByteOrder;
