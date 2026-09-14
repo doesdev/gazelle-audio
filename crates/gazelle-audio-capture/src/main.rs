@@ -139,9 +139,25 @@ async fn main() {
     }
 }
 
+fn read_probe_file(path: &Path) -> Result<ProbeFile, BoxError> {
+    let bytes = std::fs::read(path).map_err(|e| format!("plan file {}: {e}", path.display()))?;
+    Ok(serde_json::from_slice(&bytes).map_err(|e| format!("plan file {}: {e}", path.display()))?)
+}
+
 fn open_or_create(args: &ServeArgs) -> Result<SessionStore, BoxError> {
     if args.session.join("session.json").is_file() {
-        return Ok(SessionStore::open(&args.session)?);
+        let store = SessionStore::open(&args.session)?;
+        let info = store.info()?;
+        let differs = |given: Option<u16>, stored: u16| given.is_some_and(|g| g != stored);
+        if differs(args.vid, info.vid) || differs(args.pid, info.pid) {
+            eprintln!(
+                "warning: {} already targets {:04x}:{:04x}; ignoring --vid/--pid",
+                args.session.display(),
+                info.vid,
+                info.pid
+            );
+        }
+        return Ok(store);
     }
     let (Some(vid), Some(pid)) = (args.vid, args.pid) else {
         return Err("creating a session needs --vid and --pid".into());
@@ -205,11 +221,12 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // see `SigintListener`'s doc comment for why that ordering matters.
     let mut ctrl_c = SigintListener::new()?;
     let args = Arc::new(args);
+    // Parsed before the session is created, so a bad plan leaves no session.json behind.
+    let probe_file = read_probe_file(&args.plan)?;
     let store = open_or_create(&args)?;
     if args.keep_stream_payloads {
         store.update_info(|i| i.keep_stream_payloads = true)?;
     }
-    let probe_file: ProbeFile = serde_json::from_slice(&std::fs::read(&args.plan)?)?;
     let existing = store.parameters()?;
     for p in probe_file.parameters {
         match existing.iter().find(|e| e.id == p.id) {
@@ -242,10 +259,13 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", args.port)).await?;
     let port = listener.local_addr()?.port();
     let token = security::generate_token();
-    if let Some(path) = security::token_path(|k| std::env::var(k).ok()) {
-        if let Err(e) = security::write_token(&path, &token) {
-            tracing::warn!(error = %e, path = %path.display(), "could not write token file");
+    match security::token_path(|k| std::env::var(k).ok()) {
+        Some(path) => {
+            if let Err(e) = security::write_token(&path, &token) {
+                tracing::warn!(error = %e, path = %path.display(), "could not write token file");
+            }
         }
+        None => eprintln!("warning: no LOCALAPPDATA or HOME, so no token file was written; use the token printed below"),
     }
     println!("panel: http://127.0.0.1:{port}/");
     println!("token: {token}");
@@ -342,7 +362,12 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     };
     tokio::select! {
         status = finished => {
-            println!("probe {} {:?}; press Ctrl-C to exit", planned.probe_id, status);
+            let status = match status {
+                Some(RunStatus::Completed) => "completed",
+                Some(RunStatus::Abandoned) => "abandoned",
+                _ => "ended",
+            };
+            println!("probe {} {status}; press Ctrl-C to exit", planned.probe_id);
             ctrl_c.recv().await;
         }
         _ = ctrl_c.recv() => {

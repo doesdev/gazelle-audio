@@ -109,6 +109,49 @@ fn serve_demo_starts_a_probe_behind_the_token() {
 }
 
 #[test]
+fn serve_names_a_bad_plan_file_and_creates_no_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("broken-plan.json");
+    std::fs::write(&plan, "{ not json").unwrap();
+    let session = dir.path().join("session");
+    let out = Command::new(BIN)
+        .args(["serve", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "demo", "--no-wait"])
+        .env("LOCALAPPDATA", dir.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("broken-plan.json"), "the error names the plan file: {stderr}");
+    assert!(!session.join("session.json").exists(), "a bad plan must not leave a session behind");
+}
+
+#[test]
+fn serve_warns_when_vid_pid_disagree_with_an_existing_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session");
+    let plan = write_demo_plan(dir.path());
+    // `--source import` without `--file` fails only after the session has been opened or
+    // created, so the first run creates a 1234:abcd session and the second reopens it.
+    let serve = |vid: &str, pid: &str| {
+        Command::new(BIN)
+            .args(["serve", "--session", session.to_str().unwrap(), "--vid", vid, "--pid", pid, "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "import", "--no-wait"])
+            .env("LOCALAPPDATA", dir.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let first = serve("0x1234", "0xabcd");
+    assert!(session.join("session.json").is_file(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(!String::from_utf8_lossy(&first.stderr).contains("ignoring --vid/--pid"));
+    let out = serve("0x23e5", "0xa100");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("already targets 1234:abcd; ignoring --vid/--pid"), "{stderr}");
+    assert!(stderr.contains("--source import needs --file"), "{stderr}");
+}
+
+#[test]
 fn serve_without_no_wait_fails_fast_when_stdin_is_closed() {
     let dir = tempfile::tempdir().unwrap();
     let plan = write_demo_plan(dir.path());

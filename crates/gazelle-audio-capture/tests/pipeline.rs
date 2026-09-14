@@ -162,3 +162,17 @@ fn rate_meter_counts_a_sliding_second() {
     assert_eq!(m.per_second(1_490_000_000), 25.0, "records at 500..=980 ms remain");
     assert_eq!(m.per_second(5_000_000_000), 0.0);
 }
+
+#[test]
+fn rate_meter_survives_a_clock_step_backwards() {
+    let mut m = RateMeter::new(1_000_000_000);
+    m.record(10_000_000_000);
+    // The wall clock stepped back 5 s; the old record must still age out on time, rather than
+    // sitting at the front and blocking eviction of everything recorded after it.
+    for i in 0..10 {
+        m.record(5_000_000_000 + i * 10_000_000);
+    }
+    assert_eq!(m.per_second(5_100_000_000), 10.0, "the future-dated record is outside (now - 1 s, now]");
+    assert_eq!(m.per_second(6_200_000_000), 0.0);
+    assert_eq!(m.per_second(10_500_000_000), 1.0, "the future-dated record counts once its time comes");
+}

@@ -382,6 +382,10 @@ mod platform {
 
     pub fn is_elevated() -> Option<bool> {
         let out = Command::new("whoami").arg("/groups").output().ok()?;
+        // A failed whoami is "unknown", not "not elevated".
+        if !out.status.success() {
+            return None;
+        }
         Some(elevated_from_whoami_groups(&String::from_utf8_lossy(&out.stdout)))
     }
 
