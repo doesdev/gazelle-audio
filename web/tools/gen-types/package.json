@@ -1,0 +1,10 @@
+{
+  "name": "@gazelle-audio/gen-types",
+  "version": "0.0.0",
+  "description": "Generates gazelle-audio-client types from refs/schemas/*.json (unpublished)",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "gen-types": "./src/main.ts"
+  }
+}

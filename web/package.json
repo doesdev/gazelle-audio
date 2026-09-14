@@ -1,0 +1,17 @@
+{
+  "name": "gazelle-audio-web-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test \"packages/*/test/**/*.test.ts\" \"tools/*/test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "typescript": "5.9.3"
+  }
+}
