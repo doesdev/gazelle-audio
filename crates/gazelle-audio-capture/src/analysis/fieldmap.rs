@@ -198,12 +198,22 @@ fn position(f: &Field) -> FieldPosition {
     FieldPosition { byte: f.byte, bits: [f.bits.0, f.bits.1] }
 }
 
-/// The first attributed field; any others are listed as a caveat.
+/// The first attributed field that does not oscillate (else the first); others are listed as
+/// caveats, meter-like ones separately.
 fn primary(attribution: &Attribution, what: &str, confidence: f64, caveats: &mut Vec<String>) -> Option<FieldEntry> {
-    let first = attribution.fields.first()?;
-    if attribution.fields.len() > 1 {
-        let others: Vec<String> = attribution.fields[1..].iter().map(|f| format!("{} byte {}", channel_text(&f.channel), f.byte)).collect();
-        caveats.push(format!("{} {what} bytes satisfy the rules; the first is reported, the others are: {}", attribution.fields.len(), others.join(", ")));
+    let first = attribution.fields.iter().find(|f| !f.oscillates).or_else(|| attribution.fields.first())?;
+    let describe = |f: &Field| format!("{} byte {}", channel_text(&f.channel), f.byte);
+    let others: Vec<&Field> = attribution.fields.iter().filter(|f| !std::ptr::eq(*f, first)).collect();
+    let steady: Vec<String> = others.iter().filter(|f| !f.oscillates).map(|f| describe(f)).collect();
+    let meters: Vec<String> = others.iter().filter(|f| f.oscillates).map(|f| describe(f)).collect();
+    if !steady.is_empty() {
+        caveats.push(format!("{} {what} bytes satisfy the rules; the first is reported, the others are: {}", steady.len() + 1, steady.join(", ")));
+    }
+    if !meters.is_empty() {
+        caveats.push(format!("{} meter-like {what} byte(s) settle with the value but dip and recover within a step, so are not reported: {}", meters.len(), meters.join(", ")));
+    }
+    if first.oscillates {
+        caveats.push(format!("the reported {what} byte dips and recovers within a step and may be a meter"));
     }
     Some(FieldEntry {
         channel: first.channel.into(),

@@ -162,6 +162,11 @@ pub const RICH_VALUE: usize = 3;
 pub const RICH_COUNTER: usize = 1;
 pub const RICH_METER: usize = 2;
 pub const RICH_READBACK_BASE: usize = 4;
+/// `[8 + i]`: a peak meter for parameter `i`. It rests at a level set by the parameter's raw
+/// value and dips and recovers for [`RICH_DIP_REPORTS`] status reports after each change, like
+/// the Studio+ `peaks_preamp` bytes.
+pub const RICH_PEAK_BASE: usize = 8;
+pub const RICH_DIP_REPORTS: u8 = 6;
 pub const RICH_CHECKSUM: usize = 15;
 
 /// A device shaped like the audio interfaces captured live on 2026-09-14: interrupt OUT commands on
@@ -184,6 +189,8 @@ pub struct RichDevice {
     urb: u64,
     /// `(changed, affected)`: changing `changed` also rewrites `affected`.
     spillover: Vec<(String, String)>,
+    /// Status reports left in each parameter's peak-meter dip.
+    dip: Vec<u8>,
 }
 
 /// Bit a spillover flips in the affected parameter's raw value.
@@ -205,6 +212,7 @@ impl RichDevice {
             status_next: true,
             urb: 0,
             spillover: Vec::new(),
+            dip: Vec::new(),
         }
     }
 
@@ -220,6 +228,7 @@ impl RichDevice {
     pub fn with_parameter(mut self, id: &str, values: &[&str]) -> Self {
         self.parameters.push((id.to_string(), values.iter().map(|v| v.to_string()).collect()));
         self.raw.push(0);
+        self.dip.push(0);
         self
     }
 
@@ -311,8 +320,17 @@ impl DeviceModel for RichDevice {
             bytes[RICH_COUNTER] = self.counter;
             self.counter = self.counter.wrapping_add(1);
             bytes[RICH_METER] = self.next_noise();
-            for (slot, raw) in bytes[RICH_READBACK_BASE..RICH_CHECKSUM].iter_mut().zip(&self.raw) {
+            for (slot, raw) in bytes[RICH_READBACK_BASE..RICH_PEAK_BASE].iter_mut().zip(&self.raw) {
                 *slot = *raw;
+            }
+            for (i, slot) in bytes[RICH_PEAK_BASE..RICH_CHECKSUM].iter_mut().enumerate().take(self.raw.len()) {
+                let rest = 96u8.wrapping_sub(self.raw[i].wrapping_mul(3));
+                *slot = match self.dip[i] {
+                    0 => rest,
+                    d if d % 2 == 0 => rest.wrapping_sub(10),
+                    _ => rest.wrapping_sub(4),
+                };
+                self.dip[i] = self.dip[i].saturating_sub(1);
             }
             bytes[RICH_CHECKSUM] = bytes[..RICH_CHECKSUM].iter().fold(0u8, |sum, b| sum.wrapping_add(*b));
         } else {
@@ -331,6 +349,7 @@ impl DeviceModel for RichDevice {
             return;
         };
         self.raw[position] = raw;
+        self.dip[position] = RICH_DIP_REPORTS;
         let set = self.command(RICH_SET, position, raw);
         self.send(t_ns, set, out);
         let commit = self.command(RICH_COMMIT, position, 0);
@@ -338,6 +357,7 @@ impl DeviceModel for RichDevice {
         let affected: Vec<usize> = self.spillover.iter().filter(|(changed, _)| changed == parameter).filter_map(|(_, affected)| self.position(affected)).collect();
         for (k, other) in affected.into_iter().enumerate() {
             self.raw[other] ^= RICH_SPILL_BIT;
+            self.dip[other] = RICH_DIP_REPORTS;
             let spill = self.command(RICH_SET, other, self.raw[other]);
             self.send(t_ns + 4_000_000 + k as u64 * 2_000_000, spill, out);
         }

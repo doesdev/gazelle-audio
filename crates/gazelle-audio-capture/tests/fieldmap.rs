@@ -75,7 +75,9 @@ fn a_clean_probe_yields_a_complete_field_map() {
 
     let readback = map.readback.as_ref().expect("readback attributed");
     assert_eq!(readback.channel.discriminator.as_deref(), Some("0x73"));
-    assert_eq!(readback.field.byte, RICH_READBACK_BASE);
+    assert_eq!(readback.field.byte, RICH_READBACK_BASE, "the steady readback wins over the peak meter");
+    let meter_caveat = format!("byte {}", RICH_PEAK_BASE);
+    assert!(map.caveats.iter().any(|c| c.contains("meter-like") && c.contains(&meter_caveat)), "{:?}", map.caveats);
 
     assert!(map.shared_with.is_empty());
     assert!(map.recommendations.is_empty(), "{:?}", map.recommendations);
@@ -133,7 +135,8 @@ fn short_templates_collapse_only_long_trailing_runs() {
 fn spillover_leaves_no_attribution_and_recommends_probing_the_control() {
     let map = map_for(target().with_spillover("mute", "monitor_level"), ScriptedOperator::default());
     assert!(map.command.is_none() && map.readback.is_none());
-    assert_eq!(map.shared_with.len(), 2);
+    // The command value byte, the readback byte and the peak meter all move with the spill.
+    assert_eq!(map.shared_with.len(), 3, "{:?}", map.shared_with);
     assert!(map.shared_with.iter().all(|s| s.parameter == "mute"));
     assert!(map.caveats.iter().any(|c| c.contains("no command field")));
     assert!(map.recommendations.iter().any(|r| r.contains("declare and probe mute")), "{:?}", map.recommendations);

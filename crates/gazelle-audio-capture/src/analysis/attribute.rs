@@ -39,6 +39,9 @@ pub struct Field {
     pub values: Vec<(String, u8)>,
     /// `(step, packet_index)` of the message each Set step contributed.
     pub evidence: Vec<(usize, u64)>,
+    /// Within some step window the byte returned to a value it had left. A setting moves once
+    /// per change; a meter that tracks it dips and recovers (the Studio+ peak meters did).
+    pub oscillates: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -176,8 +179,21 @@ fn judge(
         }
     }
 
+    let oscillates = (0..segments.len()).any(|i| {
+        let Some(messages) = observed[i].get(&channel) else {
+            return false;
+        };
+        let mut runs: Vec<u8> = Vec::new();
+        for v in messages.iter().filter(|m| matches(m)).filter_map(|m| m.bytes.get(byte).copied()) {
+            if runs.last() != Some(&v) {
+                runs.push(v);
+            }
+        }
+        runs.iter().enumerate().any(|(k, v)| runs[..k].contains(v))
+    });
+
     let mask = values.iter().flat_map(|(_, a)| values.iter().map(move |(_, b)| a ^ b)).fold(0u8, |acc, x| acc | x);
     let bits = (mask.trailing_zeros() as u8, 7 - mask.leading_zeros() as u8);
     let template = template.iter().map(|t| t.map_or_else(|| "??".to_string(), |v| format!("{v:02x}"))).collect::<Vec<_>>().join(" ");
-    Some((Field { channel, byte, bits, template, values, evidence }, shared))
+    Some((Field { channel, byte, bits, template, values, evidence, oscillates }, shared))
 }

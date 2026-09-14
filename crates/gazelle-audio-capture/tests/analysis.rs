@@ -151,7 +151,10 @@ fn spillover_from_the_control_parameter_is_reported_shared_not_attributed() {
     let readback = attribute_readback(&segs, &channels, &noise, "monitor_level");
     assert!(readback.fields.is_empty(), "{:?}", readback.fields);
     let status = rich_channel(RICH_STATUS_ENDPOINT, Direction::In, RICH_STATUS);
-    assert_eq!(readback.shared.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(), vec![(status, RICH_READBACK_BASE + position)]);
+    assert_eq!(
+        readback.shared.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(),
+        vec![(status, RICH_READBACK_BASE + position), (status, RICH_PEAK_BASE + position)]
+    );
 
     assert_eq!(attribute_commands(&segs, &channels, "mute").fields, vec![]);
 }
@@ -219,8 +222,14 @@ fn rich_device_command_and_readback_are_attributed_with_noise_masked() {
     let noise = noise_model(&segs, &channels);
     let readback = attribute_readback(&segs, &channels, &noise, "monitor_level");
     let status = rich_channel(RICH_STATUS_ENDPOINT, Direction::In, RICH_STATUS);
-    assert_eq!(readback.fields.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(), vec![(status, RICH_READBACK_BASE + position)]);
+    // Both the readback byte and the peak meter settle with the value; only the meter dips and
+    // recovers within a step.
+    assert_eq!(
+        readback.fields.iter().map(|f| (f.channel, f.byte, f.oscillates)).collect::<Vec<_>>(),
+        vec![(status, RICH_READBACK_BASE + position, false), (status, RICH_PEAK_BASE + position, true)]
+    );
     assert!(readback.shared.is_empty());
+    assert!(commands.fields.iter().all(|f| !f.oscillates), "one Set per change never revisits a value");
     for masked in [
         MaskedByte { channel: status, byte: RICH_COUNTER, class: ByteClass::Counter { step: 1 } },
         MaskedByte { channel: status, byte: RICH_METER, class: ByteClass::Noisy },
