@@ -555,6 +555,7 @@ dependencies = [
  "getrandom 0.3.4",
  "http-body-util",
  "pcap-file",
+ "reqwest",
  "rmcp",
  "schemars",
  "serde",

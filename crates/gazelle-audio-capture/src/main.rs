@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use gazelle_audio_capture::agent::drive::{self as driving, DriveConfig, DriveEvent, DEFAULT_MAX_TURNS};
 use gazelle_audio_capture::agent::mcp;
 use gazelle_audio_capture::agent::openai::{self, AgentApp};
 use gazelle_audio_capture::agent::relay;
@@ -45,6 +46,8 @@ enum Command {
     Agent(AgentArgs),
     /// Relay MCP on stdio to a running `agent` helper (for clients that launch MCP servers).
     McpStdio(McpStdioArgs),
+    /// Host a session like `agent` and run a chat-completions model on it until it answers.
+    Drive(DriveArgs),
     /// List USBPcap root hubs and attached devices (Windows).
     Hubs {
         #[arg(long, default_value = DEFAULT_EXE)]
@@ -155,6 +158,24 @@ struct McpStdioArgs {
 }
 
 #[derive(Args)]
+struct DriveArgs {
+    #[command(flatten)]
+    host: AgentArgs,
+    /// OpenAI-compatible API root, e.g. http://127.0.0.1:11434/v1 (plain HTTP only for now).
+    #[arg(long)]
+    base_url: String,
+    #[arg(long)]
+    model: String,
+    /// Environment variable holding the API key, sent as a bearer token when set.
+    #[arg(long, default_value = "OPENAI_API_KEY")]
+    api_key_env: String,
+    #[arg(long, default_value_t = DEFAULT_MAX_TURNS)]
+    max_turns: usize,
+    /// What to do, e.g. "Map the monitor level of the interface".
+    task: String,
+}
+
+#[derive(Args)]
 struct AnalyzeArgs {
     /// Session directory.
     #[arg(long)]
@@ -190,6 +211,7 @@ async fn main() {
         Command::Analyze(args) => analyze(args),
         Command::Agent(args) => agent(args).await,
         Command::McpStdio(args) => mcp_stdio(args).await,
+        Command::Drive(args) => run_drive(args).await,
         Command::Hubs { usbpcap_exe } => hubs(&usbpcap_exe),
     };
     if let Err(e) = result {
@@ -262,11 +284,60 @@ fn check_usbpcap(source: SourceKind, target: Option<(u16, u16)>) -> Option<bool>
     attached
 }
 
+/// One hosted session: its operations, the panel's controller and the HTTP server.
+struct Host {
+    ops: Ops,
+    controller: Controller,
+    server: tokio::task::JoinHandle<std::io::Result<()>>,
+}
+
+impl Host {
+    /// Abandons a probe that is still running, so its capture is finished, and stops serving.
+    async fn stop(self) {
+        let controller = self.controller.clone();
+        let _ = tokio::task::spawn_blocking(move || controller.abandon_probe()).await;
+        self.server.abort();
+    }
+}
+
 /// Hosts one session for agents until Ctrl-C: the panel, `/mcp` and `/openai/*` on one port,
-/// behind the bearer token and the Host check. A probe still running at Ctrl-C is abandoned so
-/// its capture is finished.
+/// behind the bearer token and the Host check.
 async fn agent(args: AgentArgs) -> Result<(), BoxError> {
     let mut ctrl_c = SigintListener::new()?;
+    let host = start_host(&args).await?;
+    ctrl_c.recv().await;
+    host.stop().await;
+    println!("stopped");
+    Ok(())
+}
+
+/// Hosts the session as `agent` does, so the operator has the panel for live probes, and runs
+/// the model until it answers or Ctrl-C. Assistant text goes to stdout, tool activity to stderr.
+async fn run_drive(args: DriveArgs) -> Result<(), BoxError> {
+    let mut ctrl_c = SigintListener::new()?;
+    let api_key = std::env::var(&args.api_key_env).ok().filter(|k| !k.is_empty());
+    let config = DriveConfig { base_url: args.base_url.clone(), model: args.model.clone(), api_key, max_turns: args.max_turns };
+    let host = start_host(&args.host).await?;
+    let mut report = |event: &DriveEvent| match event {
+        DriveEvent::Assistant(text) => println!("{text}"),
+        DriveEvent::ToolCall { name, arguments } => eprintln!("-> {name} {arguments}"),
+        DriveEvent::ToolResult { name, ok } => eprintln!("<- {name} {}", if *ok { "ok" } else { "error" }),
+    };
+    let outcome = tokio::select! {
+        result = driving::drive(&host.ops, &config, &args.task, &mut report) => Some(result),
+        _ = ctrl_c.recv() => None,
+    };
+    host.stop().await;
+    match outcome {
+        Some(result) => result.map(|_| ()).map_err(Into::into),
+        None => {
+            println!("interrupted");
+            Ok(())
+        }
+    }
+}
+
+async fn start_host(args: &AgentArgs) -> Result<Host, BoxError> {
     let target = match (args.vid, args.pid) {
         (Some(vid), Some(pid)) => Some((vid, pid)),
         _ => SessionStore::open(&args.session).ok().and_then(|s| s.info().ok()).map(|i| (i.vid, i.pid)),
@@ -293,13 +364,7 @@ async fn agent(args: AgentArgs) -> Result<(), BoxError> {
     std::io::stdout().flush()?;
     panel::spawn_ticker(controller.clone(), Duration::from_millis(100));
     let server = tokio::spawn(async move { axum::serve(listener, routes).await });
-
-    ctrl_c.recv().await;
-    let stopping = controller.clone();
-    let _ = tokio::task::spawn_blocking(move || stopping.abandon_probe()).await;
-    server.abort();
-    println!("stopped");
-    Ok(())
+    Ok(Host { ops, controller, server })
 }
 
 /// Relays stdio to the helper until the client closes stdin. Stdout carries only MCP messages;
