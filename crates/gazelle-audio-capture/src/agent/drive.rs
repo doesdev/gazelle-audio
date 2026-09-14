@@ -42,7 +42,7 @@ pub struct Outcome {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DriveError {
-    #[error("--base-url must start with http:// (no TLS backend is built in yet): {0}")]
+    #[error("--base-url must start with http:// or https://: {0}")]
     Scheme(String),
     #[error("chat completions request failed: {0}")]
     Http(#[from] reqwest::Error),
@@ -56,10 +56,11 @@ pub enum DriveError {
 
 /// Runs `task` to a final answer.
 pub async fn drive(ops: &Ops, config: &DriveConfig, task: &str, on_event: &mut dyn FnMut(&DriveEvent)) -> Result<Outcome, DriveError> {
-    if !config.base_url.starts_with("http://") {
+    if !(config.base_url.starts_with("http://") || config.base_url.starts_with("https://")) {
         return Err(DriveError::Scheme(config.base_url.clone()));
     }
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    super::ensure_crypto_provider();
     let client = reqwest::Client::new();
     let tools = openai_tools();
     let mut messages = vec![json!({ "role": "system", "content": GUIDANCE }), json!({ "role": "user", "content": task })];

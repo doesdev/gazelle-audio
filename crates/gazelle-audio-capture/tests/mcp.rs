@@ -28,6 +28,7 @@ async fn serve() -> u16 {
 }
 
 fn config(port: u16, token: Option<&str>) -> StreamableHttpClientTransportConfig {
+    gazelle_audio_capture::agent::ensure_crypto_provider();
     let mut headers = HashMap::new();
     if let Some(t) = token {
         headers.insert(HeaderName::from_static("authorization"), HeaderValue::from_str(&format!("Bearer {t}")).unwrap());

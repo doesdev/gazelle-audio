@@ -30,6 +30,7 @@ impl Relay {
         let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "the token is not a valid header value")?;
         let headers: HashMap<HeaderName, HeaderValue> = HashMap::from([(header::AUTHORIZATION, bearer)]);
         let config = StreamableHttpClientTransportConfig::with_uri(url).custom_headers(headers);
+        super::ensure_crypto_provider();
         let upstream = ().serve(StreamableHttpClientTransport::from_config(config)).await.map_err(|e| format!("connecting to {url}: {e}"))?;
         Ok(Self { upstream })
     }

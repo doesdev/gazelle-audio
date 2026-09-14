@@ -159,11 +159,16 @@ async fn a_model_that_never_answers_hits_the_turn_limit() {
 }
 
 #[tokio::test]
-async fn api_errors_and_https_urls_are_reported() {
+async fn api_errors_bad_schemes_and_unreachable_https_are_reported() {
     let (base_url, _) = mock_server(Arc::new(|_, _| (StatusCode::UNAUTHORIZED, "invalid api key").into_response())).await;
     let result = drive(&Ops::new(Environment::default()), &config(&base_url), "task", &mut |_| {}).await;
     assert!(matches!(&result, Err(DriveError::Status { status: 401, body }) if body == "invalid api key"), "{result:?}");
 
-    let result = drive(&Ops::new(Environment::default()), &config("https://api.example.com/v1"), "task", &mut |_| {}).await;
+    let result = drive(&Ops::new(Environment::default()), &config("ftp://api.example.com/v1"), "task", &mut |_| {}).await;
     assert!(matches!(result, Err(DriveError::Scheme(_))), "{result:?}");
+
+    // An https client builds (the ring provider is installed) and fails only at connect.
+    let unused = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let result = drive(&Ops::new(Environment::default()), &config(&format!("https://127.0.0.1:{unused}/v1")), "task", &mut |_| {}).await;
+    assert!(matches!(result, Err(DriveError::Http(_))), "{result:?}");
 }

@@ -17,8 +17,9 @@ clap = { version = "~4.5.61", features = ["derive"] }
 futures-util = "0.3"
 getrandom = "0.3"
 pcap-file = "=2.0.0"
-# drive's chat-completions client; plain HTTP until a TLS backend is chosen (decision A34).
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# drive's chat-completions client: rustls with the ring provider, installed at runtime (decision A35).
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rmcp = { version = "3.3", features = ["server", "client", "macros", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
