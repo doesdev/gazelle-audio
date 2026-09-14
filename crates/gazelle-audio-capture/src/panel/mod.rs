@@ -64,10 +64,20 @@ pub async fn serve(listener: TcpListener, app: PanelApp) -> std::io::Result<()> 
 pub fn spawn_ticker(controller: Controller, period: Duration) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(period);
+        // A missed tick (e.g. while the tick below is running on a blocking thread) should not
+        // fire a burst of catch-up ticks once it returns.
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
-            if let Err(e) = controller.tick() {
-                tracing::warn!(error = %e, "tick failed");
+            let controller = controller.clone();
+            // `Controller::tick` can join the capture thread while holding the controller's
+            // inner lock, on the tick that finishes a probe. Run it on a blocking thread so a
+            // capture source that is slow to stop cannot stall this task (or, on a
+            // current-thread runtime, every other task).
+            match tokio::task::spawn_blocking(move || controller.tick()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "tick failed"),
+                Err(e) => tracing::warn!(error = %e, "tick task panicked"),
             }
         }
     })
@@ -75,10 +85,15 @@ pub fn spawn_ticker(controller: Controller, period: Duration) -> tokio::task::Jo
 
 /// Accepted exception to spec §9 (plan amendments, Task 12): this route is loadable without the
 /// bearer token, since the token has to reach the browser somehow before the page's own script
-/// can use it. It stays 127.0.0.1-only and passes the Host/Origin checks like every other route;
-/// every other HTTP and WS call still requires the bearer token.
-async fn page(State(app): State<PanelApp>) -> Html<String> {
-    Html(PAGE.replace(TOKEN_PLACEHOLDER, &app.token))
+/// can use it. It still passes the Host check (`with_host_check`, applied by `serve`) and, like
+/// the WS upgrade, rejects a present-but-foreign `Origin` while allowing an absent one
+/// (`security::origin_allowed`); every other HTTP and WS call still requires the bearer token.
+async fn page(State(app): State<PanelApp>, headers: HeaderMap) -> Response {
+    let origin = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    if !security::origin_allowed(origin, app.port) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Html(PAGE.replace(TOKEN_PLACEHOLDER, &app.token)).into_response()
 }
 
 async fn api_state(State(app): State<PanelApp>, headers: HeaderMap) -> Response {

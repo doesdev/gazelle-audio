@@ -62,7 +62,18 @@ async fn run(socket: WebSocket, controller: Controller) {
             message = stream.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     let failure = match serde_json::from_str::<OperatorCommand>(text.as_str()) {
-                        Ok(command) => controller.operator(&OperatorAuthority::grant(), command).err().map(|e| e.to_string()),
+                        Ok(command) => {
+                            let controller = controller.clone();
+                            // `Controller::operator` can join the capture thread while holding
+                            // the controller's inner lock, on the command that finishes the
+                            // probe. Run it on a blocking thread so a capture source that is
+                            // slow to stop cannot stall this connection's task (or, on a
+                            // current-thread runtime, every other task sharing it).
+                            match tokio::task::spawn_blocking(move || controller.operator(&OperatorAuthority::grant(), command)).await {
+                                Ok(result) => result.err().map(|e| e.to_string()),
+                                Err(join_error) => Some(format!("internal error: {join_error}")),
+                            }
+                        }
                         Err(e) => Some(format!("bad command: {e}")),
                     };
                     if let Some(message) = failure {
