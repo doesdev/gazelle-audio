@@ -5,6 +5,7 @@ use serde::Serialize;
 use super::attribute::{attribute_commands, attribute_readback, Attribution, Field};
 use super::channel::{ChannelKey, Channels};
 use super::encoding::{fit, Encoding, Model};
+use super::group::command_sequence;
 use super::noise::{noise_model, ByteClass};
 use super::segment::segments;
 use crate::capture::event::{Direction, TransferType, UsbEvent};
@@ -90,6 +91,19 @@ pub struct FieldEntry {
     /// Raw byte per UI value observed on Set steps.
     pub values: Vec<(String, u8)>,
     pub confidence: f64,
+    /// Commands only: every message one change emits, in time order, when there is more than
+    /// the value-carrying one.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sequence: Vec<SequenceEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SequenceEntry {
+    pub channel: ChannelRef,
+    pub template: String,
+    /// Median time relative to the value-carrying message.
+    pub offset_ms: f64,
+    pub carries_value: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -126,7 +140,16 @@ pub fn field_map(input: &ProbeInput<'_>, parameter: &str) -> FieldMap {
 
     let mut caveats = Vec::new();
     let mut recommendations = Vec::new();
-    let command = primary(&commands, "command", confidence, &mut caveats);
+    let mut command = primary(&commands, "command", confidence, &mut caveats);
+    if let (Some(entry), Some(field)) = (command.as_mut(), commands.fields.first()) {
+        let sequence = command_sequence(&segs, &channels, field);
+        if sequence.len() > 1 {
+            entry.sequence = sequence
+                .into_iter()
+                .map(|m| SequenceEntry { channel: m.channel.into(), template: m.template, offset_ms: m.offset_ms, carries_value: m.carries_value })
+                .collect();
+        }
+    }
     let readback_entry = primary(&readback, "readback", confidence, &mut caveats);
     if command.is_none() {
         caveats.push(format!("no command field was attributed to {parameter}"));
@@ -182,7 +205,15 @@ fn primary(attribution: &Attribution, what: &str, confidence: f64, caveats: &mut
         let others: Vec<String> = attribution.fields[1..].iter().map(|f| format!("{} byte {}", channel_text(&f.channel), f.byte)).collect();
         caveats.push(format!("{} {what} bytes satisfy the rules; the first is reported, the others are: {}", attribution.fields.len(), others.join(", ")));
     }
-    Some(FieldEntry { channel: first.channel.into(), template: first.template.clone(), field: position(first), encoding: fit(&first.values), values: first.values.clone(), confidence })
+    Some(FieldEntry {
+        channel: first.channel.into(),
+        template: first.template.clone(),
+        field: position(first),
+        encoding: fit(&first.values),
+        values: first.values.clone(),
+        confidence,
+        sequence: Vec::new(),
+    })
 }
 
 /// 1.0 reduced ×0.9 per clock-suspect Set step of the parameter, ×0.9 per such step whose
@@ -316,6 +347,13 @@ fn entry_lines(title: &str, entry: &Option<FieldEntry>, lines: &mut Vec<String>)
     lines.push(format!("- Field: byte {}, bits {}–{}", e.field.byte, e.field.bits[0], e.field.bits[1]));
     lines.push(format!("- Encoding: {}", encoding_text(&e.encoding)));
     lines.push(format!("- Confidence: {:.2}", e.confidence));
+    if !e.sequence.is_empty() {
+        lines.push(format!("- Sequence of {} messages per change:", e.sequence.len()));
+        for (i, m) in e.sequence.iter().enumerate() {
+            let marker = if m.carries_value { " (value)" } else { "" };
+            lines.push(format!("  {}. {:+.1} ms {}{marker}: `{}`", i + 1, m.offset_ms, channel_ref_text(&m.channel), short_template(&m.template)));
+        }
+    }
     lines.push(String::new());
     lines.push("| UI value | Raw |".into());
     lines.push("|---|---|".into());

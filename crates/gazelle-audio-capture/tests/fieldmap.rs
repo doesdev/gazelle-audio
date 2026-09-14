@@ -92,10 +92,21 @@ fn a_clean_probe_yields_a_complete_field_map() {
 
     assert!(!map.caveats.iter().any(|c| c.contains("distinct values")), "three values are enough: {:?}", map.caveats);
 
+    // One change emits a Set (carrying the value) and, 2 ms later, a Commit.
+    let sequence = &command.sequence;
+    assert_eq!(sequence.len(), 2, "{sequence:?}");
+    assert!(sequence[0].carries_value && sequence[0].offset_ms == 0.0);
+    assert_eq!(sequence[0].channel.discriminator.as_deref(), Some("0x70"));
+    assert_eq!(sequence[1].channel.discriminator.as_deref(), Some("0x71"));
+    assert!(!sequence[1].carries_value);
+    assert!((sequence[1].offset_ms - 2.0).abs() < 1e-9, "{}", sequence[1].offset_ms);
+    assert!(sequence[1].template.starts_with("71 ?? 01 00"), "{}", sequence[1].template);
+    assert!(map.readback.as_ref().unwrap().sequence.is_empty());
+
     let md = report(&map);
     // RichDevice commands are 32 bytes: 4 header/value bytes then 28 zeros, collapsed for people.
     let short = format!("`70 ?? {:02x} ?? … 28 × 00`", 1);
-    for needle in ["# Field map: monitor_level", "## Command", "ep 0x01 out interrupt disc 0x70", short.as_str(), "## Readback", "| -6 dB | 0x01 (1) |", "## Evidence"] {
+    for needle in ["# Field map: monitor_level", "## Command", "ep 0x01 out interrupt disc 0x70", short.as_str(), "Sequence of 2 messages per change:", "+2.0 ms ep 0x01 out interrupt disc 0x71", "## Readback", "| -6 dB | 0x01 (1) |", "## Evidence"] {
         assert!(md.contains(needle), "{needle:?} missing from:\n{md}");
     }
     assert!(command.template.ends_with("00 00 00"), "the JSON keeps the full template");
