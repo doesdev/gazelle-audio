@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src", "packages/*/test", "tools/*/src", "tools/*/test"]
+  "include": ["packages/*/src", "packages/*/test", "tools/*/src", "tools/*/test", "apps/*/src", "apps/*/test", "apps/*/scripts", "apps/*/vite.config.ts"]
 }
