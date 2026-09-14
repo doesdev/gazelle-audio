@@ -227,7 +227,7 @@
         {
           "name": "preamps",
           "type": "{\"fields\": [[\"pretype\", \"ubyte\", 4], [\"phantom\", \"ubyte\", 1], [\"hpf\", \"ubyte\", 1], [\"phase_inv\", \"ubyte\", 1], [\"zero_cross\", \"ubyte\", 1]], \"count\": 12}",
-          "size": 60
+          "size": 12
         },
         {
           "name": "reserved9",

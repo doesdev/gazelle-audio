@@ -98,12 +98,21 @@ def struct_size(d):
     """Size of a nested struct.
 
     Two shapes appear in the panels:
-      1. {'fields': [[name, type, size?], ...], 'count': N}   -> sum(field sizes) * N
+      1. {'fields': [[name, type, bit_width?], ...], 'count': N}
+         -> ceil(sum(field bits) / 8) * N
       2. {'elem_type': 'ubyte * K', 'count': N}               -> elem_size * N
+
+    A struct element packs its fields bit by bit (reference/protocol.md, "Cyclic reports"),
+    so a field with a bit width contributes those bits, not its type's whole bytes. Summing
+    byte sizes made `preamps` 5 bytes per element instead of 1; the live Studio+ capture puts
+    `peaks_mixer` and `peaks_preamp` where the bit-packed layout does.
     """
     if "fields" in d:
-        total = sum(elem_size(f[1]) for f in d["fields"])
-        return total * d.get("count", 1)
+        bits = 0
+        for f in d["fields"]:
+            width = f[2] if len(f) > 2 and f[2] else None
+            bits += width if width else elem_size(f[1]) * 8
+        return (bits + 7) // 8 * d.get("count", 1)
     if "elem_type" in d:
         return elem_size(d["elem_type"]) * d.get("count", 1)
     return 0

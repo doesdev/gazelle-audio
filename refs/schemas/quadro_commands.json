@@ -172,7 +172,7 @@
         {
           "name": "volumes",
           "type": "{\"fields\": [[\"volume\", \"ubyte\", 8], [\"mute\", \"ubyte\", 1], [\"dim_on\", \"ubyte\", 1], [\"mono\", \"ubyte\", 1], [\"trim\", \"ubyte\", 5]], \"count\": 6}",
-          "size": 30
+          "size": 12
         },
         {
           "name": "preamp_gains",
@@ -182,7 +182,7 @@
         {
           "name": "preamps",
           "type": "{\"fields\": [[\"type\", \"ubyte\", 4], [\"phantom\", \"ubyte\", 1], [\"hpf\", \"ubyte\", 1], [\"phase_inv\", \"ubyte\", 1], [\"zero_cross\", \"ubyte\", 1]], \"count\": 4}",
-          "size": 20
+          "size": 4
         },
         {
           "name": "adat_gains",
