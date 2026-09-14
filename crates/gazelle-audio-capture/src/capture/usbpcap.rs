@@ -125,6 +125,55 @@ pub fn elevated_from_whoami_groups(stdout: &str) -> bool {
     stdout.contains(HIGH_MANDATORY_LEVEL_SID)
 }
 
+/// One device from `pnputil /enum-devices ... /stack`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PnpDevice {
+    pub instance_id: String,
+    /// Driver stack, top to bottom, e.g. `["ZenStudioTB", "USBPcap", "USBHUB3"]`.
+    pub stack: Vec<String>,
+}
+
+/// `pnputil` arguments listing the connected target (and only it) with its driver stack.
+pub fn pnputil_stack_args(vid: u16, pid: u16) -> Vec<String> {
+    vec!["/enum-devices".into(), "/connected".into(), "/deviceid".into(), format!(r"USB\VID_{vid:04X}&PID_{pid:04X}"), "/stack".into()]
+}
+
+/// Parses `pnputil /enum-devices ... /stack` output. Relies on the English labels
+/// `Instance ID:` and `Stack:`; continuation lines of `Stack:` are indented with no label.
+pub fn parse_pnputil_stacks(stdout: &str) -> Vec<PnpDevice> {
+    let mut devices: Vec<PnpDevice> = Vec::new();
+    let mut in_stack = false;
+    for line in stdout.lines() {
+        if let Some(id) = line.strip_prefix("Instance ID:") {
+            devices.push(PnpDevice { instance_id: id.trim().to_string(), stack: Vec::new() });
+            in_stack = false;
+        } else if let Some(first) = line.strip_prefix("Stack:") {
+            in_stack = true;
+            if let Some(d) = devices.last_mut() {
+                d.stack.push(first.trim().to_string());
+            }
+        } else if in_stack && line.starts_with(char::is_whitespace) && !line.trim().is_empty() {
+            if let Some(d) = devices.last_mut() {
+                d.stack.push(line.trim().to_string());
+            }
+        } else {
+            in_stack = false;
+        }
+    }
+    devices
+}
+
+/// Whether USBPcap is in the driver stack of the target device itself (not its `&MI_`
+/// interfaces). `None` when no such device is listed.
+pub fn usbpcap_in_target_stack(devices: &[PnpDevice], vid: u16, pid: u16) -> Option<bool> {
+    let prefix = format!(r"USB\VID_{vid:04X}&PID_{pid:04X}\");
+    let targets: Vec<&PnpDevice> = devices.iter().filter(|d| d.instance_id.to_ascii_uppercase().starts_with(&prefix)).collect();
+    if targets.is_empty() {
+        return None;
+    }
+    Some(targets.iter().any(|d| d.stack.iter().any(|s| s.eq_ignore_ascii_case("USBPcap"))))
+}
+
 /// Reads frames until the target's device descriptor appears. Injected descriptors carry
 /// IRP id 0; the first live frame (non-zero IRP id) seen *after at least one descriptor has
 /// been learned* ends the injected block. Gives up after `max_frames`.
@@ -239,6 +288,13 @@ pub fn is_elevated() -> Option<bool> {
     platform::is_elevated()
 }
 
+/// Whether USBPcap is attached to the connected target device, via `pnputil`. A device that
+/// enumerated before USBPcap attached to its hub has no filter, and its traffic never reaches a
+/// capture. `None` on non-Windows, when `pnputil` fails, or when the target is not connected.
+pub fn usbpcap_attached(vid: u16, pid: u16) -> Option<bool> {
+    platform::usbpcap_attached(vid, pid)
+}
+
 /// Root hubs as reported by USBPcapCMD.
 pub fn list_hubs(exe: &Path) -> Result<Vec<(HubInterface, Vec<AttachedDevice>)>, CaptureError> {
     platform::list_hubs(exe)
@@ -329,6 +385,14 @@ mod platform {
         Some(elevated_from_whoami_groups(&String::from_utf8_lossy(&out.stdout)))
     }
 
+    pub fn usbpcap_attached(vid: u16, pid: u16) -> Option<bool> {
+        let out = Command::new("pnputil").args(pnputil_stack_args(vid, pid)).stdin(Stdio::null()).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        usbpcap_in_target_stack(&parse_pnputil_stacks(&String::from_utf8_lossy(&out.stdout)), vid, pid)
+    }
+
     pub fn list_hubs(exe: &Path) -> Result<Vec<(HubInterface, Vec<AttachedDevice>)>, CaptureError> {
         let hubs = parse_extcap_interfaces(&run_text(exe, &extcap_interfaces_args())?);
         hubs.into_iter()
@@ -378,6 +442,10 @@ mod platform {
     }
 
     pub fn is_elevated() -> Option<bool> {
+        None
+    }
+
+    pub fn usbpcap_attached(_vid: u16, _pid: u16) -> Option<bool> {
         None
     }
 

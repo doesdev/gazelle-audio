@@ -82,6 +82,9 @@ pub struct PanelState {
     pub pid: u16,
     /// `None` where elevation cannot be determined (non-Windows).
     pub elevated: Option<bool>,
+    /// Whether USBPcap is in the target device's driver stack. `None` when not checked, not
+    /// determinable (non-Windows, no `pnputil`), or the target is not connected.
+    pub usbpcap_attached: Option<bool>,
     pub capture: CaptureView,
     pub probe: Option<ProbeView>,
 }
@@ -131,6 +134,7 @@ struct Inner {
     clock: Arc<dyn Clock>,
     timing: StepTiming,
     elevated: Option<bool>,
+    usbpcap_attached: Option<bool>,
     seq: u64,
     planned: HashMap<String, (ProbePlan, u64)>,
     active: Option<Active>,
@@ -146,10 +150,20 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Facts about the capture environment, checked once at startup and shown on the panel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Environment {
+    /// `None` where elevation cannot be determined (non-Windows).
+    pub elevated: Option<bool>,
+    /// `None` when not checked or not determinable.
+    pub usbpcap_attached: Option<bool>,
+}
+
 impl Controller {
-    pub fn new(store: SessionStore, clock: Arc<dyn Clock>, timing: StepTiming, elevated: Option<bool>) -> Result<Self, ControlError> {
+    pub fn new(store: SessionStore, clock: Arc<dyn Clock>, timing: StepTiming, env: Environment) -> Result<Self, ControlError> {
         let parameters = store.parameters()?;
-        let mut inner = Inner { store, parameters, clock, timing, elevated, seq: 0, planned: HashMap::new(), active: None };
+        let Environment { elevated, usbpcap_attached } = env;
+        let mut inner = Inner { store, parameters, clock, timing, elevated, usbpcap_attached, seq: 0, planned: HashMap::new(), active: None };
         let state = snapshot(&mut inner)?;
         Ok(Self { inner: Arc::new(Mutex::new(inner)), tx: Arc::new(watch::channel(state).0) })
     }
@@ -421,5 +435,5 @@ fn snapshot(inner: &mut Inner) -> Result<PanelState, ControlError> {
             flagged_steps,
         });
     }
-    Ok(PanelState { seq: inner.seq, vid: info.vid, pid: info.pid, elevated: inner.elevated, capture, probe })
+    Ok(PanelState { seq: inner.seq, vid: info.vid, pid: info.pid, elevated: inner.elevated, usbpcap_attached: inner.usbpcap_attached, capture, probe })
 }

@@ -102,7 +102,8 @@ fn setup(dir: &std::path::Path) -> (Controller, Arc<ManualClock>) {
         store.declare_parameter(p).unwrap();
     }
     let clock = Arc::new(ManualClock::new(T0));
-    (Controller::new(store, clock.clone(), StepTiming::default(), Some(false)).unwrap(), clock)
+    let env = Environment { elevated: Some(false), usbpcap_attached: Some(true) };
+    (Controller::new(store, clock.clone(), StepTiming::default(), env).unwrap(), clock)
 }
 
 fn wait_packets(c: &Controller, n: u64) {
@@ -139,7 +140,7 @@ fn probe_runs_to_completion_and_records_everything() {
     c.start_probe("p1", src).unwrap();
     wait_packets(&c, target_frames);
     let state = c.state();
-    assert_eq!((state.vid, state.pid, state.elevated), (0x1234, 0xABCD, Some(false)));
+    assert_eq!((state.vid, state.pid, state.elevated, state.usbpcap_attached), (0x1234, 0xABCD, Some(false), Some(true)));
     assert_eq!(state.capture.source.as_deref(), Some("memory"));
     let p = probe(&c);
     assert_eq!((p.step_index, p.kind, p.instruction.as_str()), (0, StepKind::Idle, "Do nothing — idle window"));

@@ -26,6 +26,7 @@
 <header>
   <span id="device">Gazelle capture</span>
   <span id="elevation" class="warn" hidden>Not elevated: USBPcap will ask for administrator rights, or capture will fail</span>
+  <span id="usbpcap" class="warn" hidden>USBPcap is not attached to this device: its traffic will not be captured. Reboot, then retry (disabling and re-enabling the device does not help)</span>
   <span id="capture"></span>
   <span id="rate">0 packets/s</span>
 </header>
@@ -73,6 +74,7 @@ function hex4(n) {
 function render(state) {
   $("device").textContent = `Target ${hex4(state.vid)}:${hex4(state.pid)}`;
   $("elevation").hidden = state.elevated !== false;
+  $("usbpcap").hidden = state.usbpcap_attached !== false;
   const cap = state.capture;
   $("rate").textContent = `${cap.packets_per_second.toFixed(0)} packets/s`;
   $("capture").textContent = cap.failure ? `Capture failed: ${cap.failure}` : (cap.source || "");

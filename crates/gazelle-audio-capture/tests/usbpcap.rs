@@ -63,6 +63,53 @@ fn elevation_from_whoami_groups() {
     assert!(!elevated_from_whoami_groups(normal));
 }
 
+/// `pnputil /enum-devices /connected /stack` on Windows 11 (trimmed), with the target filtered
+/// by `/deviceid` it prints the device itself; interface children appear in unfiltered output.
+const PNPUTIL_STACKS: &str = "Microsoft PnP Utility\r
+\r
+Instance ID:                USB\\VID_23E5&PID_A2F9&REV_0200&MI_03\\1000000000001\r
+Device Description:         USB Input Device\r
+Status:                     Started\r
+Stack:                      HidUsb\r
+                            Zen_Quadro_Synergy_Core\r
+\r
+Instance ID:                USB\\VID_23E5&PID_A100\\1000000000002\r
+Device Description:         ZenStudioTB\r
+Class Name:                 ZenStudioTB_sc\r
+Driver Name:                oem65.inf\r
+Stack:                      ZenStudioTB\r
+                            USBHUB3\r
+\r
+Instance ID:                USB\\VID_23E5&PID_A2F9\\1000000000001\r
+Device Description:         Zen Quadro Synergy Core\r
+Stack:                      Zen_Quadro_Synergy_Core\r
+                            USBPcap\r
+                            USBHUB3\r
+";
+
+#[test]
+fn pnputil_command_line_filters_to_the_target() {
+    assert_eq!(pnputil_stack_args(0x23e5, 0xa100), ["/enum-devices", "/connected", "/deviceid", r"USB\VID_23E5&PID_A100", "/stack"]);
+}
+
+#[test]
+fn parses_pnputil_driver_stacks() {
+    let devices = parse_pnputil_stacks(PNPUTIL_STACKS);
+    assert_eq!(devices.len(), 3);
+    assert_eq!(devices[1], PnpDevice { instance_id: r"USB\VID_23E5&PID_A100\1000000000002".into(), stack: vec!["ZenStudioTB".into(), "USBHUB3".into()] });
+    assert_eq!(devices[2].stack, ["Zen_Quadro_Synergy_Core", "USBPcap", "USBHUB3"]);
+}
+
+#[test]
+fn usbpcap_attachment_is_judged_on_the_device_not_its_interfaces() {
+    let devices = parse_pnputil_stacks(PNPUTIL_STACKS);
+    assert_eq!(usbpcap_in_target_stack(&devices, 0x23e5, 0xa2f9), Some(true));
+    // The Studio+ lacks the filter, as it did on 2026-09-14 before a reboot.
+    assert_eq!(usbpcap_in_target_stack(&devices, 0x23e5, 0xa100), Some(false));
+    assert_eq!(usbpcap_in_target_stack(&devices, 0x1234, 0xabcd), None);
+    assert_eq!(usbpcap_in_target_stack(&parse_pnputil_stacks("Microsoft PnP Utility\r\n\r\nNo devices were found on the system.\r\n"), 0x23e5, 0xa100), None);
+}
+
 fn hub_pcap() -> Vec<u8> {
     let mut devices: Vec<Box<dyn DeviceModel>> = vec![Box::new(SimpleDevice::new(0x046D, 0xC52B, 2, 3)), Box::new(SimpleDevice::new(0x1234, 0xABCD, 2, 7))];
     let mut frames = device_frames(&mut devices, 1_700_000_000_000_000_000, 1_000_000_000);

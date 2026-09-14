@@ -11,7 +11,7 @@ use gazelle_audio_capture::capture::{CaptureError, CaptureSource, CaptureStream,
 use gazelle_audio_capture::panel::security::{self, generate_token};
 use gazelle_audio_capture::panel::{router, serve, with_host_check, PanelApp};
 use gazelle_audio_capture::session::clock::ManualClock;
-use gazelle_audio_capture::session::controller::Controller;
+use gazelle_audio_capture::session::controller::{Controller, Environment};
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
 use gazelle_audio_capture::session::step::StepTiming;
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
@@ -49,7 +49,8 @@ async fn harness_with_source(source: Box<dyn CaptureSource>) -> Harness {
         .declare_parameter(Parameter { id: "mute".into(), label: "Mute".into(), kind: ParameterKind::Toggle, domain: ParameterDomain::default(), location: String::new() })
         .unwrap();
     let clock = Arc::new(ManualClock::new(T0));
-    let controller = Controller::new(store, clock.clone(), StepTiming::default(), Some(false)).unwrap();
+    let env = Environment { elevated: Some(false), usbpcap_attached: None };
+    let controller = Controller::new(store, clock.clone(), StepTiming::default(), env).unwrap();
     let plan = ProbePlan { parameter: "monitor_level".into(), value_a: "0 dB".into(), value_b: vec!["-6 dB".into()], sweep: vec![], repeats: 1, control_parameter: "mute".into() };
     controller.plan_probe(plan, 3).unwrap();
     controller.start_probe("p1", source).unwrap();

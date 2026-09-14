@@ -10,7 +10,7 @@ use gazelle_audio_capture::capture::usbpcap::{self, UsbPcapConfig, UsbPcapSource
 use gazelle_audio_capture::capture::CaptureSource;
 use gazelle_audio_capture::panel::{self, security, PanelApp};
 use gazelle_audio_capture::session::clock::{Clock, SystemClock};
-use gazelle_audio_capture::session::controller::{ControlError, Controller};
+use gazelle_audio_capture::session::controller::{ControlError, Controller, Environment};
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
 use gazelle_audio_capture::session::step::{RunStatus, StepError, StepTiming};
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
@@ -223,7 +223,20 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // is_elevated() is independent of USBPcap hub discovery (it just inspects the process
     // token), so the panel always shows the correct elevation state even if `build_source`
     // below fails or is never reached, and regardless of `--source`/`--hub`.
-    let controller = Controller::new(store, Arc::clone(&clock), StepTiming::default(), usbpcap::is_elevated())?;
+    // A device that enumerated before USBPcap attached to its hub is invisible to the capture
+    // (2026-09-14: the Studio+ stored only its injected descriptor). `pnputil` answers in ~30 ms.
+    let usbpcap_attached = match args.source {
+        SourceKind::Usbpcap => usbpcap::usbpcap_attached(info.vid, info.pid),
+        SourceKind::Import | SourceKind::Demo => None,
+    };
+    if usbpcap_attached == Some(false) {
+        eprintln!(
+            "warning: USBPcap is not attached to {:04x}:{:04x}; its traffic will not be captured. Reboot, then retry (disabling and re-enabling the device does not help)",
+            info.vid, info.pid
+        );
+    }
+    let env = Environment { elevated: usbpcap::is_elevated(), usbpcap_attached };
+    let controller = Controller::new(store, Arc::clone(&clock), StepTiming::default(), env)?;
     let planned = controller.plan_probe(probe_file.plan, args.seed.unwrap_or_else(|| clock.now_ns()))?;
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", args.port)).await?;
@@ -474,7 +487,7 @@ mod tests {
                 location: String::new(),
             })
             .unwrap();
-        let controller = Controller::new(store, Arc::new(SystemClock), StepTiming::default(), Some(false)).unwrap();
+        let controller = Controller::new(store, Arc::new(SystemClock), StepTiming::default(), Environment { elevated: Some(false), usbpcap_attached: None }).unwrap();
         let plan = ProbePlan { parameter: "monitor_level".into(), value_a: "0 dB".into(), value_b: vec!["-6 dB".into()], sweep: vec![], repeats: 1, control_parameter: "mute".into() };
         let planned = controller.plan_probe(plan, 1).unwrap();
         controller.start_probe(&planned.probe_id, Box::new(MemorySource::new("memory", Vec::new()))).unwrap();
