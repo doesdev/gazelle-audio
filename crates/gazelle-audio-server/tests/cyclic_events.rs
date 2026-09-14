@@ -91,3 +91,49 @@ async fn cyclic_reports_arrive_decoded() {
     }
     devices.shutdown_all();
 }
+
+/// `--loopback-cyclic-ms` loopbacks push every declared cyclic report on a timer, decoded,
+/// with values that move, while still answering commands like a plain emulating loopback.
+/// Clients and the web UI need cyclic traffic without hardware.
+#[tokio::test]
+async fn cyclic_loopbacks_emit_decoded_reports_and_still_answer() {
+    use gazelle_audio_protocol::payload::PayloadValues;
+    use std::time::Duration;
+
+    let registries = RegistrySet::builtin().expect("registries");
+    let devices = DeviceManager::new(registries);
+    let mut events = devices.subscribe();
+    devices.attach_cyclic_loopbacks(&[PID_QUADRO], 64, Duration::from_millis(20));
+
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+    let mut seen: Vec<std::collections::HashMap<String, gazelle_audio_protocol::payload::Value>> = Vec::new();
+    let mut ids = std::collections::BTreeSet::new();
+    while tokio::time::Instant::now() < deadline && (seen.len() < 2 || ids.len() < 2) {
+        match tokio::time::timeout(tokio::time::Duration::from_millis(250), events.recv()).await {
+            Ok(Ok(ServerEvent::Device(DeviceEvent::Cyclic { report_id, fields, .. }))) => {
+                ids.insert(report_id);
+                if report_id == 0x73 {
+                    seen.push(fields);
+                }
+            }
+            Ok(Ok(ServerEvent::Device(DeviceEvent::Undecoded { report_id, len, .. }))) => {
+                panic!("cyclic loopback report 0x{report_id:X} ({len} bytes) arrived undecoded");
+            }
+            _ => continue,
+        }
+    }
+    assert!(seen.len() >= 2, "at least two decoded 0x73 reports within 5 s, got {}", seen.len());
+    assert_eq!(ids.into_iter().collect::<Vec<_>>(), vec![0x73, 0x83], "every Quadro cyclic layout is emitted");
+    let bank_sources: Vec<String> = seen.iter().map(|fields| format!("{:?}", fields.get("pm_bank_src"))).collect();
+    assert!(bank_sources.windows(2).any(|w| w[0] != w[1]), "the reported values move between reports: {bank_sources:?}");
+
+    let id = DeviceId::loopback(0);
+    let outcome = devices
+        .handle(&id)
+        .expect("handle")
+        .request("get_adats_links", PayloadValues::default(), false)
+        .await
+        .expect("a live command is still answered alongside cyclic traffic");
+    assert!(!outcome.dry_run);
+    devices.shutdown_all();
+}

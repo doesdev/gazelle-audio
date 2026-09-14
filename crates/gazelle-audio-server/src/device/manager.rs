@@ -1,10 +1,13 @@
 //! Owns every connected device and routes work to the right worker.
 
+use gazelle_audio_protocol::field::Field;
 use gazelle_audio_transport::{Device, LoopbackDevice};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::sync::broadcast;
 
+use crate::device::cyclic_loopback::CyclicLoopback;
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::handle::DeviceHandle;
 use crate::device::worker::{self, DeviceEvent, WorkerContext};
@@ -119,6 +122,27 @@ impl DeviceManager {
             // `emulating` answers like a device (cmd + 1, same ext2), so the full
             // request/response path is exercised rather than only framing.
             let dev = LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size);
+            self.attach(DeviceId::loopback(n), Box::new(dev), "loopback", true);
+        }
+    }
+
+    /// Attach emulating loopbacks that also push every cyclic report their model declares,
+    /// once per `interval` (`--loopback-cyclic-ms`). Each report is at least as long as its
+    /// layout, which the decoder accepts, as the existing cyclic tests rely on.
+    pub fn attach_cyclic_loopbacks(self: &Arc<Self>, pids: &[u16], max_packet_size: usize, interval: Duration) {
+        for (n, pid) in pids.iter().enumerate() {
+            let reports: Vec<(u32, usize)> = self
+                .registries
+                .for_pid(*pid)
+                .map(|model| {
+                    let mut ids: Vec<u32> = model.registry.cyclic_ids().copied().collect();
+                    ids.sort_unstable();
+                    ids.into_iter()
+                        .filter_map(|id| model.registry.cyclic(id).map(|layout| (id, layout.fields.iter().map(Field::size).sum())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let dev = CyclicLoopback::new(LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size), reports, interval);
             self.attach(DeviceId::loopback(n), Box::new(dev), "loopback", true);
         }
     }

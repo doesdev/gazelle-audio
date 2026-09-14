@@ -49,6 +49,11 @@ struct Args {
     #[arg(long, value_delimiter = ',', default_values_t = ["quadro".to_string(), "studio".to_string()])]
     loopback_models: Vec<String>,
 
+    /// Make each loopback device also push its cyclic reports every MS milliseconds, with a
+    /// moving test pattern, so clients see state and meter traffic without hardware.
+    #[arg(long, value_name = "MS")]
+    loopback_cyclic_ms: Option<u64>,
+
     /// Serve only the API, not the embedded web UI.
     #[cfg_attr(not(feature = "web-ui"), allow(dead_code))]
     #[arg(long)]
@@ -94,7 +99,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let devices = DeviceManager::new(registries);
-    devices.attach_loopbacks(&pids, 64);
+    match args.loopback_cyclic_ms {
+        Some(ms) => devices.attach_cyclic_loopbacks(&pids, 64, std::time::Duration::from_millis(ms.max(1))),
+        None => devices.attach_loopbacks(&pids, 64),
+    }
 
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
         Arc::new(MemoryStore::default())
