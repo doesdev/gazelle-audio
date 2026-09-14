@@ -1,0 +1,20 @@
+{
+  "$schema": "../apps/web/themes/theme.schema.json",
+  "name": "Studio Blue",
+  "extends": "gazelle-dark",
+  "colors": {
+    "surface.background": "#1b2027",
+    "surface.panel": "#232a33",
+    "surface.raised": "#2c3440",
+    "surface.inset": "#13171c",
+    "border.subtle": "#333c48",
+    "border.strong": "#4a5563",
+    "section.header": "#36404d",
+    "control.background": "#333c48",
+    "control.hover": "#3c4654",
+    "control.active": "#4a5667",
+    "control.disabled": "#262d36",
+    "accent": "#4aa3df",
+    "focus": "#79bde9"
+  }
+}

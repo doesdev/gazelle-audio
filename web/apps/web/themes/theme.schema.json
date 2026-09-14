@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gazelle-theme-1",
+  "title": "Gazelle theme",
+  "description": "A Gazelle web UI theme. Anything left out comes from the theme named in `extends`, and finally from gazelle-dark.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$", "format": "color" }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string", "description": "Shown in the theme picker." },
+    "type": { "enum": ["dark", "light"], "description": "Sets the page's color-scheme." },
+    "extends": { "type": "string", "description": "Theme id to start from: gazelle-dark, gazelle-light, community:<file> or user:<file>." },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "surface.background": { "$ref": "#/$defs/color", "description": "Behind everything." },
+        "surface.panel": { "$ref": "#/$defs/color", "description": "Zones and panels." },
+        "surface.raised": { "$ref": "#/$defs/color", "description": "Cards and popovers above a panel." },
+        "surface.inset": { "$ref": "#/$defs/color", "description": "Readout boxes and wells." },
+        "border.subtle": { "$ref": "#/$defs/color" },
+        "border.strong": { "$ref": "#/$defs/color" },
+        "section.header": { "$ref": "#/$defs/color", "description": "Collapsible section title bars." },
+        "section.headerText": { "$ref": "#/$defs/color" },
+        "text.primary": { "$ref": "#/$defs/color" },
+        "text.secondary": { "$ref": "#/$defs/color" },
+        "text.muted": { "$ref": "#/$defs/color" },
+        "text.inverse": { "$ref": "#/$defs/color", "description": "Text on light fills in a dark theme, and the reverse." },
+        "accent": { "$ref": "#/$defs/color", "description": "Selection and primary actions." },
+        "accent.text": { "$ref": "#/$defs/color", "description": "Text on the accent colour." },
+        "focus": { "$ref": "#/$defs/color", "description": "Keyboard focus ring." },
+        "control.background": { "$ref": "#/$defs/color" },
+        "control.hover": { "$ref": "#/$defs/color" },
+        "control.active": { "$ref": "#/$defs/color", "description": "Pressed or toggled on." },
+        "control.text": { "$ref": "#/$defs/color" },
+        "control.disabled": { "$ref": "#/$defs/color" },
+        "control.disabledText": { "$ref": "#/$defs/color" },
+        "fader.cap": { "$ref": "#/$defs/color" },
+        "fader.capActive": { "$ref": "#/$defs/color", "description": "A fader being dragged." },
+        "fader.track": { "$ref": "#/$defs/color" },
+        "knob.ring": { "$ref": "#/$defs/color", "description": "The value arc of a level knob." },
+        "state.mute": { "$ref": "#/$defs/color" },
+        "state.solo": { "$ref": "#/$defs/color" },
+        "state.read": { "$ref": "#/$defs/color" },
+        "state.write": { "$ref": "#/$defs/color" },
+        "state.dim": { "$ref": "#/$defs/color" },
+        "state.talkback": { "$ref": "#/$defs/color" },
+        "state.dryRun": { "$ref": "#/$defs/color", "description": "The dry-run badge: nothing is written to the device." },
+        "connection.open": { "$ref": "#/$defs/color" },
+        "connection.reconnecting": { "$ref": "#/$defs/color" },
+        "connection.closed": { "$ref": "#/$defs/color" },
+        "notice.error": { "$ref": "#/$defs/color" },
+        "notice.warning": { "$ref": "#/$defs/color" },
+        "notice.info": { "$ref": "#/$defs/color" },
+        "channel.palette": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/color" },
+          "description": "Colours offered for groups and channels, in order."
+        }
+      }
+    },
+    "meter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gradient": {
+          "type": "array",
+          "minItems": 2,
+          "description": "Stops placed by level in dBFS (the meter scale spans -60 to 0), in increasing order.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at", "color"],
+            "properties": { "at": { "type": "number" }, "color": { "$ref": "#/$defs/color" } }
+          }
+        },
+        "peakHold": { "$ref": "#/$defs/color" },
+        "clip": { "$ref": "#/$defs/color" },
+        "background": { "$ref": "#/$defs/color" },
+        "scale": { "$ref": "#/$defs/color", "description": "Scale marks and numbers." }
+      }
+    }
+  }
+}
