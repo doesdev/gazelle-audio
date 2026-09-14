@@ -3,7 +3,7 @@
 
 import { h } from "../core/dom.ts";
 import { displayName } from "../store/store.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
 const STATUS_REPORT = "0x73";
 
@@ -38,8 +38,8 @@ export class GaDeviceStatus extends GaElement {
       "aria-label": "Device name",
       placeholder: device.model ?? device.id,
       "data-testid": "device-name",
-      "on:change": (event) => store.renameDevice(id, (event.target as HTMLInputElement).value),
     });
+    commitOnEnter(name, (value) => store.renameDevice(id, value), () => store.workspace.peek()?.aliases[id] ?? "");
     const field = (label: string, value: Node | string) => [h("dt", {}, label), h("dd", {}, value)];
 
     const live = h("dl", { class: "fields" });

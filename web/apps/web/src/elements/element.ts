@@ -48,6 +48,34 @@ export class GaElement extends HTMLElement {
   protected render(): void {}
 }
 
+/**
+ * Makes a text input commit like a name field: Enter or leaving the field commits the value,
+ * Escape puts back the saved one. Relying on `change` alone left Enter doing nothing in some
+ * browsers until focus moved.
+ */
+export function commitOnEnter(input: HTMLInputElement, commit: (value: string) => void, saved: () => string): void {
+  let committed = saved();
+  const apply = () => {
+    if (input.value === committed) return;
+    committed = input.value;
+    commit(input.value);
+  };
+  input.addEventListener("focus", () => {
+    committed = saved();
+  });
+  input.addEventListener("change", apply);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      apply();
+      input.blur();
+    } else if (event.key === "Escape") {
+      input.value = saved();
+      committed = input.value;
+      input.blur();
+    }
+  });
+}
+
 export function sheet(css: string): CSSStyleSheet {
   const stylesheet = new CSSStyleSheet();
   stylesheet.replaceSync(css);

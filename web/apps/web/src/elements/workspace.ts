@@ -4,7 +4,7 @@
 
 import { h } from "../core/dom.ts";
 import type { Group } from "../store/store.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
 export class GaWorkspace extends GaElement {
   static override styles = [
@@ -44,24 +44,16 @@ export class GaWorkspace extends GaElement {
       const workspace = store.workspace.value;
       const connected = store.connected.value;
       names.replaceChildren(
-        ...devices.map((device) =>
-          h(
-            "tr",
-            {},
-            h("td", {}, h("span", { class: "readout" }, device.id)),
-            h(
-              "td",
-              {},
-              h("input", {
-                value: workspace?.aliases[device.id] ?? "",
-                placeholder: device.model ?? device.id,
-                "aria-label": `Name for ${device.id}`,
-                disabled: !connected,
-                "on:change": (event) => store.renameDevice(device.id, (event.target as HTMLInputElement).value),
-              }),
-            ),
-          ),
-        ),
+        ...devices.map((device) => {
+          const input = h("input", {
+            value: workspace?.aliases[device.id] ?? "",
+            placeholder: device.model ?? device.id,
+            "aria-label": `Name for ${device.id}`,
+            disabled: !connected,
+          });
+          commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "");
+          return h("tr", {}, h("td", {}, h("span", { class: "readout" }, device.id)), h("td", {}, input));
+        }),
       );
     });
 
