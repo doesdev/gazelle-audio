@@ -6,7 +6,7 @@ use gazelle_audio_capture::capture::event::{Direction, SetupPacket, TransferType
 use gazelle_audio_capture::capture::import::pcap_frames;
 use gazelle_audio_capture::capture::usbpcap::*;
 use gazelle_audio_capture::capture::writer::write_pcap;
-use gazelle_audio_capture::capture::{CaptureSource, FrameIter, RawFrame};
+use gazelle_audio_capture::capture::{FrameIter, RawFrame};
 use gazelle_audio_capture::synth::device::{DeviceModel, SimpleDevice};
 use gazelle_audio_capture::synth::frames::device_frames;
 
@@ -219,6 +219,8 @@ fn discovery_does_not_stop_on_a_live_frame_before_any_descriptor_is_learned() {
 #[cfg(not(windows))]
 #[test]
 fn live_capture_is_unsupported_off_windows() {
+    use gazelle_audio_capture::capture::CaptureSource;
+
     let mut source = UsbPcapSource::new(UsbPcapConfig::new(DEFAULT_EXE, r"\\.\USBPcap1"));
     assert_eq!(source.describe(), r"USBPcap \\.\USBPcap1");
     assert!(matches!(source.start(), Err(gazelle_audio_capture::capture::CaptureError::Unsupported(_))));
