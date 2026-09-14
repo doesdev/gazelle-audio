@@ -8,6 +8,35 @@ use serde_json::Value;
 
 const BIN: &str = env!("CARGO_BIN_EXE_gazelle-capture");
 
+const DEMO_PLAN: &str = r#"{"parameters":[
+    {"id":"monitor_level","label":"Monitor level","kind":"continuous"},
+    {"id":"mute","label":"Mute","kind":"toggle","domain":{"values":["off","on"]}}],
+  "plan":{"parameter":"monitor_level","value_a":"0 dB","value_b":["-6 dB"],"control_parameter":"mute"}}"#;
+
+fn write_demo_plan(dir: &std::path::Path) -> std::path::PathBuf {
+    let plan = dir.join("plan.json");
+    std::fs::write(&plan, DEMO_PLAN).unwrap();
+    plan
+}
+
+/// Waits up to `timeout` for `child` to exit, polling rather than blocking, so a regression
+/// that reintroduces a hang fails the assertion instead of hanging the test suite. Kills and
+/// reaps the child before returning `None` on timeout.
+fn wait_with_timeout(child: &mut std::process::Child, timeout: Duration) -> Option<std::process::ExitStatus> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
 fn synth_then_import_prints_target_events() {
     let dir = tempfile::tempdir().unwrap();
@@ -40,15 +69,7 @@ fn http_get(port: u16, path: &str, token: Option<&str>) -> (u16, String) {
 #[test]
 fn serve_demo_starts_a_probe_behind_the_token() {
     let dir = tempfile::tempdir().unwrap();
-    let plan = dir.path().join("plan.json");
-    std::fs::write(
-        &plan,
-        r#"{"parameters":[
-            {"id":"monitor_level","label":"Monitor level","kind":"continuous"},
-            {"id":"mute","label":"Mute","kind":"toggle","domain":{"values":["off","on"]}}],
-          "plan":{"parameter":"monitor_level","value_a":"0 dB","value_b":["-6 dB"],"control_parameter":"mute"}}"#,
-    )
-    .unwrap();
+    let plan = write_demo_plan(dir.path());
     let session = dir.path().join("session");
     let mut child = Command::new(BIN)
         .args(["serve", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "demo", "--no-wait"])
@@ -90,27 +111,92 @@ fn serve_demo_starts_a_probe_behind_the_token() {
 #[test]
 fn serve_without_no_wait_fails_fast_when_stdin_is_closed() {
     let dir = tempfile::tempdir().unwrap();
-    let plan = dir.path().join("plan.json");
-    std::fs::write(
-        &plan,
-        r#"{"parameters":[
-            {"id":"monitor_level","label":"Monitor level","kind":"continuous"},
-            {"id":"mute","label":"Mute","kind":"toggle","domain":{"values":["off","on"]}}],
-          "plan":{"parameter":"monitor_level","value_a":"0 dB","value_b":["-6 dB"],"control_parameter":"mute"}}"#,
-    )
-    .unwrap();
+    let plan = write_demo_plan(dir.path());
     let session = dir.path().join("session");
-    let out = Command::new(BIN)
+    let mut child = Command::new(BIN)
         .args(["serve", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "demo"])
         .env("LOCALAPPDATA", dir.path())
         .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
-    assert!(
-        !out.status.success(),
-        "expected a non-zero exit when stdin is closed without --no-wait\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let status = wait_with_timeout(&mut child, Duration::from_secs(10));
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let _ = child.stdout.take().map(|mut s| s.read_to_string(&mut stdout));
+    let _ = child.stderr.take().map(|mut s| s.read_to_string(&mut stderr));
+    let status = status.unwrap_or_else(|| panic!("serve did not exit within 10s of a closed stdin\nstdout: {stdout}\nstderr: {stderr}"));
+    assert!(!status.success(), "expected a non-zero exit when stdin is closed without --no-wait\nstdout: {stdout}\nstderr: {stderr}");
     assert!(!session.join("captures/p1.pcapng").is_file(), "no probe should have started");
+}
+
+/// Round 2 finding: a Ctrl-C during the "press Enter" wait used to return `Ok(())` from
+/// `serve`, letting `main` return and the `#[tokio::main]` runtime start tearing down — which
+/// waits indefinitely for the still-blocked `spawn_blocking(stdin().read_line(...))` thread,
+/// since a closed/held-open stdin never gives it a line to return. The process would hang
+/// forever, and a second Ctrl-C was silently swallowed (the OS default disposition had already
+/// been overridden, but nothing was left polling for it). This holds stdin open with a pipe
+/// that's never closed or written to, so the fix must exit without waiting on that read.
+#[cfg(unix)]
+#[test]
+fn ctrl_c_during_enter_wait_exits_promptly() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = write_demo_plan(dir.path());
+    let session = dir.path().join("session");
+    let mut child = Command::new(BIN)
+        .args(["serve", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "demo"])
+        .env("LOCALAPPDATA", dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Held for the rest of the test: an open pipe end that's never written to or closed, so
+    // the blocking `read_line` inside `serve` has nothing to read and cannot return on its own.
+    let _stdin = child.stdin.take().unwrap();
+
+    // Keep draining stdout (and stderr) for the child's whole life, not just until the prompt
+    // line: closing our read end early would make the child's *next* `println!`/`eprintln!`
+    // (e.g. the "interrupted..." line printed right after Ctrl-C) fail with a broken pipe,
+    // which panics — println!/eprintln! panic on a write error — and, on the resulting unwind,
+    // `#[tokio::main]`'s runtime would still be dropped waiting on the very stdin-read task
+    // this test is holding open, reproducing a hang from a test-harness bug rather than the
+    // one under test.
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut sent_prompt = false;
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if !sent_prompt && line.starts_with("open the panel, then press Enter") {
+                sent_prompt = true;
+                let _ = tx.send(());
+            }
+        }
+    });
+    let stderr = child.stderr.take().unwrap();
+    std::thread::spawn(move || {
+        for _line in BufReader::new(stderr).lines().map_while(Result::ok) {}
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(()) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {}
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("serve never printed the Enter prompt");
+            }
+        }
+    }
+
+    let pid = child.id().to_string();
+    let status = Command::new("kill").args(["-INT", &pid]).status().unwrap();
+    assert!(status.success(), "kill -INT failed to signal the child");
+
+    match wait_with_timeout(&mut child, Duration::from_secs(5)) {
+        Some(status) => assert!(status.success(), "expected a clean exit after Ctrl-C, got {status:?}"),
+        None => panic!("serve did not exit within 5s of a Ctrl-C during the Enter wait (stdin held open)"),
+    }
 }

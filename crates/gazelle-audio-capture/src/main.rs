@@ -167,7 +167,44 @@ fn build_source(args: &ServeArgs, vid: u16, pid: u16) -> Result<Box<dyn CaptureS
     })
 }
 
+/// A Ctrl-C listener, created once and kept alive for the whole of `serve`. Both
+/// `tokio::signal::unix::signal` and `tokio::signal::windows::ctrl_c` install the OS-level
+/// handler synchronously when called — unlike the `tokio::signal::ctrl_c()` convenience
+/// wrapper, which is an async fn and (per its docs) only registers on its returned future's
+/// first poll — and both can be `recv()`-ed more than once. Creating one of these up front,
+/// before any of the blocking work below runs, means a signal arriving during that work is
+/// captured (recorded by the OS-level handler this installs) instead of falling through to the
+/// default disposition, which would kill the process outright.
+struct SigintListener(
+    #[cfg(unix)] tokio::signal::unix::Signal,
+    #[cfg(windows)] tokio::signal::windows::CtrlC,
+);
+
+#[cfg(unix)]
+impl SigintListener {
+    fn new() -> std::io::Result<Self> {
+        Ok(Self(tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?))
+    }
+}
+
+#[cfg(windows)]
+impl SigintListener {
+    fn new() -> std::io::Result<Self> {
+        Ok(Self(tokio::signal::windows::ctrl_c()?))
+    }
+}
+
+impl SigintListener {
+    async fn recv(&mut self) {
+        self.0.recv().await;
+    }
+}
+
 async fn serve(args: ServeArgs) -> Result<(), BoxError> {
+    // Registered before any of the blocking work below (hub discovery, the Enter wait) runs —
+    // see `SigintListener`'s doc comment for why that ordering matters.
+    let mut ctrl_c = SigintListener::new()?;
+    let args = Arc::new(args);
     let store = open_or_create(&args)?;
     if args.keep_stream_payloads {
         store.update_info(|i| i.keep_stream_payloads = true)?;
@@ -209,27 +246,52 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // waiting for Enter, while `start_probe` is already spawning the capture thread, or once
     // the probe is running. Before this point nothing has been started (no capture thread, no
     // marks appended), so letting the default disposition (kill the process) apply is fine.
-    let ready = async {
-        let source = build_source(&args, info.vid, info.pid)?;
-        if !args.no_wait {
-            println!("open the panel, then press Enter to start the probe");
-            let n = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await??;
-            if n == 0 {
-                // EOF: read_line returns Ok(0) immediately for closed/redirected stdin (a
-                // helper launched with no terminal, `/dev/null`, a finished pipe). Treat that
-                // as an error rather than silently starting the probe unattended.
-                return Err(BoxError::from("stdin closed; use --no-wait"));
-            }
-        }
-        Ok(source)
-    };
+
+    // Phase 1a: prepare the capture source. `build_source` (specifically USBPcap hub discovery)
+    // runs on a blocking thread rather than directly in this async task — partly so it cannot
+    // stall the runtime, but importantly so `select!` can actually observe `ctrl_c` while it
+    // runs instead of being stuck inside `build_source`'s own, fully synchronous call stack.
+    // Discovery has its own bounded (~3s-per-hub) watchdog and, on Windows, its own child
+    // process to clean up (in its own process group, so it won't see a console Ctrl-C itself);
+    // a Ctrl-C here therefore waits for the `JoinHandle` (bounded by that watchdog, and itself
+    // interruptible by a second Ctrl-C via `wait_or_force_exit`) rather than abandoning it and
+    // orphaning that child.
+    let args_for_source = Arc::clone(&args);
+    let (vid, pid) = (info.vid, info.pid);
+    let mut build_handle = tokio::task::spawn_blocking(move || build_source(&args_for_source, vid, pid));
     let source = tokio::select! {
-        result = ready => result?,
-        _ = tokio::signal::ctrl_c() => {
+        result = &mut build_handle => result??,
+        _ = ctrl_c.recv() => {
+            eprintln!("interrupted while preparing the capture source; waiting for it to finish");
+            let _ = wait_or_force_exit(&mut build_handle, &mut ctrl_c).await;
             println!("interrupted before the probe started; nothing to stop");
-            return Ok(());
+            std::process::exit(0);
         }
     };
+
+    // Phase 1b: wait for the operator to press Enter (skipped with `--no-wait`). Unlike phase
+    // 1a, reading stdin can block indefinitely (a helper launched with no terminal, a
+    // held-open pipe, ...), so there is nothing here worth waiting for: a Ctrl-C exits at once
+    // rather than risk hanging on `tokio::main`'s runtime teardown, which — since dropping the
+    // runtime waits for outstanding `spawn_blocking` tasks — would otherwise wait forever for
+    // that blocked read to return.
+    if !args.no_wait {
+        println!("open the panel, then press Enter to start the probe");
+        let mut read_handle = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new()));
+        let n = tokio::select! {
+            result = &mut read_handle => result??,
+            _ = ctrl_c.recv() => {
+                println!("interrupted before the probe started; nothing to stop");
+                std::process::exit(0);
+            }
+        };
+        if n == 0 {
+            // EOF: read_line returns Ok(0) immediately for closed/redirected stdin (a helper
+            // launched with no terminal, `/dev/null`, a finished pipe). Treat that as an error
+            // rather than silently starting the probe unattended.
+            return Err("stdin closed; use --no-wait".into());
+        }
+    }
 
     // `Controller::start_probe` starts the capture thread and can block briefly on file I/O
     // while the controller's inner lock is held; run it on a blocking thread so it cannot
@@ -241,9 +303,9 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     let mut start_handle = tokio::task::spawn_blocking(move || start_controller.start_probe(&probe_id, source));
     tokio::select! {
         result = &mut start_handle => result??,
-        _ = tokio::signal::ctrl_c() => {
+        _ = ctrl_c.recv() => {
             eprintln!("interrupted while starting; waiting for it to finish, then stopping it");
-            abandon_after_start(&mut start_handle, &controller).await?;
+            abandon_after_start(&mut start_handle, &controller, &mut ctrl_c).await?;
             return Ok(());
         }
     }
@@ -264,10 +326,10 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     tokio::select! {
         status = finished => {
             println!("probe {} {:?}; press Ctrl-C to exit", planned.probe_id, status);
-            tokio::signal::ctrl_c().await?;
+            ctrl_c.recv().await;
         }
-        _ = tokio::signal::ctrl_c() => {
-            abandon(&controller).await?;
+        _ = ctrl_c.recv() => {
+            abandon(&controller, &mut ctrl_c).await?;
         }
     }
     Ok(())
@@ -276,10 +338,10 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
 /// Waits for `handle`, but exits the process immediately (rather than swallow a second signal)
 /// if another Ctrl-C arrives first: a blocking task can't be cancelled, only waited out, and
 /// the operator should not be stuck if it — or the capture source it is stopping — hangs.
-async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>) -> Result<T, tokio::task::JoinError> {
+async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>, ctrl_c: &mut SigintListener) -> Result<T, tokio::task::JoinError> {
     tokio::select! {
         result = handle => result,
-        _ = tokio::signal::ctrl_c() => {
+        _ = ctrl_c.recv() => {
             eprintln!("cleanup interrupted; exiting immediately");
             std::process::exit(130);
         }
@@ -293,9 +355,10 @@ async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>) -> Resul
 async fn abandon_after_start(
     start_handle: &mut tokio::task::JoinHandle<Result<(), ControlError>>,
     controller: &Controller,
+    ctrl_c: &mut SigintListener,
 ) -> Result<(), BoxError> {
-    wait_or_force_exit(start_handle).await??;
-    abandon(controller).await
+    wait_or_force_exit(start_handle, ctrl_c).await??;
+    abandon(controller, ctrl_c).await
 }
 
 /// Cancels the running probe. Surfaces (rather than swallows) both a task panic and
@@ -303,10 +366,10 @@ async fn abandon_after_start(
 /// thread is left unstopped and unjoined and the pcapng file never finalised (parked Task 11
 /// minor #5) — the operator needs to see that, and `serve` must exit non-zero so it's obvious
 /// the shutdown was not clean.
-async fn abandon(controller: &Controller) -> Result<(), BoxError> {
+async fn abandon(controller: &Controller, ctrl_c: &mut SigintListener) -> Result<(), BoxError> {
     let controller = controller.clone();
     let mut handle = tokio::task::spawn_blocking(move || controller.abandon_probe());
-    match wait_or_force_exit(&mut handle).await {
+    match wait_or_force_exit(&mut handle, ctrl_c).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => {
             eprintln!("error: could not abandon the probe cleanly: {e}");
