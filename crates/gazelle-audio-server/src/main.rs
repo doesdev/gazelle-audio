@@ -119,9 +119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
 
+    // The bound address, not `args.bind`: with port 0 this log line is how another process (the
+    // web client's integration tests) finds the server.
     tracing::info!(
         "listening on http://{} — backend={:?} devices={} dry_run={}",
-        args.bind,
+        listener.local_addr()?,
         args.backend,
         devices.len(),
         args.dry_run
