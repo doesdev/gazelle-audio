@@ -51,7 +51,7 @@ fn operations_need_an_open_session_and_valid_arguments() {
     assert!(matches!(ops.call("list_parameters", Value::Null), Err(OpsError::NoSession)));
     assert!(matches!(ops.call("mark_step_done", Value::Null), Err(OpsError::UnknownOperation(_))));
     assert!(matches!(ops.call("session_open", json!({ "path": 5 })), Err(OpsError::BadArguments { .. })));
-    assert!(matches!(ops.call("start_probe", json!({ "probe_id": "p1" })), Err(OpsError::NotYet("start_probe"))));
+    assert!(matches!(ops.call("start_probe", json!({ "probe_id": "p1" })), Err(OpsError::NoSession)));
 
     let dir = tempfile::tempdir().unwrap();
     let missing_target = ops.call("session_open", json!({ "path": path(&dir.path().join("new")) }));

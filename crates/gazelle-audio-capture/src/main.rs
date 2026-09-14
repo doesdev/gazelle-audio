@@ -5,9 +5,10 @@ use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gazelle_audio_capture::analysis::run::analyze_probe;
-use gazelle_audio_capture::capture::import::{ImportSource, MemorySource};
+use gazelle_audio_capture::capture::import::ImportSource;
 use gazelle_audio_capture::capture::pipeline::{DeviceFilter, PayloadPolicy, Pipeline};
-use gazelle_audio_capture::capture::usbpcap::{self, UsbPcapConfig, UsbPcapSource, DEFAULT_EXE};
+use gazelle_audio_capture::capture::sources::{self, SourceSettings};
+use gazelle_audio_capture::capture::usbpcap::{self, DEFAULT_EXE};
 use gazelle_audio_capture::capture::CaptureSource;
 use gazelle_audio_capture::panel::{self, security, PanelApp};
 use gazelle_audio_capture::session::clock::{Clock, SystemClock};
@@ -16,7 +17,6 @@ use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, Paramete
 use gazelle_audio_capture::session::step::{RunStatus, StepError, StepTiming};
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
 use gazelle_audio_capture::synth::device::{DeviceModel, SimpleDevice};
-use gazelle_audio_capture::synth::frames::device_frames;
 use gazelle_audio_capture::synth::session::{generate_session, ScriptedOperator, SynthSpec};
 use serde::Deserialize;
 
@@ -179,22 +179,17 @@ fn open_or_create(args: &ServeArgs) -> Result<SessionStore, BoxError> {
     Ok(SessionStore::create(&args.session, &SessionInfo { vid, pid, ..SessionInfo::default() })?)
 }
 
+fn source_settings(args: &ServeArgs) -> SourceSettings {
+    let kind = match args.source {
+        SourceKind::Usbpcap => sources::SourceKind::Usbpcap,
+        SourceKind::Import => sources::SourceKind::Import,
+        SourceKind::Demo => sources::SourceKind::Demo,
+    };
+    SourceSettings { kind, file: args.file.clone(), hub: args.hub.clone(), usbpcap_exe: args.usbpcap_exe.clone() }
+}
+
 fn build_source(args: &ServeArgs, vid: u16, pid: u16) -> Result<Box<dyn CaptureSource>, BoxError> {
-    Ok(match args.source {
-        SourceKind::Usbpcap => {
-            let hub = match &args.hub {
-                Some(h) => h.clone(),
-                None => usbpcap::find_hub(&args.usbpcap_exe, vid, pid)?
-                    .ok_or_else(|| format!("no USBPcap root hub has a device {vid:04x}:{pid:04x}"))?,
-            };
-            Box::new(UsbPcapSource::new(UsbPcapConfig::new(&args.usbpcap_exe, hub)))
-        }
-        SourceKind::Import => Box::new(ImportSource::new(args.file.clone().ok_or("--source import needs --file")?)),
-        SourceKind::Demo => {
-            let mut devices: Vec<Box<dyn DeviceModel>> = vec![Box::new(SimpleDevice::new(vid, pid, 1, 5)), Box::new(SimpleDevice::new(0x046D, 0xC52B, 1, 3))];
-            Box::new(MemorySource::new("demo", device_frames(&mut devices, SystemClock.now_ns(), 60_000_000_000)))
-        }
-    })
+    Ok(sources::build_source(&source_settings(args), vid, pid)?)
 }
 
 /// A Ctrl-C listener, created once and kept alive for the whole of `serve`. Both
@@ -518,6 +513,8 @@ fn hubs(exe: &Path) -> Result<(), BoxError> {
 
 #[cfg(test)]
 mod tests {
+    use gazelle_audio_capture::capture::import::MemorySource;
+
     use super::*;
 
     fn controller_with_a_finished_probe(dir: &std::path::Path) -> Controller {

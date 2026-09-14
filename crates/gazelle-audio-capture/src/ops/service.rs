@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -12,12 +13,13 @@ use serde_json::{json, Value};
 use super::types::*;
 use crate::analysis::run::{analyze_probe, field_map_path, load_probe_events, AnalyzeError};
 use crate::capture::import::open_frames;
+use crate::capture::sources::{build_source, SourceSettings};
 use crate::capture::writer::CaptureWriter;
 use crate::capture::CaptureError;
 use crate::session::clock::{Clock, SystemClock};
 use crate::session::controller::{ControlError, Controller, Environment};
 use crate::session::marks::{Mark, MarkKind};
-use crate::session::step::StepTiming;
+use crate::session::step::{RunStatus, StepTiming};
 use crate::session::store::{hex, SessionError, SessionInfo, SessionStore};
 use crate::session::timeline::probe_timelines;
 
@@ -25,6 +27,10 @@ use crate::session::timeline::probe_timelines;
 pub const EXCERPT_BYTES: usize = 64;
 /// Most packets `get_evidence` returns.
 pub const MAX_EXCERPTS: usize = 32;
+/// `await_progress` wait when the request gives none.
+pub const DEFAULT_AWAIT_MS: u64 = 30_000;
+/// How often `await_progress` looks at the probe state.
+const AWAIT_POLL: Duration = Duration::from_millis(50);
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpsError {
@@ -68,6 +74,7 @@ pub struct Ops {
     open: Arc<Mutex<Option<Open>>>,
     env: Environment,
     clock: Arc<dyn Clock>,
+    sources: SourceSettings,
 }
 
 fn parse<T: DeserializeOwned>(operation: &str, args: Value) -> Result<T, OpsError> {
@@ -81,7 +88,13 @@ impl Ops {
     }
 
     pub fn with_clock(env: Environment, clock: Arc<dyn Clock>) -> Self {
-        Self { open: Arc::new(Mutex::new(None)), env, clock }
+        Self { open: Arc::new(Mutex::new(None)), env, clock, sources: SourceSettings::default() }
+    }
+
+    /// Where `start_probe` captures from.
+    pub fn with_sources(mut self, sources: SourceSettings) -> Self {
+        self.sources = sources;
+        self
     }
 
     fn lock(&self) -> MutexGuard<'_, Option<Open>> {
@@ -113,9 +126,12 @@ impl Ops {
                 self.list_parameters()
             }
             "plan_probe" => self.plan_probe(parse(operation, args)?),
-            "start_probe" => Err(OpsError::NotYet("start_probe")),
-            "abandon_probe" => Err(OpsError::NotYet("abandon_probe")),
-            "await_progress" => Err(OpsError::NotYet("await_progress")),
+            "start_probe" => self.start_probe(parse(operation, args)?),
+            "abandon_probe" => {
+                let _: AbandonProbe = parse(operation, args)?;
+                self.abandon_probe()
+            }
+            "await_progress" => self.await_progress(parse(operation, args)?),
             "analyze_probe" => self.analyze_probe(parse(operation, args)?),
             "get_field_map" => self.get_field_map(parse(operation, args)?),
             "get_evidence" => self.get_evidence(parse(operation, args)?),
@@ -236,6 +252,50 @@ impl Ops {
         })
     }
 
+    /// Builds the configured capture source (USBPcap hub discovery can take seconds) and starts
+    /// the planned probe. The operator then follows the panel; step timers advance only while
+    /// the helper's ticker runs.
+    fn start_probe(&self, req: StartProbe) -> Result<Value, OpsError> {
+        self.with_open(|open| {
+            let info = open.store()?.info()?;
+            let source = build_source(&self.sources, info.vid, info.pid)?;
+            open.controller.start_probe(&req.probe_id, source)?;
+            Ok(json!({ "started": req.probe_id, "state": open.controller.state() }))
+        })
+    }
+
+    fn abandon_probe(&self) -> Result<Value, OpsError> {
+        self.with_open(|open| {
+            open.controller.abandon_probe()?;
+            Ok(json!({ "abandoned": true, "state": open.controller.state() }))
+        })
+    }
+
+    /// Polls the probe state without holding the session lock. Reasons: `completed`,
+    /// `abandoned`, `flagged` (a step became clock-suspect since the call began), `no_probe`, or
+    /// `timeout`.
+    fn await_progress(&self, req: AwaitProgress) -> Result<Value, OpsError> {
+        let controller = self.controller().ok_or(OpsError::NoSession)?;
+        let timeout = Duration::from_millis(req.timeout_ms.unwrap_or(DEFAULT_AWAIT_MS));
+        let started = Instant::now();
+        let flagged_at_start = controller.state().probe.map_or(0, |p| p.flagged_steps.len());
+        loop {
+            let state = controller.state();
+            let reason = match &state.probe {
+                None => Some("no_probe"),
+                Some(p) if p.status == RunStatus::Completed => Some("completed"),
+                Some(p) if p.status == RunStatus::Abandoned => Some("abandoned"),
+                Some(p) if p.flagged_steps.len() > flagged_at_start => Some("flagged"),
+                Some(_) if started.elapsed() >= timeout => Some("timeout"),
+                Some(_) => None,
+            };
+            if let Some(reason) = reason {
+                return Ok(json!({ "reason": reason, "state": state }));
+            }
+            std::thread::sleep(AWAIT_POLL);
+        }
+    }
+
     fn analyze_probe(&self, req: AnalyzeProbe) -> Result<Value, OpsError> {
         self.with_open(|open| {
             let analysis = analyze_probe(&open.store()?, req.probe_id.as_deref())?;
@@ -289,3 +349,7 @@ impl Ops {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "service_tests.rs"]
+mod tests;
