@@ -1,0 +1,9 @@
+{
+  "vid": 9189,
+  "pid": 41216,
+  "device_descriptor_hex": "12010002ef020140e52300a1030601020301",
+  "vendor_app": null,
+  "vendor_app_version": null,
+  "notes": "",
+  "keep_stream_payloads": false
+}
