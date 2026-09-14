@@ -251,6 +251,7 @@ pub fn find_hub(exe: &Path, vid: u16, pid: u16) -> Result<Option<String>, Captur
 
 #[cfg(windows)]
 mod platform {
+    use std::os::windows::process::CommandExt;
     use std::path::Path;
     use std::process::{Command, Stdio};
     use std::sync::{Arc, Mutex};
@@ -263,12 +264,20 @@ mod platform {
     /// How long hub discovery listens to one hub.
     const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 
+    /// winbase.h `CREATE_NEW_PROCESS_GROUP`. USBPcapCMD would otherwise share our console, so a
+    /// console Ctrl-C reaches it directly (it may die before `stop()` sets `stopped`, so the
+    /// capture thread reads that as an unrequested exit — `CaptureError::Tool` — racing
+    /// `writer.finish()`). Running it in its own process group makes our own Ctrl-C handler
+    /// (`main.rs`'s `serve`, via `stop()`) the only path that stops it.
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
     pub fn start(cfg: &UsbPcapConfig) -> Result<CaptureStream, CaptureError> {
         let mut child = Command::new(&cfg.exe)
             .args(capture_args(cfg))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
+            .creation_flags(CREATE_NEW_PROCESS_GROUP)
             .spawn()?;
         let stdout = child.stdout.take().ok_or_else(|| CaptureError::Tool("USBPcapCMD has no stdout".into()))?;
         let child = Arc::new(Mutex::new(child));

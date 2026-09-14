@@ -86,3 +86,31 @@ fn serve_demo_starts_a_probe_behind_the_token() {
     child.kill().unwrap();
     child.wait().unwrap();
 }
+
+#[test]
+fn serve_without_no_wait_fails_fast_when_stdin_is_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.json");
+    std::fs::write(
+        &plan,
+        r#"{"parameters":[
+            {"id":"monitor_level","label":"Monitor level","kind":"continuous"},
+            {"id":"mute","label":"Mute","kind":"toggle","domain":{"values":["off","on"]}}],
+          "plan":{"parameter":"monitor_level","value_a":"0 dB","value_b":["-6 dB"],"control_parameter":"mute"}}"#,
+    )
+    .unwrap();
+    let session = dir.path().join("session");
+    let out = Command::new(BIN)
+        .args(["serve", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--plan", plan.to_str().unwrap(), "--port", "0", "--source", "demo"])
+        .env("LOCALAPPDATA", dir.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "expected a non-zero exit when stdin is closed without --no-wait\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!session.join("captures/p1.pcapng").is_file(), "no probe should have started");
+}

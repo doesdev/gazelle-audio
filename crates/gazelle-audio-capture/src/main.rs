@@ -10,7 +10,7 @@ use gazelle_audio_capture::capture::usbpcap::{self, UsbPcapConfig, UsbPcapSource
 use gazelle_audio_capture::capture::CaptureSource;
 use gazelle_audio_capture::panel::{self, security, PanelApp};
 use gazelle_audio_capture::session::clock::{Clock, SystemClock};
-use gazelle_audio_capture::session::controller::Controller;
+use gazelle_audio_capture::session::controller::{ControlError, Controller};
 use gazelle_audio_capture::session::model::{Parameter, ParameterDomain, ParameterKind, ProbePlan};
 use gazelle_audio_capture::session::step::{RunStatus, StepTiming};
 use gazelle_audio_capture::session::store::{SessionInfo, SessionStore};
@@ -205,18 +205,48 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     tokio::spawn(panel::serve(listener, app));
     panel::spawn_ticker(controller.clone(), Duration::from_millis(100));
 
-    let source = build_source(&args, info.vid, info.pid)?;
-    if !args.no_wait {
-        println!("open the panel, then press Enter to start the probe");
-        tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await??;
-    }
+    // From here on a Ctrl-C can arrive at any point: while a hub is being discovered, while
+    // waiting for Enter, while `start_probe` is already spawning the capture thread, or once
+    // the probe is running. Before this point nothing has been started (no capture thread, no
+    // marks appended), so letting the default disposition (kill the process) apply is fine.
+    let ready = async {
+        let source = build_source(&args, info.vid, info.pid)?;
+        if !args.no_wait {
+            println!("open the panel, then press Enter to start the probe");
+            let n = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await??;
+            if n == 0 {
+                // EOF: read_line returns Ok(0) immediately for closed/redirected stdin (a
+                // helper launched with no terminal, `/dev/null`, a finished pipe). Treat that
+                // as an error rather than silently starting the probe unattended.
+                return Err(BoxError::from("stdin closed; use --no-wait"));
+            }
+        }
+        Ok(source)
+    };
+    let source = tokio::select! {
+        result = ready => result?,
+        _ = tokio::signal::ctrl_c() => {
+            println!("interrupted before the probe started; nothing to stop");
+            return Ok(());
+        }
+    };
+
     // `Controller::start_probe` starts the capture thread and can block briefly on file I/O
     // while the controller's inner lock is held; run it on a blocking thread so it cannot
-    // stall this async task (or, on a current-thread runtime, every other task), and surface
-    // a JoinError with `?` rather than swallow it.
+    // stall this async task (or, on a current-thread runtime, every other task). Keep the
+    // `JoinHandle` in a local so a losing Ctrl-C branch below can still wait on it afterward:
+    // a blocking task can't be cancelled once spawned, only waited out.
     let probe_id = planned.probe_id.clone();
     let start_controller = controller.clone();
-    tokio::task::spawn_blocking(move || start_controller.start_probe(&probe_id, source)).await??;
+    let mut start_handle = tokio::task::spawn_blocking(move || start_controller.start_probe(&probe_id, source));
+    tokio::select! {
+        result = &mut start_handle => result??,
+        _ = tokio::signal::ctrl_c() => {
+            eprintln!("interrupted while starting; waiting for it to finish, then stopping it");
+            abandon_after_start(&mut start_handle, &controller).await?;
+            return Ok(());
+        }
+    }
     println!("probe {} started", planned.probe_id);
 
     let mut rx = controller.subscribe();
@@ -237,15 +267,56 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
             tokio::signal::ctrl_c().await?;
         }
         _ = tokio::signal::ctrl_c() => {
-            // `Controller::abandon_probe` can also join the capture thread while holding the
-            // controller's inner lock; run it off the async runtime thread too.
-            let abandon_controller = controller.clone();
-            if let Err(e) = tokio::task::spawn_blocking(move || abandon_controller.abandon_probe()).await {
-                tracing::warn!(error = %e, "abandon_probe task panicked");
-            }
+            abandon(&controller).await?;
         }
     }
     Ok(())
+}
+
+/// Waits for `handle`, but exits the process immediately (rather than swallow a second signal)
+/// if another Ctrl-C arrives first: a blocking task can't be cancelled, only waited out, and
+/// the operator should not be stuck if it — or the capture source it is stopping — hangs.
+async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>) -> Result<T, tokio::task::JoinError> {
+    tokio::select! {
+        result = handle => result,
+        _ = tokio::signal::ctrl_c() => {
+            eprintln!("cleanup interrupted; exiting immediately");
+            std::process::exit(130);
+        }
+    }
+}
+
+/// Ctrl-C arrived while `start_probe` was already spawning the capture thread: there is no way
+/// to cancel that blocking call, only wait for it, then stop what it started (a probe is now
+/// running only if it succeeded — if it failed there is nothing to abandon, and its error is
+/// surfaced as-is).
+async fn abandon_after_start(
+    start_handle: &mut tokio::task::JoinHandle<Result<(), ControlError>>,
+    controller: &Controller,
+) -> Result<(), BoxError> {
+    wait_or_force_exit(start_handle).await??;
+    abandon(controller).await
+}
+
+/// Cancels the running probe. Surfaces (rather than swallows) both a task panic and
+/// `abandon_probe`'s own error: on either, `finish_capture` may never run, so the capture
+/// thread is left unstopped and unjoined and the pcapng file never finalised (parked Task 11
+/// minor #5) — the operator needs to see that, and `serve` must exit non-zero so it's obvious
+/// the shutdown was not clean.
+async fn abandon(controller: &Controller) -> Result<(), BoxError> {
+    let controller = controller.clone();
+    let mut handle = tokio::task::spawn_blocking(move || controller.abandon_probe());
+    match wait_or_force_exit(&mut handle).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            eprintln!("error: could not abandon the probe cleanly: {e}");
+            Err(e.into())
+        }
+        Err(e) => {
+            eprintln!("error: abandon task panicked: {e}");
+            Err(e.into())
+        }
+    }
 }
 
 fn import(args: ImportArgs) -> Result<(), BoxError> {
