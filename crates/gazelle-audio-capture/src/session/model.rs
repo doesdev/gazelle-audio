@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ParameterKind {
     Continuous,
@@ -11,7 +11,7 @@ pub enum ParameterKind {
 }
 
 /// Values and unit exactly as the vendor UI shows them.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ParameterDomain {
     #[serde(default)]
     pub values: Vec<String>,
@@ -19,7 +19,7 @@ pub struct ParameterDomain {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Parameter {
     pub id: String,
     pub label: String,
@@ -35,7 +35,7 @@ fn default_repeats() -> u32 {
     3
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProbePlan {
     pub parameter: String,
     pub value_a: String,
