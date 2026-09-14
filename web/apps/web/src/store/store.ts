@@ -13,6 +13,9 @@
 
 import { connect, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Workspace } from "gazelle-audio-client";
 
+// Elements may not import the client (spec §6.1), so the store passes on the data types they show.
+export type { DeviceDescriptor, Group, ServerInfo, Status, Workspace };
+
 import { frameWriter, type FrameWriter, type RequestFrame } from "../core/frame.ts";
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type ThemeSource } from "../themes/theme.ts";

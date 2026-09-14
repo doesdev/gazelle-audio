@@ -3,6 +3,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,27 @@ server.on("exit", (code) => {
   console.error(`gazelle-audio-server exited (${code ?? "signal"})`);
   process.exit(code ?? 1);
 });
+
+// The first `cargo run` compiles the server; start Vite only once it accepts connections, so the
+// page never boots against a proxy with nothing behind it.
+const listening = (): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port: SERVER_PORT });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+  });
+const deadline = Date.now() + 180_000;
+while (!(await listening())) {
+  if (Date.now() > deadline) {
+    console.error(`gazelle-audio-server did not accept connections on port ${SERVER_PORT} within 3 minutes`);
+    server.kill();
+    process.exit(1);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
 
 const vite = await createServer({ configFile: join(app, "vite.config.ts") });
 await vite.listen();

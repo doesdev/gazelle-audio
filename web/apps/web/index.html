@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <title>Gazelle</title>
+    <style>
+      /* Until <ga-app> applies the chosen theme, paint the gazelle-dark background so there is no flash. */
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--ga-surface-background, #1a1b1d);
+        color: var(--ga-text-primary, #e6e6e6);
+        font: 12px/1.4 "Inter Variable", system-ui, sans-serif;
+      }
+      .boot-error { max-width: 520px; margin: 15vh auto; padding: 0 16px; }
+      .boot-error h1 { font: 600 22px "Josefin Sans Variable", system-ui, sans-serif; }
+      .boot-error button { font: inherit; padding: 4px 12px; }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body></body>

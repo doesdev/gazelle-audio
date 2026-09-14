@@ -1,0 +1,104 @@
+// <ga-app>: the shell. A header across the top; below it a devices zone on the left, the routed
+// page in the centre, and a right zone reserved for meters and the Control Room (a later phase);
+// a lower zone is reserved for the mixer (phase 4). It applies the chosen theme to the document
+// and marks itself disconnected when the server goes away.
+
+import { h } from "../core/dom.ts";
+import { cssProperties } from "../themes/theme.ts";
+import { GaElement, sheet, useStore } from "./element.ts";
+import { followHash, PAGES, route, type Route } from "./router.ts";
+
+export class GaApp extends GaElement {
+  static override styles = [
+    sheet(`
+      :host {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100vh;
+        background: var(--ga-surface-background);
+      }
+      .zones {
+        display: grid;
+        grid-template-columns: minmax(200px, 240px) 1fr minmax(200px, 260px);
+        gap: 1px;
+        min-height: 0;
+      }
+      .zone, main { min-height: 0; overflow: auto; background: var(--ga-surface-panel); padding: 8px; }
+      main { padding: 12px 16px; }
+      .lower { border-top: 1px solid var(--ga-surface-background); padding: 6px 8px; }
+      .page-title { margin: 0 0 12px; }
+      .disconnected {
+        margin: 0 0 12px;
+        padding: 6px 10px;
+        border-radius: 3px;
+        background: var(--ga-connection-reconnecting);
+        color: var(--ga-text-inverse);
+        font-weight: 600;
+      }
+    `),
+  ];
+
+  protected override render(): void {
+    const store = useStore();
+    this.onDisconnect(followHash());
+
+    const title = h("h1", { class: "page-title" });
+    const banner = h("p", { class: "disconnected", role: "alert", hidden: true }, "The server is not connected. Controls are disabled until it reconnects.");
+    const page = h("div", { class: "page" });
+    this.root.replaceChildren(
+      h("ga-header"),
+      h(
+        "div",
+        { class: "zones" },
+        h("aside", { class: "zone left", "aria-label": "Devices" }, h("ga-device-list")),
+        h("main", {}, banner, title, page),
+        h(
+          "aside",
+          { class: "zone right", "aria-label": "Meters and control room" },
+          h("ga-section", { heading: "Meter" }, h("p", { class: "placeholder" }, "The main output meter arrives with the mixer.")),
+          h("ga-section", { heading: "Control Room" }, h("p", { class: "placeholder" }, "Main level, dim, talkback and downmix presets arrive in a later phase.")),
+        ),
+      ),
+      h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Channel strips, faders and meters arrive in phase 4."))),
+      h("ga-notices"),
+    );
+
+    this.watch(() => {
+      const properties = cssProperties(store.theme.value);
+      const style = document.documentElement.style;
+      for (const [name, value] of Object.entries(properties)) style.setProperty(name, value);
+    });
+    this.watch(() => {
+      const connected = store.connected.value;
+      banner.hidden = connected;
+      this.toggleAttribute("disconnected", !connected);
+    });
+    this.watch(() => {
+      const current = route.value;
+      const first = current.page === "devices" && current.id === undefined ? store.devices.value[0]?.id : undefined;
+      title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
+      page.replaceChildren(pageFor(current, first));
+    });
+  }
+}
+
+function pageFor(current: Route, firstDeviceId: string | undefined): HTMLElement {
+  switch (current.page) {
+    case "devices": {
+      const id = current.id ?? firstDeviceId;
+      return id === undefined ? h("p", { class: "placeholder" }, "No devices are connected.") : h("ga-device-status", { "device-id": id });
+    }
+    case "workspace":
+      return h("ga-workspace");
+    case "mixer":
+      return h("p", { class: "placeholder" }, "Channel strips, faders and meters arrive in phase 4.");
+    case "routing":
+      return h("p", { class: "placeholder" }, "The routing matrix arrives in phase 5.");
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "ga-app": GaApp;
+  }
+}
