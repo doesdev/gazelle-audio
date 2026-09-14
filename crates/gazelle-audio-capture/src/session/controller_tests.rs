@@ -311,6 +311,28 @@ fn silence_is_measured_from_capture_start_and_resets_on_packets() {
 }
 
 #[test]
+fn a_running_capture_is_flushed_to_a_readable_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, clock) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    let (frames, _) = raw_frames();
+    let (src, _) = StoppableSource::new(frames);
+    c.start_probe("p1", Box::new(src)).unwrap();
+    wait_packets(&c, 1);
+    // Past the flush interval, the next stored packet flushes everything before it.
+    clock.advance(2 * S);
+    let before = c.state().capture.packets;
+    wait_packets(&c, before + 2);
+    assert!(c.state().capture.running, "still capturing: no finish() has run");
+    let path = dir.path().join("captures").join("p1.pcapng");
+    // Writing continues after the flush, and BufWriter may already have spilled part of a later
+    // block to disk, so the file can end in a truncated block; count the whole ones before it.
+    let readable = crate::capture::import::open_frames(&path).unwrap().take_while(Result::is_ok).count() as u64;
+    assert!(readable >= before, "{readable} frames readable on disk, expected at least {before}");
+    c.abandon_probe().unwrap();
+}
+
+#[test]
 fn running_is_false_once_the_capture_thread_finishes_on_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = setup(dir.path());

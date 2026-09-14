@@ -58,6 +58,15 @@ impl<W: Write> CaptureWriter<W> {
         Ok(self.written - 1)
     }
 
+    /// Pushes everything written so far to the underlying writer. Right after a flush the file
+    /// ends on a block boundary; later writes through a `BufWriter` can spill a partial block,
+    /// so a file cut short by a hard exit keeps every block up to the last flush and may end in
+    /// one truncated block, which readers report as an error after the whole blocks.
+    pub fn flush(&mut self) -> Result<(), CaptureError> {
+        self.inner.get_mut().flush()?;
+        Ok(())
+    }
+
     pub fn finish(self) -> Result<W, CaptureError> {
         let mut w = self.inner.into_inner();
         w.flush()?;

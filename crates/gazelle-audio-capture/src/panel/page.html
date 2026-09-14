@@ -84,8 +84,12 @@ function render(state) {
   $("capture").className = cap.failure || cap.decode_errors > 0 ? "warn" : "";
   // A live target reports status continuously; seconds of silence mean the capture is not seeing it.
   const silent = cap.running && cap.silent_ms >= SILENCE_WARN_MS;
-  $("silence").hidden = !silent;
-  $("silence").textContent = silent ? `No packets from the target for ${Math.floor(cap.silent_ms / 1000)} s — is the device on, and is USBPcap attached to it?` : "";
+  // The capture ended on its own while the probe still runs: later steps would record nothing.
+  const ended = !cap.running && !cap.failure && !!state.probe && state.probe.status === "running";
+  $("silence").hidden = !(silent || ended);
+  $("silence").textContent = ended
+    ? "Capture has stopped: the rest of this probe will not be recorded"
+    : silent ? `No packets from the target for ${Math.floor(cap.silent_ms / 1000)} s — is the device on, and is USBPcap attached to it?` : "";
   const probe = state.probe;
   running = !!probe && probe.status === "running";
   if (!probe) {

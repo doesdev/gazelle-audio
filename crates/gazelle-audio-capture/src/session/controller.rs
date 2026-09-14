@@ -21,6 +21,9 @@ use crate::capture::rate::RateMeter;
 use crate::capture::writer::CaptureWriter;
 use crate::capture::{CaptureError, CaptureSource, StopHandle};
 
+/// How often the capture thread flushes the pcapng writer while packets arrive.
+const FLUSH_INTERVAL_NS: u64 = 1_000_000_000;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ControlError {
     #[error(transparent)]
@@ -271,9 +274,16 @@ impl Controller {
             let (vid, pid) = (info.vid, info.pid);
             std::thread::spawn(move || {
                 let result = (|| -> Result<(), CaptureError> {
+                    // Flushed about once a second, so a hard exit (a second Ctrl-C, a closed
+                    // window) loses at most that much instead of the whole capture.
+                    let mut flushed_ns = clock.now_ns();
                     for frame in stream.frames {
                         let frame = frame?;
                         let host_ns = clock.now_ns();
+                        if host_ns.saturating_sub(flushed_ns) >= FLUSH_INTERVAL_NS {
+                            writer.flush()?;
+                            flushed_ns = host_ns;
+                        }
                         let stored = match pipeline.process(frame) {
                             Ok(stored) => stored,
                             Err(_) => {

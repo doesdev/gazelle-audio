@@ -48,6 +48,22 @@ fn pcapng_round_trips_frames_with_nanosecond_timestamps() {
 }
 
 #[test]
+fn a_flushed_pcapng_is_readable_while_the_writer_is_still_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("live.pcapng");
+    let frames: Vec<RawFrame> = (0..50).map(|i| frame(249, i, usbpcap::encode(&event(i)))).collect();
+    let mut w = CaptureWriter::new(std::io::BufWriter::new(std::fs::File::create(&path).unwrap())).unwrap();
+    for f in &frames {
+        w.write(f).unwrap();
+    }
+    w.flush().unwrap();
+    // Nothing finished or dropped: this is what a hard exit right now would leave on disk.
+    let back: Vec<RawFrame> = open_frames(&path).unwrap().map(Result::unwrap).collect();
+    assert_eq!(back, frames);
+    drop(w);
+}
+
+#[test]
 fn pcapng_mixed_link_types_get_separate_interfaces() {
     let a = frame(249, 0, usbpcap::encode(&event(0)));
     let b = frame(220, 1, usbmon::encode(&event(1)));
