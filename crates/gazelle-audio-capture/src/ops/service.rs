@@ -75,6 +75,17 @@ pub struct Ops {
     env: Environment,
     clock: Arc<dyn Clock>,
     sources: SourceSettings,
+    /// The only session this helper may open, when it serves one fixed session.
+    locked: Option<PathBuf>,
+}
+
+/// Whether two session paths name the same directory: canonical paths when both exist, the
+/// literal paths otherwise.
+fn same_session(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
 }
 
 fn parse<T: DeserializeOwned>(operation: &str, args: Value) -> Result<T, OpsError> {
@@ -88,7 +99,13 @@ impl Ops {
     }
 
     pub fn with_clock(env: Environment, clock: Arc<dyn Clock>) -> Self {
-        Self { open: Arc::new(Mutex::new(None)), env, clock, sources: SourceSettings::default() }
+        Self { open: Arc::new(Mutex::new(None)), env, clock, sources: SourceSettings::default(), locked: None }
+    }
+
+    /// Restricts `session_open` to `root`, for a helper whose panel serves one session.
+    pub fn locked_to(mut self, root: PathBuf) -> Self {
+        self.locked = Some(root);
+        self
     }
 
     /// Where `start_probe` captures from.
@@ -141,6 +158,9 @@ impl Ops {
 
     fn session_open(&self, req: SessionOpen) -> Result<Value, OpsError> {
         let root = PathBuf::from(&req.path);
+        if let Some(locked) = self.locked.as_deref().filter(|locked| !same_session(&root, locked)) {
+            return Err(OpsError::Invalid(format!("this helper serves {}; start another helper for {}", locked.display(), req.path)));
+        }
         let store = if root.join("session.json").is_file() {
             let store = SessionStore::open(&root)?;
             let info = store.info()?;

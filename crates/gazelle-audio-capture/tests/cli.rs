@@ -90,6 +90,67 @@ fn http_get(port: u16, path: &str, token: Option<&str>) -> (u16, String) {
     (status, body)
 }
 
+fn http_post(port: u16, path: &str, token: Option<&str>, body: &str) -> (u16, String) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let auth = token.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
+    write!(
+        s,
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut response = String::new();
+    s.read_to_string(&mut response).unwrap();
+    let status = response[9..12].parse().unwrap();
+    let body = response.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
+    (status, body)
+}
+
+#[test]
+fn agent_serves_the_panel_mcp_and_openai_tools_for_one_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session");
+    let mut child = Command::new(BIN)
+        .args(["agent", "--session", session.to_str().unwrap(), "--vid", "0x1234", "--pid", "0xabcd", "--port", "0", "--source", "demo"])
+        .env("LOCALAPPDATA", dir.path())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let (mut port, mut token, mut mcp) = (0u16, String::new(), false);
+    while port == 0 || token.is_empty() || !mcp {
+        let line = lines.next().expect("agent printed its addresses and token").unwrap();
+        if let Some(url) = line.strip_prefix("panel: http://127.0.0.1:") {
+            port = url.trim_end_matches('/').parse().unwrap();
+        } else if let Some(t) = line.strip_prefix("token: ") {
+            token = t.to_string();
+        } else if line.starts_with("mcp: http://127.0.0.1:") && line.ends_with("/mcp") {
+            mcp = true;
+        }
+    }
+    assert!(session.join("session.json").is_file());
+    assert_eq!(std::fs::read_to_string(dir.path().join("gazelle/capture-token")).unwrap(), token);
+
+    assert_eq!(http_get(port, "/api/state", Some(&token)).0, 200);
+    let (status, body) = http_get(port, "/openai/tools", Some(&token));
+    assert_eq!(status, 200);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["tools"].as_array().unwrap().len(), 12);
+
+    let (status, body) = http_post(port, "/openai/call", Some(&token), r#"{"name":"session_status"}"#);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["open"], true);
+
+    let other = serde_json::json!({ "name": "session_open", "arguments": { "path": dir.path().join("elsewhere").display().to_string(), "vid": 1, "pid": 2 } });
+    let (status, body) = http_post(port, "/openai/call", Some(&token), &other.to_string());
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("this helper serves"), "{body}");
+
+    assert_eq!(http_post(port, "/mcp", None, "{}").0, 401, "MCP needs the token");
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
 #[test]
 fn serve_demo_starts_a_probe_behind_the_token() {
     let dir = tempfile::tempdir().unwrap();

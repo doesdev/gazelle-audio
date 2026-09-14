@@ -4,6 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use gazelle_audio_capture::agent::mcp;
+use gazelle_audio_capture::agent::openai::{self, AgentApp};
+use gazelle_audio_capture::ops::service::Ops;
 use gazelle_audio_capture::analysis::run::analyze_probe;
 use gazelle_audio_capture::capture::import::ImportSource;
 use gazelle_audio_capture::capture::pipeline::{DeviceFilter, PayloadPolicy, Pipeline};
@@ -37,6 +40,8 @@ enum Command {
     Synth(SynthArgs),
     /// Analyse a recorded probe; writes analysis/<parameter>.json and .md in the session.
     Analyze(AnalyzeArgs),
+    /// Serve one session to agents: the panel, MCP at /mcp and OpenAI tools at /openai/*.
+    Agent(AgentArgs),
     /// List USBPcap root hubs and attached devices (Windows).
     Hubs {
         #[arg(long, default_value = DEFAULT_EXE)]
@@ -112,6 +117,31 @@ struct SynthArgs {
 }
 
 #[derive(Args)]
+struct AgentArgs {
+    /// The session this helper serves; created when it holds no session.json.
+    #[arg(long)]
+    session: PathBuf,
+    /// Target VID (hex with 0x, or decimal); required when creating the session.
+    #[arg(long, value_parser = parse_u16)]
+    vid: Option<u16>,
+    #[arg(long, value_parser = parse_u16)]
+    pid: Option<u16>,
+    /// 0 picks a free port.
+    #[arg(long, default_value_t = 8430)]
+    port: u16,
+    #[arg(long, value_enum, default_value_t = SourceKind::Usbpcap)]
+    source: SourceKind,
+    /// Capture file for --source import.
+    #[arg(long)]
+    file: Option<PathBuf>,
+    /// USBPcap control device, e.g. \\.\USBPcap1; found by VID/PID when omitted.
+    #[arg(long)]
+    hub: Option<String>,
+    #[arg(long, default_value = DEFAULT_EXE)]
+    usbpcap_exe: PathBuf,
+}
+
+#[derive(Args)]
 struct AnalyzeArgs {
     /// Session directory.
     #[arg(long)]
@@ -145,6 +175,7 @@ async fn main() {
         Command::Import(args) => import(args),
         Command::Synth(args) => synth(args),
         Command::Analyze(args) => analyze(args),
+        Command::Agent(args) => agent(args).await,
         Command::Hubs { usbpcap_exe } => hubs(&usbpcap_exe),
     };
     if let Err(e) = result {
@@ -179,17 +210,82 @@ fn open_or_create(args: &ServeArgs) -> Result<SessionStore, BoxError> {
     Ok(SessionStore::create(&args.session, &SessionInfo { vid, pid, ..SessionInfo::default() })?)
 }
 
-fn source_settings(args: &ServeArgs) -> SourceSettings {
-    let kind = match args.source {
+fn source_settings(source: SourceKind, file: Option<PathBuf>, hub: Option<String>, usbpcap_exe: PathBuf) -> SourceSettings {
+    let kind = match source {
         SourceKind::Usbpcap => sources::SourceKind::Usbpcap,
         SourceKind::Import => sources::SourceKind::Import,
         SourceKind::Demo => sources::SourceKind::Demo,
     };
-    SourceSettings { kind, file: args.file.clone(), hub: args.hub.clone(), usbpcap_exe: args.usbpcap_exe.clone() }
+    SourceSettings { kind, file, hub, usbpcap_exe }
 }
 
 fn build_source(args: &ServeArgs, vid: u16, pid: u16) -> Result<Box<dyn CaptureSource>, BoxError> {
-    Ok(sources::build_source(&source_settings(args), vid, pid)?)
+    let settings = source_settings(args.source, args.file.clone(), args.hub.clone(), args.usbpcap_exe.clone());
+    Ok(sources::build_source(&settings, vid, pid)?)
+}
+
+/// Writes the token where `mcp-stdio` and `drive` read it, warning when that is impossible.
+fn write_token_file(token: &str) {
+    match security::token_path(|k| std::env::var(k).ok()) {
+        Some(path) => {
+            if let Err(e) = security::write_token(&path, token) {
+                tracing::warn!(error = %e, path = %path.display(), "could not write token file");
+            }
+        }
+        None => eprintln!("warning: no LOCALAPPDATA or HOME, so no token file was written; use the token printed below"),
+    }
+}
+
+/// USBPcap attachment for the target, warning on stderr when it is missing.
+fn check_usbpcap(source: SourceKind, target: Option<(u16, u16)>) -> Option<bool> {
+    let attached = match (source, target) {
+        (SourceKind::Usbpcap, Some((vid, pid))) => usbpcap::usbpcap_attached(vid, pid),
+        _ => None,
+    };
+    if let (Some(false), Some((vid, pid))) = (attached, target) {
+        eprintln!("warning: USBPcap is not attached to {vid:04x}:{pid:04x}; its traffic will not be captured. Reboot, then retry (disabling and re-enabling the device does not help)");
+    }
+    attached
+}
+
+/// Hosts one session for agents until Ctrl-C: the panel, `/mcp` and `/openai/*` on one port,
+/// behind the bearer token and the Host check. A probe still running at Ctrl-C is abandoned so
+/// its capture is finished.
+async fn agent(args: AgentArgs) -> Result<(), BoxError> {
+    let mut ctrl_c = SigintListener::new()?;
+    let target = match (args.vid, args.pid) {
+        (Some(vid), Some(pid)) => Some((vid, pid)),
+        _ => SessionStore::open(&args.session).ok().and_then(|s| s.info().ok()).map(|i| (i.vid, i.pid)),
+    };
+    let env = Environment { elevated: usbpcap::is_elevated(), usbpcap_attached: check_usbpcap(args.source, target) };
+    let settings = source_settings(args.source, args.file.clone(), args.hub.clone(), args.usbpcap_exe.clone());
+    let ops = Ops::new(env).with_sources(settings).locked_to(args.session.clone());
+    let opened = ops.call("session_open", serde_json::json!({ "path": args.session.display().to_string(), "vid": args.vid, "pid": args.pid }))?;
+    let controller = ops.controller().ok_or("the session did not open")?;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", args.port)).await?;
+    let port = listener.local_addr()?.port();
+    let token: Arc<str> = security::generate_token().into();
+    write_token_file(&token);
+    let routes = panel::router(PanelApp { controller: controller.clone(), token: Arc::clone(&token), port })
+        .merge(openai::router(AgentApp { ops: ops.clone(), token: Arc::clone(&token) }))
+        .merge(mcp::router(ops.clone(), Arc::clone(&token), port));
+    let routes = panel::with_host_check(routes, port);
+    println!("panel: http://127.0.0.1:{port}/");
+    println!("mcp: http://127.0.0.1:{port}/mcp");
+    println!("openai: http://127.0.0.1:{port}/openai/tools");
+    println!("token: {token}");
+    println!("session: {} ({:04x}:{:04x})", args.session.display(), opened["vid"].as_u64().unwrap_or(0), opened["pid"].as_u64().unwrap_or(0));
+    std::io::stdout().flush()?;
+    panel::spawn_ticker(controller.clone(), Duration::from_millis(100));
+    let server = tokio::spawn(async move { axum::serve(listener, routes).await });
+
+    ctrl_c.recv().await;
+    let stopping = controller.clone();
+    let _ = tokio::task::spawn_blocking(move || stopping.abandon_probe()).await;
+    server.abort();
+    println!("stopped");
+    Ok(())
 }
 
 /// A Ctrl-C listener, created once and kept alive for the whole of `serve`. Both
@@ -251,31 +347,14 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // below fails or is never reached, and regardless of `--source`/`--hub`.
     // A device that enumerated before USBPcap attached to its hub is invisible to the capture
     // (2026-09-14: the Studio+ stored only its injected descriptor). `pnputil` answers in ~30 ms.
-    let usbpcap_attached = match args.source {
-        SourceKind::Usbpcap => usbpcap::usbpcap_attached(info.vid, info.pid),
-        SourceKind::Import | SourceKind::Demo => None,
-    };
-    if usbpcap_attached == Some(false) {
-        eprintln!(
-            "warning: USBPcap is not attached to {:04x}:{:04x}; its traffic will not be captured. Reboot, then retry (disabling and re-enabling the device does not help)",
-            info.vid, info.pid
-        );
-    }
-    let env = Environment { elevated: usbpcap::is_elevated(), usbpcap_attached };
+    let env = Environment { elevated: usbpcap::is_elevated(), usbpcap_attached: check_usbpcap(args.source, Some((info.vid, info.pid))) };
     let controller = Controller::new(store, Arc::clone(&clock), StepTiming::default(), env)?;
     let planned = controller.plan_probe(probe_file.plan, args.seed.unwrap_or_else(|| clock.now_ns()))?;
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", args.port)).await?;
     let port = listener.local_addr()?.port();
     let token = security::generate_token();
-    match security::token_path(|k| std::env::var(k).ok()) {
-        Some(path) => {
-            if let Err(e) = security::write_token(&path, &token) {
-                tracing::warn!(error = %e, path = %path.display(), "could not write token file");
-            }
-        }
-        None => eprintln!("warning: no LOCALAPPDATA or HOME, so no token file was written; use the token printed below"),
-    }
+    write_token_file(&token);
     println!("panel: http://127.0.0.1:{port}/");
     println!("token: {token}");
     println!("probe {}: {} steps", planned.probe_id, planned.steps.len());

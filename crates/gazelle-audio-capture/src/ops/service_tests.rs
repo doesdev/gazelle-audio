@@ -88,6 +88,18 @@ fn a_probe_can_be_abandoned_and_unknown_probes_are_refused() {
 }
 
 #[test]
+fn a_locked_helper_serves_only_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("s");
+    let ops = Ops::new(Environment::default()).locked_to(root.clone());
+    ops.call("session_open", json!({ "path": root.display().to_string(), "vid": 1, "pid": 2 })).unwrap();
+    let other = ops.call("session_open", json!({ "path": dir.path().join("t").display().to_string(), "vid": 1, "pid": 2 }));
+    assert!(matches!(other, Err(OpsError::Invalid(ref m)) if m.contains("this helper serves")), "{other:?}");
+    let same = ops.call("session_open", json!({ "path": root.join(".").display().to_string() }));
+    assert!(same.is_ok(), "the same directory by another spelling reopens: {same:?}");
+}
+
+#[test]
 fn await_progress_needs_an_open_session() {
     let ops = Ops::new(Environment::default());
     assert!(matches!(ops.call("await_progress", json!({})), Err(OpsError::NoSession)));
