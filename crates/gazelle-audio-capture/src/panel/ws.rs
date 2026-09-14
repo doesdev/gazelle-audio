@@ -13,6 +13,10 @@ use crate::session::authority::OperatorAuthority;
 use crate::session::controller::{Controller, PanelState};
 use crate::session::step::OperatorCommand;
 
+/// Largest WebSocket message or frame the panel accepts. Operator commands are a few hundred
+/// bytes; axum's default of 64 MiB would let any local client make the helper buffer that much.
+pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
+
 #[derive(Deserialize)]
 pub struct WsQuery {
     token: String,
@@ -33,7 +37,7 @@ pub async fn upgrade(State(app): State<PanelApp>, Query(query): Query<WsQuery>, 
     if !security::origin_allowed(origin, app.port) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    ws.on_upgrade(move |socket| run(socket, app.controller))
+    ws.max_message_size(MAX_MESSAGE_BYTES).max_frame_size(MAX_MESSAGE_BYTES).on_upgrade(move |socket| run(socket, app.controller))
 }
 
 async fn send(sink: &mut SplitSink<WebSocket, Message>, message: &ServerMessage<'_>) -> Result<(), axum::Error> {

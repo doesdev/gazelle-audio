@@ -2,7 +2,7 @@
 //! `analysis/`.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -105,7 +105,9 @@ impl SessionStore {
         self.write_json("parameters.json", &all)
     }
 
-    /// Appends marks as JSON lines and syncs, so a crash loses at most the marks in flight.
+    /// Appends marks as JSON lines and syncs, so a crash loses at most the marks in flight. A
+    /// torn final line left by an earlier crash (no trailing newline) is cut off first, so the
+    /// new marks start on a line of their own.
     pub fn append_marks(&self, marks: &[Mark]) -> Result<(), SessionError> {
         if marks.is_empty() {
             return Ok(());
@@ -115,19 +117,37 @@ impl SessionStore {
             serde_json::to_writer(&mut buf, m)?;
             buf.push(b'\n');
         }
-        let mut f = OpenOptions::new().append(true).open(self.root.join("marks.jsonl"))?;
+        let path = self.root.join("marks.jsonl");
+        let existing = fs::read(&path)?;
+        if existing.last().is_some_and(|b| *b != b'\n') {
+            let keep = existing.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+            tracing::warn!(path = %path.display(), dropped_bytes = existing.len() - keep, "cutting a torn final line from marks.jsonl");
+            OpenOptions::new().write(true).open(&path)?.set_len(keep as u64)?;
+        }
+        let mut f = OpenOptions::new().append(true).open(&path)?;
         f.write_all(&buf)?;
         f.sync_data()?;
         Ok(())
     }
 
+    /// Every mark in order. A final line that is unterminated and does not parse — a write
+    /// torn by a crash — is skipped with a warning; any other bad line is an error.
     pub fn marks(&self) -> Result<Vec<Mark>, SessionError> {
-        let f = File::open(self.root.join("marks.jsonl"))?;
+        let path = self.root.join("marks.jsonl");
+        let text = fs::read_to_string(&path)?;
+        let torn_tail = !text.is_empty() && !text.ends_with('\n');
+        let lines: Vec<&str> = text.lines().collect();
         let mut out = Vec::new();
-        for line in BufReader::new(f).lines() {
-            let line = line?;
-            if !line.trim().is_empty() {
-                out.push(serde_json::from_str(&line)?);
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str(line) {
+                Ok(mark) => out.push(mark),
+                Err(_) if torn_tail && i + 1 == lines.len() => {
+                    tracing::warn!(path = %path.display(), "ignoring a torn final line in marks.jsonl");
+                }
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(out)

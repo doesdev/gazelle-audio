@@ -77,6 +77,35 @@ fn marks_append_and_probe_ids_follow_started_probes() {
 }
 
 #[test]
+fn a_torn_final_mark_is_ignored_and_cut_before_the_next_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SessionStore::create(dir.path(), &info()).unwrap();
+    store.append_marks(&[started("p1")]).unwrap();
+    // A crash mid-write leaves half a JSON line with no newline.
+    let path = dir.path().join("marks.jsonl");
+    let mut torn = std::fs::read(&path).unwrap();
+    torn.extend_from_slice(br#"{"probe":"p2","step":null,"att"#);
+    std::fs::write(&path, &torn).unwrap();
+
+    assert_eq!(store.marks().unwrap(), vec![started("p1")], "the torn line is skipped");
+    assert_eq!(store.next_probe_id().unwrap(), "p2", "a torn line does not block the next probe");
+
+    store.append_marks(&[started("p2")]).unwrap();
+    assert_eq!(store.marks().unwrap(), vec![started("p1"), started("p2")]);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.ends_with('\n') && !text.contains(r#""att{"#), "the fragment was cut, not glued to the new line: {text}");
+}
+
+#[test]
+fn a_bad_line_that_is_not_the_torn_tail_is_still_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SessionStore::create(dir.path(), &info()).unwrap();
+    let path = dir.path().join("marks.jsonl");
+    std::fs::write(&path, "{not json}\n").unwrap();
+    assert!(store.marks().is_err());
+}
+
+#[test]
 fn one_capture_per_probe() {
     let dir = tempfile::tempdir().unwrap();
     let store = SessionStore::create(dir.path(), &info()).unwrap();

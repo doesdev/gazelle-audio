@@ -3,6 +3,8 @@
 pub mod security;
 mod ws;
 
+pub use ws::MAX_MESSAGE_BYTES;
+
 use std::sync::Arc;
 use std::time::Duration;
 

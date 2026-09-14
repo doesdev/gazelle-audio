@@ -256,6 +256,24 @@ async fn op(ws: &mut Ws, command: Value) {
 }
 
 #[tokio::test]
+async fn websocket_closes_on_an_oversized_message() {
+    let (h, port) = live(harness().await).await;
+    let url = format!("ws://127.0.0.1:{port}/panel/ws?token={}", h.app.token);
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    assert_eq!(next_message(&mut ws).await["type"], "state");
+    let huge = "x".repeat(gazelle_audio_capture::panel::MAX_MESSAGE_BYTES + 1);
+    ws.send(Message::Text(huge)).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match tokio::time::timeout_at(deadline, ws.next()).await.expect("the helper closes the connection within 5 s") {
+            Some(Ok(Message::Text(_))) => continue,
+            Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+            Some(Ok(_)) => continue,
+        }
+    }
+}
+
+#[tokio::test]
 async fn websocket_rejects_bad_token_and_foreign_origin() {
     let (h, port) = live(harness().await).await;
     let bad = format!("ws://127.0.0.1:{port}/panel/ws?token=nope");
