@@ -257,6 +257,59 @@ fn a_failed_start_leaves_no_capture_file_and_a_retry_succeeds() {
 /// Amendment: `running` reflects whether the capture thread is still alive, not merely whether
 /// a `JoinHandle` was ever stored — a source that exhausts its frames on its own finishes the
 /// thread while the probe itself is still running.
+/// A live source that stays running but never delivers a frame — the target's traffic is not
+/// reaching the capture (for example USBPcap is not in its driver stack).
+struct SilentSource;
+
+impl CaptureSource for SilentSource {
+    fn describe(&self) -> String {
+        "silent".into()
+    }
+
+    fn start(&mut self) -> Result<CaptureStream, CaptureError> {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let for_iter = Arc::clone(&stopped);
+        let frames: FrameIter = Box::new(std::iter::from_fn(move || -> Option<Result<RawFrame, CaptureError>> {
+            while !for_iter.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            None
+        }));
+        Ok(CaptureStream { frames, stop: StopHandle::new(move || stopped.store(true, Ordering::SeqCst)) })
+    }
+}
+
+#[test]
+fn silence_is_measured_from_capture_start_and_resets_on_packets() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, clock) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    c.start_probe("p1", Box::new(SilentSource)).unwrap();
+    assert_eq!(c.state().capture.silent_ms, 0);
+    clock.advance(4 * S);
+    c.tick().unwrap();
+    let capture = c.state().capture;
+    assert!(capture.running);
+    assert_eq!((capture.packets, capture.silent_ms), (0, 4_000));
+    c.abandon_probe().unwrap();
+    assert_eq!(c.state().capture.silent_ms, 0, "not running, so not silent");
+
+    // With packets flowing, silence counts from the last one.
+    let dir = tempfile::tempdir().unwrap();
+    let (c, clock) = setup(dir.path());
+    c.plan_probe(plan(), 1).unwrap();
+    let (frames, _) = raw_frames();
+    let (src, _) = StoppableSource::new(frames);
+    c.start_probe("p1", Box::new(src)).unwrap();
+    wait_packets(&c, 1);
+    clock.advance(4 * S);
+    c.tick().unwrap();
+    let before = c.state().capture.packets;
+    wait_packets(&c, before + 1);
+    assert!(c.state().capture.silent_ms < 4_000, "a packet after the advance resets the silence");
+    c.abandon_probe().unwrap();
+}
+
 #[test]
 fn running_is_false_once_the_capture_thread_finishes_on_its_own() {
     let dir = tempfile::tempdir().unwrap();

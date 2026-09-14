@@ -52,6 +52,10 @@ pub struct CaptureView {
     pub packets_per_second: f64,
     pub decode_errors: u64,
     pub failure: Option<String>,
+    /// While running: milliseconds since the last stored target packet, or since the capture
+    /// started if none has arrived. 0 when not running. A live target sends status reports
+    /// continuously, so a long silence means the capture is not seeing it.
+    pub silent_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -112,6 +116,8 @@ pub fn instruction(spec: &StepSpec, parameters: &[Parameter]) -> String {
 }
 
 struct CaptureStats {
+    /// Controller clock when the capture thread was set up.
+    started_ns: u64,
     packets: u64,
     decode_errors: u64,
     last_packet: Option<PacketClock>,
@@ -238,6 +244,7 @@ impl Controller {
             }
         };
         let stats = Arc::new(Mutex::new(CaptureStats {
+            started_ns: inner.clock.now_ns(),
             packets: 0,
             decode_errors: 0,
             last_packet: None,
@@ -398,13 +405,16 @@ fn snapshot(inner: &mut Inner) -> Result<PanelState, ControlError> {
     let mut probe = None;
     if let Some(active) = inner.active.as_ref() {
         let mut s = lock(&active.stats);
+        let running = active.thread.as_ref().is_some_and(|t| !t.is_finished());
+        let heard_ns = s.last_packet.map_or(s.started_ns, |p| p.host_ns);
         capture = CaptureView {
-            running: active.thread.as_ref().is_some_and(|t| !t.is_finished()),
+            running,
             source: Some(active.source.clone()),
             packets: s.packets,
             packets_per_second: s.rate.per_second(now),
             decode_errors: s.decode_errors,
             failure: s.failure.clone(),
+            silent_ms: if running { now.saturating_sub(heard_ns) / 1_000_000 } else { 0 },
         };
         drop(s);
         let run = &active.run;

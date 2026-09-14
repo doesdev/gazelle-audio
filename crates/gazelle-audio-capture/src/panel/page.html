@@ -28,6 +28,7 @@
   <span id="elevation" class="warn" hidden>Not elevated: USBPcap will ask for administrator rights, or capture will fail</span>
   <span id="usbpcap" class="warn" hidden>USBPcap is not attached to this device: its traffic will not be captured. Reboot, then retry (disabling and re-enabling the device does not help)</span>
   <span id="capture"></span>
+  <span id="silence" class="warn" hidden></span>
   <span id="rate">0 packets/s</span>
 </header>
 <main>
@@ -48,6 +49,7 @@
 </main>
 <script>
 const TOKEN = "__GAZELLE_TOKEN__";
+const SILENCE_WARN_MS = 3000;
 const $ = (id) => document.getElementById(id);
 let socket = null;
 let running = false;
@@ -77,8 +79,13 @@ function render(state) {
   $("usbpcap").hidden = state.usbpcap_attached !== false;
   const cap = state.capture;
   $("rate").textContent = `${cap.packets_per_second.toFixed(0)} packets/s`;
-  $("capture").textContent = cap.failure ? `Capture failed: ${cap.failure}` : (cap.source || "");
-  $("capture").className = cap.failure ? "warn" : "";
+  const decodeErrors = cap.decode_errors > 0 ? ` · ${cap.decode_errors} undecodable frames` : "";
+  $("capture").textContent = cap.failure ? `Capture failed: ${cap.failure}` : (cap.source || "") + decodeErrors;
+  $("capture").className = cap.failure || cap.decode_errors > 0 ? "warn" : "";
+  // A live target reports status continuously; seconds of silence mean the capture is not seeing it.
+  const silent = cap.running && cap.silent_ms >= SILENCE_WARN_MS;
+  $("silence").hidden = !silent;
+  $("silence").textContent = silent ? `No packets from the target for ${Math.floor(cap.silent_ms / 1000)} s — is the device on, and is USBPcap attached to it?` : "";
   const probe = state.probe;
   running = !!probe && probe.status === "running";
   if (!probe) {
