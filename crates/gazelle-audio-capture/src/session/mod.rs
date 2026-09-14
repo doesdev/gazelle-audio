@@ -1,6 +1,8 @@
 //! Sessions: parameters, probe plans, the step protocol and its timeline.
 
 pub mod authority;
+pub mod clock;
+pub mod controller;
 pub mod marks;
 pub mod model;
 pub mod plan;

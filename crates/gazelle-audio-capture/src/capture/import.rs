@@ -142,6 +142,29 @@ pub fn open_frames(path: &Path) -> Result<FrameIter, CaptureError> {
     }
 }
 
+/// [`CaptureSource`] over frames already in memory (tests, demo sessions).
+pub struct MemorySource {
+    label: String,
+    frames: Vec<RawFrame>,
+}
+
+impl MemorySource {
+    pub fn new(label: impl Into<String>, frames: Vec<RawFrame>) -> Self {
+        Self { label: label.into(), frames }
+    }
+}
+
+impl CaptureSource for MemorySource {
+    fn describe(&self) -> String {
+        self.label.clone()
+    }
+
+    fn start(&mut self) -> Result<CaptureStream, CaptureError> {
+        let frames = self.frames.clone().into_iter().map(Ok);
+        Ok(CaptureStream { frames: Box::new(frames), stop: StopHandle::noop() })
+    }
+}
+
 /// [`CaptureSource`] over a `.pcap` / `.pcapng` file.
 pub struct ImportSource {
     path: PathBuf,
