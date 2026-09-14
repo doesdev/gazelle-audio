@@ -4,5 +4,6 @@
 pub mod attribute;
 pub mod channel;
 pub mod encoding;
+pub mod fieldmap;
 pub mod noise;
 pub mod segment;

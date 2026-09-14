@@ -55,6 +55,30 @@ fn synth_then_import_prints_target_events() {
     assert!(out.stdout.is_empty(), "no events for an absent address");
 }
 
+#[test]
+fn synth_then_analyze_writes_a_field_map_and_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("demo");
+    let out = Command::new(BIN).args(["synth", session.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(BIN).args(["analyze", "--session", session.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("monitor_level.json") && stdout.contains("monitor_level.md"), "{stdout}");
+
+    let map: Value = serde_json::from_slice(&std::fs::read(session.join("analysis/monitor_level.json")).unwrap()).unwrap();
+    assert_eq!(map["schema_version"], 1);
+    assert_eq!(map["parameter"], "monitor_level");
+    assert_eq!(map["command"]["channel"]["transfer"], "control");
+    assert_eq!(map["evidence"][0]["capture"], "captures/p1.pcapng");
+    let md = std::fs::read_to_string(session.join("analysis/monitor_level.md")).unwrap();
+    assert!(md.starts_with("# Field map: monitor_level"), "{md}");
+
+    let out = Command::new(BIN).args(["analyze", "--session", session.to_str().unwrap(), "--probe", "p9"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no probe p9"));
+}
+
 fn http_get(port: u16, path: &str, token: Option<&str>) -> (u16, String) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     let auth = token.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
