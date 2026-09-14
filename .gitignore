@@ -42,6 +42,9 @@ secrets.*
 # build output nor node_modules belongs in the tree.
 web/**/dist/
 web/**/node_modules/
+# Playwright output: traces, failure screenshots and the design-review screenshots.
+web/test-results/
+web/playwright-report/
 
 # --- OS / editor ---
 .DS_Store

@@ -50,9 +50,15 @@ export function buildServer(): string {
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
-export async function startServer(extraArgs: readonly string[] = []): Promise<RunningServer> {
+export interface StartOptions {
+  /** Serve the embedded web UI at `/` (browser tests); API-only by default. */
+  webUi?: boolean;
+}
+
+export async function startServer(extraArgs: readonly string[] = [], options: StartOptions = {}): Promise<RunningServer> {
   const binary = buildServer();
-  const child = spawn(binary, ["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", ...extraArgs], { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  const args = ["--bind", "127.0.0.1:0", "--no-persist", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
+  const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
   live.add(child);
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
   exited.then(() => live.delete(child));

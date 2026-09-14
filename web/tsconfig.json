@@ -5,5 +5,5 @@
     "types": ["node"],
     "customConditions": ["gazelle-source"]
   },
-  "include": ["packages/*/src", "packages/*/test", "tools/*/src", "tools/*/test", "apps/*/src", "apps/*/test", "apps/*/scripts", "apps/*/vite.config.ts"]
+  "include": ["packages/*/src", "packages/*/test", "tools/*/src", "tools/*/test", "apps/*/src", "apps/*/test", "apps/*/e2e", "apps/*/scripts", "apps/*/vite.config.ts"]
 }
