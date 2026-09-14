@@ -11,7 +11,9 @@
 //! parameters by an id byte is judged per parameter, and a sequence number or the value itself
 //! is never part of the template. A step's observation is its last matching message. "Changed"
 //! compares it with the raw value of P's current UI value; before P's first Set step that value
-//! is unknown and nothing is judged. Readback attribution also masks bytes that vary while idle.
+//! is unknown and nothing is judged. A Control step that changes the field marks it shared and
+//! its observed value becomes current, since the device state really moved. Readback
+//! attribution also masks bytes that vary while idle.
 
 use std::collections::HashMap;
 
@@ -165,7 +167,12 @@ fn judge(
                     return None;
                 }
             }
-            StepKind::Control | StepKind::Set | StepKind::NoOp => shared |= changed,
+            StepKind::Control | StepKind::Set | StepKind::NoOp => {
+                if changed {
+                    shared = true;
+                    current = seen;
+                }
+            }
         }
     }
 

@@ -130,6 +130,33 @@ fn attribution_survives_redo_and_a_skipped_step() {
 }
 
 #[test]
+fn spillover_from_the_control_parameter_is_reported_shared_not_attributed() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = rich_target().with_spillover("mute", "monitor_level");
+    let a = Analysed::new(dir.path(), ScriptedOperator::default(), Box::new(target));
+    let timeline = a.timeline();
+    let segs = a.segments(&timeline);
+    let channels = a.channels();
+    let noise = noise_model(&segs, &channels);
+    let position = rich_target().position("monitor_level").unwrap();
+
+    let commands = attribute_commands(&segs, &channels, "monitor_level");
+    assert!(commands.fields.is_empty(), "{:?}", commands.fields);
+    let set = rich_channel(RICH_COMMAND_ENDPOINT, Direction::Out, RICH_SET);
+    assert_eq!(commands.shared.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(), vec![(set, RICH_VALUE)]);
+    assert_eq!(commands.shared[0].bits, (0, 1), "bits come from the Set steps, not the spilled value");
+
+    // The spilled value persists into the following Idle step; that is the device's new state,
+    // not an Idle change, so readback is reported shared rather than rejected.
+    let readback = attribute_readback(&segs, &channels, &noise, "monitor_level");
+    assert!(readback.fields.is_empty(), "{:?}", readback.fields);
+    let status = rich_channel(RICH_STATUS_ENDPOINT, Direction::In, RICH_STATUS);
+    assert_eq!(readback.shared.iter().map(|f| (f.channel, f.byte)).collect::<Vec<_>>(), vec![(status, RICH_READBACK_BASE + position)]);
+
+    assert_eq!(attribute_commands(&segs, &channels, "mute").fields, vec![]);
+}
+
+#[test]
 fn discriminators_split_the_rich_device_endpoints() {
     let dir = tempfile::tempdir().unwrap();
     let a = Analysed::new(dir.path(), ScriptedOperator::default(), Box::new(rich_target()));

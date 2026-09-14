@@ -182,11 +182,37 @@ pub struct RichDevice {
     noise: u32,
     status_next: bool,
     urb: u64,
+    /// `(changed, affected)`: changing `changed` also rewrites `affected`.
+    spillover: Vec<(String, String)>,
 }
+
+/// Bit a spillover flips in the affected parameter's raw value.
+pub const RICH_SPILL_BIT: u8 = 0x80;
 
 impl RichDevice {
     pub fn new(vid: u16, pid: u16, bus: u16, device: u16) -> Self {
-        Self { vid, pid, bus, device, period_ns: 20_000_000, parameters: Vec::new(), raw: Vec::new(), counter: 0, seq: 0, noise: 0x9E37_79B9, status_next: true, urb: 0 }
+        Self {
+            vid,
+            pid,
+            bus,
+            device,
+            period_ns: 20_000_000,
+            parameters: Vec::new(),
+            raw: Vec::new(),
+            counter: 0,
+            seq: 0,
+            noise: 0x9E37_79B9,
+            status_next: true,
+            urb: 0,
+            spillover: Vec::new(),
+        }
+    }
+
+    /// Deliberate spillover: every change of `changed` also flips [`RICH_SPILL_BIT`] of
+    /// `affected`'s raw value, sending a Set for it and updating its readback byte.
+    pub fn with_spillover(mut self, changed: &str, affected: &str) -> Self {
+        self.spillover.push((changed.to_string(), affected.to_string()));
+        self
     }
 
     /// Declares a parameter the device understands and the UI values in wire order. Its
@@ -309,6 +335,12 @@ impl DeviceModel for RichDevice {
         self.send(t_ns, set, out);
         let commit = self.command(RICH_COMMIT, position, 0);
         self.send(t_ns + 2_000_000, commit, out);
+        let affected: Vec<usize> = self.spillover.iter().filter(|(changed, _)| changed == parameter).filter_map(|(_, affected)| self.position(affected)).collect();
+        for (k, other) in affected.into_iter().enumerate() {
+            self.raw[other] ^= RICH_SPILL_BIT;
+            let spill = self.command(RICH_SET, other, self.raw[other]);
+            self.send(t_ns + 4_000_000 + k as u64 * 2_000_000, spill, out);
+        }
     }
 
     fn touch(&mut self, t_ns: u64, parameter: &str, out: &mut Vec<UsbEvent>) {
