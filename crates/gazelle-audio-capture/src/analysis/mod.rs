@@ -3,4 +3,5 @@
 
 pub mod attribute;
 pub mod channel;
+pub mod noise;
 pub mod segment;

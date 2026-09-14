@@ -135,3 +135,186 @@ impl DeviceModel for SimpleDevice {
 
     fn touch(&mut self, _t_ns: u64, _parameter: &str, _out: &mut Vec<UsbEvent>) {}
 }
+
+fn device_descriptor(vid: u16, pid: u16) -> Vec<u8> {
+    let v = vid.to_le_bytes();
+    let p = pid.to_le_bytes();
+    vec![18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, v[0], v[1], p[0], p[1], 0x00, 0x01, 1, 2, 3, 1]
+}
+
+pub const RICH_COMMAND_ENDPOINT: u8 = 1;
+pub const RICH_STATUS_ENDPOINT: u8 = 2;
+/// Leading bytes of [`RichDevice`] messages.
+pub const RICH_SET: u8 = 0x70;
+pub const RICH_COMMIT: u8 = 0x71;
+pub const RICH_FOCUS: u8 = 0x72;
+pub const RICH_STATUS: u8 = 0x73;
+pub const RICH_METERS: u8 = 0x83;
+pub const RICH_COMMAND_LEN: usize = 32;
+pub const RICH_REPORT_LEN: usize = 16;
+/// Command layout: `[0]` kind, `[1]` sequence number, `[2]` parameter id (declaration order + 1),
+/// `[3]` raw value.
+pub const RICH_SEQ: usize = 1;
+pub const RICH_ID: usize = 2;
+pub const RICH_VALUE: usize = 3;
+/// Status report layout: `[0]` [`RICH_STATUS`], `[1]` counter, `[2]` meter, `[3]` reserved,
+/// `[4 + i]` raw value of parameter `i`, `[15]` sum of bytes 0..15 modulo 256.
+pub const RICH_COUNTER: usize = 1;
+pub const RICH_METER: usize = 2;
+pub const RICH_READBACK_BASE: usize = 4;
+pub const RICH_CHECKSUM: usize = 15;
+
+/// A device shaped like the audio interfaces captured live on 2026-09-14: interrupt OUT commands on
+/// one endpoint told apart by their leading byte and a parameter id — a Set then a Commit per
+/// change, each with a sequence number, and a Focus message when a control is touched — and
+/// interrupt IN reports alternating between a status report (counter, meter, readback bytes,
+/// checksum) and a meters report of pure noise.
+pub struct RichDevice {
+    vid: u16,
+    pid: u16,
+    bus: u16,
+    device: u16,
+    period_ns: u64,
+    parameters: Vec<(String, Vec<String>)>,
+    raw: Vec<u8>,
+    counter: u8,
+    seq: u8,
+    noise: u32,
+    status_next: bool,
+    urb: u64,
+}
+
+impl RichDevice {
+    pub fn new(vid: u16, pid: u16, bus: u16, device: u16) -> Self {
+        Self { vid, pid, bus, device, period_ns: 20_000_000, parameters: Vec::new(), raw: Vec::new(), counter: 0, seq: 0, noise: 0x9E37_79B9, status_next: true, urb: 0 }
+    }
+
+    /// Declares a parameter the device understands and the UI values in wire order. Its
+    /// readback byte starts at raw 0.
+    pub fn with_parameter(mut self, id: &str, values: &[&str]) -> Self {
+        self.parameters.push((id.to_string(), values.iter().map(|v| v.to_string()).collect()));
+        self.raw.push(0);
+        self
+    }
+
+    /// Raw value the device sends for a UI value (its position; 0xFF when unknown).
+    pub fn raw_value(&self, parameter: &str, value: &str) -> Option<u8> {
+        let (_, values) = self.parameters.iter().find(|(id, _)| id == parameter)?;
+        Some(values.iter().position(|v| v == value).map_or(0xFF, |p| p as u8))
+    }
+
+    /// Declaration order of `parameter`: its command id is this + 1 and its readback byte is
+    /// [`RICH_READBACK_BASE`] + this.
+    pub fn position(&self, parameter: &str) -> Option<usize> {
+        self.parameters.iter().position(|(id, _)| id == parameter)
+    }
+
+    fn next_noise(&mut self) -> u8 {
+        let mut x = self.noise;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.noise = x;
+        (x >> 24) as u8
+    }
+
+    fn event(&mut self, t_ns: u64, endpoint: u8, direction: Direction, transfer: TransferType, stage: UrbStage) -> UsbEvent {
+        if stage == UrbStage::Submit {
+            self.urb += 1;
+        }
+        UsbEvent {
+            ts_ns: t_ns,
+            packet_index: 0,
+            bus: self.bus,
+            device: self.device,
+            endpoint,
+            direction,
+            transfer,
+            stage,
+            urb_id: self.urb,
+            setup: None,
+            status: 0,
+            data_len: 0,
+            data: Vec::new(),
+            payload_dropped: false,
+        }
+    }
+
+    fn command(&mut self, kind: u8, position: usize, raw: u8) -> Vec<u8> {
+        let mut bytes = vec![0; RICH_COMMAND_LEN];
+        bytes[0] = kind;
+        bytes[RICH_SEQ] = self.seq;
+        bytes[RICH_ID] = position as u8 + 1;
+        bytes[RICH_VALUE] = raw;
+        self.seq = self.seq.wrapping_add(1);
+        bytes
+    }
+
+    fn send(&mut self, t_ns: u64, bytes: Vec<u8>, out: &mut Vec<UsbEvent>) {
+        let submit = self.event(t_ns, RICH_COMMAND_ENDPOINT, Direction::Out, TransferType::Interrupt, UrbStage::Submit);
+        out.push(with_data(submit, bytes));
+        out.push(self.event(t_ns + 1_000_000, RICH_COMMAND_ENDPOINT, Direction::Out, TransferType::Interrupt, UrbStage::Complete));
+    }
+}
+
+impl DeviceModel for RichDevice {
+    fn vid_pid(&self) -> (u16, u16) {
+        (self.vid, self.pid)
+    }
+
+    fn address(&self) -> (u16, u16) {
+        (self.bus, self.device)
+    }
+
+    fn tick_ns(&self) -> u64 {
+        self.period_ns
+    }
+
+    fn enumerate(&mut self, t_ns: u64, out: &mut Vec<UsbEvent>) {
+        let mut req = self.event(t_ns, 0, Direction::In, TransferType::Control, UrbStage::Submit);
+        req.setup = Some(SetupPacket { request_type: 0x80, request: 6, value: 0x0100, index: 0, length: 18 });
+        out.push(req);
+        let done = self.event(t_ns, 0, Direction::In, TransferType::Control, UrbStage::Complete);
+        out.push(with_data(done, device_descriptor(self.vid, self.pid)));
+    }
+
+    fn tick(&mut self, t_ns: u64, out: &mut Vec<UsbEvent>) {
+        let mut bytes = vec![0; RICH_REPORT_LEN];
+        if self.status_next {
+            bytes[0] = RICH_STATUS;
+            bytes[RICH_COUNTER] = self.counter;
+            self.counter = self.counter.wrapping_add(1);
+            bytes[RICH_METER] = self.next_noise();
+            for (slot, raw) in bytes[RICH_READBACK_BASE..RICH_CHECKSUM].iter_mut().zip(&self.raw) {
+                *slot = *raw;
+            }
+            bytes[RICH_CHECKSUM] = bytes[..RICH_CHECKSUM].iter().fold(0u8, |sum, b| sum.wrapping_add(*b));
+        } else {
+            bytes[0] = RICH_METERS;
+            for slot in &mut bytes[1..] {
+                *slot = self.next_noise();
+            }
+        }
+        self.status_next = !self.status_next;
+        let ev = self.event(t_ns, RICH_STATUS_ENDPOINT, Direction::In, TransferType::Interrupt, UrbStage::Complete);
+        out.push(with_data(ev, bytes));
+    }
+
+    fn change(&mut self, t_ns: u64, parameter: &str, value: &str, out: &mut Vec<UsbEvent>) {
+        let (Some(position), Some(raw)) = (self.position(parameter), self.raw_value(parameter, value)) else {
+            return;
+        };
+        self.raw[position] = raw;
+        let set = self.command(RICH_SET, position, raw);
+        self.send(t_ns, set, out);
+        let commit = self.command(RICH_COMMIT, position, 0);
+        self.send(t_ns + 2_000_000, commit, out);
+    }
+
+    fn touch(&mut self, t_ns: u64, parameter: &str, out: &mut Vec<UsbEvent>) {
+        if let Some(position) = self.position(parameter) {
+            let focus = self.command(RICH_FOCUS, position, 0);
+            self.send(t_ns, focus, out);
+        }
+    }
+}
