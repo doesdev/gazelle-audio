@@ -287,6 +287,13 @@ export class Store {
       read: (command, ext3) => this.#readCommand(deviceId, command, ext3),
       field: (name) => this.field(deviceId, "0x73", name),
       watch: () => this.watchReport(deviceId, "0x73"),
+      // A linked channel's strip in this mix, on each member's device that has this mix.
+      peers: (strip) =>
+        this.links.peers("mixer", deviceId, strip).flatMap((peer) => {
+          const peerFamily = this.#devices.peek().find((d) => d.id === peer.deviceId)?.family;
+          if (peerFamily === undefined || peerFamily === null || index >= topologies[peerFamily].mixers.count || peer.channel >= topologies[peerFamily].mixers.channels) return [];
+          return [{ model: this.mixer(peer.deviceId, index), strip: peer.channel, mode: peer.mode }];
+        }),
     });
     this.#mixers.set(key, model);
     return model;
@@ -318,6 +325,10 @@ export class Store {
     links: computed(() => this.#workspace.value?.links ?? []),
     edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, links: update([...workspace.links]) })),
     inputs: (deviceId) => this.#knownInputs(deviceId),
+    mixers: (deviceId) => {
+      const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+      return family === undefined || family === null ? undefined : Array.from({ length: topologies[family].mixers.count }, (_, m) => this.mixer(deviceId, m));
+    },
   });
 
   #knownInputs(deviceId: string): InputsModel | undefined {

@@ -287,8 +287,15 @@ test("meters show the metered mix and links send set_stereo_link", async ({ page
   await page.getByTestId("metered-mix").selectOption("1");
   await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 1)).toBe(true);
 
-  await page.getByRole("button", { name: "Link strips 1 and 2" }).first().click();
+  // Linking channels uses the same badges and bar as the Inputs page; slots 1 and 2 are a device pair.
+  await page.getByTestId("mixer-link-0").click();
+  await page.getByTestId("mixer-link-1").click();
+  await page.getByTestId("link-save").click();
   await expect.poll(() => frames.find((f) => f.command === "set_stereo_link")?.args).toEqual({ periph_id: 4, channel_id: 0, linked: 1 });
+  await expect(page.getByTestId("mixer-link-1")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("mixer-link-0").click();
+  await page.getByTestId("link-unlink").click();
+  await expect(page.getByTestId("mixer-link-0")).toHaveAttribute("aria-pressed", "false");
 });
 
 test("removing takes a second click and mutes the channel; a new order is saved", async ({ page }) => {

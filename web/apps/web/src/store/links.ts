@@ -12,6 +12,7 @@ import type { ChannelRef, Link, LinkKind } from "gazelle-audio-client";
 
 import type { ReadonlySignal } from "../core/signal.ts";
 import type { InputsModel } from "./inputs.ts";
+import type { MixerModel } from "./mixer.ts";
 
 export type LinkMode = Link["mode"];
 
@@ -27,6 +28,8 @@ export interface LinksContext {
   edit(update: (links: Link[]) => Link[]): boolean;
   /** A device's inputs, or undefined for a device that is absent or of unknown model. */
   inputs(deviceId: string): InputsModel | undefined;
+  /** A device's mixers, likewise. */
+  mixers(deviceId: string): readonly MixerModel[] | undefined;
 }
 
 let nextId = 0;
@@ -113,11 +116,15 @@ export class LinksModel {
   /** Reads a device's link flags and makes an absolute link of each linked pair not already in a link. */
   async importDevicePairs(deviceId: string): Promise<void> {
     const inputs = this.#context.inputs(deviceId);
-    if (inputs === undefined || !(await inputs.loadLinks())) return;
-    const kinds: [LinkKind, number, (pair: number) => boolean][] = [
-      ["preamp", inputs.pairCount, (pair) => inputs.pairLinked(pair).peek()],
-      ...inputs.digital.filter((d) => d.linkPairs > 0).map((d): [LinkKind, number, (pair: number) => boolean] => [d.kind, d.linkPairs, (pair) => inputs.digitalPairLinked(d.kind, pair).peek()]),
-    ];
+    if (inputs === undefined) return;
+    const kinds: [LinkKind, number, (pair: number) => boolean][] = [];
+    if (await inputs.loadLinks()) {
+      kinds.push(["preamp", inputs.pairCount, (pair) => inputs.pairLinked(pair).peek()]);
+      for (const d of inputs.digital) if (d.linkPairs > 0) kinds.push([d.kind, d.linkPairs, (pair) => inputs.digitalPairLinked(d.kind, pair).peek()]);
+    }
+    // Mixer pairs: those linked in any mixer whose state has been read (a channel is in every mix).
+    const mixers = (this.#context.mixers(deviceId) ?? []).filter((m) => m.stateKnown.peek());
+    if (mixers.length > 0) kinds.push(["mixer", (mixers[0] as MixerModel).channels / 2, (pair) => mixers.some((m) => m.strip(2 * pair).peek().linked)]);
     for (const [kind, pairs, linked] of kinds) {
       for (let pair = 0; pair < pairs; pair++) {
         if (!linked(pair) || this.linkOf(kind, deviceId, 2 * pair) !== undefined || this.linkOf(kind, deviceId, 2 * pair + 1) !== undefined) continue;
@@ -127,16 +134,19 @@ export class LinksModel {
   }
 
   #check(kind: LinkKind, member: ChannelRef): void {
-    if (kind === "mixer") throw new RangeError("mixer channel links are made on the Mixer page");
-    const inputs = this.#context.inputs(member.device_id);
-    if (inputs === undefined) throw new RangeError(`${member.device_id} is not a connected device of known model`);
-    const count = kind === "preamp" ? inputs.preampCount : (inputs.digital.find((d) => d.kind === kind && d.editable)?.count ?? 0);
-    if (!Number.isInteger(member.channel) || member.channel < 0 || member.channel >= count) throw new RangeError(`${member.device_id} has no ${kind} input ${member.channel + 1} that this app can set`);
+    const count = kind === "mixer" ? this.#context.mixers(member.device_id)?.[0]?.channels : this.#inputCount(kind, member.device_id);
+    if (count === undefined) throw new RangeError(`${member.device_id} is not a connected device of known model`);
+    if (!Number.isInteger(member.channel) || member.channel < 0 || member.channel >= count) throw new RangeError(`${member.device_id} has no ${kind} channel ${member.channel + 1} that this app can set`);
+  }
+
+  #inputCount(kind: Exclude<LinkKind, "mixer">, deviceId: string): number | undefined {
+    const inputs = this.#context.inputs(deviceId);
+    if (inputs === undefined) return undefined;
+    return kind === "preamp" ? inputs.preampCount : (inputs.digital.find((d) => d.kind === kind && d.editable)?.count ?? 0);
   }
 
   /** Sets each touched device pair's flag: on exactly when a link joins exactly that pair. */
   #syncPairs(kind: LinkKind, refs: readonly ChannelRef[]): void {
-    if (kind === "mixer") return;
     const links = this.links.peek().filter((l) => l.kind === kind);
     const seen = new Set<string>();
     for (const ref of refs) {
@@ -144,10 +154,15 @@ export class LinksModel {
       const pairKey = `${ref.device_id}:${pair}`;
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
-      const inputs = this.#context.inputs(ref.device_id);
-      if (inputs === undefined) continue;
       // Members are distinct, so a link whose members are all in one pair is exactly that pair.
       const exact = links.some((l) => l.members.every((m) => m.device_id === ref.device_id && Math.floor(m.channel / 2) === pair));
+      if (kind === "mixer") {
+        // A channel is in every mix, so its pair's flag is kept on every mixer.
+        for (const mixer of this.#context.mixers(ref.device_id) ?? []) if (mixer.strip(2 * pair).peek().linked !== exact) mixer.setPairLinked(2 * pair, exact);
+        continue;
+      }
+      const inputs = this.#context.inputs(ref.device_id);
+      if (inputs === undefined) continue;
       if (kind === "preamp") {
         if (pair < inputs.pairCount && inputs.pairLinked(pair).peek() !== exact) inputs.setPairLinked(pair, exact);
       } else {

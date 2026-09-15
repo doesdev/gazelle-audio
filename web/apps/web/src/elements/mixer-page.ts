@@ -9,6 +9,7 @@ import { meterDeflection } from "../store/mixer.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import { LINK_STYLES, linkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { href } from "./router.ts";
 
@@ -115,6 +116,7 @@ export class GaMixer extends GaElement {
       }
       .masters:empty { display: none; }
       .masters ga-mix-master { flex: 0 0 96px; }
+      ${LINK_STYLES}
     `),
   ];
 
@@ -138,7 +140,9 @@ export class GaMixer extends GaElement {
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
     // Every mix's strips and links are read when the page opens (sends show other mixes' levels).
-    for (let mix = 0; mix < topology.mixers.count; mix++) void store.mixer(deviceId, mix).load();
+    const loads = Array.from({ length: topology.mixers.count }, (_, mix) => store.mixer(deviceId, mix).load());
+    // Then pairs linked on the device (by its own panel) become links, unless already in one.
+    void Promise.all(loads).then(() => store.links.importDevicePairs(deviceId));
     const levelsNote = h("li", {}, "The device's mixer levels have not been read (as in dry run), so controls start at defaults and send when changed.");
     this.watch(() => {
       levelsNote.hidden = mixer0.stateKnown.value;
@@ -197,6 +201,7 @@ export class GaMixer extends GaElement {
 
     this.root.replaceChildren(
       h("div", { class: "bar" }, devices, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
+      linkBar((fn) => this.watch(fn), deviceId),
       notes,
       strips,
     );

@@ -63,29 +63,45 @@ test("Studio+ strips send set_mixer_cfg including send", async () => {
   assert.deepEqual([formatSend(0), formatSend(50), formatSend(96)], ["0 dB", "-50 dB", "-inf"]);
 });
 
-test("linking sends the stereo link and mirrors level, mute and solo but not pan", async () => {
+test("a mixer channel link sends level, mute and solo to every member in the same mix, but not pan; an exact slot pair sets the flag on every mixer", async () => {
   const { client, store } = setup();
+  await store.start();
   const mixer = store.mixer("loopback-0", 2);
-  mixer.toggleLink(5);
+  store.links.create("mixer", [{ device_id: "loopback-0", channel: 5 }, { device_id: "loopback-0", channel: 4 }]);
   await flush();
-  assert.deepEqual(sent(client, "set_stereo_link").map((c) => c.args), [{ periph_id: 3, channel_id: (4 + 2 * 32) / 2, linked: 1 }], "Quadro periph 3, link id (strip + mixer*32)/2");
+  assert.deepEqual(
+    sent(client, "set_stereo_link").map((c) => c.args),
+    [0, 1, 2, 3].map((m) => ({ periph_id: 3, channel_id: (4 + m * 32) / 2, linked: 1 })),
+    "Quadro periph 3, link id (strip + mixer*32)/2, on each mixer since a channel is in every mix",
+  );
   assert.equal(mixer.strip(4).value.linked && mixer.strip(5).value.linked, true);
 
   client.invocations.length = 0;
   mixer.setLevel(5, 30);
   mixer.setPan(5, 10);
   await flush();
-  assert.deepEqual(sent(client, "set_mixer").map((c) => [c.args?.["channel"], c.args?.["level"], c.args?.["pan"]]), [
-    [6, 30, PAN_CENTRE],
-    [5, 30, PAN_CENTRE],
-    [6, 30, 10],
+  assert.deepEqual(sent(client, "set_mixer").map((c) => [c.args?.["mixer_id"], c.args?.["channel"], c.args?.["level"], c.args?.["pan"]]), [
+    [2, 6, 30, PAN_CENTRE],
+    [2, 5, 30, PAN_CENTRE],
+    [2, 6, 30, 10],
   ]);
-  assert.equal(mixer.strip(4).value.pan, PAN_CENTRE, "the partner keeps its pan");
+  assert.equal(mixer.strip(4).value.pan, PAN_CENTRE, "the other member keeps its pan");
 
-  const studio = store.mixer("loopback-1", 0);
-  studio.toggleLink(0);
+  const studio = store.mixer("loopback-1", 2);
+  studio.setLevel(1, 6);
+  store.links.create("mixer", [{ device_id: "loopback-0", channel: 0 }, { device_id: "loopback-1", channel: 1 }], "relative");
   await flush();
-  assert.deepEqual(sent(client, "set_stereo_link").at(-1)?.args, { periph_id: 4, channel_id: 0, linked: 1 }, "Studio+ periph 4");
+  assert.deepEqual(sent(client, "set_stereo_link").length, 0, "a link across devices sets no device flag");
+  client.invocations.length = 0;
+  mixer.setLevel(0, 4);
+  mixer.toggleMute(0);
+  store.mixer("loopback-0", 1).setLevel(0, 2);
+  await flush();
+  assert.deepEqual(sent(client, "set_mixer_cfg").map((c) => [c.args?.["mixer_id"], c.args?.["channel"], c.args?.["level"], c.args?.["mute"]]), [
+    [2, 2, 10, 0],
+    [2, 2, 10, 1],
+    [1, 2, 2, 0],
+  ], "relative: the Studio+ strip moves by the same step, in the same mix");
 });
 
 test("activating a mixer points the meters at it where the source is known, and meters latch clips", async () => {

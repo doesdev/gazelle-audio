@@ -105,6 +105,15 @@ test("a channel is in one link per kind: linking it again moves it, and a link l
   assert.deepEqual(store.links.links.value, []);
 });
 
+test("mixer channels link like inputs: members must be slots on a known device, and pairs a loaded mixer reports linked are imported", async () => {
+  const pairs = Array.from({ length: 64 }, (_, i) => ({ linked: i === 17 ? 1 : 0 }));
+  const { store } = await setup((call) => (call.command === "get_mixer" ? { entries: Array.from({ length: 33 }, () => ({ level: 0, pan: 32, mute: 0, solo: 0 })) } : call.command === "get_mixer_links" ? { entries: pairs } : null));
+  assert.throws(() => store.links.create("mixer", [ref(Q, 0), ref(Q, 32)]), RangeError, "32 slots");
+  await store.mixer(Q, 1).load();
+  await store.links.importDevicePairs(Q);
+  assert.deepEqual(store.links.links.value.map((l) => [l.kind, l.members]), [["mixer", [ref(Q, 2), ref(Q, 3)]]], "mixer 1's pair 1 is slots 2 and 3");
+});
+
 test("pairs the device reports linked become absolute links once, saved in the workspace", async () => {
   const { client, store, timers } = await setup((call) => (call.command === "get_preamps_links" ? { entries: [0, 1, 0, 0, 0, 0].map((linked) => ({ linked })) } : null));
   await store.links.importDevicePairs(S);

@@ -10,6 +10,7 @@ import { h } from "../core/dom.ts";
 import { formatLevel, formatPan, formatSend, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import { linkButton } from "./link-bar.ts";
 
 const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 
@@ -33,6 +34,7 @@ export class GaStrip extends GaElement {
       .mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
       .solo[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .link[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .link[data-drafting] { outline: 1px dashed var(--ga-accent); outline-offset: -2px; }
       .caption { font-size: 9px; color: var(--ga-text-muted); text-transform: uppercase; letter-spacing: 0.06em; text-align: center; }
       .bar {
         position: relative;
@@ -132,7 +134,8 @@ export class GaStrip extends GaElement {
 
     if (id !== "master") {
       const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "on:click": () => mixer.toggleSolo(id) }, "S");
-      const link = h("button", { class: "toggle link", type: "button", "aria-label": `Link strips ${id - (id % 2) + 1} and ${id - (id % 2) + 2}`, "on:click": () => mixer.toggleLink(id) }, "⇆");
+      // Channel links are the workspace's (P51); the badge opens the link bar on the Mixer page.
+      const link = linkButton((fn) => this.watch(fn), "mixer", deviceId, id, `mixer-link-${id}`, "toggle link");
       buttons.push(solo, link);
 
       const panFill = h("div", { class: "fill" });
@@ -173,7 +176,6 @@ export class GaStrip extends GaElement {
       this.watch(() => {
         const s = state.value;
         solo.setAttribute("aria-pressed", String(s.solo));
-        link.setAttribute("aria-pressed", String(s.linked));
         const position = ((s.pan - PAN_MIN) / (PAN_MAX - PAN_MIN)) * 100;
         panFill.style.cssText = position >= 50 ? `left: 50%; width: ${position - 50}%` : `left: ${position}%; width: ${50 - position}%`;
         panValue.textContent = formatPan(s.pan);

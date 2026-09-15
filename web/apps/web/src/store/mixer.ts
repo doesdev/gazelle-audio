@@ -88,6 +88,8 @@ export interface MixerContext {
   read: CommandRead;
   field(name: string): ReadonlySignal<unknown>;
   watch(): () => void;
+  /** The other members of a strip's workspace link, as their strips in this mix on their devices (LinksModel, P51). */
+  peers(strip: number): readonly { model: MixerModel; strip: number; mode: "absolute" | "relative" }[];
 }
 
 const DEFAULT_STRIP: StripState = { level: 0, pan: PAN_CENTRE, mute: false, solo: false, send: 0, linked: false };
@@ -221,11 +223,10 @@ export class MixerModel {
     this.#update(id, { solo: !this.#signal(id).peek().solo });
   }
 
-  /** Links or unlinks a strip with its stereo partner (strips 2k and 2k+1). */
-  toggleLink(strip: number): void {
-    this.#check(strip);
-    const first = strip - (strip % 2);
-    const linked = !(this.#strips[first] as Signal<StripState>).peek().linked;
+  /** Sets the device link flag of strips `first` and `first + 1`. Which strips change together is the workspace's (LinksModel). */
+  setPairLinked(first: number, linked: boolean): void {
+    this.#check(first);
+    if (first % 2 !== 0) throw new RangeError(`strip pairs start at even strips, not ${first}`);
     batch(() => {
       for (const s of [first, first + 1]) {
         const target = this.#strips[s];
@@ -249,21 +250,23 @@ export class MixerModel {
     return this.#strips[id] as Signal<StripState>;
   }
 
-  #update(id: StripId, change: Partial<StripState>): void {
-    const targets: [StripId, Partial<StripState>][] = [[id, change]];
-    if (id !== "master" && this.#signal(id).peek().linked) {
-      const partner = id % 2 === 0 ? id + 1 : id - 1;
-      // A linked partner follows level, mute and solo, but keeps its own pan (as the panel does).
-      const { pan: _ownPan, ...mirrored } = change;
-      if (partner < this.channels && Object.keys(mirrored).length > 0) targets.push([partner, mirrored]);
+  #update(id: StripId, change: Partial<StripState>, follow = true): void {
+    const strip = this.#signal(id);
+    const before = strip.peek();
+    strip.value = { ...before, ...change };
+    void this.#send(id);
+    if (!follow || id === "master") return;
+    // Other members of the strip's link follow level, mute and solo in this mix, but keep their own
+    // pan and send (as the panels treat a linked pair); relative links move levels by the same step.
+    const followed: Partial<StripState> = {};
+    for (const key of ["level", "mute", "solo"] as const) if (key in change) Object.assign(followed, { [key]: change[key] });
+    if (Object.keys(followed).length === 0) return;
+    const after = strip.peek();
+    for (const peer of this.#context.peers(id)) {
+      const values = { ...followed };
+      if (values.level !== undefined && peer.mode === "relative") values.level = Math.min(LEVEL_MAX, Math.max(0, peer.model.strip(peer.strip).peek().level + (after.level - before.level)));
+      peer.model.#update(peer.strip, values, false);
     }
-    batch(() => {
-      for (const [target, values] of targets) {
-        const strip = this.#signal(target);
-        strip.value = { ...strip.peek(), ...values };
-      }
-    });
-    for (const [target] of targets) void this.#send(target);
   }
 
   #send(id: StripId): Promise<boolean> {
