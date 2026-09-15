@@ -352,8 +352,25 @@ def build(rf, name):
     if req.get("auto_send_notification"):
         entry["auto_send_notification"] = True
     if "returns" in req:
-        entry["returns"] = norm_fields(req["returns"].get("fields", []))
+        returns = req["returns"]
+        # A top-level 'count' makes the reply that many elements of the fields: the manager's
+        # ResponseStruct is `Field("contents", returns)`, a ctypes array when counted
+        # (antelope_dev_reports.py:184-189, 500-513), turned into a list of dicts. get_mixer is
+        # 33 strips (master first) and each links read one byte per pair. Ignoring the count
+        # read only the first element.
+        count = returns.get("count")
+        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            entry["returns"] = norm_fields([["entries", {"fields": returns.get("fields", []), "count": count}]])
+        else:
+            # A count built from constants that could not be resolved (AFX pool sizes) would
+            # give a zero or negative length; keep the one-element layout and say so instead.
+            if "count" in returns:
+                UNRESOLVED_REPLY_COUNTS.append(name)
+            entry["returns"] = norm_fields(returns.get("fields", []))
     return entry
+
+#: Commands whose reply `count` could not be resolved, so their returns stay one element.
+UNRESOLVED_REPLY_COUNTS = []
 
 def main():
     ap = argparse.ArgumentParser(description="Extract a device's in-scope command layouts.")
@@ -402,6 +419,7 @@ def main():
         "cyclic_reports": cyclic,
         "unresolved_constants": unresolved,
         "in_scope_zero_counts": zero_counts,
+        "unresolved_reply_counts": sorted(UNRESOLVED_REPLY_COUNTS),
         "report_version": rf.get("version"),
         "authoritative": rf.get("authorative"),
         "scope": scope_label,

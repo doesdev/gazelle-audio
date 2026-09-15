@@ -470,6 +470,9 @@
     "constants.AfxType.UAD_1178"
   ],
   "in_scope_zero_counts": [],
+  "unresolved_reply_counts": [
+    "get_afx_available_instances"
+  ],
   "report_version": null,
   "authoritative": true,
   "scope": "intersection(35) + studio-only mix/monitoring(8)",
@@ -485,8 +488,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 8}",
+          "size": 8
         }
       ]
     },
@@ -517,8 +521,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 8}",
+          "size": 8
         }
       ]
     },
@@ -531,9 +536,9 @@
       "params": [],
       "returns": [
         {
-          "name": "slots",
-          "type": "{\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]], \"count\": 8}",
-          "size": 16
+          "name": "entries",
+          "type": "{\"fields\": [[\"slots\", {\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]], \"count\": 8}]], \"count\": 16}",
+          "size": 256
         }
       ]
     },
@@ -546,27 +551,9 @@
       "params": [],
       "returns": [
         {
-          "name": "level",
-          "type": "uint8"
-        },
-        {
-          "name": "pan",
-          "type": "uint8",
-          "bit_width": 6
-        },
-        {
-          "name": "mute",
-          "type": "uint8",
-          "bit_width": 1
-        },
-        {
-          "name": "solo",
-          "type": "uint8",
-          "bit_width": 1
-        },
-        {
-          "name": "send",
-          "type": "uint8"
+          "name": "entries",
+          "type": "{\"fields\": [[\"level\", \"uint8\"], [\"pan\", \"uint8\", 6], [\"mute\", \"uint8\", 1], [\"solo\", \"uint8\", 1], [\"send\", \"uint8\"]], \"count\": 33}",
+          "size": 99
         }
       ]
     },
@@ -579,8 +566,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 64}",
+          "size": 64
         }
       ]
     },
@@ -593,8 +581,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 6}",
+          "size": 6
         }
       ]
     },
@@ -680,8 +669,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 1}",
+          "size": 1
         }
       ]
     },
@@ -1186,8 +1176,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 4}",
+          "size": 4
         }
       ]
     },

@@ -6,8 +6,11 @@ export interface QuadroCommands {
   get_adats_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 8 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_afx_available_instances: {
@@ -59,12 +62,15 @@ export interface QuadroCommands {
   get_afx_strip_order: {
     params: Record<string, never>;
     returns: {
-      /** 8 × struct of 2 bytes */
-      slots: Array<{
-        /** u8, 0..255 */
-        type: number;
-        /** u8, 0..255 */
-        inst: number;
+      /** 1 × struct of 16 bytes */
+      entries: Array<{
+        /** 8 × struct of 2 bytes */
+        slots: Array<{
+          /** u8, 0..255 */
+          type: number;
+          /** u8, 0..255 */
+          inst: number;
+        }>;
       }>;
     };
   };
@@ -119,34 +125,43 @@ export interface QuadroCommands {
   get_mic_emulations: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      target: number;
-      /** u8, 0..255 */
-      emu_model: number;
-      /** u8, 0..255 */
-      ch_swap: number;
-      /** u8, 0..255 */
-      pattern: number;
+      /** 2 × struct of 4 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        target: number;
+        /** u8, 0..255 */
+        emu_model: number;
+        /** u8, 0..255 */
+        ch_swap: number;
+        /** u8, 0..255 */
+        pattern: number;
+      }>;
     };
   };
   get_mixer: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      level: number;
-      /** u8, 6 bits, 0..63 */
-      pan: number;
-      /** u8, 1 bit, 0..1 */
-      mute: number;
-      /** u8, 1 bit, 0..1 */
-      solo: number;
+      /** 33 × struct of 2 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        level: number;
+        /** u8, 6 bits, 0..63 */
+        pan: number;
+        /** u8, 1 bit, 0..1 */
+        mute: number;
+        /** u8, 1 bit, 0..1 */
+        solo: number;
+      }>;
     };
   };
   get_mixer_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 64 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_panning_law: {
@@ -159,8 +174,11 @@ export interface QuadroCommands {
   get_preamps_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 1 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_reverb_config: {
@@ -193,23 +211,29 @@ export interface QuadroCommands {
   get_reverb_returns: {
     params: Record<string, never>;
     returns: {
-      /** u8, 7 bits, 0..127 */
-      level: number;
-      /** i8, 1 bit, -1..0 */
-      mute: number;
+      /** 4 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 7 bits, 0..127 */
+        level: number;
+        /** i8, 1 bit, -1..0 */
+        mute: number;
+      }>;
     };
   };
   get_reverb_sends: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      level: number;
-      /** u8, 6 bits, 0..63 */
-      pan: number;
-      /** u8, 1 bit, 0..1 */
-      mute: number;
-      /** u8, 1 bit, 0..1 */
-      solo: number;
+      /** 33 × struct of 2 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        level: number;
+        /** u8, 6 bits, 0..63 */
+        pan: number;
+        /** u8, 1 bit, 0..1 */
+        mute: number;
+        /** u8, 1 bit, 0..1 */
+        solo: number;
+      }>;
     };
   };
   get_routing: {
@@ -245,8 +269,11 @@ export interface QuadroCommands {
   get_spdifs_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 1 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_tb_latency: {
@@ -267,16 +294,19 @@ export interface QuadroCommands {
   get_trim_configs: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      trim_id: number;
-      /** u8, 0..255 */
-      control: number;
-      /** 4 × struct of 2 bytes */
-      levels: Array<{
+      /** 1 × struct of 10 bytes */
+      entries: Array<{
         /** u8, 0..255 */
-        whole: number;
+        trim_id: number;
         /** u8, 0..255 */
-        fract: number;
+        control: number;
+        /** 4 × struct of 2 bytes */
+        levels: Array<{
+          /** u8, 0..255 */
+          whole: number;
+          /** u8, 0..255 */
+          fract: number;
+        }>;
       }>;
     };
   };
@@ -823,31 +853,31 @@ export interface QuadroCyclicReports {
 
 export const quadroSchema = {
   "commands": {
-    "get_adats_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_adats_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_afx_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
     "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
     "get_afx_max_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
     "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] },
     "get_afx_remaining_featured_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "i8" }] },
-    "get_afx_strip_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] },
+    "get_afx_strip_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] }] },
     "get_assignment_request": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "request", "elem": "u8", "count": 301 }] },
     "get_assignment_status": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }] },
     "get_cmd_set_assignment": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "message", "elem": "u8", "count": 301 }], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }, { "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "message", "elem": "u8", "count": 301 }] },
     "get_daw_mode": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "enabled", "scalar": "u32" }, { "kind": "scalar", "name": "split_point", "scalar": "u32" }] },
     "get_feature_mask": { "reportId": "0x74", "params": [], "returns": [{ "kind": "array", "name": "payload", "elem": "u8", "count": 290 }] },
-    "get_mic_emulations": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "target", "scalar": "u8" }, { "kind": "scalar", "name": "emu_model", "scalar": "u8" }, { "kind": "scalar", "name": "ch_swap", "scalar": "u8" }, { "kind": "scalar", "name": "pattern", "scalar": "u8" }] },
-    "get_mixer": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }] },
-    "get_mixer_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_mic_emulations": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 2, "fields": [{ "kind": "scalar", "name": "target", "scalar": "u8" }, { "kind": "scalar", "name": "emu_model", "scalar": "u8" }, { "kind": "scalar", "name": "ch_swap", "scalar": "u8" }, { "kind": "scalar", "name": "pattern", "scalar": "u8" }] }] },
+    "get_mixer": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 33, "fields": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }] }] },
+    "get_mixer_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 64, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_panning_law": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "panning", "scalar": "u8" }] },
-    "get_preamps_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_preamps_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_reverb_config": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "mixer_id", "scalar": "u8" }, { "kind": "scalar", "name": "room_size", "scalar": "u8" }, { "kind": "scalar", "name": "color", "scalar": "u8" }, { "kind": "scalar", "name": "predelay", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8" }, { "kind": "scalar", "name": "early_ref_gain", "scalar": "u8" }, { "kind": "scalar", "name": "late_ref_delay", "scalar": "u8" }, { "kind": "scalar", "name": "richness", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_time", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_level", "scalar": "u8" }, { "kind": "scalar", "name": "on", "scalar": "u8" }] },
-    "get_reverb_returns": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "level", "scalar": "u8", "bitWidth": 7 }, { "kind": "scalar", "name": "mute", "scalar": "i8", "bitWidth": 1 }] },
-    "get_reverb_sends": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }] },
+    "get_reverb_returns": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 4, "fields": [{ "kind": "scalar", "name": "level", "scalar": "u8", "bitWidth": 7 }, { "kind": "scalar", "name": "mute", "scalar": "i8", "bitWidth": 1 }] }] },
+    "get_reverb_sends": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 33, "fields": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }] }] },
     "get_routing": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "bank_idx", "scalar": "u8" }, { "kind": "struct_array", "name": "bank_configs", "count": 64, "fields": [{ "kind": "scalar", "name": "in_periph_id", "scalar": "u8" }, { "kind": "scalar", "name": "in_chann", "scalar": "u8" }] }] },
     "get_sonarworks_ir": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "convolve_lr", "scalar": "u8" }, { "kind": "scalar", "name": "total_coefficients", "scalar": "u16" }, { "kind": "scalar", "name": "pkg_index", "scalar": "u8" }, { "kind": "array", "name": "pkg_data", "elem": "u8", "count": 300 }], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }] },
-    "get_spdifs_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_spdifs_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_tb_latency": { "reportId": "0xE2", "params": [], "returns": [{ "kind": "scalar", "name": "mode", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_out", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_out", "scalar": "i32" }] },
-    "get_trim_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "trim_id", "scalar": "u8" }, { "kind": "scalar", "name": "control", "scalar": "u8" }, { "kind": "struct_array", "name": "levels", "count": 4, "fields": [{ "kind": "scalar", "name": "whole", "scalar": "u8" }, { "kind": "scalar", "name": "fract", "scalar": "u8" }] }] },
+    "get_trim_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "trim_id", "scalar": "u8" }, { "kind": "scalar", "name": "control", "scalar": "u8" }, { "kind": "struct_array", "name": "levels", "count": 4, "fields": [{ "kind": "scalar", "name": "whole", "scalar": "u8" }, { "kind": "scalar", "name": "fract", "scalar": "u8" }] }] }] },
     "get_upload_result": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "offset", "scalar": "u32" }, { "kind": "array", "name": "data", "elem": "u8", "count": 300 }], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }] },
     "preset_recall": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },
     "preset_save": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },

@@ -6,8 +6,11 @@ export interface StudioCommands {
   get_adats_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 8 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_afx_available_instances: {
@@ -22,56 +25,74 @@ export interface StudioCommands {
   get_afx_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 8 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_afx_order: {
     params: Record<string, never>;
     returns: {
-      /** 8 × struct of 2 bytes */
-      slots: Array<{
-        /** u8, 0..255 */
-        type: number;
-        /** u8, 0..255 */
-        inst: number;
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** 8 × struct of 2 bytes */
+        slots: Array<{
+          /** u8, 0..255 */
+          type: number;
+          /** u8, 0..255 */
+          inst: number;
+        }>;
       }>;
     };
   };
   get_lines_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 4 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_mixer: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      level: number;
-      /** u8, 6 bits, 0..63 */
-      pan: number;
-      /** u8, 1 bit, 0..1 */
-      mute: number;
-      /** u8, 1 bit, 0..1 */
-      solo: number;
-      /** u8, 0..255 */
-      send: number;
+      /** 33 × struct of 3 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        level: number;
+        /** u8, 6 bits, 0..63 */
+        pan: number;
+        /** u8, 1 bit, 0..1 */
+        mute: number;
+        /** u8, 1 bit, 0..1 */
+        solo: number;
+        /** u8, 0..255 */
+        send: number;
+      }>;
     };
   };
   get_mixer_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 64 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_preamps_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 6 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_reverb_config: {
@@ -118,8 +139,11 @@ export interface StudioCommands {
   get_spdifs_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 1 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_tb_latency: {
@@ -608,17 +632,17 @@ export interface StudioCyclicReports {
 
 export const studioSchema = {
   "commands": {
-    "get_adats_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_adats_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_afx_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
-    "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
-    "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] },
-    "get_lines_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
-    "get_mixer": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "send", "scalar": "u8" }] },
-    "get_mixer_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
-    "get_preamps_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] }] },
+    "get_lines_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 4, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_mixer": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 33, "fields": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "send", "scalar": "u8" }] }] },
+    "get_mixer_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 64, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_preamps_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 6, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_reverb_config": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "mixer_id", "scalar": "u8" }, { "kind": "scalar", "name": "room_size", "scalar": "u8" }, { "kind": "scalar", "name": "color", "scalar": "u8" }, { "kind": "scalar", "name": "predelay", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8" }, { "kind": "scalar", "name": "early_ref_gain", "scalar": "u8" }, { "kind": "scalar", "name": "late_ref_delay", "scalar": "u8" }, { "kind": "scalar", "name": "richness", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_time", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_level", "scalar": "u8" }, { "kind": "scalar", "name": "on", "scalar": "u8" }] },
     "get_routing": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "bank_idx", "scalar": "u8" }, { "kind": "struct_array", "name": "bank_configs", "count": 32, "fields": [{ "kind": "scalar", "name": "in_periph_id", "scalar": "u8" }, { "kind": "scalar", "name": "in_chann", "scalar": "u8" }] }] },
-    "get_spdifs_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
+    "get_spdifs_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_tb_latency": { "reportId": "0xE2", "params": [], "returns": [{ "kind": "scalar", "name": "mode", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_out", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_out", "scalar": "i32" }] },
     "preset_recall": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },
     "preset_save": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },
