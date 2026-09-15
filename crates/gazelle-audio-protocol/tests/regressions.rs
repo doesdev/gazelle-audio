@@ -226,6 +226,49 @@ fn set_mixer_packs_pan_mute_solo_into_one_byte() {
     assert_eq!((packed >> 7) & 1, 0, "solo is bit 7");
 }
 
+fn studio_registry() -> Registry {
+    let doc: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(gazelle_audio_protocol::STUDIO_COMMANDS_PATH).unwrap(),
+    )
+    .unwrap();
+    from_json_doc(&doc).unwrap()
+}
+
+/// Studio+'s mixer command is `set_mixer_cfg`: `set_mixer`'s fields plus a whole `send` byte.
+///
+/// Phase 4 drives it from the web mixer, so its layout is pinned the same way as Quadro's:
+/// `pan`(6), `mute`(1) and `solo`(1) share one byte, and `send` follows as the fifth user byte.
+#[test]
+fn set_mixer_cfg_packs_pan_mute_solo_and_appends_send() {
+    use gazelle_audio_protocol::payload::PayloadValues;
+    let r = studio_registry();
+    let c = r.get("set_mixer_cfg").expect("set_mixer_cfg");
+
+    let bytes = c
+        .build_request(
+            &PayloadValues::default()
+                .with_scalar("mixer_id", 1)
+                .with_scalar("channel", 2)
+                .with_scalar("level", 0x40)
+                .with_scalar("pan", 0b10_1010)
+                .with_scalar("mute", 0)
+                .with_scalar("solo", 1)
+                .with_scalar("send", 0x7f),
+        )
+        .expect("build");
+
+    // 16-byte header, then payload_id|nparams, nbytes, then 5 user bytes.
+    let body = &bytes[16..];
+    assert_eq!(body[1], 5, "user payload is 5 bytes");
+    assert_eq!(&body[2..5], &[1, 2, 0x40], "mixer_id, channel and level are whole bytes");
+    let packed = body[5];
+    assert_eq!(packed & 0b0011_1111, 0b10_1010, "pan occupies the low 6 bits");
+    assert_eq!((packed >> 6) & 1, 0, "mute is bit 6");
+    assert_eq!((packed >> 7) & 1, 1, "solo is bit 7");
+    assert_eq!(body[6], 0x7f, "send is the fifth user byte");
+    assert_eq!(bytes.len(), 16 + 2 + 5);
+}
+
 /// A command whose fields are all sub-byte collapses to a single-byte payload.
 #[test]
 fn set_sine_gen_is_one_user_byte() {

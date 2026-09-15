@@ -1,0 +1,314 @@
+{
+  "family": "studio",
+  "source": {
+    "tool": "refs/tools/scripts/extract_topology.py",
+    "bytecode": "3.5",
+    "blobs": [
+      {
+        "path": "refs/extracted/studio/PYZ_extracted/antelope_components_routing_data_model_routing_model_controller.pyc",
+        "sha256": "76db2761f0dcc8dfb037bc992df6c4445d9673d8a30bec078f24491aedb2d0f5",
+        "read": [
+          "RoutingInputGroupType",
+          "RoutingOutputGroupType"
+        ]
+      },
+      {
+        "path": "refs/extracted/studio/PYZ_extracted/zenstudiotb_constants.pyc",
+        "sha256": "50ee06ee9b86eb1fd457d6e5738d0cefdd97ecd892d522a979f23a0381abb7f3",
+        "read": [
+          "module constants"
+        ]
+      },
+      {
+        "path": "refs/extracted/studio/PYZ_extracted/zenstudiotb_ui_panels.pyc",
+        "sha256": "7dcff45941a706fa5f7d71bb1c8b6ba23140c48b4cd8746236038973fa7cb322",
+        "read": [
+          "ZenStudioTbMixerController.STEREO_LINK_PERIPH_ID"
+        ]
+      },
+      {
+        "path": "refs/extracted/studio/PYZ_extracted/zenstudiotb_ui_tabs_routings.pyc",
+        "sha256": "69b7673b979f10b206c320f4ae811f208bec64fa4ff0ec1849df1bd1d55ef5c7",
+        "read": [
+          "INPUT_SPEC, OUTPUT_SPEC, SIGNAL_PRESENT_SPEC, AVAILABLE_CHANNELS_SPEC"
+        ]
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "id": "PREAMP0",
+      "type": "PREAMP",
+      "typeId": 8,
+      "name": "PREAMP",
+      "channels": 12,
+      "color": "#21a8fe"
+    },
+    {
+      "id": "LINE_IN0",
+      "type": "LINE_IN",
+      "typeId": 0,
+      "name": "LINE IN",
+      "channels": 8,
+      "color": "#7c99a5"
+    },
+    {
+      "id": "TB_PLAY0",
+      "type": "TB_PLAY",
+      "typeId": 1,
+      "name": "TB PLAY",
+      "channels": 32,
+      "color": "#0067ff"
+    },
+    {
+      "id": "USB_PLAY0",
+      "type": "USB_PLAY",
+      "typeId": 2,
+      "name": "USB PLAY",
+      "channels": 24,
+      "color": "#8f00fe"
+    },
+    {
+      "id": "ADAT_IN0",
+      "type": "ADAT_IN",
+      "typeId": 4,
+      "name": "ADAT IN",
+      "channels": 16,
+      "color": "#ff0058"
+    },
+    {
+      "id": "SPDIF_IN0",
+      "type": "SPDIF_IN",
+      "typeId": 5,
+      "name": "SPDIF IN",
+      "channels": 2,
+      "color": "#dd2578"
+    },
+    {
+      "id": "AFX_OUT0",
+      "type": "AFX_OUT",
+      "typeId": 6,
+      "name": "AFX OUT",
+      "channels": 16,
+      "color": "#fc6ba7"
+    },
+    {
+      "id": "MIXER_OUT0",
+      "type": "MIXER_OUT",
+      "typeId": 7,
+      "name": "MIX1 L/R",
+      "channels": 2,
+      "color": "#d0300c"
+    },
+    {
+      "id": "MIXER_OUT1",
+      "type": "MIXER_OUT",
+      "typeId": 7,
+      "name": "MIX2 L/R",
+      "channels": 2,
+      "color": "#ffa757"
+    },
+    {
+      "id": "MIXER_OUT2",
+      "type": "MIXER_OUT",
+      "typeId": 7,
+      "name": "MIX3 L/R",
+      "channels": 2,
+      "color": "#dae03f"
+    },
+    {
+      "id": "MIXER_OUT3",
+      "type": "MIXER_OUT",
+      "typeId": 7,
+      "name": "MIX4 L/R",
+      "channels": 2,
+      "color": "#82c323"
+    },
+    {
+      "id": "MUTE0",
+      "type": "MUTE",
+      "typeId": -1,
+      "name": "MUTE",
+      "channels": 1,
+      "color": "#7b7b7b"
+    },
+    {
+      "id": "OSCILLATOR0",
+      "type": "OSCILLATOR",
+      "typeId": -2,
+      "name": "OSCILLATOR",
+      "channels": 2,
+      "color": "#3890a7"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "LINE_OUT0",
+      "type": "LINE_OUT",
+      "typeId": 0,
+      "name": "LINE OUT",
+      "channels": 8,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "HEADPHONES0",
+      "type": "HEADPHONES",
+      "typeId": 9,
+      "name": "HP1",
+      "channels": 2,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "HEADPHONES1",
+      "type": "HEADPHONES",
+      "typeId": 9,
+      "name": "HP2",
+      "channels": 2,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "MONITOR0",
+      "type": "MONITOR",
+      "typeId": 1,
+      "name": "MONITOR",
+      "channels": 2,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "REAMP0",
+      "type": "REAMP",
+      "typeId": 10,
+      "name": "REAMP",
+      "channels": 2,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "TB_REC0",
+      "type": "TB_REC",
+      "typeId": 2,
+      "name": "TB REC",
+      "channels": 32,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "USB_REC0",
+      "type": "USB_REC",
+      "typeId": 3,
+      "name": "USB REC",
+      "channels": 24,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "ADAT_OUT0",
+      "type": "ADAT_OUT",
+      "typeId": 5,
+      "name": "ADAT OUT",
+      "channels": 16,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "SPDIF_OUT0",
+      "type": "SPDIF_OUT",
+      "typeId": 6,
+      "name": "SPDIF OUT",
+      "channels": 2,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "AFX_IN0",
+      "type": "AFX_IN",
+      "typeId": 7,
+      "name": "AFX IN",
+      "channels": 16,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "MIXER_IN0",
+      "type": "MIXER_IN",
+      "typeId": 8,
+      "name": "MIX CH1",
+      "channels": 32,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "MIXER_IN1",
+      "type": "MIXER_IN",
+      "typeId": 8,
+      "name": "MIX CH2",
+      "channels": 32,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "MIXER_IN2",
+      "type": "MIXER_IN",
+      "typeId": 8,
+      "name": "MIX CH3",
+      "channels": 32,
+      "color": "#7f7f7f"
+    },
+    {
+      "id": "MIXER_IN3",
+      "type": "MIXER_IN",
+      "typeId": 8,
+      "name": "MIX CH4",
+      "channels": 32,
+      "color": "#7f7f7f"
+    }
+  ],
+  "signalPresent": [
+    {
+      "field": "tbolt_present",
+      "type": "TB_PLAY",
+      "typeId": 1,
+      "channel": 0
+    },
+    {
+      "field": "usb_present",
+      "type": "USB_PLAY",
+      "typeId": 2,
+      "channel": 0
+    },
+    {
+      "field": "adat_present",
+      "type": "ADAT_IN",
+      "typeId": 4,
+      "channel": 0
+    },
+    {
+      "field": "spdif_present",
+      "type": "SPDIF_IN",
+      "typeId": 5,
+      "channel": 0
+    }
+  ],
+  "availableChannels": [
+    {
+      "type": "ADAT_IN",
+      "typeId": 4,
+      "field": "adat_avail_channels"
+    }
+  ],
+  "mixers": {
+    "count": 4,
+    "channels": 32,
+    "command": "set_mixer_cfg",
+    "masterChannel": 0,
+    "stereoLinkId": 4,
+    "inputGroups": [
+      "MIXER_IN0",
+      "MIXER_IN1",
+      "MIXER_IN2",
+      "MIXER_IN3"
+    ],
+    "outputGroups": [
+      "MIXER_OUT0",
+      "MIXER_OUT1",
+      "MIXER_OUT2",
+      "MIXER_OUT3"
+    ]
+  },
+  "assumptions": [
+    "Group ids follow the routing controller's '%s%d' % (type name, index among earlier groups of the same type), read from its decompiled source, which is incomplete.",
+    "The Studio+ mixer controller that sends set_mixer_cfg (antelope.components.mixers.data_model.MixerDataModelController) was not extracted; masterChannel 0 and strip index + 1 assume it matches Quadro's MixerModel. Confirm with a capture of a fader move in the vendor panel."
+  ]
+}

@@ -229,6 +229,39 @@ async fn field_values_change_the_bytes() {
     assert_ne!(a["sent_hex"], b["sent_hex"], "a changed field must change the wire bytes");
 }
 
+/// Studio+ ground-truth vectors, generated from the same decompiled request builder.
+fn ground_truth_studio() -> Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../gazelle-audio-protocol/tests/ground_truth_studio.json"
+    );
+    serde_json::from_str(&std::fs::read_to_string(path).expect("ground_truth_studio.json")).unwrap()
+}
+
+/// Phase 4 drives each family's own mixer command: Studio+ has `set_mixer_cfg` (with `send`)
+/// instead of Quadro's `set_mixer`. A dry run must emit its ground-truth bytes, and a changed
+/// level must change exactly the level byte.
+#[tokio::test]
+async fn studio_set_mixer_cfg_sends_ground_truth_bytes() {
+    let expected = ground_truth_studio()["set_mixer_cfg"].as_str().expect("set_mixer_cfg vector").to_string();
+    let (status, body) = send(app(), "POST", "/api/v1/devices/loopback-1/command/set_mixer_cfg?dry_run=true", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body["sent_hex"], expected);
+    assert_eq!(body["dry_run"], true);
+
+    let (_, level) = send(app(), "POST", "/api/v1/devices/loopback-1/command/set_mixer_cfg?dry_run=true", json!({"level": 0x40})).await;
+    let (a, b) = (expected.as_str(), level["sent_hex"].as_str().unwrap());
+    assert_eq!(a.len(), b.len());
+    let differing: Vec<usize> = (0..a.len() / 2).filter(|i| a[i * 2..i * 2 + 2] != b[i * 2..i * 2 + 2]).collect();
+    // 16-byte header, payload_id|nparams, nbytes, then mixer_id, channel, level: byte 20.
+    assert_eq!(differing, vec![20], "only the level byte changes: {a} vs {b}");
+    assert_eq!(&b[40..42], "40");
+
+    let (missing, body) = send(app(), "POST", "/api/v1/devices/loopback-0/command/set_mixer_cfg?dry_run=true", json!({})).await;
+    assert_eq!(missing, StatusCode::NOT_FOUND, "Quadro has set_mixer, not set_mixer_cfg: {body}");
+    assert_eq!(body["error"]["code"], "unknown_command");
+}
+
 #[tokio::test]
 async fn quadro_only_command_is_absent_on_studio() {
     // set_mixer exists on Quadro (loopback-0) but not Studio+ (loopback-1).
