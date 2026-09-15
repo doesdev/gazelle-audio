@@ -60,7 +60,9 @@ export class GaMixer extends GaElement {
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .bar select { min-height: 26px; }
       .spacer { flex: 1; }
-      .notes { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 11px; color: var(--ga-text-muted); }
+      .notes { font-size: 11px; color: var(--ga-text-muted); }
+      .notes summary { cursor: pointer; width: fit-content; }
+      .notes ul { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
       .last-sent { font-size: 11px; }
       .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       .strips {
@@ -131,12 +133,18 @@ export class GaMixer extends GaElement {
     const metered = h("select", { "aria-label": "Metered mix", "data-testid": "metered-mix", "on:change": () => (channels.meteredMix.value = Number(metered.value)) });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
+    // One line by default, so the channels keep the height.
     const notes = h(
-      "ul",
+      "details",
       { class: "notes" },
-      h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
-      mixer0.stateKnown ? [] : [h("li", {}, "The device's current mixer levels cannot be read yet, so controls start at defaults and send when changed.")],
-      mixer0.hasSend ? [h("li", {}, "The strip's Send shows the raw value: its scale has not been verified.")] : [],
+      h("summary", {}, "How this mixer works"),
+      h(
+        "ul",
+        {},
+        h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
+        mixer0.stateKnown ? [] : [h("li", {}, "The device's current mixer levels cannot be read yet, so controls start at defaults and send when changed.")],
+        mixer0.hasSend ? [h("li", {}, "The strip's Send shows the raw value: its scale has not been verified.")] : [],
+      ),
     );
 
     const strips = h("div", { class: "strips" });

@@ -46,7 +46,8 @@ export class GaStrip extends GaElement {
       .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--ga-accent); opacity: 0.75; }
       .bar .centre { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--ga-border-strong); }
       .bar .value { position: absolute; inset: 0; font-size: 9px; line-height: 13px; text-align: center; pointer-events: none; font-variant-numeric: tabular-nums; }
-      .level-area { display: grid; grid-template-columns: 16px 22px 1fr; gap: 3px; flex: 1; min-height: 180px; }
+      /* The fader takes the height left under the channel head; its floor keeps it usable in short windows. */
+      .level-area { display: grid; grid-template-columns: 16px 22px 1fr; gap: 3px; flex: 1; min-height: 100px; }
       :host([strip="master"]) .level-area { grid-template-columns: 18px 1fr; }
       .scale { position: relative; font-size: 8px; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; }
       .scale span { position: absolute; right: 0; transform: translateY(-50%); }

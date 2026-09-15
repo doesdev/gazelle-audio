@@ -12,7 +12,9 @@ test.beforeAll(async () => {
   server = await startServer(["--dry-run"], { webUi: true });
   // 26 channels (every free Quadro input): one active on Mix 1, so its master shows, and 25 inactive.
   const channels = Array.from({ length: 26 }, (_, i) => (i === 0 ? { id: "c0", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] } : { id: `c${i}`, name: "", slot: 6 + i, sends: [] }));
-  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers: { "loopback-0": { channels } } }) });
+  // The Studio+ has the tallest channel: a grouped preamp channel over a strip with its own send section.
+  const studio = { groups: [{ id: "g", name: "Drums", collapsed: false }], channels: [{ id: "s0", name: "Kick", slot: 0, group: "g", source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }] };
+  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers: { "loopback-0": { channels }, "loopback-1": studio } }) });
   if (!response.ok) throw new Error(`workspace PUT failed: ${response.status}`);
 });
 
@@ -39,6 +41,16 @@ test("the mixer fills the window's height and stretches with it", async ({ page 
   await expect.poll(async () => (await strips(page).boundingBox())?.height ?? 0).toBeGreaterThan(before + 250);
   expect(await bottomGap()).toBeLessThanOrEqual(16);
   expect(await main.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+});
+
+test("the tallest channel still fits a short window: the page does not scroll and the name bar shows", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 860 });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  await expect(page.getByTestId("pre-ch-0")).not.toHaveAttribute("data-empty", "");
+  const main = page.locator("ga-app main");
+  expect(await main.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+  const [nameBar, row] = await Promise.all([page.locator('ga-channel[data-channel-slot="0"] ga-strip .name').boundingBox(), page.locator("ga-mixer .strips").boundingBox()]);
+  expect((nameBar?.y ?? 0) + (nameBar?.height ?? 0)).toBeLessThanOrEqual((row?.y ?? 0) + (row?.height ?? 0) + 1);
 });
 
 test("auto width fits strips to the row within limits; a set width scrolls; both are remembered", async ({ page }) => {
