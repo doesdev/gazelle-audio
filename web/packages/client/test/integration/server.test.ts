@@ -73,12 +73,13 @@ test("invoke round-trips in dry run and live on the loopback", async () => {
   assert.equal(live.sent_hex, dry.sent_hex, "a live call sends the bytes the dry run reported");
 
   // The emulating loopback answers with the request's own contents, which are empty for a
-  // command without parameters, so the server correlates the reply but cannot decode it. The
-  // client passes the server's envelope through unchanged: no response, the decode error.
-  const read = await dev.invoke("get_adats_links");
+  // command without parameters (it fills only routing, mixer and links reads), so the server
+  // correlates the reply but cannot decode it. The client passes the server's envelope through
+  // unchanged: no response, the decode error.
+  const read = await dev.invoke("get_reverb_config");
   assert.equal(read.dry_run, false);
   assert.equal(read.response, null);
-  assert.match(read.response_error ?? "", /could not decode 0 bytes of response for 'get_adats_links'/);
+  assert.match(read.response_error ?? "", /could not decode 0 bytes of response for 'get_reverb_config'/);
 });
 
 test("server errors arrive as GazelleError with the server's code", async () => {

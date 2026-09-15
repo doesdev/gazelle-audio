@@ -365,6 +365,52 @@ async fn loopback_routing_reads_back_what_was_set() {
     assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 10, "in_chann": 0}), "other groups are untouched");
 }
 
+/// The loopback keeps mixer strips and stereo links like a device, so the web UI can read a mixer's
+/// state (`get_mixer`, mixer id in `ext3`, 33 entries master first) and links (`get_*_links`, one
+/// byte per pair) back without hardware.
+#[tokio::test]
+async fn loopback_mixer_and_links_read_back_what_was_set() {
+    let app = app();
+    let post = |uri: &str, body: Value| {
+        let (app, uri) = (app.clone(), uri.to_string());
+        async move {
+            let (status, body) = send(app, "POST", &uri, body).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            assert_eq!(body["response_error"], Value::Null, "{uri}: {body}");
+            body
+        }
+    };
+
+    let before = post("/api/v1/devices/loopback-0/command/get_mixer?ext3=2", json!({})).await;
+    let entries = before["response"]["entries"].as_array().expect("entries").clone();
+    assert_eq!(entries.len(), 33, "master and 32 strips");
+    assert_eq!(entries[6], json!({"level": 0, "pan": 32, "mute": 0, "solo": 0}), "strips start at 0 dB, centred");
+
+    post("/api/v1/devices/loopback-0/command/set_mixer", json!({"mixer_id": 2, "channel": 6, "level": 20, "pan": 40, "mute": 1, "solo": 0})).await;
+    let after = post("/api/v1/devices/loopback-0/command/get_mixer?ext3=2", json!({})).await;
+    assert_eq!(after["response"]["entries"][6], json!({"level": 20, "pan": 40, "mute": 1, "solo": 0}));
+    assert_eq!(after["response"]["entries"][5]["level"], 0);
+    let other = post("/api/v1/devices/loopback-0/command/get_mixer?ext3=1", json!({})).await;
+    assert_eq!(other["response"]["entries"][6]["level"], 0, "other mixers are untouched");
+
+    // Quadro: mixer links are periph 3 (64 pairs, 16 per mixer); preamp links periph 0 (one pair in its format).
+    post("/api/v1/devices/loopback-0/command/set_stereo_link", json!({"periph_id": 3, "channel_id": 2, "linked": 1})).await;
+    let links = post("/api/v1/devices/loopback-0/command/get_mixer_links", json!({})).await;
+    let linked: Vec<u64> = links["response"]["entries"].as_array().unwrap().iter().map(|e| e["linked"].as_u64().unwrap()).collect();
+    assert_eq!((linked.len(), linked[2], linked.iter().sum::<u64>()), (64, 1, 1));
+    let preamps = post("/api/v1/devices/loopback-0/command/get_preamps_links", json!({})).await;
+    assert_eq!(preamps["response"]["entries"], json!([{"linked": 0}]));
+
+    // Studio+: set_mixer_cfg carries send; six preamp pairs.
+    post("/api/v1/devices/loopback-1/command/set_mixer_cfg", json!({"mixer_id": 0, "channel": 1, "level": 6, "pan": 32, "mute": 0, "solo": 1, "send": 99})).await;
+    let studio = post("/api/v1/devices/loopback-1/command/get_mixer?ext3=0", json!({})).await;
+    assert_eq!(studio["response"]["entries"][1], json!({"level": 6, "pan": 32, "mute": 0, "solo": 1, "send": 99}));
+    post("/api/v1/devices/loopback-1/command/set_stereo_link", json!({"periph_id": 0, "channel_id": 5, "linked": 1})).await;
+    let pairs = post("/api/v1/devices/loopback-1/command/get_preamps_links", json!({})).await;
+    let pairs: Vec<u64> = pairs["response"]["entries"].as_array().unwrap().iter().map(|e| e["linked"].as_u64().unwrap()).collect();
+    assert_eq!(pairs, vec![0, 0, 0, 0, 0, 1]);
+}
+
 /// `get_routing` names the destination group in the header's `ext3` (the panel's
 /// `get_device_data` asks once per group), so a client must be able to set it per request.
 /// Only commands that take an `ext3` selector accept one: on any other command it would
