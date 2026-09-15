@@ -13,6 +13,7 @@
 
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
+import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { InputsModel } from "./inputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
@@ -286,6 +287,27 @@ export class Store {
       watch: () => this.watchReport(deviceId, "0x73"),
     });
     this.#mixers.set(key, model);
+    return model;
+  }
+
+  readonly #channels = new Map<string, ChannelsModel>();
+
+  /** A device's user-built mixer channels, created on first use; throws for a device of unknown model. */
+  channels(deviceId: string): ChannelsModel {
+    const existing = this.#channels.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no mixer channels`);
+    const model = new ChannelsModel({
+      deviceId,
+      family,
+      topology: topologies[family],
+      layout: computed(() => this.#workspace.value?.mixers?.[deviceId]),
+      edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, mixers: { ...workspace.mixers, [deviceId]: update(workspace.mixers?.[deviceId] ?? emptyLayout()) } })),
+      routing: this.routing(deviceId),
+      notify: (text) => this.#notify("error", text),
+    });
+    this.#channels.set(deviceId, model);
     return model;
   }
 

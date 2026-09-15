@@ -1,0 +1,158 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import { Store } from "../src/store/store.ts";
+import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
+
+const Q = "loopback-0";
+const S = "loopback-1";
+// Quadro topology positions (P38): sources PREAMP 0, USB 1 PLAY 1, AFX OUT 5, MUTE 10; MIX CH1-4 are destinations 8-11.
+const PREAMP = 0;
+const USB1 = 1;
+const AFX_OUT = 5;
+const MUTE = 10;
+const MIX = [8, 9, 10, 11];
+
+type Pair = [number, number];
+
+/** A started store over fake devices that keep routing like the hardware. */
+async function setup() {
+  const client = new FakeClient(device(Q, "quadro", "Zen Quadro"), device(S, "studio", "Zen Studio+"));
+  const muteOf = (deviceId: string) => (deviceId === Q ? MUTE : 11);
+  const routes = new Map<string, Pair[]>();
+  const group = (deviceId: string, destination: number): Pair[] => {
+    const key = `${deviceId}:${destination}`;
+    let slots = routes.get(key);
+    if (slots === undefined) {
+      slots = Array.from({ length: 32 }, (): Pair => [muteOf(deviceId), 0]);
+      routes.set(key, slots);
+    }
+    return slots;
+  };
+  client.respond = async (call: Invocation) => {
+    const envelope = { device_id: call.deviceId, command: call.command, sent_hex: "70", sent_len: 16, dry_run: false, response: null as unknown, response_error: null };
+    if (call.command === "get_routing") {
+      const destination = call.options?.["ext3"] as number;
+      envelope.response = { bank_idx: destination, bank_configs: group(call.deviceId, destination).map(([p, c]) => ({ in_periph_id: p, in_chann: c })) };
+    } else if (call.command === "set_routing") {
+      const args = call.args as { bank_idx: number; bank_configs: Uint8Array[] };
+      routes.set(`${call.deviceId}:${args.bank_idx}`, args.bank_configs.map((b): Pair => [b[0] as number, b[1] as number]));
+    }
+    return envelope;
+  };
+  const timers = new ManualTimers();
+  const store = new Store(client, { timers, storage: new MemoryStorage(), themeSources: builtInThemes });
+  await store.start();
+  const set = (deviceId: string, destination: number, slot: number, pair: Pair) => {
+    group(deviceId, destination)[slot] = pair;
+  };
+  const at = (deviceId: string, destination: number, slot: number) => group(deviceId, destination)[slot];
+  const writes = () => client.invocations.filter((c) => c.command === "set_routing").length;
+  return { client, store, timers, set, at, writes };
+}
+
+test("a device without a layout imports its channels from the mixer routing, skipping the Quadro's effect returns", async () => {
+  const { store, set } = await setup();
+  for (let slot = 0; slot < 6; slot++) set(Q, MIX[0] as number, slot, [AFX_OUT, slot]);
+  set(Q, MIX[0] as number, 6, [PREAMP, 1]);
+  set(Q, MIX[1] as number, 6, [PREAMP, 1]);
+  set(Q, MIX[3] as number, 6, [USB1, 0]); // another source on the same slot stays on the device
+  set(Q, MIX[2] as number, 9, [USB1, 3]);
+
+  const channels = store.channels(Q);
+  assert.equal(channels.configured, false);
+  assert.equal(await channels.importFromDevice(), true);
+  assert.deepEqual(
+    channels.layout.value.channels.map(({ id: _, ...rest }) => rest),
+    [
+      { name: "PREAMP 2", slot: 6, source: { group: PREAMP, channel: 1 }, main_mix: 0, sends: [1] },
+      { name: "USB 1 PLAY 4", slot: 9, source: { group: USB1, channel: 3 }, main_mix: 2, sends: [] },
+    ],
+  );
+  assert.equal(channels.configured, true);
+  assert.equal(await channels.importFromDevice(), false, "an existing layout is never replaced");
+});
+
+test("with nothing routed the layout starts with one inactive channel", async () => {
+  const { store, writes } = await setup();
+  const channels = store.channels(Q);
+  await channels.importFromDevice();
+  const [only, ...rest] = channels.layout.value.channels;
+  assert.deepEqual([only?.name, only?.slot, only?.source, only?.main_mix, only?.sends, rest], ["", 6, undefined, undefined, [], []]);
+  assert.equal(channels.isActive(only as NonNullable<typeof only>), false);
+  assert.equal(writes(), 0, "importing writes nothing to the device");
+});
+
+test("channels take the lowest free slot, from input 7 on the Quadro and 1 on the Studio+, until the mixer is full", async () => {
+  const { store } = await setup();
+  const quadro = store.channels(Q);
+  const first = quadro.add();
+  const second = quadro.add();
+  assert.deepEqual(quadro.layout.value.channels.map((c) => c.slot), [6, 7]);
+  assert.notEqual(first, second);
+  for (let i = 0; i < 24; i++) assert.notEqual(quadro.add(), undefined);
+  assert.equal(quadro.add(), undefined, "26 inputs are free on the Quadro");
+  assert.match(JSON.stringify(store.notices.value), /All 26 mixer channels are in use \(inputs 1–6 carry the effect returns\)/);
+
+  await quadro.remove(first as string);
+  assert.equal(quadro.channel(quadro.add() as string)?.slot, 6, "a freed slot is reused");
+
+  const studio = store.channels(S);
+  studio.add();
+  assert.deepEqual(studio.layout.value.channels.map((c) => c.slot), [0]);
+});
+
+test("a channel routes only once it has an input and a main mix, then feeds its main mix and sends", async () => {
+  const { store, at, writes } = await setup();
+  const channels = store.channels(Q);
+  const id = channels.add() as string;
+
+  assert.equal(await channels.setSource(id, { group: PREAMP, channel: 2 }), true);
+  await channels.setSend(id, 3, true);
+  assert.equal(writes(), 0, "without a main mix nothing is routed");
+
+  await channels.setMainMix(id, 1);
+  assert.deepEqual([at(Q, MIX[1] as number, 6), at(Q, MIX[3] as number, 6), at(Q, MIX[0] as number, 6)], [[PREAMP, 2], [PREAMP, 2], [MUTE, 0]]);
+  assert.equal(channels.isActive(channels.channel(id) as NonNullable<ReturnType<typeof channels.channel>>), true);
+  assert.equal(await channels.setSend(id, 1, true), false, "a channel does not send to its own main mix");
+
+  await channels.setMainMix(id, 3);
+  assert.deepEqual(channels.channel(id)?.sends, [], "the new main mix is no longer a send");
+  assert.deepEqual([at(Q, MIX[1] as number, 6), at(Q, MIX[3] as number, 6)], [[MUTE, 0], [PREAMP, 2]]);
+
+  await channels.setSource(id, { group: USB1, channel: 5 });
+  assert.deepEqual(at(Q, MIX[3] as number, 6), [USB1, 5]);
+  await channels.setSource(id, undefined);
+  assert.deepEqual(at(Q, MIX[3] as number, 6), [MUTE, 0], "clearing the input mutes what the channel fed");
+});
+
+test("removing mutes every mix the channel fed; order, names, groups and mix names are saved in the workspace", async () => {
+  const { client, store, at, timers } = await setup();
+  const channels = store.channels(Q);
+  const a = channels.add() as string;
+  const b = channels.add() as string;
+  await channels.setSource(a, { group: PREAMP, channel: 0 });
+  await channels.setMainMix(a, 0);
+  await channels.setSend(a, 2, true);
+  assert.deepEqual([at(Q, MIX[0] as number, 6), at(Q, MIX[2] as number, 6)], [[PREAMP, 0], [PREAMP, 0]]);
+  await channels.remove(a);
+  assert.deepEqual([at(Q, MIX[0] as number, 6), at(Q, MIX[2] as number, 6)], [[MUTE, 0], [MUTE, 0]]);
+
+  const c = channels.add() as string;
+  channels.move(c, 0);
+  channels.rename(c, "Vox");
+  const drums = channels.addGroup("Drums") as string;
+  channels.setGroup(b, drums);
+  channels.renameMix(1, "Cue A");
+  assert.deepEqual(channels.layout.value.channels.map((x) => [x.id, x.name, x.group]), [[c, "Vox", undefined], [b, "", drums]]);
+  assert.deepEqual([channels.mixName(1), channels.mixName(2)], ["Cue A", "Mix 3"]);
+  channels.removeGroup(drums);
+  assert.equal(channels.channel(b)?.group, undefined);
+  assert.throws(() => channels.setGroup(b, "nope"), RangeError);
+
+  timers.advance(1000);
+  await flush();
+  assert.deepEqual(client.stored.mixers[Q]?.channels.map((x) => x.id), [c, b]);
+  assert.deepEqual(client.stored.mixers[Q]?.mixes, [{}, { name: "Cue A" }]);
+});
