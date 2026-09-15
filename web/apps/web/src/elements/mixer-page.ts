@@ -1,7 +1,8 @@
-// <ga-mixer device-id="…" mixer="0">: one device's mixer. Tabs pick the mixer (named after the
-// output each one feeds), the strips scroll horizontally with the master on the right, and the
-// page says plainly what the web mixer cannot know yet. In dry run it shows the bytes of the last
-// command sent.
+// <ga-mixer device-id="…">: one device's mixer, built from the channels the user made (plan
+// 2026-09-16). Channels scroll horizontally, followed by a "+" to add one; the masters of the mixes
+// in use sit on the right. A device with no layout imports one from its routing when the page
+// opens. The device meters one mix at a time, chosen in the bar. In dry run it shows the bytes of
+// the last command sent.
 
 import { h } from "../core/dom.ts";
 import { meterDeflection } from "../store/mixer.ts";
@@ -14,9 +15,9 @@ export class GaMixer extends GaElement {
   static override styles = [
     sheet(`
       :host { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-      /* Channel width: a caption, an Auto | Fixed segmented control and an inset px field, all the Mix tabs' height. */
+      /* Channel width: a caption, an Auto | Fixed segmented control and an inset px field, all one height. */
       .width { display: flex; align-items: center; gap: 6px; }
-      .width .caption { font-size: 11px; color: var(--ga-text-secondary); }
+      .caption { font-size: 11px; color: var(--ga-text-secondary); }
       .segmented { display: flex; }
       .segmented button {
         min-height: 26px;
@@ -57,18 +58,7 @@ export class GaMixer extends GaElement {
       .px-field input::-webkit-inner-spin-button, .px-field input::-webkit-outer-spin-button { appearance: none; margin: 0; }
       .px-field .unit { font-size: 11px; color: var(--ga-text-muted); }
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-      .tabs { display: flex; gap: 2px; }
-      .tabs a {
-        padding: 4px 10px;
-        border-radius: 3px;
-        background: var(--ga-control-background);
-        color: var(--ga-text-secondary);
-        font-family: "Josefin Sans Variable", system-ui, sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .tabs a:hover { background: var(--ga-control-hover); color: var(--ga-text-primary); }
-      .tabs a[aria-current="page"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .bar select { min-height: 26px; }
       .spacer { flex: 1; }
       .notes { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 11px; color: var(--ga-text-muted); }
       .last-sent { font-size: 11px; }
@@ -78,66 +68,71 @@ export class GaMixer extends GaElement {
         flex: 1;
         gap: 2px;
         min-height: 0;
-        /* No right padding: the sticky master sits flush with the edge, so no strip shows past it. */
+        /* No right padding: the sticky masters sit flush with the edge, so no strip shows past them. */
         padding: 4px 0 4px 4px;
         overflow-x: auto;
         overflow-y: hidden;
         border-radius: 3px;
         background: var(--ga-surface-inset);
       }
-      /* Auto: strips share the row between the limits, and scroll once they reach the floor. Fixed: every strip is --strip-width. */
-      .strips ga-strip { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
-      .strips.fixed ga-strip { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
-      .strips .master ga-strip { flex: 0 0 78px; min-width: 0; max-width: none; }
-      .strips .master { margin-left: auto; }
-      .master {
+      /* Auto: channels share the row between the limits, and scroll once they reach the floor. Fixed: every channel is --strip-width. */
+      .strips ga-channel { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
+      .strips.fixed ga-channel { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
+      .add {
+        flex: 0 0 36px;
+        min-height: 0;
+        border: 1px dashed var(--ga-border-strong);
+        background: transparent;
+        color: var(--ga-text-secondary);
+        font-size: 20px;
+      }
+      .add:hover:not(:disabled) { color: var(--ga-text-primary); }
+      .masters {
         position: sticky;
         right: 0;
         z-index: 1;
         display: flex;
-        margin: -4px 0;
+        gap: 2px;
+        margin: -4px 0 -4px auto;
         padding: 4px 4px 4px 6px;
         background: var(--ga-surface-inset);
         box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);
       }
+      .masters:empty { display: none; }
+      .masters ga-strip { flex: 0 0 78px; }
     `),
   ];
 
   protected override render(): void {
     const store = useStore();
     const deviceId = this.getAttribute("device-id") ?? "";
-    const index = Number(this.getAttribute("mixer") ?? "0");
     const topology = store.topology(deviceId);
     if (topology === undefined) {
       this.root.replaceChildren(h("p", { class: "placeholder" }, `The device ${deviceId} is not connected or is of an unknown model, so it has no mixer.`));
       return;
     }
-    const mixer = store.mixer(deviceId, Math.min(Math.max(0, Number.isInteger(index) ? index : 0), topology.mixers.count - 1));
-    this.onDisconnect(mixer.activate());
+    const channels = store.channels(deviceId);
 
-    const outputName = (groupId: string | undefined) => topology.inputs.find((g) => g.id === groupId)?.name;
-    const tabs = h(
-      "nav",
-      { class: "tabs", "aria-label": "Mixers" },
-      Array.from({ length: topology.mixers.count }, (_, i) =>
-        h("a", { href: href({ page: "mixer", id: deviceId, sub: String(i) }), "aria-current": i === mixer.index ? "page" : undefined, title: outputName(topology.mixers.outputGroups[i]) }, `Mix ${i + 1}`),
-      ),
-    );
     const devices = h("select", {
       "aria-label": "Device",
       "on:change": (event) => {
-        location.hash = href({ page: "mixer", id: (event.target as HTMLSelectElement).value, sub: "0" });
+        location.hash = href({ page: "mixer", id: (event.target as HTMLSelectElement).value });
       },
     });
+    const metered = h("select", { "aria-label": "Metered mix", "data-testid": "metered-mix", "on:change": () => (channels.meteredMix.value = Number(metered.value)) });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
-    const notes = h("ul", { class: "notes" });
-    const noteItems = [`Feeds ${outputName(topology.mixers.outputGroups[mixer.index]) ?? "an unnamed output"}.`];
-    if (!mixer.stateKnown) noteItems.push("The device's current mixer settings cannot be read yet, so controls start at defaults and send when changed.");
-    if (!mixer.meterSourceSelectable) noteItems.push("This mixer's meters cannot be selected on this model; they show the source the device last used.");
-    if (mixer.hasSend) noteItems.push("Send shows the raw value: its scale has not been verified.");
-    notes.replaceChildren(...noteItems.map((text) => h("li", {}, text)));
+    const mixer0 = store.mixer(deviceId, 0);
+    const notes = h(
+      "ul",
+      { class: "notes" },
+      h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
+      mixer0.stateKnown ? [] : [h("li", {}, "The device's current mixer levels cannot be read yet, so controls start at defaults and send when changed.")],
+      mixer0.hasSend ? [h("li", {}, "The strip's Send shows the raw value: its scale has not been verified.")] : [],
+    );
 
-    const strips = h("div", { class: "strips" }, Array.from({ length: mixer.channels }, (_, i) => h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: String(i) })), h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: "master" })));
+    const strips = h("div", { class: "strips" });
+    const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "on:click": () => channels.add() }, "+");
+    const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
 
     const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width in px", "data-testid": "strip-width" });
     const autoWidth = h("button", { type: "button", title: "Fit channels to the window", "data-testid": "strip-width-auto", "on:click": () => store.setMixerWidth({ auto: true }) }, "Auto");
@@ -174,7 +169,48 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-min", `${STRIP_WIDTH_MIN}px`);
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
-    this.root.replaceChildren(h("div", { class: "bar" }, devices, tabs, h("span", { class: "spacer" }), width, lastSent), notes, strips);
+    this.root.replaceChildren(
+      h("div", { class: "bar" }, devices, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
+      notes,
+      strips,
+    );
+
+    // A device without a layout imports one from its routing, once the workspace has loaded.
+    let imported = false;
+    this.watch(() => {
+      if (store.workspace.value === undefined || imported || channels.configured) return;
+      imported = true;
+      void channels.importFromDevice();
+    });
+
+    // Point the device's meters at the chosen mix.
+    this.watch(() => store.mixer(deviceId, channels.meteredMix.value).activate());
+
+    // Channels in layout order, then "+", then the masters of the mixes in use.
+    const elements = new Map<string, HTMLElement>();
+    let mastersKey = "";
+    this.watch(() => {
+      const list = channels.layout.value.channels;
+      for (const id of [...elements.keys()]) if (!list.some((c) => c.id === id)) elements.delete(id);
+      const next = list.map((c) => {
+        let element = elements.get(c.id);
+        if (element === undefined) {
+          element = h("ga-channel", { "device-id": deviceId, "channel-id": c.id, "data-channel-slot": String(c.slot) });
+          elements.set(c.id, element);
+        }
+        return element;
+      });
+      const shown = [...strips.children].filter((e) => e.localName === "ga-channel");
+      if (shown.length !== next.length || next.some((element, i) => shown[i] !== element)) strips.replaceChildren(...next, add, masters);
+      add.disabled = list.length >= 32 - channels.firstSlot;
+
+      const used = [...new Set(list.flatMap((c) => (channels.isActive(c) ? [c.main_mix as number, ...c.sends] : [])))].sort((a, b) => a - b);
+      const key = used.map((mix) => `${mix}:${channels.mixName(mix)}`).join("|");
+      if (key !== mastersKey) {
+        mastersKey = key;
+        masters.replaceChildren(...used.map((mix) => h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label: channels.mixName(mix), "data-mix": String(mix) })));
+      }
+    });
 
     this.watch(() => {
       const { auto, px } = store.mixerWidth.value;
@@ -185,12 +221,16 @@ export class GaMixer extends GaElement {
       strips.classList.toggle("fixed", !auto);
       strips.style.setProperty("--strip-width", `${px}px`);
     });
-
+    this.watch(() => {
+      metered.replaceChildren(...Array.from({ length: channels.mixCount }, (_, mix) => h("option", { value: String(mix) }, channels.mixName(mix))));
+      metered.value = String(channels.meteredMix.value);
+    });
     this.watch(() => {
       const known = store.devices.value.filter((d) => d.family !== null);
       devices.replaceChildren(...known.map((d) => h("option", { value: d.id, selected: d.id === deviceId }, d.model ?? d.id)));
       devices.value = deviceId;
       devices.disabled = !store.connected.value;
+      add.toggleAttribute("data-offline", !store.connected.value);
     });
     this.watch(() => {
       // Meter gradient stops are dBFS; place them on the same scale the meters use.

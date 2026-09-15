@@ -1,6 +1,7 @@
 // Registers every element. Import once, before adding <ga-app> to the page.
 
 import { GaApp } from "./app.ts";
+import { GaChannel } from "./channel.ts";
 import { GaDeviceList } from "./device-list.ts";
 import { GaDeviceStatus } from "./device-status.ts";
 import { GaHeader } from "./header.ts";
@@ -21,6 +22,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-workspace", GaWorkspace],
   ["ga-inputs", GaInputs],
   ["ga-strip", GaStrip],
+  ["ga-channel", GaChannel],
   ["ga-mixer", GaMixer],
   ["ga-notices", GaNotices],
   ["ga-app", GaApp],

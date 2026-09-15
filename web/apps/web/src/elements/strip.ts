@@ -1,7 +1,10 @@
-// <ga-strip device-id="…" mixer="0" strip="3|master">: one mixer channel strip, in the dense
-// style of DAW mixers. Top to bottom: send (Studio+), pan, mute/solo/link, a fader with its dB
-// scale beside a meter with a clip light, level and peak readouts, and a coloured name bar.
-// Values and scales come from the store's MixerModel (the vendor panels' own scales).
+// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [inactive] [meter="off"]>: one
+// mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+), pan,
+// mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
+// readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
+// panels' own scales). `label` names the strip; `inactive` disables its controls (a channel with no
+// input or main mix); `meter="off"` blanks its meter when the device is metering another mix.
+// Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
 import { formatLevel, formatPan, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
@@ -82,7 +85,11 @@ export class GaStrip extends GaElement {
         font-size: 12px;
         font-weight: 600;
         text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
+      :host([inactive]) .name { background: var(--ga-control-disabled); color: var(--ga-control-disabled-text); }
       /* Narrow strips drop the fader scale (the readout still shows the level) and widen the meter's share. */
       @container strip (max-width: 60px) {
         :host(:not([strip="master"])) .scale { display: none; }
@@ -102,9 +109,12 @@ export class GaStrip extends GaElement {
     const mixer = store.mixer(deviceId, Number(this.getAttribute("mixer") ?? "0"));
     const stripAttribute = this.getAttribute("strip") ?? "0";
     const id: StripId = stripAttribute === "master" ? "master" : Number(stripAttribute);
-    const label = id === "master" ? "Master" : `Strip ${id + 1}`;
+    const name = this.getAttribute("label") ?? "";
+    const label = name !== "" ? name : id === "master" ? "Master" : `Strip ${id + 1}`;
     const testId = id === "master" ? "master" : String(id);
-    const enabled = () => store.connected.peek();
+    const inactive = this.hasAttribute("inactive");
+    const metered = this.getAttribute("meter") !== "off";
+    const enabled = () => store.connected.peek() && !inactive;
     const state = mixer.strip(id);
 
     const cap = h("div", { class: "cap" });
@@ -168,11 +178,13 @@ export class GaStrip extends GaElement {
         pan.setAttribute("aria-valuetext", formatPan(s.pan));
       });
       this.watch(() => {
-        const byte = mixer.meter(id).value;
+        // The device meters one mix at a time; another mix's peaks would be the wrong channel's.
+        const byte = metered ? mixer.meter(id).value : undefined;
         const deflection = byte === undefined ? 0 : meterDeflection(byte);
         mask.style.height = `${100 - deflection}%`;
         peakReadout.textContent = byte === undefined ? "—" : byte > 60 ? "< -60" : byte === 0 ? "0" : `-${byte}`;
       });
+      if (!metered) meter.title = "The meters are showing another mix";
       this.watch(() => {
         clip.toggleAttribute("data-on", mixer.clipped(id).value);
       });
@@ -183,7 +195,7 @@ export class GaStrip extends GaElement {
     }
 
     this.root.replaceChildren(
-      h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, h("div", { class: "name" }, id === "master" ? "Master" : String(id + 1))),
+      h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, h("div", { class: "name", title: label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1))),
     );
 
     this.watch(() => {
@@ -195,9 +207,9 @@ export class GaStrip extends GaElement {
       mute.setAttribute("aria-pressed", String(s.mute));
     });
     this.watch(() => {
-      const connected = store.connected.value;
-      for (const button of this.root.querySelectorAll("button")) button.disabled = !connected;
-      for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!connected));
+      const usable = store.connected.value && !inactive;
+      for (const button of this.root.querySelectorAll("button")) button.disabled = !usable;
+      for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!usable));
     });
   }
 }

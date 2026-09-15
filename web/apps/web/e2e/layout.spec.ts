@@ -1,6 +1,6 @@
-// Layout feedback on the phase 4 mixer: the mixer fills its window's height, strips either fit the
-// width (between limits) or take a set width and scroll, and each side panel collapses; the
-// choices are remembered per browser.
+// Layout feedback on the mixer: it fills its window's height, channels either fit the width
+// (between limits) or take a set width and scroll, and each side panel collapses; the choices are
+// remembered per browser.
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
@@ -10,6 +10,10 @@ let server: RunningServer;
 
 test.beforeAll(async () => {
   server = await startServer(["--dry-run"], { webUi: true });
+  // 26 channels (every free Quadro input): one active on Mix 1, so its master shows, and 25 inactive.
+  const channels = Array.from({ length: 26 }, (_, i) => (i === 0 ? { id: "c0", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] } : { id: `c${i}`, name: "", slot: 6 + i, sends: [] }));
+  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers: { "loopback-0": { channels } } }) });
+  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status}`);
 });
 
 test.afterAll(async () => {
@@ -21,13 +25,13 @@ const strips = (page: Page) => page.locator("ga-mixer .strips");
 
 test("the mixer fills the window's height and stretches with it", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 800 });
-  await page.goto(`${server.url}/#/mixer/loopback-0/0`);
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
   const main = page.locator("ga-app main");
   const bottomGap = async () => {
     const [m, s] = await Promise.all([main.boundingBox(), strips(page).boundingBox()]);
     return (m?.y ?? 0) + (m?.height ?? 0) - ((s?.y ?? 0) + (s?.height ?? 0));
   };
-  await expect(page.getByTestId("fader-0")).toBeVisible();
+  await expect(page.getByTestId("fader-6")).toBeVisible();
   expect(await bottomGap()).toBeLessThanOrEqual(16);
   const before = (await strips(page).boundingBox())?.height ?? 0;
 
@@ -38,10 +42,10 @@ test("the mixer fills the window's height and stretches with it", async ({ page 
 });
 
 test("auto width fits strips to the row within limits; a set width scrolls; both are remembered", async ({ page }) => {
-  // With both side panels open, 32 strips reach about 90 px at 3600 px wide and about 60 px at 2600.
+  // With both side panels open, 26 channels reach about 110 px at 3600 px wide and about 75 px at 2600.
   await page.setViewportSize({ width: 3600, height: 900 });
-  await page.goto(`${server.url}/#/mixer/loopback-0/0`);
-  const strip = page.locator('ga-strip[strip="4"]');
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const strip = page.locator('ga-channel[data-channel-slot="10"]');
   const row = strips(page);
   await expect(page.getByTestId("strip-width-auto")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("strip-width-fixed")).toHaveAttribute("aria-pressed", "false");
@@ -79,7 +83,7 @@ test("auto width fits strips to the row within limits; a set width scrolls; both
 
 test("each side panel collapses to a rail and stays collapsed after a reload", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto(`${server.url}/#/mixer/loopback-0/0`);
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
   const left = page.locator("ga-app aside.left");
   const right = page.locator("ga-app aside.right");
   const main = page.locator("ga-app main");
@@ -95,9 +99,9 @@ test("each side panel collapses to a rail and stays collapsed after a reload", a
   await expect.poll(() => width(right)).toBeLessThanOrEqual(30);
   const edge = await page.locator("ga-mixer .strips").evaluate((row) => {
     row.scrollLeft = 200;
-    return row.getBoundingClientRect().right - (row.querySelector(".master") as HTMLElement).getBoundingClientRect().right;
+    return row.getBoundingClientRect().right - (row.querySelector(".masters") as HTMLElement).getBoundingClientRect().right;
   });
-  expect(edge, "the master stays flush with the row's right edge while strips scroll").toBeLessThanOrEqual(0.5);
+  expect(edge, "the masters stay flush with the row's right edge while channels scroll").toBeLessThanOrEqual(0.5);
   expect(await width(main)).toBeGreaterThan(mainBefore + 350);
 
   await page.reload();

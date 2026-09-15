@@ -9,7 +9,7 @@
 // channels start at slot 7 (the user's choice). A device with no layout yet can import one from
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
-import { computed, type ReadonlySignal } from "../core/signal.ts";
+import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { DeviceMixer, MixerChannel, RouteSource, Topology } from "gazelle-audio-client";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
@@ -39,6 +39,8 @@ export class ChannelsModel {
   readonly firstSlot: number;
   readonly mixCount: number;
   readonly layout: ReadonlySignal<DeviceMixer>;
+  /** The mix the device's meters show; it meters one mix at a time. Per page view, not saved. */
+  readonly meteredMix: Signal<number> = signal(0);
   readonly #context: ChannelsContext;
   /** Each mix's MIX IN destination position in the topology. */
   readonly #mixInputs: readonly number[];

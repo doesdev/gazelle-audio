@@ -10,6 +10,20 @@ let server: RunningServer;
 
 test.beforeAll(async () => {
   server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  // A plausible session per model: named channels on preamps, playback and digital inputs, some sending to a second mix, one not set up yet.
+  const channel = (id: string, name: string, slot: number, group: number | undefined, source: number, main: number | undefined, sends: number[] = []) => ({ id, name, slot, sends, ...(group === undefined ? {} : { source: { group, channel: source } }), ...(main === undefined ? {} : { main_mix: main }) });
+  const mixers = {
+    "loopback-0": {
+      mixes: [{ name: "Monitors" }, { name: "Cue" }],
+      channels: [channel("q1", "Vox", 6, 0, 0, 0, [1]), channel("q2", "Guitar DI", 7, 0, 1, 0, [1]), channel("q3", "DAW L", 8, 1, 0, 0, [1]), channel("q4", "DAW R", 9, 1, 1, 0, [1]), channel("q5", "Synth", 10, 3, 0, 0), channel("q6", "Click", 11, 1, 2, 1), channel("q7", "", 12, undefined, 0, undefined)],
+    },
+    "loopback-1": {
+      mixes: [{ name: "Main" }, { name: "Artist" }],
+      channels: [channel("s1", "Kick", 0, 0, 0, 0, [1]), channel("s2", "Snare", 1, 0, 1, 0, [1]), channel("s3", "OH L", 2, 0, 2, 0), channel("s4", "OH R", 3, 0, 3, 0), channel("s5", "Bass", 4, 1, 0, 0, [1]), channel("s6", "Keys", 5, 4, 0, 0, [1]), channel("s7", "Tracks", 6, 3, 0, 0, [1]), channel("s8", "Talkback", 7, 0, 4, 1)],
+    },
+  };
+  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers }) });
+  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status}`);
 });
 
 test.afterAll(async () => {
@@ -27,12 +41,12 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
     await page.goto(`${server.url}/#/workspace`);
     await expect(page.locator("ga-workspace input").first()).toBeVisible();
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-workspace.png` });
-    for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
-      await page.goto(`${server.url}/#/mixer/${device}/0`);
-      const fader = page.getByTestId("fader-2");
+    for (const [device, name, slot] of [["loopback-0", "quadro", 7], ["loopback-1", "studio", 1]] as const) {
+      await page.goto(`${server.url}/#/mixer/${device}`);
+      const fader = page.getByTestId(`fader-${slot}`);
       await fader.focus();
       for (let i = 0; i < 2; i++) await fader.press("PageDown");
-      await expect(page.locator('ga-strip[strip="0"] .readout').nth(1)).not.toHaveText("—");
+      await expect(page.locator(`ga-channel[data-channel-slot="${slot}"] ga-strip .readout`).nth(1)).not.toHaveText("—");
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
     }
     for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
@@ -40,7 +54,7 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       await expect(page.getByTestId("preamp-0")).toBeVisible();
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-inputs-${name}.png`, fullPage: true });
     }
-    await page.goto(`${server.url}/#/mixer/loopback-1/0`);
+    await page.goto(`${server.url}/#/mixer/loopback-1`);
     // Both side panels collapsed, at a width where auto strips stretch past the floor.
     await page.getByRole("button", { name: "Collapse the devices panel" }).click();
     await page.getByRole("button", { name: "Collapse the meters panel" }).click();

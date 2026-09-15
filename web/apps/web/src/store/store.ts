@@ -11,7 +11,7 @@
 // - Themes: built-in and community sources from the app, user themes from the server; the pick
 //   is remembered per browser.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type DeviceMixer, type Group, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { InputsModel } from "./inputs.ts";
@@ -24,7 +24,7 @@ export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
 export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { DeviceDescriptor, Group, ServerInfo, Status, Topology, Workspace };
+export type { DeviceDescriptor, DeviceMixer, Group, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
 
 /** The most recent command the mixer sent, with the bytes the server reported. */
 export interface SentCommand {

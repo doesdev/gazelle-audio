@@ -1,7 +1,8 @@
-// Phase 4 done criteria (spec §10 row 4): the mixer sends the correct set_mixer / set_mixer_cfg
-// bytes per family, verified with dry run, and drags coalesce. Expected bytes are the protocol
-// crate's ground-truth vector (all fields zero) with the payload bytes set as the registry packs
-// them: mixer_id, channel, level, then pan (6 bits) | mute << 6 | solo << 7, then send (Studio+).
+// The user-built mixer (plan 2026-09-16) against the loopback in dry run: channels start from the
+// device's routing (nothing routed: one inactive channel), a channel works once it has an input and
+// a main mix, and its controls send the right bytes: routing for its input, the mixer command for
+// its main mix and sends, and its preamp's commands. Expected bytes are the protocol crate's
+// ground-truth vectors (all fields zero) with the payload fields set as the registry packs them.
 
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -19,25 +20,53 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-function groundTruth(file: string, command: string): Uint8Array {
+type Family = "quadro" | "studio";
+
+function groundTruth(family: Family, command: string): Uint8Array {
+  const file = family === "quadro" ? "ground_truth.json" : "ground_truth_studio.json";
   const vectors = JSON.parse(readFileSync(join(REPO_ROOT, "crates", "gazelle-audio-protocol", "tests", file), "utf8")) as Record<string, string>;
   const hex = vectors[command];
   if (hex === undefined) throw new Error(`no ${command} vector in ${file}`);
   return Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
 }
 
-function expectedHex(base: Uint8Array, fields: { mixer: number; channel: number; level: number; pan: number; mute?: number; solo?: number; send?: number }): string {
-  const bytes = Uint8Array.from(base);
+const hexOf = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** Mixer command bytes: mixer_id, channel, level, then pan (6 bits) | mute << 6 | solo << 7, then send (Studio+). */
+function mixerHex(family: Family, fields: { mixer: number; channel: number; level: number; pan?: number; send?: number }): string {
+  const bytes = groundTruth(family, family === "quadro" ? "set_mixer" : "set_mixer_cfg");
   bytes[18] = fields.mixer;
   bytes[19] = fields.channel;
   bytes[20] = fields.level;
-  bytes[21] = (fields.pan & 0x3f) | ((fields.mute ?? 0) << 6) | ((fields.solo ?? 0) << 7);
+  bytes[21] = (fields.pan ?? 32) & 0x3f;
   if (fields.send !== undefined) bytes[22] = fields.send;
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hexOf(bytes);
 }
 
+/** set_routing bytes: bank_idx at 18 (after a two-byte payload header), then 32 (source, channel) pairs, all MUTE but `routed`. */
+function routingHex(family: Family, destination: number, routed: Record<number, [number, number]>): string {
+  const mute = family === "quadro" ? 10 : 11;
+  const bytes = groundTruth(family, "set_routing");
+  bytes[18] = destination;
+  for (let slot = 0; slot < 32; slot++) {
+    const [source, channel] = routed[slot] ?? [mute, 0];
+    bytes[19 + 2 * slot] = source;
+    bytes[20 + 2 * slot] = channel;
+  }
+  return hexOf(bytes);
+}
+
+/** Replaces the server's workspace with these per-device mixer layouts. */
+async function layout(mixers: Record<string, unknown>): Promise<void> {
+  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers }) });
+  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status} ${await response.text()}`);
+}
+
+const channelIn = (page: Page, slot: number) => page.locator(`ga-channel[data-channel-slot="${slot}"]`);
+const lastSent = (page: Page) => page.getByTestId("last-sent");
+const dryRun = (command: string, hex: string) => `Dry run, would send ${command}: ${hex}`;
+
 interface Frame {
-  device_id?: string;
   command?: string;
   args?: Record<string, number>;
 }
@@ -52,37 +81,88 @@ function recordFrames(page: Page): Frame[] {
   return frames;
 }
 
-test("a Quadro fader sends set_mixer with the expected bytes in dry run", async ({ page }) => {
-  await page.goto(`${server.url}/#/mixer/loopback-0/1`);
-  const fader = page.getByTestId("fader-3");
-  await fader.focus();
-  for (let i = 0; i < 3; i++) await fader.press("PageDown");
-  await expect(page.getByTestId("level-3")).toHaveText("-18 dB");
-  await expect(fader).toHaveAttribute("aria-valuenow", "-18");
+test("with nothing routed the mixer starts with one inactive channel, and + adds channels on free inputs", async ({ page }) => {
+  await layout({});
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.locator("ga-channel")).toHaveCount(1);
+  await expect(channelIn(page, 6)).toHaveAttribute("inactive", "");
+  await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-disabled", "true");
 
-  const expected = expectedHex(groundTruth("ground_truth.json", "set_mixer"), { mixer: 1, channel: 4, level: 18, pan: 32 });
-  await expect(page.getByTestId("last-sent")).toContainText(`Dry run, would send set_mixer: ${expected}`);
+  await page.getByTestId("add-channel").click();
+  await expect(page.locator("ga-channel")).toHaveCount(2);
+  await expect(channelIn(page, 7)).toBeVisible();
 });
 
-test("a Studio+ strip sends set_mixer_cfg with level and send in dry run", async ({ page }) => {
-  await page.goto(`${server.url}/#/mixer/loopback-1/2`);
+test("a Quadro channel routes its input to its main mix, then its fader sends set_mixer for that mix and input", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 6, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await page.getByTestId("in-6").selectOption("0:1");
+  await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-disabled", "true", { timeout: 1000 });
+  await page.getByTestId("out-6").selectOption("1");
+  // MIX CH2 is destination 9; slot 6 takes PREAMP (0) channel 2.
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 9, { 6: [0, 1] })));
+  await expect(channelIn(page, 6)).not.toHaveAttribute("inactive", "");
+  await expect(page.locator('ga-strip[data-mix="1"]')).toBeVisible();
+
+  const fader = page.getByTestId("fader-6");
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
+  await fader.focus();
+  for (let i = 0; i < 3; i++) await fader.press("PageDown");
+  await expect(page.getByTestId("level-6")).toHaveText("-18 dB");
+  await expect(lastSent(page)).toContainText(dryRun("set_mixer", mixerHex("quadro", { mixer: 1, channel: 7, level: 18 })));
+});
+
+test("a Studio+ channel's send routes it into another mix, and the send level sets its level there", async ({ page }) => {
+  await layout({ "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 2, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
   const fader = page.getByTestId("fader-0");
   await fader.focus();
   await fader.press("PageDown");
-  const send = page.getByRole("slider", { name: "Strip 1 send (raw value, scale unverified)" });
-  await send.focus();
-  await send.press("PageUp");
+  await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 2, channel: 1, level: 6 })));
 
-  const expected = expectedHex(groundTruth("ground_truth_studio.json", "set_mixer_cfg"), { mixer: 2, channel: 1, level: 6, pan: 32, send: 16 });
-  await expect(page.getByTestId("last-sent")).toContainText(`Dry run, would send set_mixer_cfg: ${expected}`);
+  await expect(page.getByTestId("send-0-2")).toBeDisabled();
+  await page.getByTestId("send-0-1").click();
+  // Studio+ MIX CH2 is destination 11.
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("studio", 11, { 0: [0, 0] })));
+  const send = page.getByTestId("send-level-0-1");
+  await expect(send).toHaveAttribute("aria-disabled", "false");
+  await send.focus();
+  await send.press("Home");
+  await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 1, channel: 1, level: 90 })));
 });
 
-test("dragging a fader coalesces and ends on the final level", async ({ page }) => {
+test("a channel on a preamp shows that preamp's controls, and they send its commands", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 6, source: { group: 0, channel: 2 }, main_mix: 0, sends: [] }, { id: "b", name: "", slot: 7, source: { group: 1, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.getByTestId("pre-ch-6")).not.toHaveAttribute("data-empty", "");
+  await expect(page.getByTestId("pre-ch-7")).toHaveAttribute("data-empty", "");
+  const gain = page.getByTestId("pre-gain-ch-6");
+  await gain.focus();
+  await gain.press("ArrowRight");
+  const bytes = groundTruth("quadro", "set_pre_gain");
+  bytes[17] = 2;
+  bytes[18] = await gain.evaluate((el) => Number.parseInt(el.getAttribute("aria-valuetext") ?? "0", 10) & 0xff);
+  await expect(lastSent(page)).toContainText(dryRun("set_pre_gain", hexOf(bytes)));
+});
+
+test("channel heads are one height, so faders line up whatever the input and whether or not the channel is set up", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }, { id: "b", name: "DAW", slot: 7, source: { group: 1, channel: 0 }, main_mix: 1, sends: [] }, { id: "c", name: "", slot: 8, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.locator("ga-channel")).toHaveCount(3);
+  const top = async (slot: number) => (await page.getByTestId(`fader-${slot}`).boundingBox())?.y ?? -1;
+  const [preamp, playback, inactive] = [await top(6), await top(7), await top(8)];
+  expect(Math.abs(preamp - playback), "a preamp channel and a playback channel").toBeLessThanOrEqual(1);
+  expect(Math.abs(preamp - inactive), "an inactive channel").toBeLessThanOrEqual(1);
+});
+
+test("dragging a channel's fader coalesces and ends on the final level", async ({ page }) => {
   const frames = recordFrames(page);
-  await page.goto(`${server.url}/#/mixer/loopback-0/0`);
-  const fader = page.getByTestId("fader-5");
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 9, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const fader = page.getByTestId("fader-9");
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
   const box = await fader.boundingBox();
-  if (box === null) throw new Error("fader-5 has no box");
+  if (box === null) throw new Error("fader-9 has no box");
   const x = box.x + box.width / 2;
   const moves = 60;
   await page.mouse.move(x, box.y + 2);
@@ -90,25 +170,47 @@ test("dragging a fader coalesces and ends on the final level", async ({ page }) 
   await page.mouse.move(x, box.y + box.height * 0.5, { steps: moves });
   await page.mouse.up();
 
-  const readout = page.getByTestId("level-5");
+  const readout = page.getByTestId("level-9");
   await expect(readout).not.toHaveText("0 dB");
   const finalLevel = Number((await readout.textContent())?.replace(/[^0-9]/g, ""));
-  await expect.poll(() => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 6).at(-1)?.args?.["level"]).toBe(finalLevel);
-  const sent = frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 6);
-  expect(sent.length).toBeGreaterThan(0);
-  expect(sent.length).toBeLessThanOrEqual(moves + 1);
-  test.info().annotations.push({ type: "coalescing", description: `${sent.length} set_mixer frames for ${moves} pointer moves` });
+  const sent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 10);
+  await expect.poll(() => sent().at(-1)?.args?.["level"]).toBe(finalLevel);
+  expect(sent().length).toBeLessThanOrEqual(moves + 1);
+  test.info().annotations.push({ type: "coalescing", description: `${sent().length} set_mixer frames for ${moves} pointer moves` });
 });
 
-test("meters follow the device's reports and links send set_stereo_link", async ({ page }) => {
+test("meters show the metered mix and links send set_stereo_link", async ({ page }) => {
   const frames = recordFrames(page);
-  await page.goto(`${server.url}/#/mixer/loopback-1/0`);
-  const mask = page.locator('ga-strip[strip="0"] .mask');
-  const first = await mask.evaluate((el) => (el as HTMLElement).style.height);
-  await expect.poll(() => mask.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+  await layout({ "loopback-1": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }, { id: "b", name: "", slot: 1, source: { group: 0, channel: 1 }, main_mix: 1, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const metered = page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask');
+  const first = await metered.evaluate((el) => (el as HTMLElement).style.height);
+  await expect.poll(() => metered.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+  await expect(page.locator('ga-channel[data-channel-slot="1"] ga-strip .mask')).toHaveAttribute("style", /height: 100%/);
   await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 0)).toBe(true);
 
-  await page.getByRole("button", { name: "Link strips 5 and 6" }).first().click();
-  await expect.poll(() => frames.find((f) => f.command === "set_stereo_link")?.args).toEqual({ periph_id: 4, channel_id: 2, linked: 1 });
-  await expect(page.getByRole("button", { name: "Link strips 5 and 6" }).first()).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("metered-mix").selectOption("1");
+  await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 1)).toBe(true);
+
+  await page.getByRole("button", { name: "Link strips 1 and 2" }).first().click();
+  await expect.poll(() => frames.find((f) => f.command === "set_stereo_link")?.args).toEqual({ periph_id: 4, channel_id: 0, linked: 1 });
+});
+
+test("removing takes a second click and mutes the channel; a new order is saved", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }, { id: "b", name: "Snare", slot: 7, sends: [] }, { id: "c", name: "Hat", slot: 8, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.locator("ga-channel")).toHaveCount(3);
+
+  await page.getByTestId("move-right-7").click();
+  await expect.poll(() => page.locator("ga-channel").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")))).toEqual(["6", "8", "7"]);
+
+  await page.getByTestId("remove-6").click();
+  await expect(page.locator("ga-channel")).toHaveCount(3, { timeout: 1000 });
+  await page.getByTestId("remove-6").click();
+  await expect(page.locator("ga-channel")).toHaveCount(2);
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 8, {})));
+
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { channels: { id: string }[] }> }).mixers["loopback-0"]?.channels.map((c) => c.id)).toEqual(["c", "b"]);
+  await page.reload();
+  await expect.poll(() => page.locator("ga-channel").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")))).toEqual(["8", "7"]);
 });
