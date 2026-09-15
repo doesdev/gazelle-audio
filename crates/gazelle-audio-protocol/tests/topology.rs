@@ -47,6 +47,22 @@ fn mixers_agree_with_the_command_schema() {
     }
 }
 
+/// `set_routing` / `get_routing` name groups by their position in the panel's INPUT_SPEC and
+/// OUTPUT_SPEC lists (bytecode research, 2026-09), so the topology must keep that order: the web
+/// UI uses array positions as wire ids, and the server's loopback mutes slots with MUTE's position.
+#[test]
+fn group_positions_are_the_routing_wire_ids() {
+    for (family, topology, _, _, _) in families() {
+        let position = |kind: &str, id: &str| topology[kind].as_array().unwrap().iter().position(|g| g["id"] == id);
+        let (mute, mixer_ins) = if family == "quadro" { (10, 8) } else { (11, 10) };
+        assert_eq!(position("inputs", "MUTE0"), Some(mute), "{family}: MUTE source position");
+        assert_eq!(position("inputs", "PREAMP0"), Some(0), "{family}: PREAMP is source 0");
+        for (k, group) in topology["mixers"]["inputGroups"].as_array().unwrap().iter().enumerate() {
+            assert_eq!(position("outputs", group.as_str().unwrap()), Some(mixer_ins + k), "{family}: MIX CH{} destination position", k + 1);
+        }
+    }
+}
+
 #[test]
 fn groups_are_well_formed() {
     for (family, topology, _, _, _) in families() {
