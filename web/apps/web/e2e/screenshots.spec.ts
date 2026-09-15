@@ -35,6 +35,12 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       await expect(page.locator('ga-strip[strip="0"] .readout').nth(1)).not.toHaveText("—");
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
     }
+    for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
+      await page.goto(`${server.url}/#/inputs/${device}`);
+      await expect(page.getByTestId("preamp-0")).toBeVisible();
+      await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-inputs-${name}.png`, fullPage: true });
+    }
+    await page.goto(`${server.url}/#/mixer/loopback-1/0`);
     // Both side panels collapsed, at a width where auto strips stretch past the floor.
     await page.getByRole("button", { name: "Collapse the devices panel" }).click();
     await page.getByRole("button", { name: "Collapse the meters panel" }).click();

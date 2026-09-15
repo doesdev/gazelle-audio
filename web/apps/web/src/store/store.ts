@@ -13,6 +13,7 @@
 
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
+import { InputsModel } from "./inputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
@@ -285,6 +286,27 @@ export class Store {
       watch: () => this.watchReport(deviceId, "0x73"),
     });
     this.#mixers.set(key, model);
+    return model;
+  }
+
+  readonly #inputs = new Map<string, InputsModel>();
+
+  /** A device's hardware inputs, created on first use; throws for a device of unknown model. */
+  inputs(deviceId: string): InputsModel {
+    const existing = this.#inputs.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no known inputs`);
+    const model = new InputsModel({
+      deviceId,
+      family,
+      topology: topologies[family],
+      invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      field: (name) => this.field(deviceId, "0x73", name),
+      watch: () => this.watchReport(deviceId, "0x73"),
+      timers: this.#timers,
+    });
+    this.#inputs.set(deviceId, model);
     return model;
   }
 

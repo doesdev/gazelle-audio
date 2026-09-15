@@ -5,60 +5,8 @@
 
 import { h } from "../core/dom.ts";
 import { formatLevel, formatPan, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
+import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
-
-interface ControlOptions {
-  axis: "x" | "y";
-  min: number;
-  max: number;
-  /** +1 when a larger value is "more" (pan right, send up); −1 for attenuation, where up means a smaller value. */
-  up: 1 | -1;
-  page: number;
-  reset: number;
-  get(): number;
-  set(value: number): void;
-  enabled(): boolean;
-}
-
-/** Pointer drag, wheel, double-click reset and keyboard control of a value along one axis. */
-function bindControl(element: HTMLElement, options: ControlOptions): void {
-  const valueAt = (event: PointerEvent) => {
-    const rect = element.getBoundingClientRect();
-    const fraction = options.axis === "y" ? (event.clientY - rect.top) / rect.height : (event.clientX - rect.left) / rect.width;
-    return options.min + Math.min(1, Math.max(0, fraction)) * (options.max - options.min);
-  };
-  element.addEventListener("pointerdown", (event) => {
-    if (!options.enabled() || event.button !== 0) return;
-    element.setPointerCapture(event.pointerId);
-    element.focus();
-    options.set(valueAt(event));
-    event.preventDefault();
-  });
-  element.addEventListener("pointermove", (event) => {
-    if (element.hasPointerCapture(event.pointerId)) options.set(valueAt(event));
-  });
-  element.addEventListener("dblclick", () => {
-    if (options.enabled()) options.set(options.reset);
-  });
-  element.addEventListener(
-    "wheel",
-    (event) => {
-      if (!options.enabled()) return;
-      event.preventDefault();
-      options.set(options.get() + (event.deltaY < 0 ? options.up : -options.up));
-    },
-    { passive: false },
-  );
-  element.addEventListener("keydown", (event) => {
-    if (!options.enabled()) return;
-    const steps: Record<string, number> = { ArrowUp: options.up, ArrowRight: options.up, ArrowDown: -options.up, ArrowLeft: -options.up, PageUp: options.page * options.up, PageDown: -options.page * options.up };
-    if (event.key in steps) options.set(options.get() + (steps[event.key] ?? 0));
-    else if (event.key === "Home") options.set(options.min);
-    else if (event.key === "End") options.set(options.max);
-    else return;
-    event.preventDefault();
-  });
-}
 
 const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 

@@ -1,9 +1,9 @@
-// Hash routes (spec §6.2): #/devices[/<device id>], #/workspace, #/mixer[/<device id>[/<mixer>]],
-// #/routing.
+// Hash routes (spec §6.2): #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
+// #/mixer[/<device id>[/<mixer>]], #/routing.
 
 import { signal } from "../core/signal.ts";
 
-export type Page = "devices" | "workspace" | "mixer" | "routing";
+export type Page = "devices" | "workspace" | "inputs" | "mixer" | "routing";
 
 export interface Route {
   page: Page;
@@ -15,6 +15,7 @@ export interface Route {
 export const PAGES: readonly { page: Page; label: string }[] = [
   { page: "devices", label: "Devices" },
   { page: "workspace", label: "Workspace" },
+  { page: "inputs", label: "Inputs" },
   { page: "mixer", label: "Mixer" },
   { page: "routing", label: "Routing" },
 ];
