@@ -18,13 +18,28 @@ export class GaApp extends GaElement {
         background: var(--ga-surface-background);
       }
       .zones {
+        --left: minmax(200px, 240px);
+        --right: minmax(200px, 260px);
         display: grid;
-        grid-template-columns: minmax(200px, 240px) 1fr minmax(200px, 260px);
+        grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
         gap: 1px;
         min-height: 0;
       }
+      :host([left-collapsed]) .zones { --left: 28px; }
+      :host([right-collapsed]) .zones { --right: 28px; }
       .zone, main { min-height: 0; overflow: auto; background: var(--ga-surface-panel); padding: 8px; }
-      main { padding: 12px 16px; }
+      /* The page fills the rest of main's height, so the mixer can stretch to the window. */
+      main { display: flex; flex-direction: column; padding: 12px 16px; }
+      .page { display: flex; flex-direction: column; flex: 1 0 auto; }
+      aside.zone { display: flex; flex-direction: column; gap: 4px; }
+      .rail { display: flex; }
+      .right .rail { justify-content: flex-start; }
+      .left .rail { justify-content: flex-end; }
+      .collapse { min-width: 0; min-height: 20px; padding: 0 6px; font-size: 12px; line-height: 1; color: var(--ga-text-secondary); background: transparent; }
+      .collapse:hover { color: var(--ga-text-primary); background: var(--ga-control-hover); }
+      :host([left-collapsed]) .left, :host([right-collapsed]) .right { padding: 8px 2px; overflow: hidden; }
+      :host([left-collapsed]) .left .content, :host([right-collapsed]) .right .content { display: none; }
+      :host([left-collapsed]) .left .rail, :host([right-collapsed]) .right .rail { justify-content: center; }
       .lower { border-top: 1px solid var(--ga-surface-background); padding: 6px 8px; }
       .page-title { margin: 0 0 12px; }
       .disconnected {
@@ -45,18 +60,25 @@ export class GaApp extends GaElement {
     const title = h("h1", { class: "page-title" });
     const banner = h("p", { class: "disconnected", role: "alert", hidden: true }, "The server is not connected. Controls are disabled until it reconnects.");
     const page = h("div", { class: "page" });
+    const leftToggle = h("button", { class: "collapse", type: "button", "data-testid": "collapse-left", "on:click": () => store.togglePanel("left") });
+    const rightToggle = h("button", { class: "collapse", type: "button", "data-testid": "collapse-right", "on:click": () => store.togglePanel("right") });
     this.root.replaceChildren(
       h("ga-header"),
       h(
         "div",
         { class: "zones" },
-        h("aside", { class: "zone left", "aria-label": "Devices" }, h("ga-device-list")),
+        h("aside", { class: "zone left", "aria-label": "Devices" }, h("div", { class: "rail" }, leftToggle), h("div", { class: "content" }, h("ga-device-list"))),
         h("main", {}, banner, title, page),
         h(
           "aside",
           { class: "zone right", "aria-label": "Meters and control room" },
-          h("ga-section", { heading: "Meter" }, h("p", { class: "placeholder" }, "The main output meter arrives with the mixer.")),
-          h("ga-section", { heading: "Control Room" }, h("p", { class: "placeholder" }, "Main level, dim, talkback and downmix presets arrive in a later phase.")),
+          h("div", { class: "rail" }, rightToggle),
+          h(
+            "div",
+            { class: "content" },
+            h("ga-section", { heading: "Meter" }, h("p", { class: "placeholder" }, "The main output meter arrives with the mixer.")),
+            h("ga-section", { heading: "Control Room" }, h("p", { class: "placeholder" }, "Main level, dim, talkback and downmix presets arrive in a later phase.")),
+          ),
         ),
       ),
       h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Open the Mixer page for channel strips, faders and meters. A compact mixer here comes later."))),
@@ -67,6 +89,18 @@ export class GaApp extends GaElement {
       const properties = cssProperties(store.theme.value);
       const style = document.documentElement.style;
       for (const [name, value] of Object.entries(properties)) style.setProperty(name, value);
+    });
+    this.watch(() => {
+      const { leftCollapsed, rightCollapsed } = store.panels.value;
+      this.toggleAttribute("left-collapsed", leftCollapsed);
+      this.toggleAttribute("right-collapsed", rightCollapsed);
+      // The arrows point the way the panel will move.
+      leftToggle.textContent = leftCollapsed ? "»" : "«";
+      leftToggle.setAttribute("aria-label", leftCollapsed ? "Expand the devices panel" : "Collapse the devices panel");
+      leftToggle.setAttribute("aria-expanded", String(!leftCollapsed));
+      rightToggle.textContent = rightCollapsed ? "«" : "»";
+      rightToggle.setAttribute("aria-label", rightCollapsed ? "Expand the meters panel" : "Collapse the meters panel");
+      rightToggle.setAttribute("aria-expanded", String(!rightCollapsed));
     });
     this.watch(() => {
       const connected = store.connected.value;

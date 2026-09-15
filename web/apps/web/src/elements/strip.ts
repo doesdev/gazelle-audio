@@ -65,18 +65,18 @@ const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 export class GaStrip extends GaElement {
   static override styles = [
     sheet(`
-      :host { display: flex; }
+      /* The mixer page sets the host's width; the strip compacts itself when that is narrow. */
+      :host { display: flex; container: strip / inline-size; }
       .strip {
         display: flex;
         flex: 1;
         flex-direction: column;
         gap: 4px;
-        width: 64px;
+        min-width: 0;
         padding: 4px 3px 0;
         border-radius: 3px;
         background: var(--ga-surface-raised);
       }
-      :host([strip="master"]) .strip { width: 78px; }
       .row { display: flex; gap: 2px; }
       .toggle { flex: 1; min-width: 0; min-height: 18px; padding: 0; font-size: 10px; font-weight: 700; }
       .mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
@@ -134,6 +134,16 @@ export class GaStrip extends GaElement {
         font-size: 12px;
         font-weight: 600;
         text-align: center;
+      }
+      /* Narrow strips drop the fader scale (the readout still shows the level) and widen the meter's share. */
+      @container strip (max-width: 60px) {
+        :host(:not([strip="master"])) .scale { display: none; }
+        :host(:not([strip="master"])) .level-area { grid-template-columns: 1fr 12px; }
+        .readout { font-size: 9px; padding: 1px 0; }
+      }
+      @container strip (min-width: 90px) {
+        .level-area { grid-template-columns: 20px 1fr 1fr; }
+        :host([strip="master"]) .level-area { grid-template-columns: 20px 1fr; }
       }
     `),
   ];

@@ -5,6 +5,7 @@
 
 import { h } from "../core/dom.ts";
 import { meterDeflection } from "../store/mixer.ts";
+import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
@@ -12,7 +13,9 @@ import { href } from "./router.ts";
 export class GaMixer extends GaElement {
   static override styles = [
     sheet(`
-      :host { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 520px; }
+      :host { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+      .width { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ga-text-secondary); }
+      .width input[type="number"] { width: 4.5em; }
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .tabs { display: flex; gap: 2px; }
       .tabs a {
@@ -37,16 +40,22 @@ export class GaMixer extends GaElement {
         min-height: 0;
         padding: 4px;
         overflow-x: auto;
+        overflow-y: hidden;
         border-radius: 3px;
         background: var(--ga-surface-inset);
       }
+      /* Auto: strips share the row between the limits, and scroll once they reach the floor. Fixed: every strip is --strip-width. */
+      .strips ga-strip { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
+      .strips.fixed ga-strip { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
+      .strips .master ga-strip { flex: 0 0 78px; min-width: 0; max-width: none; }
+      .strips .master { margin-left: auto; }
       .master {
         position: sticky;
         right: 0;
         z-index: 1;
         display: flex;
         /* Cover the row's right padding too, so no strip shows past the master as it scrolls. */
-        margin: -4px -4px -4px 8px;
+        margin: -4px -4px -4px 0;
         padding: 4px 4px 4px 6px;
         background: var(--ga-surface-inset);
         box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);
@@ -90,7 +99,31 @@ export class GaMixer extends GaElement {
 
     const strips = h("div", { class: "strips" }, Array.from({ length: mixer.channels }, (_, i) => h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: String(i) })), h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: "master" })));
 
-    this.root.replaceChildren(h("div", { class: "bar" }, devices, tabs, h("span", { class: "spacer" }), lastSent), notes, strips);
+    const autoWidth = h("input", { type: "checkbox", "data-testid": "strip-width-auto", "on:change": (event) => store.setMixerWidth({ auto: (event.target as HTMLInputElement).checked }) });
+    const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width (px)", "data-testid": "strip-width" });
+    const commitWidth = () => {
+      const px = Number(stripWidth.value);
+      if (stripWidth.value.trim() !== "" && Number.isFinite(px)) store.setMixerWidth({ px });
+      stripWidth.value = String(store.mixerWidth.peek().px);
+    };
+    stripWidth.addEventListener("change", commitWidth);
+    stripWidth.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") commitWidth();
+    });
+    const width = h("div", { class: "width" }, h("label", {}, autoWidth, "Auto width"), h("label", {}, "Channel", stripWidth, "px"));
+    strips.style.setProperty("--strip-width-min", `${STRIP_WIDTH_MIN}px`);
+    strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
+
+    this.root.replaceChildren(h("div", { class: "bar" }, devices, tabs, h("span", { class: "spacer" }), width, lastSent), notes, strips);
+
+    this.watch(() => {
+      const { auto, px } = store.mixerWidth.value;
+      autoWidth.checked = auto;
+      stripWidth.disabled = auto;
+      if (this.root.activeElement !== stripWidth) stripWidth.value = String(px);
+      strips.classList.toggle("fixed", !auto);
+      strips.style.setProperty("--strip-width", `${px}px`);
+    });
 
     this.watch(() => {
       const known = store.devices.value.filter((d) => d.family !== null);

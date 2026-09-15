@@ -14,6 +14,11 @@
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { MixerModel } from "./mixer.ts";
+import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
+
+export type { MixerWidth, PanelState };
+export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
+export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { DeviceDescriptor, Group, ServerInfo, Status, Topology, Workspace };
@@ -38,10 +43,8 @@ export interface Timers {
   clearTimeout(handle: unknown): void;
 }
 
-export interface KeyValueStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
+export type { KeyValueStorage } from "./preferences.ts";
+import type { KeyValueStorage } from "./preferences.ts";
 
 export interface StoreDependencies {
   timers?: Timers;
@@ -153,6 +156,8 @@ export class Store {
   readonly connected: ReadonlySignal<boolean>;
   readonly themeCatalog: ReadonlySignal<ThemeCatalog>;
   readonly theme: ReadonlySignal<ResolvedTheme>;
+  readonly #mixerWidth: Signal<MixerWidth>;
+  readonly #panels: Signal<PanelState>;
 
   constructor(client: Client, dependencies: StoreDependencies = {}) {
     this.#client = client;
@@ -172,6 +177,8 @@ export class Store {
       // Storage can be unavailable (private windows, blocked site data); use the default.
     }
     this.#themeId = signal(stored ?? BASE_THEME);
+    this.#mixerWidth = persisted(this.#storage, MIXER_WIDTH_STORAGE_KEY, { auto: true, px: STRIP_WIDTH_DEFAULT }, parseMixerWidth);
+    this.#panels = persisted(this.#storage, PANELS_STORAGE_KEY, { leftCollapsed: false, rightCollapsed: false }, parsePanels);
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -224,6 +231,27 @@ export class Store {
 
   get themeId(): ReadonlySignal<string> {
     return this.#themeId;
+  }
+
+  /** How mixer strips are sized; remembered per browser. */
+  get mixerWidth(): ReadonlySignal<MixerWidth> {
+    return this.#mixerWidth;
+  }
+
+  setMixerWidth(change: Partial<MixerWidth>): void {
+    const current = this.#mixerWidth.peek();
+    const next = { auto: change.auto ?? current.auto, px: clampStripWidth(change.px ?? current.px) };
+    if (next.auto !== current.auto || next.px !== current.px) this.#mixerWidth.value = next;
+  }
+
+  /** Which side panels are collapsed; remembered per browser. */
+  get panels(): ReadonlySignal<PanelState> {
+    return this.#panels;
+  }
+
+  togglePanel(side: "left" | "right"): void {
+    const current = this.#panels.peek();
+    this.#panels.value = side === "left" ? { ...current, leftCollapsed: !current.leftCollapsed } : { ...current, rightCollapsed: !current.rightCollapsed };
   }
 
   /** The last mixer command sent and the bytes the server reported (shown in dry run). */
