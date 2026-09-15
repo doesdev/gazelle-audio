@@ -11,10 +11,20 @@
 // - Themes: built-in and community sources from the app, user themes from the server; the pick
 //   is remembered per browser.
 
-import { connect, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
+
+import { MixerModel } from "./mixer.ts";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { DeviceDescriptor, Group, ServerInfo, Status, Workspace };
+export type { DeviceDescriptor, Group, ServerInfo, Status, Topology, Workspace };
+
+/** The most recent command the mixer sent, with the bytes the server reported. */
+export interface SentCommand {
+  deviceId: string;
+  command: string;
+  hex: string;
+  dryRun: boolean;
+}
 
 import { frameWriter, type FrameWriter, type RequestFrame } from "../core/frame.ts";
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
@@ -133,6 +143,8 @@ export class Store {
   readonly #themeId: Signal<string>;
   readonly #fields = new Map<string, Signal<unknown>>();
   readonly #reports = new Map<string, { watchers: number; off: () => void }>();
+  readonly #mixers = new Map<string, MixerModel>();
+  readonly #lastSent = signal<SentCommand | undefined>(undefined);
   #confirmed: Workspace | undefined;
   #saveTimer: unknown;
   #nextNotice = 1;
@@ -212,6 +224,55 @@ export class Store {
 
   get themeId(): ReadonlySignal<string> {
     return this.#themeId;
+  }
+
+  /** The last mixer command sent and the bytes the server reported (shown in dry run). */
+  get lastSent(): ReadonlySignal<SentCommand | undefined> {
+    return this.#lastSent;
+  }
+
+  /** A device's topology, or undefined for a device of unknown model. */
+  topology(deviceId: string): Topology | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    return family === undefined || family === null ? undefined : topologies[family];
+  }
+
+  /** One of a device's mixers. Throws for a device of unknown model or a mixer it does not have. */
+  mixer(deviceId: string, index: number): MixerModel {
+    const key = `${deviceId}|${index}`;
+    const existing = this.#mixers.get(key);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no mixers`);
+    const topology: Topology = topologies[family];
+    if (!Number.isInteger(index) || index < 0 || index >= topology.mixers.count) throw new RangeError(`${deviceId} has mixers 0..${topology.mixers.count - 1}, not ${index}`);
+    const model = new MixerModel({
+      deviceId,
+      family,
+      index,
+      topology,
+      invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      field: (name) => this.field(deviceId, "0x73", name),
+      watch: () => this.watchReport(deviceId, "0x73"),
+    });
+    this.#mixers.set(key, model);
+    return model;
+  }
+
+  /** Sends a command; failures other than being superseded become notices. Resolves true when it was sent. */
+  async #invokeCommand(deviceId: string, command: string, args: Record<string, number>, options: { coalesce?: string }): Promise<boolean> {
+    try {
+      const device = this.#client.device(deviceId);
+      if (device.family === null) throw new Error(`${deviceId} has no known model`);
+      const invoke = device.invoke as unknown as (name: string, args: Record<string, number>, options: { coalesce?: string }) => Promise<{ sent_hex: string; dry_run: boolean }>;
+      const result = await invoke(command, args, options);
+      this.#lastSent.value = { deviceId, command, hex: result.sent_hex, dryRun: result.dry_run };
+      return true;
+    } catch (error) {
+      if (error instanceof GazelleError && error.code === "superseded") return false;
+      this.#notify("error", `${command} failed: ${message(error)}`);
+      return false;
+    }
   }
 
   async start(): Promise<void> {

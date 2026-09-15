@@ -1,108 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type ServerInfo, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { effect } from "../src/core/signal.ts";
 import { displayName, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
-import type { ThemeSource } from "../src/themes/theme.ts";
-
-const device = (id: string, family: DeviceDescriptor["family"], model: string | null): DeviceDescriptor => ({
-  id,
-  vid: 9189,
-  pid: 1,
-  slug: family,
-  model,
-  family,
-  command_count: family === null ? null : 1,
-  identity_stable: true,
-  backend: "loopback",
-  max_packet_size: 64,
-});
-
-class FakeClient implements Client {
-  status: Status = "open";
-  server: ServerInfo = { version: "0.1.0", backend: "loopback", dry_run: true };
-  readonly devices = new Map<string, DeviceDescriptor>();
-  readonly listeners = new Map<string, Set<(value: unknown) => void>>();
-  readonly cyclic = new Map<string, (fields: Record<string, unknown>) => void>();
-  stored: Workspace = { version: 1, groups: [], links: [], aliases: {} };
-  readonly puts: Workspace[] = [];
-  failPuts: Error | undefined;
-  userThemes: UserTheme[] = [];
-  closed = false;
-
-  constructor(...initial: DeviceDescriptor[]) {
-    for (const d of initial) this.devices.set(d.id, d);
-  }
-
-  on<E extends keyof ClientEvents>(event: E, listener: (value: ClientEvents[E]) => void): () => void {
-    const set = this.listeners.get(event) ?? new Set();
-    this.listeners.set(event, set);
-    const entry = listener as (value: unknown) => void;
-    set.add(entry);
-    return () => set.delete(entry);
-  }
-
-  emit<E extends keyof ClientEvents>(event: E, value: ClientEvents[E]): void {
-    for (const listener of this.listeners.get(event) ?? []) listener(value);
-  }
-
-  device(id: string): DeviceHandle {
-    const descriptor = this.devices.get(id);
-    if (descriptor === undefined) throw new GazelleError("unknown_device", `no device ${id}`);
-    if (descriptor.family === null) return { id, family: null, descriptor };
-    const handle = {
-      id,
-      family: descriptor.family,
-      descriptor,
-      invoke: async () => {
-        throw new Error("not used by the store");
-      },
-      onCyclic: (reportId: string, listener: (fields: Record<string, unknown>) => void) => {
-        const key = `${id}|${reportId}`;
-        this.cyclic.set(key, listener);
-        return () => this.cyclic.delete(key);
-      },
-    };
-    return handle as unknown as DeviceHandle;
-  }
-
-  readonly workspace = {
-    get: async (): Promise<Workspace> => structuredClone(this.stored),
-    put: async (workspace: Workspace): Promise<Workspace> => {
-      if (this.failPuts !== undefined) throw this.failPuts;
-      this.puts.push(structuredClone(workspace));
-      this.stored = structuredClone(workspace);
-      return structuredClone(workspace);
-    },
-  };
-
-  async themes(): Promise<UserTheme[]> {
-    return this.userThemes;
-  }
-
-  async close(): Promise<void> {
-    this.closed = true;
-  }
-}
-
-const THEMES = new URL("../themes/", import.meta.url);
-const builtIns: ThemeSource[] = ["gazelle-dark", "gazelle-light"].map((id) => ({ id, origin: "built-in" as const, data: JSON.parse(readFileSync(new URL(`${id}.json`, THEMES), "utf8")) }));
-
-class MemoryStorage implements KeyValueStorage {
-  readonly items = new Map<string, string>();
-  getItem(key: string): string | null {
-    return this.items.get(key) ?? null;
-  }
-  setItem(key: string, value: string): void {
-    this.items.set(key, value);
-  }
-}
-
-const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
   const timers = new ManualTimers();
