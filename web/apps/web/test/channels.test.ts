@@ -180,6 +180,25 @@ test("a mix's outputs are the destination pairs its mix output feeds; turning on
   assert.throws(() => channels.setMixOutput(0, { destination: 8, channel: 0 }, true), RangeError, "a mixer input is not an output");
 });
 
+test("placing a channel (a drop) sets its order and group together: between two members of a group it joins, anywhere else it has none", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const [a, b, c, d] = [channels.add(), channels.add(), channels.add(), channels.add()] as string[];
+  const drums = channels.addGroup("Drums", [a as string, b as string]) as string;
+  const view = () => channels.layout.value.channels.map((x) => `${x.id}${x.group === drums ? "*" : ""}`);
+  const [A, B, C, D] = [a, b, c, d] as [string, string, string, string];
+
+  assert.equal(channels.place(D, 1), true);
+  assert.deepEqual(view(), [`${A}*`, `${D}*`, `${B}*`, C], "dropped between two drums, d joins the group");
+  channels.place(A, 4);
+  assert.deepEqual(view(), [`${D}*`, `${B}*`, C, A], "dropped after an ungrouped channel, a leaves the group");
+  channels.place(C, 0);
+  assert.deepEqual(view(), [C, `${D}*`, `${B}*`, A], "dropped at the edge of a group, c does not join it");
+  channels.place(B, 0);
+  assert.deepEqual(view(), [B, C, `${D}*`, A], "dragged out of its group, b leaves it");
+  assert.throws(() => channels.place("nope", 0), RangeError);
+});
+
 test("removing mutes every mix the channel fed; order, names, groups and mix names are saved in the workspace", async () => {
   const { client, store, at, timers } = await setup();
   const channels = store.channels(Q);

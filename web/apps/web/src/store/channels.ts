@@ -185,6 +185,23 @@ export class ChannelsModel {
     });
   }
 
+  /**
+   * Moves a channel to `index` among the other channels, as a drop does, and sets its group from
+   * where it lands: between two members of one group it joins that group, anywhere else it has
+   * none. So a drag never splits a group.
+   */
+  place(id: string, index: number): boolean {
+    const channel = this.#require(id);
+    return this.#context.edit((layout) => {
+      const rest = layout.channels.filter((c) => c.id !== id);
+      const at = Math.max(0, Math.min(rest.length, Math.round(index)));
+      const before = rest[at - 1]?.group;
+      const group = before !== undefined && before === rest[at]?.group ? before : undefined;
+      rest.splice(at, 0, withOptional(channel, "group", group));
+      return { ...layout, channels: rest };
+    });
+  }
+
   rename(id: string, name: string): boolean {
     return this.#edit(id, (c) => ({ ...c, name }));
   }

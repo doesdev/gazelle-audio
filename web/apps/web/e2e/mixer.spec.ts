@@ -218,6 +218,38 @@ test("a mix master names the mix and sends it to outputs: the menu adds a left/r
   expect(Math.abs((await top('ga-mix-master[mix="0"] ga-strip')) - (await top('ga-channel[data-channel-slot="6"] ga-strip'))), "the master strip starts level with the channel strips").toBeLessThanOrEqual(1);
 });
 
+test("dragging a channel's grip moves it; dropped inside a group it joins, dragged out it leaves; the order is saved", async ({ page }) => {
+  await layout({
+    "loopback-0": {
+      groups: [{ id: "g", name: "Drums", collapsed: false }],
+      channels: [{ id: "a", name: "Kick", slot: 6, group: "g", sends: [] }, { id: "b", name: "Snare", slot: 7, group: "g", sends: [] }, { id: "c", name: "Bass", slot: 8, sends: [] }, { id: "d", name: "Keys", slot: 9, sends: [] }],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const slots = () => page.locator("ga-channel").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")));
+  await expect.poll(slots).toEqual(["6", "7", "8", "9"]);
+  const drag = async (slot: number, onto: number, fraction: number) => {
+    const grip = await page.locator(`ga-channel[data-channel-slot="${slot}"] [data-grip]`).boundingBox();
+    const target = await page.locator(`ga-channel[data-channel-slot="${onto}"]`).boundingBox();
+    if (grip === null || target === null) throw new Error("no box to drag");
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width * fraction, target.y + 60, { steps: 8 });
+    await expect(page.locator("ga-mixer .drop")).toBeVisible();
+    await page.mouse.up();
+  };
+
+  await drag(9, 6, 0.9); // Keys onto the right half of Kick: between Kick and Snare
+  await expect.poll(slots).toEqual(["6", "9", "7", "8"]);
+  await expect(page.locator("ga-channel-group ga-channel")).toHaveCount(3);
+  await expect(page.locator("ga-mixer .drop")).toBeHidden();
+
+  await drag(6, 8, 0.9); // Kick past Bass: out of the group
+  await expect.poll(slots).toEqual(["9", "7", "8", "6"]);
+  await expect(page.locator("ga-channel-group ga-channel")).toHaveCount(2);
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { channels: { id: string }[] }> }).mixers["loopback-0"]?.channels.map((c) => c.id)).toEqual(["d", "b", "c", "a"]);
+});
+
 test("dragging a channel's fader coalesces and ends on the final level", async ({ page }) => {
   const frames = recordFrames(page);
   await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 9, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });

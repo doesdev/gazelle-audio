@@ -66,7 +66,9 @@ export class GaMixer extends GaElement {
       .notes ul { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
       .last-sent { font-size: 11px; }
       .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      .drop { position: absolute; top: 4px; bottom: 4px; z-index: 2; width: 2px; background: var(--ga-accent); pointer-events: none; }
       .strips {
+        position: relative;
         display: flex;
         flex: 1;
         gap: 2px;
@@ -216,6 +218,50 @@ export class GaMixer extends GaElement {
     // Where each mix plays is read from the device once the page opens.
     void channels.loadOutputs();
 
+    // Drag to move: a channel's grip starts it; where it is dropped among the other channels sets its
+    // place and group (ChannelsModel.place: between two members of a group it joins, elsewhere none).
+    const indicator = h("div", { class: "drop", hidden: true });
+    let dragging: { id: string; pointer: number; element: HTMLElement } | undefined;
+    const dropAt = (x: number, id: string) => {
+      const others = [...strips.querySelectorAll("ga-channel")].filter((e) => e.getAttribute("channel-id") !== id && e.getBoundingClientRect().width > 0);
+      const index = others.findIndex((e) => {
+        const r = e.getBoundingClientRect();
+        return x < r.left + r.width / 2;
+      });
+      return { index: index < 0 ? others.length : index, others };
+    };
+    strips.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !store.connected.peek()) return;
+      const path = event.composedPath();
+      if (!path.some((n) => n instanceof HTMLElement && n.hasAttribute("data-grip"))) return;
+      const element = path.find((n): n is HTMLElement => n instanceof HTMLElement && n.localName === "ga-channel");
+      const id = element?.getAttribute("channel-id");
+      if (element === undefined || id === null || id === undefined) return;
+      dragging = { id, pointer: event.pointerId, element };
+      strips.setPointerCapture(event.pointerId);
+      element.setAttribute("data-dragging", "");
+      event.preventDefault();
+    });
+    strips.addEventListener("pointermove", (event) => {
+      if (dragging?.pointer !== event.pointerId) return;
+      const { index, others } = dropAt(event.clientX, dragging.id);
+      const row = strips.getBoundingClientRect();
+      const target = others[index];
+      const edge = target !== undefined ? target.getBoundingClientRect().left - 1 : (others.at(-1)?.getBoundingClientRect().right ?? row.left) + 1;
+      indicator.style.left = `${edge - row.left + strips.scrollLeft}px`;
+      indicator.hidden = false;
+    });
+    const finish = (event: PointerEvent, drop: boolean) => {
+      if (dragging?.pointer !== event.pointerId) return;
+      const { id, element } = dragging;
+      dragging = undefined;
+      element.removeAttribute("data-dragging");
+      indicator.hidden = true;
+      if (drop) channels.place(id, dropAt(event.clientX, id).index);
+    };
+    strips.addEventListener("pointerup", (event) => finish(event, true));
+    strips.addEventListener("pointercancel", (event) => finish(event, false));
+
     const elements = new Map<string, HTMLElement>();
     const groupElements = new Map<string, HTMLElement>();
     let structure = "";
@@ -261,7 +307,7 @@ export class GaMixer extends GaElement {
           return element;
         });
         for (const groupKey of [...groupElements.keys()]) if (!kept.has(groupKey)) groupElements.delete(groupKey);
-        strips.replaceChildren(...children.flat(), add, masters);
+        strips.replaceChildren(...children.flat(), add, masters, indicator);
       }
       add.disabled = list.length >= 32 - channels.firstSlot;
 
