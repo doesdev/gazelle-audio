@@ -51,7 +51,13 @@ export interface DigitalGroup {
   count: number;
   /** Whether this device's panel sets these gains. */
   editable: boolean;
+  /** Stereo pairs this device's panel links (pair k is inputs 2k and 2k+1); 0 when it links none. */
+  linkPairs: number;
 }
+
+/** Studio+ `set_stereo_link` peripheral ids, which are also its links reads' ext3 (research 2026-09). */
+const DIGITAL_LINK_PERIPH: Readonly<Record<DigitalKind, number>> = { line: 1, adat: 2, spdif: 3 };
+const DIGITAL_LINKS_READ: Readonly<Record<DigitalKind, string>> = { line: "get_lines_links", adat: "get_adats_links", spdif: "get_spdifs_links" };
 
 interface InputsTimers {
   setTimeout(callback: () => void, ms: number): unknown;
@@ -86,6 +92,7 @@ export class InputsModel {
   /** Preamp stereo pairs: pair k is preamps 2k and 2k+1. */
   readonly pairCount: number;
   readonly #links: Signal<boolean>[];
+  readonly #digitalLinks = new Map<DigitalKind, Signal<boolean>[]>();
   readonly #context: InputsContext;
   readonly #preamps: ReadonlySignal<PreampState>[];
   readonly #digital = new Map<string, ReadonlySignal<number | undefined>>();
@@ -100,12 +107,14 @@ export class InputsModel {
     this.hizCount = Math.min(HIZ_PREAMPS[context.family], this.preampCount);
     this.pairCount = Math.floor(this.preampCount / 2);
     this.#links = Array.from({ length: this.pairCount }, () => signal(false));
+    // Only the Studio+ panel sets digital gains and links digital pairs; the Quadro's only shows its gains.
     const editable = context.family === "studio";
-    this.digital = [
-      ...(context.family === "studio" ? [{ kind: "line" as const, label: "Line in", count: channels("LINE_IN"), editable }] : []),
-      { kind: "adat", label: "ADAT in", count: channels("ADAT_IN"), editable },
-      { kind: "spdif", label: "S/PDIF in", count: channels("SPDIF_IN"), editable },
-    ];
+    const group = (kind: DigitalKind, label: string, type: string): DigitalGroup => {
+      const count = channels(type);
+      return { kind, label, count, editable, linkPairs: editable ? Math.floor(count / 2) : 0 };
+    };
+    this.digital = [...(context.family === "studio" ? [group("line", "Line in", "LINE_IN")] : []), group("adat", "ADAT in", "ADAT_IN"), group("spdif", "S/PDIF in", "SPDIF_IN")];
+    for (const d of this.digital) this.#digitalLinks.set(d.kind, Array.from({ length: d.linkPairs }, () => signal(false)));
 
     const preamps = context.field("preamps");
     const gains = context.field("preamp_gains");
@@ -157,14 +166,38 @@ export class InputsModel {
    * pair; later pairs keep what was last set. Resolves false when nothing was read.
    */
   async loadLinks(): Promise<boolean> {
-    const entries = (await this.#context.read("get_preamps_links", undefined)).response?.["entries"];
-    if (!Array.isArray(entries)) return false;
-    batch(() => {
-      entries.slice(0, this.pairCount).forEach((entry, pair) => {
-        (this.#links[pair] as Signal<boolean>).value = Number((entry as Record<string, unknown>)["linked"] ?? 0) === 1;
+    const reads: [string, Signal<boolean>[]][] = [["get_preamps_links", this.#links], ...this.digital.filter((d) => d.linkPairs > 0).map((d): [string, Signal<boolean>[]] => [DIGITAL_LINKS_READ[d.kind], this.#digitalLinks.get(d.kind) ?? []])];
+    let read = false;
+    for (const [command, pairs] of reads) {
+      const entries = (await this.#context.read(command, undefined)).response?.["entries"];
+      if (!Array.isArray(entries)) continue;
+      read = true;
+      batch(() => {
+        entries.slice(0, pairs.length).forEach((entry, pair) => {
+          (pairs[pair] as Signal<boolean>).value = Number((entry as Record<string, unknown>)["linked"] ?? 0) === 1;
+        });
       });
-    });
-    return true;
+    }
+    return read;
+  }
+
+  /** Whether a digital input pair is stereo-linked (as last read or set). */
+  digitalPairLinked(kind: DigitalKind, pair: number): ReadonlySignal<boolean> {
+    return this.#digitalPair(kind, pair);
+  }
+
+  /** Links or unlinks a digital pair. The Studio+ panel leaves the partner's gain to the device, so this sends only the link. */
+  setDigitalPairLinked(kind: DigitalKind, pair: number, on: boolean): void {
+    this.#digitalPair(kind, pair).value = on;
+    this.#send("set_stereo_link", { periph_id: DIGITAL_LINK_PERIPH[kind], channel_id: pair, linked: on ? 1 : 0 }, `${kind}_link:${pair}`);
+  }
+
+  #digitalPair(kind: DigitalKind, pair: number): Signal<boolean> {
+    const group = this.digital.find((d) => d.kind === kind);
+    if (group === undefined || group.linkPairs === 0) throw new Error(`the ${this.family} panel does not link ${group?.label ?? kind} pairs, so neither does this page`);
+    const link = this.#digitalLinks.get(kind)?.[pair];
+    if (link === undefined) throw new RangeError(`${group.label} pair ${pair} is outside 0..${group.linkPairs - 1}`);
+    return link;
   }
 
   setPairLinked(pair: number, on: boolean): void {

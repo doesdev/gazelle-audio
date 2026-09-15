@@ -166,6 +166,30 @@ test("on the Quadro a linked preamp's gain, 48V and phase go to its partner too,
   assert.deepEqual(sent("set_pre_gain").slice(-1), [{ id: 0, gain: 20 }], "the Studio+ panel leaves the partner to the device");
 });
 
+test("Studio+ digital inputs link in pairs like its panel: lines, ADAT and S/PDIF each read and set with their own peripheral id", async () => {
+  const { client, store, sent } = setup();
+  const replies: Record<string, number[]> = { get_preamps_links: [0, 0, 0, 0, 0, 0], get_lines_links: [0, 1, 0, 0], get_adats_links: [1, 0, 0, 0, 0, 0, 0, 0], get_spdifs_links: [0] };
+  client.respond = async (call) => ({ device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: false, response: call.command in replies ? { entries: (replies[call.command] ?? []).map((linked) => ({ linked })) } : null, response_error: null });
+
+  const studio = store.inputs("loopback-1");
+  assert.deepEqual(studio.digital.map((d) => [d.kind, d.linkPairs]), [["line", 4], ["adat", 8], ["spdif", 1]]);
+  await studio.loadLinks();
+  assert.deepEqual(client.invocations.map((c) => c.command).sort(), ["get_adats_links", "get_lines_links", "get_preamps_links", "get_spdifs_links"]);
+  assert.deepEqual([studio.digitalPairLinked("line", 1).value, studio.digitalPairLinked("line", 0).value, studio.digitalPairLinked("adat", 0).value], [true, false, true]);
+
+  studio.setDigitalPairLinked("line", 2, true);
+  studio.setDigitalPairLinked("spdif", 0, true);
+  studio.setDigitalGain("line", 4, 3);
+  await flush();
+  assert.deepEqual(sent("set_stereo_link"), [{ periph_id: 1, channel_id: 2, linked: 1 }, { periph_id: 3, channel_id: 0, linked: 1 }]);
+  assert.deepEqual(sent("set_line_gain"), [{ id: 4, gain: 3 }], "the Studio+ panel does not copy a linked input's gain to its partner");
+  assert.throws(() => studio.setDigitalPairLinked("adat", 8, true), RangeError);
+
+  const quadro = store.inputs("loopback-0");
+  assert.deepEqual(quadro.digital.map((d) => d.linkPairs), [0, 0], "the Quadro panel never links its digital inputs");
+  assert.throws(() => quadro.setDigitalPairLinked("adat", 0, true), /does not link/);
+});
+
 test("inputs exist only for devices of known model", () => {
   const { store } = setup();
   assert.throws(() => store.inputs("usb:1"), /no known model/);

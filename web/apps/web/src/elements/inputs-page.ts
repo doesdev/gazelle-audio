@@ -70,6 +70,7 @@ export class GaInputs extends GaElement {
       .gain.readonly { cursor: default; }
       .cell { display: grid; gap: 2px; padding: 4px; border-radius: 3px; background: var(--ga-surface-raised); }
       .cell .label { font-size: 10px; color: var(--ga-text-secondary); }
+      .cell-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 16px; }
     `),
   ];
 
@@ -212,6 +213,17 @@ export class GaInputs extends GaElement {
   #digital(inputs: InputsModel, group: DigitalGroup, i: number, enabled: () => boolean): HTMLElement {
     const label = `${group.label.replace(/ in$/, "")} ${i + 1}`;
     const gainOf = inputs.digitalGain(group.kind, i);
+    // The first input of each linkable pair carries the pair's link.
+    const pair = Math.floor(i / 2);
+    const name = group.label.replace(/ in$/, "");
+    const link =
+      i % 2 === 0 && pair < group.linkPairs
+        ? h("button", { type: "button", class: "link", "data-control": "", "data-testid": `${group.kind}-link-${pair}`, "aria-label": `Link ${name} ${i + 1} and ${i + 2}`, title: `Link ${name} ${i + 1} and ${i + 2}`, "on:click": () => inputs.setDigitalPairLinked(group.kind, pair, !inputs.digitalPairLinked(group.kind, pair).peek()) }, "⇆")
+        : undefined;
+    if (link !== undefined) {
+      this.watch(() => link.setAttribute("aria-pressed", String(inputs.digitalPairLinked(group.kind, pair).value)));
+    }
+    const heading = h("span", { class: "cell-head" }, h("span", { class: "label" }, label), link);
     const value = h("span", { class: "value" });
     const fill = h("div", { class: "fill" });
     // Read-only gains (the Quadro's panel never sets them) get the same bar, without the slider role or input.
@@ -227,7 +239,7 @@ export class GaInputs extends GaElement {
       value.textContent = gainOf.value === undefined ? "—" : formatGain(g);
       gain.setAttribute("aria-valuenow", String(g));
     });
-    return h("div", { class: "cell" }, h("span", { class: "label" }, label), gain);
+    return h("div", { class: "cell" }, heading, gain);
   }
 }
 

@@ -130,6 +130,28 @@ test("read-only digital gains show a filled bar, and preamps and digital inputs 
   }
 });
 
+test("Studio+ line, ADAT and S/PDIF pairs link with their own peripheral id; the Quadro's digital inputs have no link", async ({ page }) => {
+  const vectors = JSON.parse(readFileSync(join(REPO_ROOT, "crates", "gazelle-audio-protocol", "tests", "ground_truth_studio.json"), "utf8")) as Record<string, string>;
+  const linkHex = (periph: number, pair: number) => {
+    const bytes = Uint8Array.from(vectors["set_stereo_link"]?.match(/../g) ?? [], (b) => Number.parseInt(b, 16));
+    [bytes[17], bytes[18], bytes[19]] = [periph, pair, 1];
+    return `Dry run, would send set_stereo_link: ${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+  };
+  await page.goto(`${server.url}/#/inputs/loopback-1`);
+  await page.getByTestId("line-link-1").click(); // lines 3 and 4
+  await expect(lastSent(page)).toContainText(linkHex(1, 1));
+  await expect(page.getByTestId("line-link-1")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("adat-link-7").click(); // ADAT 15 and 16
+  await expect(lastSent(page)).toContainText(linkHex(2, 7));
+  await page.getByTestId("spdif-link-0").click();
+  await expect(lastSent(page)).toContainText(linkHex(3, 0));
+  await expect(page.getByTestId("line-link-4")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await expect(page.getByTestId("adat-gain-0")).toBeVisible();
+  await expect(page.getByTestId("adat-link-0")).toHaveCount(0);
+});
+
 test("Inputs is in the header and opens the first device of known model", async ({ page }) => {
   await page.goto(server.url);
   await page.locator('ga-header a[data-page="inputs"]').click();
