@@ -64,7 +64,7 @@ test("dragging a source onto a cell routes it; Delete mutes a cell; mixer inputs
   await expect(page.getByTestId("dest-0-1")).toHaveAttribute("data-drop", "");
   await page.mouse.up();
   await expect(lastSent(page)).toContainText(routingHex(0, { 1: [1, 2] }));
-  await expect(page.getByTestId("dest-0-1")).toHaveText("USB 1 3");
+  await expect(page.getByTestId("dest-0-1")).toHaveText("USB 1·3");
 
   await page.getByTestId("dest-0-1").focus();
   await page.keyboard.press("Delete");

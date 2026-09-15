@@ -20,11 +20,14 @@ export class GaRouting extends GaElement {
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
-      .last-sent { font-size: 11px; }
-      .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      /* The bytes can be long (set_routing is 128 hex digits): one line, cut with an ellipsis, all of it in the tooltip. */
+      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
+      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       h2 { margin: 0 0 6px; }
       .table { display: grid; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
-      .row { display: grid; grid-template-columns: 124px max-content max-content; align-items: center; gap: 6px; }
+      /* Row tools sit by the name, so wide rows keep them in view. */
+      .row { display: grid; grid-template-columns: 124px 74px max-content; align-items: center; gap: 6px; }
+      .row > .spacer-tools { display: block; }
       .label { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .swatch { flex: 0 0 8px; height: 14px; border-radius: 2px; background: var(--group-colour); }
       .cells { display: flex; gap: 2px; }
@@ -54,7 +57,9 @@ export class GaRouting extends GaElement {
       const source = topology.inputs[group];
       if (source === undefined) return `${group}:${channel + 1}`;
       const base = source.name.replace(/ (PLAY|IN|OUT)$/, "");
-      return source.channels > 1 ? `${base} ${channel + 1}` : base;
+      if (source.channels <= 1) return base;
+      // "USB 1·3" rather than "USB 1 3" when the name already ends in a number.
+      return `${base}${/\d$/.test(base) ? "·" : " "}${channel + 1}`;
     };
 
     const devices = h("select", {
@@ -106,7 +111,7 @@ export class GaRouting extends GaElement {
           shortLabel(g, c),
         ),
       );
-      return [h("div", { class: "row", style: `--group-colour: ${group.color}` }, h("span", { class: "label" }, h("span", { class: "swatch" }), group.name), h("div", { class: "cells" }, chips[g]))];
+      return [h("div", { class: "row", style: `--group-colour: ${group.color}` }, h("span", { class: "label" }, h("span", { class: "swatch" }), group.name), h("span", { class: "spacer-tools" }), h("div", { class: "cells" }, chips[g]))];
     });
 
     const destinationRows = topology.outputs.map((group, d) => {
@@ -143,7 +148,7 @@ export class GaRouting extends GaElement {
           else cell.style.setProperty("--source-colour", colour);
         });
       });
-      return h("div", { class: "row" }, h("span", { class: "label", title: locked ? "Mixer inputs are set by the Mixer page's channels" : group.name }, group.name), h("div", { class: "cells" }, cells), h("span", { class: "tools" }, mute));
+      return h("div", { class: "row" }, h("span", { class: "label", title: locked ? "Mixer inputs are set by the Mixer page's channels" : group.name }, group.name), h("span", { class: "tools" }, mute), h("div", { class: "cells" }, cells));
     });
 
     const sources = h("section", {}, h("h2", {}, "Sources"), h("div", { class: "table" }, sourceRows));
@@ -208,7 +213,7 @@ export class GaRouting extends GaElement {
         lastSent.textContent = dryRun ? "Dry run: nothing is written to the device" : "";
         return;
       }
-      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", {}, sent.hex));
+      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", { title: sent.hex }, sent.hex));
     });
   }
 }

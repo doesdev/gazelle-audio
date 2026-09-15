@@ -64,8 +64,9 @@ export class GaMixer extends GaElement {
       .notes { font-size: 11px; color: var(--ga-text-muted); }
       .notes summary { cursor: pointer; width: fit-content; }
       .notes ul { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
-      .last-sent { font-size: 11px; }
-      .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      /* The bytes can be long (set_routing is 128 hex digits): one line, cut with an ellipsis, all of it in the tooltip. */
+      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
+      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       .drop { position: absolute; top: 4px; bottom: 4px; z-index: 2; width: 2px; background: var(--ga-accent); pointer-events: none; }
       .strips {
         position: relative;
@@ -357,7 +358,7 @@ export class GaMixer extends GaElement {
         lastSent.textContent = dryRun ? "Dry run: nothing is written to the device" : "";
         return;
       }
-      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", {}, sent.hex));
+      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", { title: sent.hex }, sent.hex));
     });
   }
 }

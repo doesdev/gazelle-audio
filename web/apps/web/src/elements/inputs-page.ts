@@ -21,8 +21,9 @@ export class GaInputs extends GaElement {
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
-      .last-sent { font-size: 11px; }
-      .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      /* One line, cut with an ellipsis; the full bytes are in the tooltip. */
+      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
+      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       h2 { margin: 0 0 6px; }
       /* One column grid for every section: a digital input takes one column, a preamp two, so edges line up across sections. */
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
@@ -110,7 +111,7 @@ export class GaInputs extends GaElement {
         lastSent.textContent = dryRun ? "Dry run: nothing is written to the device" : "";
         return;
       }
-      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", {}, sent.hex));
+      lastSent.replaceChildren(`${sent.dryRun ? "Dry run, would send" : "Sent"} ${sent.command}: `, h("code", { title: sent.hex }, sent.hex));
     });
     this.watch(() => {
       const connected = store.connected.value;
