@@ -6,7 +6,9 @@
 import { h } from "../core/dom.ts";
 import { DIGITAL_GAIN, GAIN_RANGE, PREAMP_TYPES, type DigitalGroup, type InputsModel, type PreampType } from "../store/inputs.ts";
 import { bindControl, type ControlOptions } from "./controls.ts";
-import type { LinkKind } from "../store/store.ts";
+import { signal } from "../core/signal.ts";
+import type { LinkMode } from "../store/links.ts";
+import type { ChannelRef, LinkKind } from "../store/store.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
 
@@ -15,18 +17,44 @@ const ARM_MS = 3000;
 
 const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db} dB`;
 
-/** Whether an input is linked with the next one (its device pair) in the workspace. */
-function pairLinked(kind: LinkKind, deviceId: string, first: number): boolean {
-  const link = useStore().links.linkOf(kind, deviceId, first);
-  return link !== undefined && link.members.some((m) => m.device_id === deviceId && m.channel === first + 1);
+// Links (decision P51): an input's link badge starts a draft, or opens its link as one. While a draft
+// is open, badges of the same kind add or remove inputs, on this device or another picked from the
+// device menu (the draft outlives the page's re-render), and Save makes the link.
+
+interface LinkDraft {
+  kind: LinkKind;
+  /** The link being edited, if not a new one. */
+  editing?: string;
+  mode: LinkMode;
+  members: ChannelRef[];
 }
 
-/** Links an input with the next one as a workspace link, or removes that link (decision P51). */
-function togglePairLink(kind: LinkKind, deviceId: string, first: number): void {
+const draft = signal<LinkDraft | undefined>(undefined);
+
+const KIND_NAMES: Record<LinkKind, string> = { preamp: "Preamp", line: "Line", adat: "ADAT", spdif: "S/PDIF", mixer: "Channel" };
+
+const isRef = (m: ChannelRef, deviceId: string, channel: number) => m.device_id === deviceId && m.channel === channel;
+
+/** An input's name, with its device's when that is not the device shown. */
+function memberName(kind: LinkKind, member: ChannelRef, shown: string): string {
+  const name = `${KIND_NAMES[kind]} ${member.channel + 1}`;
+  if (member.device_id === shown) return name;
+  const device = useStore().devices.peek().find((d) => d.id === member.device_id);
+  return `${device?.model ?? member.device_id} ${name}`;
+}
+
+function saveDraft(d: LinkDraft): void {
   const store = useStore();
-  const link = store.links.linkOf(kind, deviceId, first);
-  if (link !== undefined && pairLinked(kind, deviceId, first)) store.links.remove(link.id);
-  else store.links.create(kind, [{ device_id: deviceId, channel: first }, { device_id: deviceId, channel: first + 1 }]);
+  try {
+    const old = d.editing === undefined ? undefined : store.links.links.peek().find((l) => l.id === d.editing);
+    for (const m of old?.members ?? []) {
+      if (!d.members.some((n) => isRef(n, m.device_id, m.channel))) store.links.removeMember(d.kind, m.device_id, m.channel);
+    }
+    store.links.create(d.kind, d.members, d.mode);
+    draft.value = undefined;
+  } catch (error) {
+    store.reportError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export class GaInputs extends GaElement {
@@ -57,6 +85,11 @@ export class GaInputs extends GaElement {
       .badges { display: flex; align-items: center; gap: 4px; }
       .link { min-width: 0; min-height: 16px; padding: 0 5px; font-size: 11px; line-height: 1; }
       .link[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .link[data-drafting] { outline: 1px dashed var(--ga-accent); outline-offset: 1px; }
+      .link-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--ga-accent); border-radius: 3px; background: var(--ga-surface-raised); font-size: 12px; }
+      .link-bar[hidden], .link-bar [hidden] { display: none; }
+      .link-bar .members { flex: 1; min-width: 0; }
+      .link-bar .segmented button { min-width: 64px; }
       .segmented { display: flex; }
       .segmented button { flex: 1; min-width: 0; min-height: 22px; padding: 0 4px; border-radius: 0; font-size: 11px; font-weight: 600; }
       .segmented button + button { margin-left: -1px; }
@@ -98,7 +131,8 @@ export class GaInputs extends GaElement {
     }
     const inputs = store.inputs(deviceId);
     this.onDisconnect(inputs.activate());
-    void inputs.loadLinks();
+    // Pairs linked on the device (by its own panel) become links, unless already in one.
+    void store.links.importDevicePairs(deviceId);
     const enabled = () => store.connected.peek();
 
     const devices = h("select", {
@@ -113,7 +147,8 @@ export class GaInputs extends GaElement {
     const preamps = h("div", { class: "grid" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#preamp(inputs, i, enabled)));
     const sections = inputs.digital.filter((group) => group.count > 0).map((group) => h("section", {}, h("h2", {}, group.label), h("div", { class: "grid" }, Array.from({ length: group.count }, (_, i) => this.#digital(inputs, group, i, enabled)))));
 
-    this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), note, h("section", {}, h("h2", {}, "Preamps"), preamps), ...sections);
+    const linkBar = this.#linkBar(deviceId);
+    this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), linkBar, note, h("section", {}, h("h2", {}, "Preamps"), preamps), ...sections);
 
     this.watch(() => {
       const known = store.devices.value.filter((d) => d.family !== null);
@@ -138,6 +173,84 @@ export class GaInputs extends GaElement {
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("button[data-control]")) button.disabled = !connected || button.hasAttribute("data-unavailable");
       for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!connected));
     });
+  }
+
+  #linkBar(deviceId: string): HTMLElement {
+    const store = useStore();
+    const members = h("span", { class: "members" });
+    const modes = (["absolute", "relative"] as const).map((mode) =>
+      h("button", { type: "button", "data-testid": `link-mode-${mode}`, title: mode === "absolute" ? "Every input takes the same value" : "Every input moves by the same step, keeping its offset", "on:click": () => draft.peek() && (draft.value = { ...(draft.peek() as LinkDraft), mode }) }, mode === "absolute" ? "Same value" : "Relative"),
+    );
+    const save = h("button", { type: "button", "data-testid": "link-save", "on:click": () => draft.peek() && saveDraft(draft.peek() as LinkDraft) }, "Save");
+    const unlink = h(
+      "button",
+      {
+        type: "button",
+        "data-testid": "link-unlink",
+        "on:click": () => {
+          const d = draft.peek();
+          if (d?.editing !== undefined) store.links.remove(d.editing);
+          draft.value = undefined;
+        },
+      },
+      "Unlink",
+    );
+    const cancel = h("button", { type: "button", "data-testid": "link-cancel", "on:click": () => (draft.value = undefined) }, "Cancel");
+    const bar = h("div", { class: "link-bar", "data-testid": "link-bar", role: "group", "aria-label": "Link" }, members, h("div", { class: "segmented", role: "group", "aria-label": "Link mode" }, modes), save, unlink, cancel);
+    this.watch(() => {
+      const d = draft.value;
+      bar.hidden = d === undefined;
+      if (d === undefined) return;
+      store.devices.value;
+      const names = d.members.map((m) => memberName(d.kind, m, deviceId));
+      members.textContent = `${d.editing === undefined ? "New link" : "Link"}: ${names.join(", ")}${d.members.length < 2 ? ` (pick another ${KIND_NAMES[d.kind].toLowerCase()} input, on any device)` : ""}`;
+      for (const [n, button] of modes.entries()) button.setAttribute("aria-pressed", String((n === 0 ? "absolute" : "relative") === d.mode));
+      save.disabled = d.members.length < 2;
+      unlink.hidden = d.editing === undefined;
+    });
+    return bar;
+  }
+
+  /** An input's link badge: pressed when linked, numbered by its link, and the way into the link bar. */
+  #linkButton(kind: LinkKind, deviceId: string, channel: number, testId: string): HTMLButtonElement {
+    const store = useStore();
+    const self = { device_id: deviceId, channel };
+    const button = h(
+      "button",
+      {
+        type: "button",
+        class: "link",
+        "data-control": "",
+        "data-testid": testId,
+        "on:click": () => {
+          const d = draft.peek();
+          if (d !== undefined && d.kind === kind) {
+            const members = d.members.some((m) => isRef(m, deviceId, channel)) ? d.members.filter((m) => !isRef(m, deviceId, channel)) : [...d.members, self];
+            draft.value = { ...d, members };
+            return;
+          }
+          const link = store.links.linkOf(kind, deviceId, channel);
+          draft.value = link === undefined ? { kind, mode: "absolute", members: [self] } : { kind, editing: link.id, mode: link.mode, members: [...link.members] };
+        },
+      },
+      "⇆",
+    );
+    this.watch(() => {
+      const d = draft.value;
+      const links = store.links.links.value.filter((l) => l.kind === kind);
+      const index = links.findIndex((l) => l.members.some((m) => isRef(m, deviceId, channel)));
+      const link = links[index];
+      const drafting = d !== undefined && d.kind === kind;
+      const inDraft = drafting && d.members.some((m) => isRef(m, deviceId, channel));
+      button.toggleAttribute("data-drafting", inDraft);
+      button.setAttribute("aria-pressed", String(drafting ? inDraft : link !== undefined));
+      button.textContent = link === undefined ? "⇆" : `⇆${index + 1}`;
+      const name = memberName(kind, self, deviceId);
+      const others = link?.members.filter((m) => !isRef(m, deviceId, channel)).map((m) => memberName(kind, m, deviceId)) ?? [];
+      button.title = link === undefined ? `Link ${name} with other inputs` : `${name} is linked with ${others.join(", ")}${link.mode === "relative" ? " (relative)" : ""}`;
+      button.setAttribute("aria-label", drafting ? `${inDraft ? "Remove" : "Add"} ${name} ${inDraft ? "from" : "to"} the link` : button.title);
+    });
+    return button;
   }
 
   #preamp(inputs: InputsModel, i: number, enabled: () => boolean): HTMLElement {
@@ -192,8 +305,12 @@ export class GaInputs extends GaElement {
             disarm();
             inputs.setPhantom(i, true);
           } else {
+            // A link turns 48V on at every member on Mic, so the confirmation says how many.
+            const store = useStore();
+            const link = store.links.linkOf("preamp", inputs.deviceId, i);
+            const count = link === undefined ? 1 : link.members.filter((m) => store.devices.peek().some((d) => d.id === m.device_id && d.family !== null) && store.inputs(m.device_id).preamp(m.channel).peek().type === 0).length;
             phantom.setAttribute("data-armed", "");
-            phantom.textContent = "Confirm";
+            phantom.textContent = count > 1 ? `Confirm ${count}` : "Confirm";
             armTimer = setTimeout(disarm, ARM_MS);
           }
         },
@@ -203,12 +320,7 @@ export class GaInputs extends GaElement {
     this.onDisconnect(disarm);
     const phase = h("button", { type: "button", class: "phase", "data-control": "", "data-testid": `pre-phase-${i}`, "aria-label": `${label} phase invert`, "on:click": () => inputs.setPhaseInvert(i, !state.peek().phaseInvert) }, "Ø");
     const hpf = h("span", { class: "hpf", "data-testid": `pre-hpf-${i}`, title: "High-pass filter, as the device reports it" }, "HPF");
-    // The first preamp of each pair carries the pair's link; a linked pair's type is locked.
-    const pair = Math.floor(i / 2);
-    const link =
-      i % 2 === 0 && pair < inputs.pairCount
-        ? h("button", { type: "button", class: "link", "data-control": "", "data-testid": `pre-link-${pair}`, "aria-label": `Link preamps ${i + 1} and ${i + 2}`, title: `Link preamps ${i + 1} and ${i + 2}`, "on:click": () => togglePairLink("preamp", inputs.deviceId, i) }, "⇆")
-        : undefined;
+    const link = this.#linkButton("preamp", inputs.deviceId, i, `pre-link-${i}`);
 
     this.watch(() => {
       const s = state.value;
@@ -229,7 +341,6 @@ export class GaInputs extends GaElement {
       if (s.phantom) disarm();
       phase.setAttribute("aria-pressed", String(s.phaseInvert));
       hpf.toggleAttribute("data-on", s.hpf);
-      link?.setAttribute("aria-pressed", String(pairLinked("preamp", inputs.deviceId, i)));
     });
 
     return h("div", { class: "preamp", "data-testid": `preamp-${i}` }, h("div", { class: "head" }, h("span", { class: "name" }, label), h("span", { class: "badges" }, link, hpf)), h("div", { class: "segmented", role: "group", "aria-label": `${label} type` }, types), gain, h("div", { class: "toggles" }, phantom, phase));
@@ -238,16 +349,8 @@ export class GaInputs extends GaElement {
   #digital(inputs: InputsModel, group: DigitalGroup, i: number, enabled: () => boolean): HTMLElement {
     const label = `${group.label.replace(/ in$/, "")} ${i + 1}`;
     const gainOf = inputs.digitalGain(group.kind, i);
-    // The first input of each linkable pair carries the pair's link.
-    const pair = Math.floor(i / 2);
-    const name = group.label.replace(/ in$/, "");
-    const link =
-      i % 2 === 0 && pair < group.linkPairs
-        ? h("button", { type: "button", class: "link", "data-control": "", "data-testid": `${group.kind}-link-${pair}`, "aria-label": `Link ${name} ${i + 1} and ${i + 2}`, title: `Link ${name} ${i + 1} and ${i + 2}`, "on:click": () => togglePairLink(group.kind, inputs.deviceId, i) }, "⇆")
-        : undefined;
-    if (link !== undefined) {
-      this.watch(() => link.setAttribute("aria-pressed", String(pairLinked(group.kind, inputs.deviceId, i))));
-    }
+    // Only inputs this app sets can link (a read-only gain has nothing to send).
+    const link = group.editable ? this.#linkButton(group.kind, inputs.deviceId, i, `${group.kind}-link-${i}`) : undefined;
     const heading = h("span", { class: "cell-head" }, h("span", { class: "label" }, label), link);
     const value = h("span", { class: "value" });
     const fill = h("div", { class: "fill" });

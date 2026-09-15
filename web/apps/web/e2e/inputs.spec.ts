@@ -62,27 +62,72 @@ test("Quadro preamps send type, gain, a confirmed 48V and phase, with the panels
   await expect(page.getByTestId("adat-gain-0")).toHaveText("—", { timeout: 1000 });
 });
 
-test("linking a Quadro preamp pair sends set_stereo_link, and its gain changes go to both", async ({ page }) => {
-  const gains: number[] = [];
+/** Records each set_pre_gain the page sends, as "device:id". */
+function recordGains(page: Page): string[] {
+  const gains: string[] = [];
   page.on("websocket", (socket) =>
     socket.on("framesent", (event) => {
-      const frame = typeof event.payload === "string" ? (JSON.parse(event.payload) as { command?: string; args?: { id?: number } }) : {};
-      if (frame.command === "set_pre_gain" && frame.args?.id !== undefined) gains.push(frame.args.id);
+      const frame = typeof event.payload === "string" ? (JSON.parse(event.payload) as { device_id?: string; command?: string; args?: { id?: number } }) : {};
+      if (frame.command === "set_pre_gain" && frame.args?.id !== undefined) gains.push(`${frame.device_id}:${frame.args.id}`);
     }),
   );
+  return gains;
+}
+
+test("linking picks inputs then saves; a link of exactly a device pair sets the device's flag, and gain changes go to every member", async ({ page }) => {
+  const gains = recordGains(page);
   await page.goto(`${server.url}/#/inputs/loopback-0`);
-  await page.getByTestId("pre-link-1").click();
+  await page.getByTestId("pre-link-2").click();
+  await expect(page.getByTestId("link-bar")).toBeVisible();
+  await page.getByTestId("pre-link-3").click();
+  await page.getByTestId("link-save").click();
+  await expect(page.getByTestId("link-bar")).toBeHidden();
   // set_stereo_link(periph 0 = preamps, pair 1 = preamps 3 and 4, linked 1): three bytes after a one-byte payload header.
   const vectors = JSON.parse(readFileSync(join(REPO_ROOT, "crates", "gazelle-audio-protocol", "tests", "ground_truth.json"), "utf8")) as Record<string, string>;
   const bytes = Uint8Array.from(vectors["set_stereo_link"]?.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
   [bytes[17], bytes[18], bytes[19]] = [0, 1, 1];
   await expect(lastSent(page)).toContainText(`Dry run, would send set_stereo_link: ${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`);
-  await expect(page.getByTestId("pre-link-1")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pre-link-2")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pre-link-3")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pre-link-0")).toHaveAttribute("aria-pressed", "false");
 
   const gain = page.getByTestId("pre-gain-2");
   await gain.focus();
   await gain.press("ArrowRight");
-  await expect.poll(() => gains).toEqual([2, 3]);
+  await expect.poll(() => gains).toEqual(["loopback-0:2", "loopback-0:3"]);
+
+  await page.getByTestId("pre-link-3").click();
+  await page.getByTestId("link-unlink").click();
+  await expect(page.getByTestId("pre-link-2")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("a link can join inputs on two devices, in relative mode, and the 48V confirm names how many inputs it turns on", async ({ page }) => {
+  const gains = recordGains(page);
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await page.getByTestId("pre-link-0").click();
+  await page.locator('ga-inputs select[aria-label="Device"]').selectOption("loopback-1");
+  await expect(page).toHaveURL(/inputs\/loopback-1$/);
+  await expect(page.getByTestId("link-bar")).toContainText("Zen Quadro");
+  await page.getByTestId("pre-link-1").click();
+  await page.getByTestId("link-mode-relative").click();
+  await page.getByTestId("link-save").click();
+  await expect(page.getByTestId("pre-link-1")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pre-link-1")).toHaveAttribute("title", /linked with Zen Quadro.* Preamp 1 \(relative\)/);
+
+  const gain = page.getByTestId("pre-gain-1");
+  await gain.focus();
+  await gain.press("ArrowRight");
+  await expect.poll(() => gains).toEqual(["loopback-1:1", "loopback-0:0"]);
+
+  const phantom = page.getByTestId("pre-48v-1");
+  await phantom.click();
+  await expect(phantom).toHaveText("Confirm 2");
+  await phantom.click();
+  await expect(phantom).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByTestId("pre-link-1").click();
+  await page.getByTestId("link-unlink").click();
+  await expect(page.getByTestId("pre-link-1")).toHaveAttribute("aria-pressed", "false");
 });
 
 test("Studio+ sends set_pre_phaseinv and digital input gains; Hi-Z is on preamps 1-4", async ({ page }) => {
@@ -136,14 +181,22 @@ test("Studio+ line, ADAT and S/PDIF pairs link with their own peripheral id; the
     return `Dry run, would send set_stereo_link: ${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   };
   await page.goto(`${server.url}/#/inputs/loopback-1`);
-  await page.getByTestId("line-link-1").click(); // lines 3 and 4
+  const link = async (kind: string, a: number, b: number) => {
+    await page.getByTestId(`${kind}-link-${a}`).click();
+    await page.getByTestId(`${kind}-link-${b}`).click();
+    await page.getByTestId("link-save").click();
+  };
+  await link("line", 2, 3); // lines 3 and 4
   await expect(lastSent(page)).toContainText(linkHex(1, 1));
-  await expect(page.getByTestId("line-link-1")).toHaveAttribute("aria-pressed", "true");
-  await page.getByTestId("adat-link-7").click(); // ADAT 15 and 16
+  await expect(page.getByTestId("line-link-3")).toHaveAttribute("aria-pressed", "true");
+  await link("adat", 14, 15); // ADAT 15 and 16
   await expect(lastSent(page)).toContainText(linkHex(2, 7));
-  await page.getByTestId("spdif-link-0").click();
+  await link("spdif", 0, 1);
   await expect(lastSent(page)).toContainText(linkHex(3, 0));
-  await expect(page.getByTestId("line-link-4")).toHaveCount(0);
+  for (const [kind, first] of [["line", 2], ["adat", 14], ["spdif", 0]] as const) {
+    await page.getByTestId(`${kind}-link-${first}`).click();
+    await page.getByTestId("link-unlink").click();
+  }
 
   await page.goto(`${server.url}/#/inputs/loopback-0`);
   await expect(page.getByTestId("adat-gain-0")).toBeVisible();
