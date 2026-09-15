@@ -24,11 +24,12 @@ export class GaInputs extends GaElement {
       .last-sent { font-size: 11px; }
       .last-sent code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       h2 { margin: 0 0 6px; }
-      .preamps { display: flex; flex-wrap: wrap; gap: 6px; }
+      /* One column grid for every section: a digital input takes one column, a preamp two, so edges line up across sections. */
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
       .preamp {
         display: grid;
+        grid-column: span 2;
         gap: 6px;
-        width: 150px;
         padding: 6px;
         border-radius: 3px;
         background: var(--ga-surface-raised);
@@ -62,7 +63,7 @@ export class GaInputs extends GaElement {
       .phantom[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .phantom[data-armed] { outline: 2px dashed var(--ga-state-solo); outline-offset: -2px; }
       .phase[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
-      .digital { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px; }
+      .gain.readonly { cursor: default; }
       .cell { display: grid; gap: 2px; padding: 4px; border-radius: 3px; background: var(--ga-surface-raised); }
       .cell .label { font-size: 10px; color: var(--ga-text-secondary); }
     `),
@@ -88,8 +89,8 @@ export class GaInputs extends GaElement {
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const note = h("p", { class: "note" });
 
-    const preamps = h("div", { class: "preamps" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#preamp(inputs, i, enabled)));
-    const sections = inputs.digital.filter((group) => group.count > 0).map((group) => h("section", {}, h("h2", {}, group.label), h("div", { class: "digital" }, Array.from({ length: group.count }, (_, i) => this.#digital(inputs, group, i, enabled)))));
+    const preamps = h("div", { class: "grid" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#preamp(inputs, i, enabled)));
+    const sections = inputs.digital.filter((group) => group.count > 0).map((group) => h("section", {}, h("h2", {}, group.label), h("div", { class: "grid" }, Array.from({ length: group.count }, (_, i) => this.#digital(inputs, group, i, enabled)))));
 
     this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), note, h("section", {}, h("h2", {}, "Preamps"), preamps), ...sections);
 
@@ -194,17 +195,12 @@ export class GaInputs extends GaElement {
     const label = `${group.label.replace(/ in$/, "")} ${i + 1}`;
     const gainOf = inputs.digitalGain(group.kind, i);
     const value = h("span", { class: "value" });
-    if (!group.editable) {
-      const readout = h("span", { class: "readout", "data-testid": `${group.kind}-gain-${i}`, title: "This device's panel does not set this gain" });
-      this.watch(() => {
-        const g = gainOf.value;
-        readout.textContent = g === undefined ? "—" : formatGain(g);
-      });
-      return h("div", { class: "cell" }, h("span", { class: "label" }, label), readout);
-    }
     const fill = h("div", { class: "fill" });
-    const gain = h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "aria-valuemin": DIGITAL_GAIN.min, "aria-valuemax": DIGITAL_GAIN.max, "data-testid": `${group.kind}-gain-${i}` }, fill, value);
-    bindControl(gain, { axis: "x", min: DIGITAL_GAIN.min, max: DIGITAL_GAIN.max, up: 1, page: 3, reset: 0, get: () => gainOf.peek() ?? 0, set: (v) => inputs.setDigitalGain(group.kind, i, v), enabled });
+    // Read-only gains (the Quadro's panel never sets them) get the same bar, without the slider role or input.
+    const gain = group.editable
+      ? h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "aria-valuemin": DIGITAL_GAIN.min, "aria-valuemax": DIGITAL_GAIN.max, "data-testid": `${group.kind}-gain-${i}` }, fill, value)
+      : h("div", { class: "gain readonly", "aria-label": `${label} gain`, title: "This device's panel does not set this gain", "data-testid": `${group.kind}-gain-${i}` }, fill, value);
+    if (group.editable) bindControl(gain, { axis: "x", min: DIGITAL_GAIN.min, max: DIGITAL_GAIN.max, up: 1, page: 3, reset: 0, get: () => gainOf.peek() ?? 0, set: (v) => inputs.setDigitalGain(group.kind, i, v), enabled });
     this.watch(() => {
       const g = gainOf.value ?? 0;
       // A report outside the range (the loopback's test pattern) must not push the bar out of its cell.

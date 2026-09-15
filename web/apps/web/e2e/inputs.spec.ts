@@ -81,6 +81,30 @@ test("Studio+ sends set_pre_phaseinv and digital input gains; Hi-Z is on preamps
   await expect(lastSent(page)).toContainText(studio("set_spdif_gain", 1, -6));
 });
 
+test("read-only digital gains show a filled bar, and preamps and digital inputs share one column grid", async ({ page }) => {
+  const reporting = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  try {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(`${reporting.url}/#/inputs/loopback-0`);
+    const adat = page.getByTestId("adat-gain-0");
+    await expect(adat).not.toHaveText("—");
+    await expect.poll(() => adat.locator(".fill").evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(0);
+    await expect(adat).not.toHaveAttribute("role", "slider");
+
+    // Each preamp spans two columns of the grid the digital cells use, so edges line up.
+    const left = async (testId: string) => (await page.getByTestId(testId).locator("xpath=ancestor-or-self::*[contains(@class,'cell') or contains(@class,'preamp')][1]").boundingBox())?.x ?? -1;
+    const right = async (testId: string) => {
+      const box = await page.getByTestId(testId).locator("xpath=ancestor-or-self::*[contains(@class,'cell') or contains(@class,'preamp')][1]").boundingBox();
+      return (box?.x ?? 0) + (box?.width ?? 0);
+    };
+    expect(Math.abs((await left("preamp-1")) - (await left("adat-gain-2")))).toBeLessThanOrEqual(1);
+    expect(Math.abs((await right("preamp-0")) - (await right("adat-gain-1")))).toBeLessThanOrEqual(1);
+    expect(Math.abs((await left("preamp-3")) - (await left("adat-gain-6")))).toBeLessThanOrEqual(1);
+  } finally {
+    await reporting.stop();
+  }
+});
+
 test("Inputs is in the header and opens the first device of known model", async ({ page }) => {
   await page.goto(server.url);
   await page.locator('ga-header a[data-page="inputs"]').click();
