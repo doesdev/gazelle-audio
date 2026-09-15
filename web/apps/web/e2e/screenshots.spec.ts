@@ -51,6 +51,19 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
     }
     for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
+      await page.goto(`${server.url}/#/routing/${device}`);
+      await expect(page.getByTestId("source-0-0")).toBeVisible();
+      // A couple of routes, so the destinations show sources.
+      await page.getByTestId("source-0-0").click();
+      await page.getByTestId("source-0-1").click({ modifiers: ["Shift"] });
+      await page.getByTestId("dest-1-0").click();
+      await page.getByTestId("source-1-0").click();
+      await page.getByTestId("source-1-1").click({ modifiers: ["Shift"] });
+      await page.getByTestId("dest-3-0").click();
+      await expect(page.getByTestId("dest-3-1")).not.toHaveText("?");
+      await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-routing-${name}.png`, fullPage: true });
+    }
+    for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
       await page.goto(`${server.url}/#/inputs/${device}`);
       await expect(page.getByTestId("preamp-0")).toBeVisible();
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-inputs-${name}.png`, fullPage: true });

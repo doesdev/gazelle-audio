@@ -110,7 +110,7 @@ export class GaApp extends GaElement {
     this.watch(() => {
       const current = route.value;
       // Without a device in the address, a page shows the first device it can (for the mixer, the first of known model).
-      const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "mixer") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
+      const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "mixer" || current.page === "routing") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
       title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
       page.replaceChildren(pageFor(current, first));
     });
@@ -133,8 +133,10 @@ function pageFor(current: Route, firstDeviceId: string | undefined): HTMLElement
       const id = current.id ?? firstDeviceId;
       return id === undefined ? h("p", { class: "placeholder" }, "No device with a known mixer is connected.") : h("ga-mixer", { "device-id": id, mixer: current.sub ?? "0" });
     }
-    case "routing":
-      return h("p", { class: "placeholder" }, "The routing matrix arrives in phase 5.");
+    case "routing": {
+      const id = current.id ?? firstDeviceId;
+      return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-routing", { "device-id": id });
+    }
   }
 }
 

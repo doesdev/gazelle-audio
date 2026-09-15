@@ -131,6 +131,23 @@ test("in dry run a route builds on what is already known", async () => {
   assert.deepEqual(pairsOf(writes()[1]?.bank_configs ?? []), expected, "the second write keeps the first route");
 });
 
+test("several slots of one group change with one read and one write, keeping the rest", async () => {
+  const { client, groups, routing, writes, pairsOf } = setup();
+  groups.set(MIX_CH4, muted(32).map((p, i): Pair => (i === 0 ? [PREAMP, 3] : i === 9 ? [PREAMP, 2] : p)));
+  assert.equal(await routing.routeMany(MIX_CH4, [{ channel: 5, source: slot(PREAMP, 0) }, { channel: 6, source: slot(PREAMP, 1) }, { channel: 0, source: null }]), true);
+  assert.deepEqual(client.invocations.map((c) => c.command), ["get_routing", "set_routing"], "one read, one write");
+  const expected = muted(32);
+  expected[5] = [PREAMP, 0];
+  expected[6] = [PREAMP, 1];
+  expected[9] = [PREAMP, 2];
+  assert.deepEqual(pairsOf(writes()[0]?.bank_configs ?? []), expected);
+  assert.deepEqual(routing.destination(MIX_CH4).value?.[9], slot(PREAMP, 2));
+  assert.throws(() => routing.routeMany(MIX_CH4, [{ channel: 32, source: null }]), RangeError);
+  assert.throws(() => routing.routeMany(MIX_CH4, [{ channel: 1, source: slot(PREAMP, 9) }]), RangeError);
+  assert.equal(await routing.routeMany(MIX_CH4, []), true, "nothing to change sends nothing");
+  assert.equal(writes().length, 1);
+});
+
 test("routes outside the topology are refused before anything is sent", () => {
   const { client, routing } = setup();
   assert.throws(() => routing.route(99, 0, null), RangeError);

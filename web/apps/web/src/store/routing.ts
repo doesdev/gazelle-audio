@@ -83,12 +83,24 @@ export class RoutingModel {
    * change was sent; the group then holds it.
    */
   route(destination: number, channel: number, source: RouteSlot | null): Promise<boolean> {
+    return this.routeMany(destination, [{ channel, source }]);
+  }
+
+  /**
+   * Changes several channels of one destination group at once (null routes MUTE): one fresh read
+   * and one write, whatever the count. Resolves true when sent; an empty change sends nothing.
+   */
+  routeMany(destination: number, changes: readonly { channel: number; source: RouteSlot | null }[]): Promise<boolean> {
     const group = this.#context.topology.outputs[destination];
     if (group === undefined) throw new RangeError(`destination ${destination} is outside 0..${this.#groups.length - 1}`);
-    if (!Number.isInteger(channel) || channel < 0 || channel >= group.channels) throw new RangeError(`${group.name} has channels 0..${group.channels - 1}, not ${channel}`);
-    const slot = source ?? { source: this.mute, channel: 0 };
-    const from = this.#context.topology.inputs[slot.source];
-    if (from === undefined || !Number.isInteger(slot.channel) || slot.channel < 0 || slot.channel >= from.channels) throw new RangeError(`no source channel ${slot.source}:${slot.channel}`);
+    const slots = changes.map(({ channel, source }) => {
+      if (!Number.isInteger(channel) || channel < 0 || channel >= group.channels) throw new RangeError(`${group.name} has channels 0..${group.channels - 1}, not ${channel}`);
+      const slot = source ?? this.#muted();
+      const from = this.#context.topology.inputs[slot.source];
+      if (from === undefined || !Number.isInteger(slot.channel) || slot.channel < 0 || slot.channel >= from.channels) throw new RangeError(`no source channel ${slot.source}:${slot.channel}`);
+      return { channel, slot };
+    });
+    if (slots.length === 0) return Promise.resolve(true);
 
     return this.#serially(destination, async () => {
       const signal = this.#group(destination);
@@ -103,9 +115,10 @@ export class RoutingModel {
       const known = signal.peek();
 
       // `current` holds one slot per channel, so everything past the group's channels is MUTE.
-      const slots = Array.from({ length: ROUTING_SLOTS }, (_, i) => (i === channel ? slot : (current?.[i] ?? this.#muted())));
-      signal.value = slots.slice(0, group.channels);
-      const sent = await this.#context.write(destination, slots);
+      const next = Array.from({ length: ROUTING_SLOTS }, (_, i) => current?.[i] ?? this.#muted());
+      for (const { channel, slot } of slots) next[channel] = slot;
+      signal.value = next.slice(0, group.channels);
+      const sent = await this.#context.write(destination, next);
       if (!sent) signal.value = known;
       return sent;
     });
