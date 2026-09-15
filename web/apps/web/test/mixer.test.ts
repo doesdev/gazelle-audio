@@ -57,10 +57,10 @@ test("Studio+ strips send set_mixer_cfg including send", async () => {
   mixer.toggleSolo(0);
   await flush();
   assert.deepEqual(sent(client, "set_mixer_cfg").map((c) => c.args), [
-    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 0, send: 96 },
-    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 1, send: 96 },
-  ], "send is dB of attenuation, 0 (loudest) to 96 (off), as captured in hardware session 1");
-  assert.deepEqual([formatSend(0), formatSend(50), formatSend(96)], ["0 dB", "-50 dB", "-inf"]);
+    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 0, send: 95 },
+    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 1, send: 95 },
+  ], "send is dB of attenuation, 0 (loudest) to 95 (-inf), as captured in hardware sessions 1 and 2");
+  assert.deepEqual([formatSend(0), formatSend(50), formatSend(94), formatSend(95)], ["0 dB", "-50 dB", "-94 dB", "-inf"]);
 });
 
 test("a mixer channel link sends level, mute and solo to every member in the same mix, but not pan; an exact slot pair sets the flag on every mixer", async () => {

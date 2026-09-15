@@ -2,7 +2,8 @@
 // (reference/devices.md, "Mixer and meter value scales"; decisions P26–P30):
 // - level is dB of attenuation, 0..90 on a linear fader, shown 0 dB … −90 dB;
 // - pan is 2..62 with 32 as centre (27..38 snaps to it), shown −30…+30;
-// - Studio+ `send` is dB of attenuation, 0 (loudest) to 96 (off), like set_volume (hardware session 1);
+// - Studio+ `send` is dB of attenuation, 0 (loudest) to 95, where 95 reads -inf on the panel: one
+//   step below set_volume's 96 (hardware sessions 1 and 2);
 // - a meter byte is dB below full scale on Antelope's piecewise scale, and 0 latches clip;
 // - device channel 0 is the master and strip i is device channel i + 1 (assumed for Studio+).
 // Every strip command carries the whole strip, so coalescing per strip never loses a field.
@@ -20,7 +21,7 @@ export const PAN_MAX = 62;
 export const PAN_CENTRE = 32;
 const PAN_SNAP = [27, 38] as const;
 /** Send attenuation at which the send is off (−inf). */
-export const SEND_MAX = 96;
+export const SEND_MAX = 95;
 /** Scale marks in dB below full scale. */
 export const METER_MARKS = [0, 5, 10, 15, 20, 30, 40, 60] as const;
 /** Quadro meter sources for mixers 1–3: MONITOR, HP2, LINE_OUT (mixer 4's is not known). */
