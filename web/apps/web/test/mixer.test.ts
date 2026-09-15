@@ -198,3 +198,36 @@ test("mixers exist only for known models and within the topology", () => {
   assert.equal(store.topology("loopback-1")?.mixers.command, "set_mixer_cfg");
   assert.equal(store.topology("usb:1"), undefined);
 });
+
+test("a mix in mono centres its channels' pans and restores them after; pans moved meanwhile are kept, not sent", async () => {
+  const { client, store } = setup();
+  await store.start();
+  const channels = store.channels("loopback-0");
+  channels.add();
+  channels.add(); // slots 6 and 7
+  const mixer = store.mixer("loopback-0", 1);
+  mixer.setPan(6, 10);
+  mixer.setPan(7, 50);
+  await flush();
+  client.invocations.length = 0;
+  const pans = () => sent(client, "set_mixer").map((c) => [c.args?.["mixer_id"], c.args?.["channel"], c.args?.["pan"]]);
+
+  assert.equal(channels.setMono(1, true), true);
+  await flush();
+  assert.deepEqual(pans(), [[1, 7, PAN_CENTRE], [1, 8, PAN_CENTRE]], "every channel in mix 2 pans to centre");
+  assert.deepEqual([channels.isMono(1), channels.isMono(0)], [true, false]);
+  assert.deepEqual(store.workspace.value?.mixers["loopback-0"]?.mixes[1]?.mono, { pans: { "6": 10, "7": 50 } }, "the pans to restore are saved in the workspace");
+
+  client.invocations.length = 0;
+  mixer.setPan(6, 20);
+  await flush();
+  assert.deepEqual(pans(), [], "a pan moved while mono is saved for later, not sent");
+  assert.equal(mixer.monoPan(6), 20);
+  assert.equal(store.mixer("loopback-0", 0).monoPan(6), undefined, "other mixes are not mono");
+
+  assert.equal(channels.setMono(1, false), true);
+  await flush();
+  assert.deepEqual(pans(), [[1, 7, 20], [1, 8, 50]], "mono off restores the saved pans, including the one moved meanwhile");
+  assert.equal(channels.isMono(1), false);
+  assert.equal(mixer.monoPan(6), undefined);
+});

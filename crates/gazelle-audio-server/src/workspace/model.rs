@@ -84,7 +84,22 @@ pub struct DeviceMixer {
 pub struct MixConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Present while the mix is summed to mono (decision P57): its channels are panned to centre on
+    /// the device, and these are the pans to restore.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mono: Option<MonoMix>,
 }
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MonoMix {
+    /// Mixer input slot → the pan (2..=62) it had, or was moved to, while mono.
+    #[serde(default)]
+    pub pans: BTreeMap<u32, u32>,
+}
+
+/// The device pan range; 32 is centre.
+pub const PAN_MIN: u32 = 2;
+pub const PAN_MAX: u32 = 62;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MixerGroup {

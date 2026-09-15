@@ -295,6 +295,14 @@ export class Store {
           if (peerFamily === undefined || peerFamily === null || index >= topologies[peerFamily].mixers.count || peer.channel >= topologies[peerFamily].mixers.channels) return [];
           return [{ model: this.mixer(peer.deviceId, index), strip: peer.channel, mode: peer.mode }];
         }),
+      monoPans: () => this.#workspace.value?.mixers?.[deviceId]?.mixes?.[index]?.mono?.pans,
+      rememberPan: (strip, pan) => {
+        this.editWorkspace((workspace) => {
+          const mono = workspace.mixers?.[deviceId]?.mixes?.[index]?.mono;
+          if (mono !== undefined) mono.pans[String(strip)] = pan;
+          return workspace;
+        });
+      },
     });
     this.#mixers.set(key, model);
     return model;
@@ -318,6 +326,7 @@ export class Store {
       notify: (text) => this.#notify("error", text),
       saved: computed(() => this.#workspace.value?.layouts ?? []),
       editSaved: (update) => this.editWorkspace((workspace) => ({ ...workspace, layouts: update([...(workspace.layouts ?? [])]) })),
+      mixer: (mix) => this.mixer(deviceId, mix),
     });
     this.#channels.set(deviceId, model);
     return model;

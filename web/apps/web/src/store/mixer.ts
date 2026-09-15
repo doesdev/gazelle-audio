@@ -90,6 +90,10 @@ export interface MixerContext {
   watch(): () => void;
   /** The other members of a strip's workspace link, as their strips in this mix on their devices (LinksModel, P51). */
   peers(strip: number): readonly { model: MixerModel; strip: number; mode: "absolute" | "relative" }[];
+  /** While this mix is mono (decision P57): the pans to restore, by strip. Reading it is reactive. */
+  monoPans(): Readonly<Record<string, number>> | undefined;
+  /** Saves a pan to restore when mono ends, instead of sending it. */
+  rememberPan(strip: number, pan: number): void;
 }
 
 const DEFAULT_STRIP: StripState = { level: 0, pan: PAN_CENTRE, mute: false, solo: false, send: 0, linked: false };
@@ -207,8 +211,25 @@ export class MixerModel {
     this.#update(id, { level: Math.min(LEVEL_MAX, Math.max(0, Math.round(level))) });
   }
 
+  /** Sets a strip's pan; while the mix is mono it is saved for when mono ends, not sent. */
   setPan(id: StripId, pan: number): void {
+    if (id !== "master" && this.#context.monoPans() !== undefined) {
+      this.#check(id);
+      this.#context.rememberPan(id, clampPan(pan));
+      return;
+    }
     this.#update(id, { pan: clampPan(pan) });
+  }
+
+  /** Sends a pan whether or not the mix is mono: how mono centres and restores its channels. */
+  sendPan(strip: number, pan: number): void {
+    this.#update(strip, { pan: clampPan(pan) });
+  }
+
+  /** The pan a strip returns to when its mono mix ends; undefined when the mix is not mono. */
+  monoPan(strip: number): number | undefined {
+    this.#check(strip);
+    return this.#context.monoPans()?.[String(strip)];
   }
 
   setSend(id: StripId, send: number): void {

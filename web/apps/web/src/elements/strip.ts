@@ -141,7 +141,8 @@ export class GaStrip extends GaElement {
       const panFill = h("div", { class: "fill" });
       const panValue = h("span", { class: "value" });
       const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
-      bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, get: () => state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
+      // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
+      bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
       top.push(pan);
 
       if (mixer.hasSend) {
@@ -176,11 +177,15 @@ export class GaStrip extends GaElement {
       this.watch(() => {
         const s = state.value;
         solo.setAttribute("aria-pressed", String(s.solo));
-        const position = ((s.pan - PAN_MIN) / (PAN_MAX - PAN_MIN)) * 100;
+        const monoPan = mixer.monoPan(id);
+        const shownPan = monoPan ?? s.pan;
+        const position = ((shownPan - PAN_MIN) / (PAN_MAX - PAN_MIN)) * 100;
         panFill.style.cssText = position >= 50 ? `left: 50%; width: ${position - 50}%` : `left: ${position}%; width: ${50 - position}%`;
-        panValue.textContent = formatPan(s.pan);
-        pan.setAttribute("aria-valuenow", String(s.pan - PAN_CENTRE));
-        pan.setAttribute("aria-valuetext", formatPan(s.pan));
+        panValue.textContent = formatPan(shownPan);
+        pan.setAttribute("aria-valuenow", String(shownPan - PAN_CENTRE));
+        pan.setAttribute("aria-valuetext", formatPan(shownPan));
+        pan.toggleAttribute("data-mono", monoPan !== undefined);
+        pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
       });
       this.watch(() => {
         // The device meters one mix at a time; another mix's peaks would be the wrong channel's.

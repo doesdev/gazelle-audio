@@ -53,3 +53,37 @@ export function bindControl(element: HTMLElement, options: ControlOptions): void
     event.preventDefault();
   });
 }
+
+/**
+ * A momentary button: `set(true)` while it is held (pointer, or Space/Enter), `set(false)` on
+ * release, and on leaving, cancelling or losing focus, so it can never stay on by accident.
+ * Used for talkback, which the user wants only while held.
+ */
+export function bindMomentary(button: HTMLElement, set: (on: boolean) => void, enabled: () => boolean): void {
+  let held = false;
+  const press = () => {
+    if (held || !enabled()) return;
+    held = true;
+    set(true);
+  };
+  const release = () => {
+    if (!held) return;
+    held = false;
+    set(false);
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    press();
+  });
+  for (const type of ["pointerup", "pointerleave", "pointercancel", "blur"]) button.addEventListener(type, release);
+  button.addEventListener("keydown", (event) => {
+    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+      event.preventDefault();
+      press();
+    }
+  });
+  button.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") release();
+  });
+}

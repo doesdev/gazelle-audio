@@ -104,6 +104,17 @@ fn check_mixer(mixer: &DeviceMixer) -> Result<(), String> {
     if mixer.mixes.len() > MIXER_COUNT as usize {
         return Err(format!("{} mixes named, the device has {MIXER_COUNT}", mixer.mixes.len()));
     }
+    use crate::workspace::model::{PAN_MAX, PAN_MIN};
+    for (index, mix) in mixer.mixes.iter().enumerate() {
+        for (&slot, &pan) in mix.mono.iter().flat_map(|m| m.pans.iter()) {
+            if slot >= MIXER_SLOTS {
+                return Err(format!("mix {}: mono pan for slot {slot}, outside 0..{}", index + 1, MIXER_SLOTS - 1));
+            }
+            if !(PAN_MIN..=PAN_MAX).contains(&pan) {
+                return Err(format!("mix {}: mono pan {pan} for slot {slot} is outside {PAN_MIN}..{PAN_MAX}", index + 1));
+            }
+        }
+    }
     let mut groups = HashSet::new();
     for group in &mixer.groups {
         if !groups.insert(group.id.as_str()) {

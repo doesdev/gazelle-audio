@@ -31,6 +31,8 @@ export class GaMixMaster extends GaElement {
       .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .chip button { min-width: 0; min-height: 14px; padding: 0 3px; border: 0; background: transparent; color: inherit; font-size: 10px; }
       .empty { font-size: 9px; color: var(--ga-text-muted); }
+      .mono { min-width: 0; min-height: 18px; padding: 0 4px; font-size: 10px; font-weight: 700; }
+      .mono[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .strip-slot { display: flex; flex: 1; min-height: 0; }
       .strip-slot ga-strip { flex: 1; }
     `),
@@ -55,7 +57,14 @@ export class GaMixMaster extends GaElement {
         if (destination !== undefined && channel !== undefined && !Number.isNaN(destination)) void channels.setMixOutput(mix, { destination, channel }, true);
       },
     });
-    const head = h("fieldset", { class: "head", "aria-label": `Mix ${mix + 1}` }, name, h("span", { class: "caption" }, "Outputs"), chips, add);
+    // Mono (P57): the app centres the mix's pans and restores them after; the device has no switch for it.
+    const mono = h(
+      "button",
+      { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, title: "Sum this mix to mono: pans every channel to centre, and restores the pans when turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },
+      "Mono",
+    );
+    this.watch(() => mono.setAttribute("aria-pressed", String(channels.isMono(mix))));
+    const head = h("fieldset", { class: "head", "aria-label": `Mix ${mix + 1}` }, name, mono, h("span", { class: "caption" }, "Outputs"), chips, add);
     const stripSlot = h("div", { class: "strip-slot" });
     this.root.replaceChildren(head, stripSlot);
 

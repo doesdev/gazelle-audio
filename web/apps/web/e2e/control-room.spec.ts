@@ -49,15 +49,26 @@ test("Studio+ trims include the ADC, and talkback sends set_talk, set_tbk_enable
   await page.getByTestId("trim-2").selectOption("3");
   await expect(lastSent(page)).toContainText(studio("set_trim", { 17: 2, 18: 3 }));
 
-  await page.getByTestId("talk").click();
+  // Talk is momentary: on while held, off on release (the user's choice).
+  const talk = page.getByTestId("talk");
+  await talk.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
   await expect(lastSent(page)).toContainText(studio("set_talk", { 17: 1 }));
-  await expect(page.getByTestId("talk")).toHaveAttribute("aria-pressed", "true");
+  await expect(talk).toHaveAttribute("aria-pressed", "true");
+  await talk.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+  await expect(lastSent(page)).toContainText(studio("set_talk", { 17: 0 }));
+  await expect(talk).toHaveAttribute("aria-pressed", "false");
+  await talk.focus();
+  await talk.press("Space");
+  await expect(lastSent(page)).toContainText(studio("set_talk", { 17: 0 }), { timeout: 1000 });
+
   await page.getByTestId("talk-to-1").click();
   await expect(lastSent(page)).toContainText(studio("set_tbk_enable", { 17: 1, 18: 1 }));
+  // The mic level is the talkback preamp's gain: 0..65 dB on the Studio+.
   const volume = page.getByTestId("talk-volume");
   await volume.focus();
   await volume.press("End");
-  await expect(lastSent(page)).toContainText(studio("set_tbk_vol", { 17: 255 }));
+  await expect(lastSent(page)).toContainText(studio("set_tbk_vol", { 17: 65 }));
+  await expect(volume).toHaveAttribute("aria-valuetext", "65 dB");
 });
 
 test("the right zone's monitor panel follows the page's device and shares state with the Outputs page", async ({ page }) => {
@@ -76,6 +87,9 @@ test("the right zone's monitor panel follows the page's device and shares state 
   await page.goto(`${server.url}/#/inputs/loopback-1`);
   await expect(panel(page)).toContainText("Zen Studio+");
   await expect(panel(page).getByTestId("cr-dim")).toHaveCount(0);
-  await panel(page).getByTestId("cr-talk").click();
-  await expect(page.getByTestId("last-sent")).toContainText("set_talk");
+  const crTalk = panel(page).getByTestId("cr-talk");
+  await crTalk.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+  await expect(crTalk).toHaveAttribute("aria-pressed", "true");
+  await crTalk.dispatchEvent("pointerleave", { pointerId: 1 });
+  await expect(crTalk).toHaveAttribute("aria-pressed", "false", { timeout: 2000 });
 });

@@ -5,7 +5,7 @@
 
 import { h } from "../core/dom.ts";
 import { formatVolume, VOLUME_MAX } from "../store/outputs.ts";
-import { bindControl } from "./controls.ts";
+import { bindControl, bindMomentary } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { route } from "./router.ts";
 
@@ -65,7 +65,8 @@ export class GaMonitor extends GaElement {
     bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: 30, get: () => state.peek().volume, set: (v) => outputs.setVolume(MONITOR, v), enabled });
     const mute = h("button", { type: "button", class: "mute", "data-testid": "cr-mute", "aria-label": "Monitor mute", "on:click": () => outputs.setMute(MONITOR, !state.peek().mute) }, "Mute");
     const dim = outputs.outputs[MONITOR]?.dim ? h("button", { type: "button", class: "dim", "data-testid": "cr-dim", "aria-label": "Monitor dim", "on:click": () => outputs.setDim(MONITOR, !state.peek().dim) }, "Dim") : undefined;
-    const talk = outputs.talkback === undefined ? undefined : h("button", { type: "button", class: "talk", "data-testid": "cr-talk", "aria-label": "Talkback", "on:click": () => outputs.setTalk(!outputs.talk.peek().on) }, "Talk");
+    const talk = outputs.talkback === undefined ? undefined : h("button", { type: "button", class: "talk", "data-testid": "cr-talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk" }, "Talk");
+    if (talk !== undefined) bindMomentary(talk, (on) => outputs.setTalk(on), enabled);
     const mono = h("span", { class: "mono", title: "The device reports the monitor in mono", hidden: true }, "MONO");
 
     this.root.replaceChildren(

@@ -10,7 +10,9 @@
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import type { DeviceMixer, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology } from "gazelle-audio-client";
+import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology } from "gazelle-audio-client";
+import { PAN_CENTRE } from "./mixer.ts";
+import type { MixerModel } from "./mixer.ts";
 import { PROFILES } from "./profiles.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
@@ -32,6 +34,8 @@ export interface ChannelsContext {
   saved: ReadonlySignal<readonly SavedLayout[]>;
   /** Changes the saved layouts; false when the workspace is not loaded. */
   editSaved(update: (layouts: SavedLayout[]) => SavedLayout[]): boolean;
+  /** One of the device's mixes, for mono. */
+  mixer(mix: number): Pick<MixerModel, "strip" | "sendPan">;
 }
 
 export const emptyLayout = (): DeviceMixer => ({ mixes: [], groups: [], channels: [] });
@@ -367,6 +371,40 @@ export class ChannelsModel {
       return { ...rest, id: this.#newId(), ...(renamed === undefined ? {} : { group: renamed }) };
     });
     return this.#startFrom({ mixes: structuredClone(saved.mixer.mixes), groups: saved.mixer.groups.map((g) => ({ ...g, id: groupIds.get(g.id) as string })), channels });
+  }
+
+  /** Whether a mix is summed to mono (decision P57). Reading it is reactive. */
+  isMono(mix: number): boolean {
+    this.#checkMix(mix);
+    return this.layout.value.mixes[mix]?.mono !== undefined;
+  }
+
+  /**
+   * Sums a mix to mono, or ends it. Neither model has a mono switch, so the app pans every channel
+   * in the mix to centre, keeping the pans in the workspace, and pans them back when mono ends. The
+   * device's panning law sets the level of what is summed, so no level is changed (the user's call).
+   */
+  setMono(mix: number, on: boolean): boolean {
+    this.#checkMix(mix);
+    const mixer = this.#context.mixer(mix);
+    const saved = this.layout.peek().mixes[mix]?.mono;
+    if (on === (saved !== undefined)) return true;
+    const slots = this.layout.peek().channels.map((c) => c.slot).sort((a, b) => a - b);
+    const editMix = (change: (config: MixConfig) => MixConfig) =>
+      this.#context.edit((layout) => {
+        const mixes = Array.from({ length: Math.max(layout.mixes.length, mix + 1) }, (_, i) => layout.mixes[i] ?? {});
+        mixes[mix] = change(mixes[mix] as MixConfig);
+        return { ...layout, mixes };
+      });
+    if (on) {
+      const pans = Object.fromEntries(slots.map((slot) => [String(slot), mixer.strip(slot).peek().pan]));
+      if (!editMix((config) => ({ ...config, mono: { pans } }))) return false;
+      for (const slot of slots) mixer.sendPan(slot, PAN_CENTRE);
+      return true;
+    }
+    if (!editMix(({ mono: _mono, ...config }) => config)) return false;
+    for (const [slot, pan] of Object.entries(saved?.pans ?? {}).sort(([a], [b]) => Number(a) - Number(b))) mixer.sendPan(Number(slot), pan);
+    return true;
   }
 
   removeSavedLayout(id: string): boolean {

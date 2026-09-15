@@ -65,6 +65,8 @@ export interface MixerGroup {
 
 export interface MixConfig {
   name?: string;
+  /** Present while the mix is summed to mono: its channels are centred, and these are the pans to restore, by mixer input slot. */
+  mono?: { pans: Record<string, number> };
 }
 
 /** A device's mixer as the user laid it out; the device keeps routing and levels. */

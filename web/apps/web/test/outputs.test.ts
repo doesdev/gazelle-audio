@@ -131,13 +131,17 @@ test("talkback is the Studio+'s: talk, mic level and where it goes; the Quadro h
   report("loopback-1", { talkback_on: 1, tb_mic_volume: 40, hp1_enabled: 1, hp2_enabled: 0, mon_enabled: 1 });
   assert.deepEqual(studio.talk.value, { known: true, on: true, volume: 40, to: [true, false, true] });
 
+  // The mic level is the talkback preamp's gain in dB: 0..65 on the Studio+ (the user, 2026-09-15).
+  assert.equal(studio.talkback?.gainMax, 65);
   studio.setTalk(false);
   studio.setTalkbackVolume(300);
+  studio.setTalkbackVolume(-3);
+  studio.setTalkbackVolume(24);
   studio.setTalkbackTo(1, true);
   await flush();
   assert.deepEqual(sent("loopback-1", "set_talk"), [{ on: 0 }]);
-  assert.deepEqual(sent("loopback-1", "set_tbk_vol"), [{ volume: 255 }]);
+  assert.deepEqual(sent("loopback-1", "set_tbk_vol"), [{ volume: 65 }, { volume: 0 }, { volume: 24 }]);
   assert.deepEqual(sent("loopback-1", "set_tbk_enable"), [{ id: 1, enabled: 1 }]);
-  assert.deepEqual(studio.talk.value, { known: true, on: false, volume: 255, to: [true, true, true] });
+  assert.deepEqual(studio.talk.value, { known: true, on: false, volume: 24, to: [true, true, true] });
   assert.throws(() => studio.setTalkbackTo(3, true), RangeError);
 });

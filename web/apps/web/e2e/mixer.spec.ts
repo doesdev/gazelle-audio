@@ -350,3 +350,28 @@ test("a set-up mixer can be saved as a layout, and an empty mixer offers saved l
   await page.getByTestId("profile-apply").click();
   await expect(page.getByTestId("name-6")).toHaveValue("Vox");
 });
+
+test("Mono on a mix master centres its channels' pans, keeps pan moves for later and restores them when turned off", async ({ page }) => {
+  const frames = recordFrames(page);
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const pan = page.getByTestId("pan-6");
+  await pan.focus();
+  await pan.press("Home");
+  const panSent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 7).map((f) => f.args?.["pan"]);
+  await expect.poll(() => panSent().at(-1)).toBe(2);
+
+  const mono = page.getByTestId("mix-mono-0");
+  await mono.click();
+  await expect(mono).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => panSent().at(-1)).toBe(32);
+  const count = panSent().length;
+  await pan.focus();
+  await pan.press("ArrowRight");
+  await expect(pan).toHaveAttribute("aria-valuetext", "-29");
+  expect(panSent().length).toBe(count);
+
+  await mono.click();
+  await expect(mono).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => panSent().at(-1)).toBe(3);
+});
