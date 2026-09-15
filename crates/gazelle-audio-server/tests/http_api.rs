@@ -93,6 +93,42 @@ async fn group_colours_round_trip_and_are_validated() {
     assert_eq!(body["groups"][0]["color"], "#b5473a", "a rejected save changes nothing");
 }
 
+/// Links are the workspace's, not the device's (decision P51): any two or more channels of one
+/// kind, on any devices, change together. `absolute` members take the same value; `relative`
+/// members keep their offsets. The server rejects links it cannot make sense of.
+#[tokio::test]
+async fn channel_links_round_trip_and_are_validated() {
+    let app = app();
+    let workspace = |links: Value| json!({"version": 1, "groups": [], "links": links, "aliases": {}, "mixers": {}});
+    let good = json!([
+        {"id": "l1", "kind": "preamp", "mode": "relative", "members": [{"device_id": "loopback-0", "channel": 0}, {"device_id": "loopback-1", "channel": 3}]},
+        {"id": "l2", "kind": "line", "members": [{"device_id": "loopback-1", "channel": 0}, {"device_id": "loopback-1", "channel": 1}, {"device_id": "loopback-1", "channel": 5}]}
+    ]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(good)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["links"][0]["mode"], "relative");
+    assert_eq!(body["links"][1]["mode"], "absolute", "mode defaults to absolute");
+    assert_eq!(body["links"][1]["members"].as_array().unwrap().len(), 3);
+
+    let member = |device: &str, channel: u32| json!({"device_id": device, "channel": channel});
+    let broken = [
+        ("unknown kind", json!([{"id": "a", "kind": "fader", "members": [member("loopback-0", 0), member("loopback-0", 1)]}])),
+        ("unknown mode", json!([{"id": "a", "kind": "preamp", "mode": "sideways", "members": [member("loopback-0", 0), member("loopback-0", 1)]}])),
+        ("one member", json!([{"id": "a", "kind": "adat", "members": [member("loopback-0", 0)]}])),
+        ("repeated member", json!([{"id": "a", "kind": "spdif", "members": [member("loopback-0", 0), member("loopback-0", 0)]}])),
+        ("repeated id", json!([{"id": "a", "kind": "mixer", "members": [member("loopback-0", 6), member("loopback-0", 7)]}, {"id": "a", "kind": "mixer", "members": [member("loopback-0", 8), member("loopback-0", 9)]}])),
+        ("channel in two links of a kind", json!([{"id": "a", "kind": "preamp", "members": [member("loopback-0", 0), member("loopback-0", 1)]}, {"id": "b", "kind": "preamp", "members": [member("loopback-0", 1), member("loopback-0", 2)]}])),
+    ];
+    for (why, links) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(links)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value", "{why}");
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["links"][0]["id"], "l1", "rejected saves change nothing");
+}
+
 /// Each device's mixer layout (plan 2026-09-16) lives in the workspace: mix names, channel groups,
 /// and channels in display order, each on one mixer input slot with an optional source, main mix
 /// and sends. The server rejects layouts the hardware cannot hold, leaving the stored one intact.

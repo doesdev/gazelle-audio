@@ -134,9 +134,23 @@ pub struct ChannelRef {
     pub channel: u32,
 }
 
-/// A link between two or more channels, which may span devices.
+/// Channels of one kind, on any devices, that change together (decision P51). Links belong to the
+/// workspace, not the device: a client sends each change to every member. `channel` in a member is
+/// the index within the kind (preamp, line, ADAT or S/PDIF input; mixer channels by input slot).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChannelLink {
     pub id: String,
+    /// One of [`LINK_KINDS`].
+    pub kind: String,
+    /// One of [`LINK_MODES`]: `absolute` members take the same value; `relative` members keep their offsets.
+    #[serde(default = "absolute_link")]
+    pub mode: String,
     pub members: Vec<ChannelRef>,
+}
+
+pub const LINK_KINDS: &[&str] = &["preamp", "line", "adat", "spdif", "mixer"];
+pub const LINK_MODES: &[&str] = &["absolute", "relative"];
+
+fn absolute_link() -> String {
+    "absolute".into()
 }

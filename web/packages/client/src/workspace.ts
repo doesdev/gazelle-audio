@@ -19,9 +19,17 @@ export interface Group {
   children: Group[];
 }
 
-/** A stereo or multi-channel link, possibly spanning devices. */
+/** What a link joins: preamps, a digital input kind, or mixer channels (by mixer input slot). */
+export type LinkKind = "preamp" | "line" | "adat" | "spdif" | "mixer";
+
+/**
+ * Channels of one kind, on any devices, that change together (decision P51). `absolute` members
+ * take the same value; `relative` members keep their offsets.
+ */
 export interface Link {
   id: string;
+  kind: LinkKind;
+  mode: "absolute" | "relative";
   members: ChannelRef[];
 }
 

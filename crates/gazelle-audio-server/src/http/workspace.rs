@@ -6,7 +6,7 @@ use axum::Json;
 use std::collections::HashSet;
 
 use crate::error::ServerError;
-use crate::workspace::model::{DeviceMixer, Group, Workspace, MIXER_COUNT, MIXER_SLOTS};
+use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Workspace, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS};
 use crate::AppState;
 
 pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspace>, ServerError> {
@@ -18,6 +18,7 @@ pub async fn put_workspace(
     Json(workspace): Json<Workspace>,
 ) -> Result<Json<Workspace>, ServerError> {
     check_colours(&workspace.groups)?;
+    check_links(&workspace.links)?;
     for (device, mixer) in &workspace.mixers {
         check_mixer(mixer).map_err(|m| ServerError::BadValue(format!("mixer for {device}: {m}")))?;
     }
@@ -27,6 +28,40 @@ pub async fn put_workspace(
 
 fn valid_colour(colour: &str) -> bool {
     colour.len() == 7 && colour.starts_with('#') && colour[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Links must name a known kind and mode, join at least two distinct channels, and not put a
+/// channel in two links of the same kind (a change could then not tell which link it follows).
+fn check_links(links: &[ChannelLink]) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    let mut taken = HashSet::new();
+    for link in links {
+        let id = &link.id;
+        let bad = |message: String| ServerError::BadValue(format!("link '{id}': {message}"));
+        if !ids.insert(id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        if !LINK_KINDS.contains(&link.kind.as_str()) {
+            return Err(bad(format!("kind must be one of {}, not {:?}", LINK_KINDS.join(", "), link.kind)));
+        }
+        if !LINK_MODES.contains(&link.mode.as_str()) {
+            return Err(bad(format!("mode must be one of {}, not {:?}", LINK_MODES.join(", "), link.mode)));
+        }
+        if link.members.len() < 2 {
+            return Err(bad("a link needs at least two channels".into()));
+        }
+        let mut own = HashSet::new();
+        for member in &link.members {
+            let key = format!("{}:{}", member.device_id, member.channel);
+            if !own.insert(key.clone()) {
+                return Err(bad(format!("{key} is listed twice")));
+            }
+            if !taken.insert(format!("{}|{key}", link.kind)) {
+                return Err(bad(format!("{key} is already in another {} link", link.kind)));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Every group colour, nested groups included, must be `#rrggbb`.
