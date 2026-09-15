@@ -3,7 +3,7 @@
 // from the device's reports; changes send set_volume, set_mute and set_dim (OutputsModel).
 
 import { h } from "../core/dom.ts";
-import { formatVolume, VOLUME_MAX, type OutputInfo, type OutputsModel } from "../store/outputs.ts";
+import { formatVolume, TALKBACK_VOLUME_MAX, TRIM_LABELS, VOLUME_MAX, type OutputInfo, type OutputsModel, type TrimInfo } from "../store/outputs.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
@@ -49,6 +49,16 @@ export class GaOutputs extends GaElement {
       .toggles button { min-width: 44px; font-size: 11px; font-weight: 700; }
       .mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
       .dim[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .mono { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-inverse); background: var(--ga-accent); }
+      h2 { margin: 8px 0 6px; }
+      .settings { display: grid; gap: 6px; max-width: 640px; }
+      .setting { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .setting select { justify-self: start; min-height: 24px; }
+      .talk[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
+      .destinations { display: flex; flex-wrap: wrap; gap: 4px; }
+      .destinations button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .note-inline { font-size: 11px; color: var(--ga-text-muted); }
       @media (max-width: 480px) {
         .output { grid-template-columns: 1fr auto; }
         .volume { grid-column: 1 / -1; grid-row: 2; }
@@ -77,7 +87,9 @@ export class GaOutputs extends GaElement {
     const note = h("p", { class: "note" });
     const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => this.#row(outputs, output, enabled)));
 
-    this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), note, rows);
+    const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
+    const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
+    this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), note, rows, trims, ...(talkback === undefined ? [] : [talkback]));
 
     this.watch(() => {
       const known = store.devices.value.filter((d) => d.family !== null);
@@ -116,6 +128,8 @@ export class GaOutputs extends GaElement {
     bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled });
     const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
     const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
+    // Mono is reported (Quadro) but has no command, so it is a badge, not a button.
+    const mono = h("span", { class: "mono", "data-testid": `out-mono-${output.id}`, title: "The device reports this output in mono", hidden: true }, "MONO");
 
     this.watch(() => {
       const s = state.value;
@@ -125,9 +139,58 @@ export class GaOutputs extends GaElement {
       volume.setAttribute("aria-valuetext", formatVolume(s.volume));
       mute.setAttribute("aria-pressed", String(s.mute));
       dim?.setAttribute("aria-pressed", String(s.dim));
+      mono.hidden = !s.mono;
     });
 
-    return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name" }, output.name), volume, h("div", { class: "toggles" }, mute, dim));
+    return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name-cell" }, h("span", { class: "name" }, output.name), mono), volume, h("div", { class: "toggles" }, mute, dim));
+  }
+
+  #trim(outputs: OutputsModel, trim: TrimInfo): HTMLElement {
+    const state = outputs.trim(trim.id);
+    const select = h(
+      "select",
+      { "aria-label": `${trim.name} trim`, "data-testid": `trim-${trim.id}`, "on:change": () => outputs.setTrim(trim.id, Number(select.value)) },
+      TRIM_LABELS.map((label, index) => h("option", { value: String(index) }, label)),
+    );
+    this.watch(() => {
+      // A report outside the seven steps (the loopback's test pattern) shows the nearest one, not a blank.
+      select.value = String(Math.min(TRIM_LABELS.length - 1, Math.max(0, state.value.index)));
+      select.disabled = !useStore().connected.value;
+    });
+    return h("div", { class: "setting" }, h("span", { class: "name" }, trim.name), select);
+  }
+
+  #talkback(outputs: OutputsModel, enabled: () => boolean): HTMLElement {
+    const talk = h("button", { type: "button", class: "talk", "data-control": "", "data-testid": "talk", "aria-label": "Talkback", "on:click": () => outputs.setTalk(!outputs.talk.peek().on) }, "Talk");
+    const fill = h("div", { class: "fill" });
+    const value = h("span", { class: "value" });
+    const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback mic level", "aria-valuemin": 0, "aria-valuemax": TALKBACK_VOLUME_MAX, "data-testid": "talk-volume" }, fill, value);
+    bindControl(volume, { axis: "x", min: 0, max: TALKBACK_VOLUME_MAX, up: 1, page: 16, reset: 0, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled });
+    const destinations = (outputs.talkback?.destinations ?? []).map((d) =>
+      h("button", { type: "button", "data-control": "", "data-testid": `talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
+    );
+    this.watch(() => {
+      const t = outputs.talk.value;
+      talk.setAttribute("aria-pressed", String(t.on));
+      fill.style.width = `${(t.volume / TALKBACK_VOLUME_MAX) * 100}%`;
+      value.textContent = String(t.volume);
+      volume.setAttribute("aria-valuenow", String(t.volume));
+      volume.setAttribute("aria-valuetext", String(t.volume));
+      for (const [i, button] of destinations.entries()) button.setAttribute("aria-pressed", String(t.to[i] ?? false));
+    });
+    return h(
+      "section",
+      {},
+      h("h2", {}, "Talkback"),
+      h(
+        "div",
+        { class: "settings" },
+        h("div", { class: "setting" }, h("span", { class: "name" }, "Talk"), h("div", { class: "toggles" }, talk)),
+        h("div", { class: "setting" }, h("span", { class: "name" }, "Mic level"), volume),
+        h("div", { class: "setting" }, h("span", { class: "name" }, "Send to"), h("div", { class: "destinations" }, destinations)),
+      ),
+      h("p", { class: "note-inline" }, "The mic level's unit was not recovered from the panel, so it shows the raw 0–255 value."),
+    );
   }
 }
 

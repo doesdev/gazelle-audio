@@ -1,5 +1,5 @@
 // <ga-app>: the shell. A header across the top; below it a devices zone on the left, the routed
-// page in the centre, and a right zone reserved for meters and the Control Room (a later phase);
+// page in the centre, and a right zone for meters and the Control Room monitor panel;
 // a lower zone is reserved for the mixer (phase 4). It applies the chosen theme to the document
 // and marks itself disconnected when the server goes away.
 
@@ -77,7 +77,7 @@ export class GaApp extends GaElement {
             "div",
             { class: "content" },
             h("ga-section", { heading: "Meter" }, h("p", { class: "placeholder" }, "The main output meter arrives with the mixer.")),
-            h("ga-section", { heading: "Control Room" }, h("p", { class: "placeholder" }, "Main level, dim, talkback and downmix presets arrive in a later phase.")),
+            h("ga-section", { heading: "Control Room" }, h("ga-control-room")),
           ),
         ),
       ),
