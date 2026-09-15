@@ -16,7 +16,7 @@
 pub mod correlation;
 pub mod framing;
 
-use crate::framing::{parse_send_segment, split_in_segments, Reassembly};
+use crate::framing::{parse_receive_segment, parse_send_segment, split_in_segments, Reassembly};
 use gazelle_audio_protocol::wire::{Header, WireError, HEADER_SIZE};
 use std::collections::VecDeque;
 use std::sync::mpsc;
@@ -255,6 +255,57 @@ impl Device for LoopbackDevice {
 
     fn poll_reports(&mut self) -> Vec<Report> {
         LoopbackDevice::poll(self)
+    }
+}
+
+/// The host's side of the receive path: raw packets read from a real device become reports.
+///
+/// The device sends messages longer than a packet as 8053 segments (see [`framing`]) and every
+/// other report whole, zero-padded to the packet size, so a whole report's contents keep that
+/// padding. Idle all-zero packets and malformed segments yield nothing, and a bad segment resets
+/// the reassembler so the next message still arrives. [`LoopbackDevice`] plays the device and
+/// reassembles the host's 8052 segments instead.
+#[derive(Debug, Default)]
+pub struct HostReceiver {
+    reasm: Reassembly,
+}
+
+impl HostReceiver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feeds one packet read from the device; returns a report when this packet completes one.
+    pub fn push(&mut self, packet: &[u8]) -> Option<Report> {
+        if packet.len() < HEADER_SIZE || packet.iter().all(|&b| b == 0) {
+            return None;
+        }
+        match parse_receive_segment(packet) {
+            Ok(seg) => {
+                let msg = match self.reasm.push(seg) {
+                    Ok(Some(msg)) => msg,
+                    Ok(None) | Err(_) => return None,
+                };
+                // `total_len` is device-controlled: a message shorter than a header is dropped.
+                let header = Header::from_bytes(&msg).ok()?;
+                Some(Report {
+                    header,
+                    contents: msg[HEADER_SIZE..].to_vec(),
+                })
+            }
+            // Not a segment: a whole report.
+            Err(WireError::FieldOverflow) => {
+                let header = Header::from_bytes(packet).ok()?;
+                Some(Report {
+                    header,
+                    contents: packet[HEADER_SIZE..].to_vec(),
+                })
+            }
+            Err(_) => {
+                self.reasm = Reassembly::Idle;
+                None
+            }
+        }
     }
 }
 

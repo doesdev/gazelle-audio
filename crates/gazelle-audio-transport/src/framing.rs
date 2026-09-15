@@ -22,6 +22,9 @@ use gazelle_audio_protocol::wire::{Header, WireError, HEADER_SIZE};
 /// Report id used for outgoing segments (the device reassembles these).
 pub const SEGMENT_SEND_ID: u32 = 8052;
 
+/// Report id the device uses for its own segments (the host reassembles these).
+pub const SEGMENT_RECEIVE_ID: u32 = 8053;
+
 /// A single reassembly fragment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Segment {
@@ -147,11 +150,20 @@ pub fn split_in_segments(data: &[u8], max_packet_size: usize) -> Vec<Segment> {
 /// the header, and `Err(WireError::FieldOverflow)` when the command id is not
 /// [`SEGMENT_SEND_ID`] (the caller should treat it as a non-segmented report).
 pub fn parse_send_segment(buf: &[u8]) -> Result<Segment, WireError> {
+    parse_segment(buf, SEGMENT_SEND_ID)
+}
+
+/// Parse a device-to-host 8053 segment, with the same rules and errors as [`parse_send_segment`].
+pub fn parse_receive_segment(buf: &[u8]) -> Result<Segment, WireError> {
+    parse_segment(buf, SEGMENT_RECEIVE_ID)
+}
+
+fn parse_segment(buf: &[u8], id: u32) -> Result<Segment, WireError> {
     if buf.len() < HEADER_SIZE {
         return Err(WireError::TruncatedHeader);
     }
     let header = Header::from_bytes(buf)?;
-    if header.cmd != SEGMENT_SEND_ID {
+    if header.cmd != id {
         return Err(WireError::FieldOverflow);
     }
     // `seq` carries chunk_len + HEADER_SIZE, so anything below HEADER_SIZE is malformed.
