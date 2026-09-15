@@ -68,8 +68,9 @@ export class GaMixer extends GaElement {
         flex: 1;
         gap: 2px;
         min-height: 0;
-        /* No right padding: the sticky masters sit flush with the edge, so no strip shows past them. */
-        padding: 4px 0 4px 4px;
+        /* No right padding: the sticky masters sit flush with the edge, so no strip shows past them.
+           The top padding holds group bands, reserved for every channel so faders stay level. */
+        padding: 28px 0 4px 4px;
         overflow-x: auto;
         overflow-y: hidden;
         border-radius: 3px;
@@ -78,6 +79,14 @@ export class GaMixer extends GaElement {
       /* Auto: channels share the row between the limits, and scroll once they reach the floor. Fixed: every channel is --strip-width. */
       .strips ga-channel { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
       .strips.fixed ga-channel { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
+      /* A group grows like its channels together: n channels' share, limits and gaps. */
+      ga-channel-group {
+        flex: var(--members) var(--members) 0;
+        min-width: calc(var(--members) * var(--strip-width-min) + (var(--members) - 1) * 2px);
+        max-width: calc(var(--members) * var(--strip-width-max) + (var(--members) - 1) * 2px);
+      }
+      .strips.fixed ga-channel-group { flex: 0 0 auto; min-width: 0; max-width: none; }
+      ga-channel-group[collapsed] { flex: 0 0 28px; min-width: 28px; max-width: 28px; }
       .add {
         flex: 0 0 36px;
         min-height: 0;
@@ -93,8 +102,8 @@ export class GaMixer extends GaElement {
         z-index: 1;
         display: flex;
         gap: 2px;
-        margin: -4px 0 -4px auto;
-        padding: 4px 4px 4px 6px;
+        margin: -28px 0 -4px auto;
+        padding: 28px 4px 4px 6px;
         background: var(--ga-surface-inset);
         box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);
       }
@@ -186,22 +195,55 @@ export class GaMixer extends GaElement {
     // Point the device's meters at the chosen mix.
     this.watch(() => store.mixer(deviceId, channels.meteredMix.value).activate());
 
-    // Channels in layout order, then "+", then the masters of the mixes in use.
+    // Channels in layout order (consecutive channels of one group inside a group element), then
+    // "+", then the masters of the mixes in use.
     const elements = new Map<string, HTMLElement>();
+    const groupElements = new Map<string, HTMLElement>();
+    let structure = "";
     let mastersKey = "";
     this.watch(() => {
-      const list = channels.layout.value.channels;
+      const layout = channels.layout.value;
+      const list = layout.channels;
       for (const id of [...elements.keys()]) if (!list.some((c) => c.id === id)) elements.delete(id);
-      const next = list.map((c) => {
-        let element = elements.get(c.id);
+      const channelElement = (id: string, slot: number) => {
+        let element = elements.get(id);
         if (element === undefined) {
-          element = h("ga-channel", { "device-id": deviceId, "channel-id": c.id, "data-channel-slot": String(c.slot) });
-          elements.set(c.id, element);
+          element = h("ga-channel", { "device-id": deviceId, "channel-id": id, "data-channel-slot": String(slot) });
+          elements.set(id, element);
         }
         return element;
-      });
-      const shown = [...strips.children].filter((e) => e.localName === "ga-channel");
-      if (shown.length !== next.length || next.some((element, i) => shown[i] !== element)) strips.replaceChildren(...next, add, masters);
+      };
+      const runs: { group: string | undefined; members: { id: string; slot: number }[] }[] = [];
+      for (const c of list) {
+        const group = c.group !== undefined && layout.groups.some((g) => g.id === c.group) ? c.group : undefined;
+        const last = runs.at(-1);
+        if (group !== undefined && last?.group === group) last.members.push({ id: c.id, slot: c.slot });
+        else runs.push({ group, members: [{ id: c.id, slot: c.slot }] });
+      }
+      const runsKey = runs.map((run) => `${run.group ?? "-"}:${run.members.map((m) => m.id).join(",")}`).join("|");
+      if (runsKey !== structure) {
+        structure = runsKey;
+        const seen = new Map<string, number>();
+        const kept = new Set<string>();
+        const children = runs.map((run) => {
+          if (run.group === undefined) return run.members.map((m) => channelElement(m.id, m.slot));
+          // A group split by moving a channel on its own gets one element per run.
+          const count = seen.get(run.group) ?? 0;
+          seen.set(run.group, count + 1);
+          const groupKey = `${run.group}#${count}`;
+          kept.add(groupKey);
+          let element = groupElements.get(groupKey);
+          if (element === undefined) {
+            element = h("ga-channel-group", { "device-id": deviceId, "group-id": run.group });
+            groupElements.set(groupKey, element);
+          }
+          element.style.setProperty("--members", String(run.members.length));
+          element.replaceChildren(...run.members.map((m) => channelElement(m.id, m.slot)));
+          return element;
+        });
+        for (const groupKey of [...groupElements.keys()]) if (!kept.has(groupKey)) groupElements.delete(groupKey);
+        strips.replaceChildren(...children.flat(), add, masters);
+      }
       add.disabled = list.length >= 32 - channels.firstSlot;
 
       const used = [...new Set(list.flatMap((c) => (channels.isActive(c) ? [c.main_mix as number, ...c.sends] : [])))].sort((a, b) => a - b);

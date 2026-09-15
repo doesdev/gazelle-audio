@@ -127,6 +127,34 @@ test("a channel routes only once it has an input and a main mix, then feeds its 
   assert.deepEqual(at(Q, MIX[3] as number, 6), [MUTE, 0], "clearing the input mutes what the channel fed");
 });
 
+test("a group's channels stay together: joining a group moves a channel after its last member; groups have a colour", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const [a, b, c, d] = [channels.add(), channels.add(), channels.add(), channels.add()] as string[];
+  const order = () => channels.layout.value.channels.map((x) => x.id);
+
+  const drums = channels.addGroup("Drums", [a as string]) as string;
+  assert.deepEqual(channels.channel(a as string)?.group, drums, "a new group can start with channels");
+  channels.setGroup(d as string, drums);
+  assert.deepEqual(order(), [a, d, b, c], "d joins right after the group's last member");
+  channels.setGroup(c as string, drums);
+  assert.deepEqual(order(), [a, d, c, b]);
+  channels.setGroup(d as string, undefined);
+  assert.deepEqual(order(), [a, c, d, b], "leaving a group moves a channel out after it, so the group stays contiguous");
+
+  assert.equal(channels.setGroupColor(drums, "#b5473a"), true);
+  assert.equal(channels.layout.value.groups[0]?.color, "#b5473a");
+  channels.setGroupColor(drums, undefined);
+  assert.equal("color" in (channels.layout.value.groups[0] ?? {}), false, "an unset colour is omitted");
+  assert.throws(() => channels.setGroupColor(drums, "red"), RangeError);
+
+  const keys = channels.addGroup("Keys") as string;
+  channels.setGroup(b as string, keys);
+  channels.move(b as string, 0);
+  assert.deepEqual(order(), [b, a, c, d], "moving a grouped channel alone is allowed; groups render by runs");
+  assert.equal(channels.groupOf(b as string)?.name, "Keys");
+});
+
 test("removing mutes every mix the channel fed; order, names, groups and mix names are saved in the workspace", async () => {
   const { client, store, at, timers } = await setup();
   const channels = store.channels(Q);

@@ -19,7 +19,8 @@ test.beforeAll(async () => {
     },
     "loopback-1": {
       mixes: [{ name: "Main" }, { name: "Artist" }],
-      channels: [channel("s1", "Kick", 0, 0, 0, 0, [1]), channel("s2", "Snare", 1, 0, 1, 0, [1]), channel("s3", "OH L", 2, 0, 2, 0), channel("s4", "OH R", 3, 0, 3, 0), channel("s5", "Bass", 4, 1, 0, 0, [1]), channel("s6", "Keys", 5, 4, 0, 0, [1]), channel("s7", "Tracks", 6, 3, 0, 0, [1]), channel("s8", "Talkback", 7, 0, 4, 1)],
+      groups: [{ id: "drums", name: "Drums", collapsed: false, color: "#b5473a" }],
+      channels: [{ ...channel("s1", "Kick", 0, 0, 0, 0, [1]), group: "drums" }, { ...channel("s2", "Snare", 1, 0, 1, 0, [1]), group: "drums" }, { ...channel("s3", "OH L", 2, 0, 2, 0), group: "drums" }, { ...channel("s4", "OH R", 3, 0, 3, 0), group: "drums" }, channel("s5", "Bass", 4, 1, 0, 0, [1]), channel("s6", "Keys", 5, 4, 0, 0, [1]), channel("s7", "Tracks", 6, 3, 0, 0, [1]), channel("s8", "Talkback", 7, 0, 4, 1)],
     },
   };
   const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers }) });

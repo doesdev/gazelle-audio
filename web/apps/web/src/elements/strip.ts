@@ -1,4 +1,4 @@
-// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [inactive] [meter="off"]>: one
+// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"]>: one
 // mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+), pan,
 // mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
 // readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
@@ -190,7 +190,9 @@ export class GaStrip extends GaElement {
       });
       this.watch(() => {
         const colours = Math.max(1, store.theme.value.palette.length);
-        this.style.setProperty("--strip-colour", `var(--ga-channel-palette-${Math.floor(id / 2) % colours})`);
+        // A group colour (the `color` attribute) wins over the theme palette.
+        const own = this.getAttribute("color");
+        this.style.setProperty("--strip-colour", own !== null && own !== "" ? own : `var(--ga-channel-palette-${Math.floor(id / 2) % colours})`);
       });
     }
 

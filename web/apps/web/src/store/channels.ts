@@ -10,7 +10,7 @@
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import type { DeviceMixer, MixerChannel, RouteSource, Topology } from "gazelle-audio-client";
+import type { DeviceMixer, MixerChannel, MixerGroup, RouteSource, Topology } from "gazelle-audio-client";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
 /** Quadro mixer inputs 1-6 carry the effect returns (vendor layout), so channels start after them. */
@@ -118,14 +118,41 @@ export class ChannelsModel {
     return this.#edit(id, (c) => ({ ...c, name }));
   }
 
+  /**
+   * Puts a channel in a group, or takes it out, keeping each group's channels together: joining
+   * places it after the group's last member, leaving places it after the group it left.
+   */
   setGroup(id: string, group: string | undefined): boolean {
     if (group !== undefined && !this.layout.peek().groups.some((g) => g.id === group)) throw new RangeError(`no group ${group}`);
-    return this.#edit(id, (c) => withOptional(c, "group", group));
+    const channel = this.#require(id);
+    return this.#context.edit((layout) => {
+      const at = layout.channels.findIndex((c) => c.id === id);
+      const rest = layout.channels.filter((c) => c.id !== id);
+      const anchor = group ?? channel.group;
+      let last = -1;
+      if (anchor !== undefined) for (let i = rest.length - 1; i >= 0 && last < 0; i--) if (rest[i]?.group === anchor) last = i;
+      rest.splice(last >= 0 ? last + 1 : at, 0, withOptional(channel, "group", group));
+      return { ...layout, channels: rest };
+    });
   }
 
-  addGroup(name: string): string | undefined {
+  groupOf(id: string): MixerGroup | undefined {
+    const group = this.channel(id)?.group;
+    return group === undefined ? undefined : this.layout.peek().groups.find((g) => g.id === group);
+  }
+
+  /** Adds a group, optionally starting with channels (which move together). */
+  addGroup(name: string, members: readonly string[] = []): string | undefined {
     const id = this.#newId("g");
-    return this.#context.edit((layout) => ({ ...layout, groups: [...layout.groups, { id, name, collapsed: false }] })) ? id : undefined;
+    if (!this.#context.edit((layout) => ({ ...layout, groups: [...layout.groups, { id, name, collapsed: false }] }))) return undefined;
+    for (const member of members) this.setGroup(member, id);
+    return id;
+  }
+
+  /** Colours a group (`#rrggbb`), or clears its colour. */
+  setGroupColor(id: string, color: string | undefined): boolean {
+    if (color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(color)) throw new RangeError(`a group colour is #rrggbb, not ${color}`);
+    return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? withOptional(g, "color", color) : g)) }));
   }
 
   renameGroup(id: string, name: string): boolean {

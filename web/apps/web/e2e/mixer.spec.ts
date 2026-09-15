@@ -155,6 +155,44 @@ test("channel heads are one height, so faders line up whatever the input and whe
   expect(Math.abs(preamp - inactive), "an inactive channel").toBeLessThanOrEqual(1);
 });
 
+test("groups: made from a channel's menu, joined, renamed, coloured, collapsed (remembered) and removed, with faders level", async ({ page }) => {
+  // Kick is set up, so its name bar takes the group colour; inactive channels keep their grey bar.
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }, { id: "b", name: "Bass", slot: 7, sends: [] }, { id: "c", name: "Snare", slot: 8, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const slots = () => page.locator("ga-channel").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")));
+  const group = page.locator("ga-channel-group");
+
+  await page.getByTestId("group-6").selectOption({ label: "New group…" });
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('ga-channel[data-channel-slot="6"]')).toHaveCount(1);
+  await page.getByTestId("group-8").selectOption({ label: "Group 1" });
+  await expect.poll(slots).toEqual(["6", "8", "7"]);
+  await expect(group.locator("ga-channel")).toHaveCount(2);
+
+  const top = async (slot: number) => (await page.getByTestId(`fader-${slot}`).boundingBox())?.y ?? -1;
+  expect(Math.abs((await top(6)) - (await top(7))), "a grouped and an ungrouped fader").toBeLessThanOrEqual(1);
+
+  const name = page.getByRole("textbox", { name: "Group name" });
+  await name.fill("Drums");
+  await name.press("Enter");
+  await expect(page.getByTestId("group-7").locator("option", { hasText: "Drums" })).toHaveCount(1);
+  await page.getByLabel("Drums colour").fill("#b5473a");
+  await expect.poll(() => page.locator('ga-channel[data-channel-slot="6"] ga-strip .name').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(181, 71, 58)");
+
+  await page.getByRole("button", { name: "Collapse group Drums" }).click();
+  await expect(page.locator('ga-channel[data-channel-slot="6"]')).toBeHidden();
+  await expect(page.locator('ga-channel[data-channel-slot="7"]')).toBeVisible();
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { groups: { collapsed: boolean }[] }> }).mixers["loopback-0"]?.groups[0]?.collapsed).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand group Drums" })).toBeVisible();
+  await expect(page.locator('ga-channel[data-channel-slot="8"]')).toBeHidden();
+
+  await page.getByRole("button", { name: "Expand group Drums" }).click();
+  await page.getByRole("button", { name: "Remove group Drums" }).click();
+  await expect(group).toHaveCount(0);
+  await expect.poll(slots).toEqual(["6", "8", "7"]);
+});
+
 test("dragging a channel's fader coalesces and ends on the final level", async ({ page }) => {
   const frames = recordFrames(page);
   await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 9, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });

@@ -2,6 +2,7 @@
 
 import { GaApp } from "./app.ts";
 import { GaChannel } from "./channel.ts";
+import { GaChannelGroup } from "./channel-group.ts";
 import { GaDeviceList } from "./device-list.ts";
 import { GaDeviceStatus } from "./device-status.ts";
 import { GaHeader } from "./header.ts";
@@ -23,6 +24,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-inputs", GaInputs],
   ["ga-strip", GaStrip],
   ["ga-channel", GaChannel],
+  ["ga-channel-group", GaChannelGroup],
   ["ga-mixer", GaMixer],
   ["ga-notices", GaNotices],
   ["ga-app", GaApp],
