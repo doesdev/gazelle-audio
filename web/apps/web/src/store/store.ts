@@ -14,6 +14,7 @@
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type Group, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { MixerModel } from "./mixer.ts";
+import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
 
 export type { MixerWidth, PanelState };
@@ -287,12 +288,43 @@ export class Store {
     return model;
   }
 
+  readonly #routings = new Map<string, RoutingModel>();
+
+  /** A device's routing model, created on first use; throws for a device of unknown model. */
+  routing(deviceId: string): RoutingModel {
+    const existing = this.#routings.get(deviceId);
+    if (existing !== undefined) return existing;
+    const topology = this.topology(deviceId);
+    if (topology === undefined) throw new Error(`${deviceId} has no known model, so no routing`);
+    const model = new RoutingModel({
+      deviceId,
+      topology,
+      read: (destination) => this.#readRouting(deviceId, destination),
+      // Not coalesced: the model already writes one group at a time, and a superseded write would read as a failure and roll back.
+      write: (destination, slots) => this.#invokeCommand(deviceId, "set_routing", { bank_idx: destination, bank_configs: slots.map((s) => new Uint8Array([s.source, s.channel])) }, {}),
+      notify: (text) => this.#notify("error", text),
+    });
+    this.#routings.set(deviceId, model);
+    return model;
+  }
+
+  /** `get_routing` for one destination group, named in the header's ext3. */
+  async #readRouting(deviceId: string, destination: number): Promise<RoutingRead> {
+    const device = this.#client.device(deviceId);
+    if (device.family === null) throw new Error(`${deviceId} has no known model`);
+    const invoke = device.invoke as unknown as (name: string, args: undefined, options: { ext3: number }) => Promise<{ dry_run: boolean; response: { bank_configs?: { in_periph_id: number; in_chann: number }[] } | null; response_error: string | null }>;
+    const result = await invoke("get_routing", undefined, { ext3: destination });
+    if (result.response_error !== null) throw new Error(result.response_error);
+    const slots = result.response?.bank_configs?.map((s) => ({ source: s.in_periph_id, channel: s.in_chann }));
+    return { slots, dryRun: result.dry_run };
+  }
+
   /** Sends a command; failures other than being superseded become notices. Resolves true when it was sent. */
-  async #invokeCommand(deviceId: string, command: string, args: Record<string, number>, options: { coalesce?: string }): Promise<boolean> {
+  async #invokeCommand(deviceId: string, command: string, args: Record<string, unknown>, options: { coalesce?: string }): Promise<boolean> {
     try {
       const device = this.#client.device(deviceId);
       if (device.family === null) throw new Error(`${deviceId} has no known model`);
-      const invoke = device.invoke as unknown as (name: string, args: Record<string, number>, options: { coalesce?: string }) => Promise<{ sent_hex: string; dry_run: boolean }>;
+      const invoke = device.invoke as unknown as (name: string, args: Record<string, unknown>, options: { coalesce?: string }) => Promise<{ sent_hex: string; dry_run: boolean }>;
       const result = await invoke(command, args, options);
       this.#lastSent.value = { deviceId, command, hex: result.sent_hex, dryRun: result.dry_run };
       return true;
