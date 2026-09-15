@@ -93,6 +93,53 @@ async fn group_colours_round_trip_and_are_validated() {
     assert_eq!(body["groups"][0]["color"], "#b5473a", "a rejected save changes nothing");
 }
 
+/// Each device's mixer layout (plan 2026-09-16) lives in the workspace: mix names, channel groups,
+/// and channels in display order, each on one mixer input slot with an optional source, main mix
+/// and sends. The server rejects layouts the hardware cannot hold, leaving the stored one intact.
+#[tokio::test]
+async fn mixer_layouts_round_trip_and_are_validated() {
+    let app = app();
+    let layout = json!({
+        "mixes": [{"name": "Cue A"}, {}],
+        "groups": [{"id": "drums", "name": "Drums", "color": "#b5473a"}],
+        "channels": [
+            {"id": "c1", "name": "Kick", "group": "drums", "slot": 6, "source": {"group": 0, "channel": 0}, "main_mix": 0, "sends": [1, 2]},
+            {"id": "c2", "name": "", "slot": 7}
+        ]
+    });
+    let workspace = |mixer: Value| json!({"version": 1, "groups": [], "links": [], "aliases": {}, "mixers": {"loopback-0": mixer}});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(layout.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    let stored = &body["mixers"]["loopback-0"];
+    assert_eq!(stored["channels"][0]["sends"], json!([1, 2]));
+    assert_eq!(stored["channels"][0]["source"], json!({"group": 0, "channel": 0}));
+    assert_eq!(stored["mixes"][0]["name"], "Cue A");
+    assert!(stored["channels"][1].get("source").is_none() && stored["channels"][1].get("main_mix").is_none(), "unset fields are omitted: {body}");
+
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["mixers"], json!({}), "a new workspace has no layouts");
+
+    let broken = [
+        ("duplicate slot", json!({"channels": [{"id": "a", "slot": 3}, {"id": "b", "slot": 3}]})),
+        ("slot outside 0..31", json!({"channels": [{"id": "a", "slot": 32}]})),
+        ("duplicate channel id", json!({"channels": [{"id": "a", "slot": 1}, {"id": "a", "slot": 2}]})),
+        ("main mix outside 0..3", json!({"channels": [{"id": "a", "slot": 1, "main_mix": 4}]})),
+        ("send to its own main mix", json!({"channels": [{"id": "a", "slot": 1, "main_mix": 1, "sends": [1]}]})),
+        ("repeated send", json!({"channels": [{"id": "a", "slot": 1, "sends": [2, 2]}]})),
+        ("unknown group", json!({"channels": [{"id": "a", "slot": 1, "group": "nope"}]})),
+        ("bad colour", json!({"groups": [{"id": "g", "name": "G", "color": "blue"}]})),
+        ("more than four mixes", json!({"mixes": [{}, {}, {}, {}, {}]})),
+    ];
+    for (why, mixer) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(mixer)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value", "{why}");
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["mixers"]["loopback-0"]["channels"][0]["name"], "Kick", "rejected saves change nothing");
+}
+
 /// User themes are JSON files in the themes directory: each is listed with its parsed theme,
 /// or with the reason it could not be used. A missing or unconfigured directory lists nothing.
 #[tokio::test]

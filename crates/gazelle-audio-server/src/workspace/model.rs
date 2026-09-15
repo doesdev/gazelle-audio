@@ -27,6 +27,10 @@ pub struct Workspace {
     /// Per-device user-assigned names.
     #[serde(default)]
     pub aliases: BTreeMap<DeviceId, String>,
+    /// Per-device mixer layouts the user builds (plan 2026-09-16). Additive, so version 1
+    /// documents without it load with none.
+    #[serde(default)]
+    pub mixers: BTreeMap<DeviceId, DeviceMixer>,
 }
 
 impl Default for Workspace {
@@ -36,8 +40,72 @@ impl Default for Workspace {
             groups: Vec::new(),
             links: Vec::new(),
             aliases: BTreeMap::new(),
+            mixers: BTreeMap::new(),
         }
     }
+}
+
+/// Mixers per device and mixer input slots per mix, in both supported families.
+pub const MIXER_COUNT: u32 = 4;
+pub const MIXER_SLOTS: u32 = 32;
+
+/// A device's mixer as the user laid it out. Routing and levels stay on the device; this holds
+/// what the device cannot: which channels exist, their order, names and groups, and mix names.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DeviceMixer {
+    /// Indexed by device mixer.
+    #[serde(default)]
+    pub mixes: Vec<MixConfig>,
+    #[serde(default)]
+    pub groups: Vec<MixerGroup>,
+    /// In display order.
+    #[serde(default)]
+    pub channels: Vec<MixerChannel>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MixConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MixerGroup {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub collapsed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// One user channel. It occupies one mixer input slot in every mix: routed to its source in its
+/// main mix and send mixes, muted in the others.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MixerChannel {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// A [`MixerGroup`] id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Mixer input slot, `0..MIXER_SLOTS`.
+    pub slot: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<RouteSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_mix: Option<u32>,
+    #[serde(default)]
+    pub sends: Vec<u32>,
+}
+
+/// A routing source: a group's position in the device's input group list, and a channel in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteSource {
+    pub group: u32,
+    pub channel: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

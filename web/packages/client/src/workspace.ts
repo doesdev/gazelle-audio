@@ -25,6 +25,49 @@ export interface Link {
   members: ChannelRef[];
 }
 
+/** A routing source: a group's position in the topology `inputs` and a channel in it. */
+export interface RouteSource {
+  group: number;
+  channel: number;
+}
+
+/** One mixer channel the user made. It occupies one mixer input slot in every mix. */
+export interface MixerChannel {
+  id: string;
+  name: string;
+  /** A `MixerGroup` id. */
+  group?: string;
+  color?: string;
+  /** Mixer input slot, 0..31: the strip in every mix. */
+  slot: number;
+  /** Unset until the user picks an input; the channel is inactive until then. */
+  source?: RouteSource;
+  /** The mix its fader controls; unset until chosen. */
+  main_mix?: number;
+  /** Other mixes it is also routed to. */
+  sends: number[];
+}
+
+export interface MixerGroup {
+  id: string;
+  name: string;
+  collapsed: boolean;
+  color?: string;
+}
+
+export interface MixConfig {
+  name?: string;
+}
+
+/** A device's mixer as the user laid it out; the device keeps routing and levels. */
+export interface DeviceMixer {
+  /** Indexed by device mixer. */
+  mixes: MixConfig[];
+  groups: MixerGroup[];
+  /** In display order. */
+  channels: MixerChannel[];
+}
+
 export interface Workspace {
   /** Schema version; 1 today. */
   version: number;
@@ -32,4 +75,6 @@ export interface Workspace {
   links: Link[];
   /** Device id → the name a user gave it. */
   aliases: Record<string, string>;
+  /** Device id → its mixer layout. */
+  mixers: Record<string, DeviceMixer>;
 }

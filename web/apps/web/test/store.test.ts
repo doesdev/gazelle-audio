@@ -86,6 +86,7 @@ test("group colours and collapse are edited in nested groups", async () => {
     version: 1,
     links: [],
     aliases: {},
+    mixers: {},
     groups: [{ id: "drums", name: "Drums", collapsed: false, hidden: false, members: [], children: [{ id: "kick", name: "Kick", collapsed: false, hidden: false, members: [], children: [] }] }],
   };
   const { timers, store } = setup(client);

@@ -296,7 +296,7 @@ test("close fails waiting calls and stops reconnecting", async () => {
 
 test("the workspace goes over HTTP, and failures become GazelleError", async () => {
   const calls: { url: string; init: unknown }[] = [];
-  const workspace: Workspace = { version: 1, groups: [], links: [], aliases: { "loopback-0": "Desk" } };
+  const workspace: Workspace = { version: 1, groups: [], links: [], aliases: { "loopback-0": "Desk" }, mixers: {} };
   let next: { ok: boolean; status: number; body: unknown } | Error = { ok: true, status: 200, body: workspace };
   const fetch: FetchLike = async (url, init) => {
     calls.push({ url, init });

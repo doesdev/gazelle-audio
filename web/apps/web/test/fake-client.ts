@@ -37,7 +37,7 @@ export class FakeClient implements Client {
   readonly invocations: Invocation[] = [];
   /** How an invoke settles; by default like a dry run that sent one byte. */
   respond: (call: Invocation) => Promise<unknown> = async (call) => ({ device_id: call.deviceId, command: call.command, sent_hex: "70", sent_len: 1, dry_run: true, response: null, response_error: null });
-  stored: Workspace = { version: 1, groups: [], links: [], aliases: {} };
+  stored: Workspace = { version: 1, groups: [], links: [], aliases: {}, mixers: {} };
   readonly puts: Workspace[] = [];
   failPuts: Error | undefined;
   userThemes: UserTheme[] = [];

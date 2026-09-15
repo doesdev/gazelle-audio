@@ -24,4 +24,4 @@ export { fromHex, toHex } from "./bytes.ts";
 export type { Bytes, CommandDescriptor, FamilySchema, FieldDescriptor, Scalar, Topology, TopologyGroup } from "./schema.ts";
 export { schemas, topologies } from "./generated/index.ts";
 export type { Family, FamilyTypes } from "./generated/index.ts";
-export type { ChannelRef, Group, Link, Workspace } from "./workspace.ts";
+export type { ChannelRef, DeviceMixer, Group, Link, MixConfig, MixerChannel, MixerGroup, RouteSource, Workspace } from "./workspace.ts";
