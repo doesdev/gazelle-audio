@@ -62,7 +62,7 @@ test("Quadro preamps send type, gain, a confirmed 48V and phase, with the panels
   await expect(page.getByTestId("adat-gain-0")).toHaveText("—", { timeout: 1000 });
 });
 
-test("linking a Quadro preamp pair sends set_stereo_link, locks the pair's type, and its gain changes go to both", async ({ page }) => {
+test("linking a Quadro preamp pair sends set_stereo_link, and its gain changes go to both", async ({ page }) => {
   const gains: number[] = [];
   page.on("websocket", (socket) =>
     socket.on("framesent", (event) => {
@@ -78,8 +78,6 @@ test("linking a Quadro preamp pair sends set_stereo_link, locks the pair's type,
   [bytes[17], bytes[18], bytes[19]] = [0, 1, 1];
   await expect(lastSent(page)).toContainText(`Dry run, would send set_stereo_link: ${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`);
   await expect(page.getByTestId("pre-link-1")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("pre-type-2-line")).toBeDisabled();
-  await expect(page.getByTestId("pre-type-0-line")).toBeEnabled();
 
   const gain = page.getByTestId("pre-gain-2");
   await gain.focus();

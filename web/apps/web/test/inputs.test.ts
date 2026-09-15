@@ -123,7 +123,7 @@ function answerLinks(client: FakeClient, pairs: Record<string, number[]>) {
   });
 }
 
-test("preamp links are read from the device and set per pair; a linked pair's type is locked", async () => {
+test("device preamp link flags are read and set per pair (which inputs change together is the workspace's)", async () => {
   const { client, store, sent } = setup();
   answerLinks(client, { "loopback-1": [0, 1, 0, 0, 0, 0] });
   const studio = store.inputs("loopback-1");
@@ -131,39 +131,13 @@ test("preamp links are read from the device and set per pair; a linked pair's ty
   assert.equal(studio.pairLinked(1).value, false, "unknown until read");
   assert.equal(await studio.loadLinks(), true);
   assert.deepEqual([0, 1, 2].map((p) => studio.pairLinked(p).value), [false, true, false]);
-  assert.equal(studio.linkedWith(2), 3, "preamp 3 is linked with preamp 4");
-  assert.equal(studio.linkedWith(0), undefined);
-  assert.throws(() => studio.setType(3, 1), /linked/, "a linked pair's type is locked, as both panels lock it");
+  studio.setType(3, 1);
 
   studio.setPairLinked(0, true);
   await flush();
   assert.deepEqual(sent("set_stereo_link"), [{ periph_id: 0, channel_id: 0, linked: 1 }]);
   assert.equal(studio.pairLinked(0).value, true);
   assert.throws(() => studio.setPairLinked(6, true), RangeError);
-});
-
-test("on the Quadro a linked preamp's gain, 48V and phase go to its partner too, as its panel does", async () => {
-  const { client, store, sent } = setup();
-  answerLinks(client, { "loopback-0": [0] });
-  const quadro = store.inputs("loopback-0");
-  assert.equal(quadro.pairCount, 2, "four preamps make two pairs, though its format reads back only the first");
-  await quadro.loadLinks();
-  quadro.setPairLinked(1, true);
-  quadro.setGain(2, 30);
-  quadro.setPhaseInvert(3, true);
-  quadro.setPhantom(2, true);
-  quadro.setGain(0, 12);
-  await flush();
-  assert.deepEqual(sent("set_pre_gain"), [{ id: 2, gain: 30 }, { id: 3, gain: 30 }, { id: 0, gain: 12 }]);
-  assert.deepEqual(sent("set_pre_phase_inv"), [{ id: 3, phase_inv: 1 }, { id: 2, phase_inv: 1 }]);
-  assert.deepEqual(sent("set_pre_phantom"), [{ id: 2, phantom: 1 }, { id: 3, phantom: 1 }]);
-  assert.equal(quadro.preamp(3).value.gain, 30);
-
-  const studio = store.inputs("loopback-1");
-  studio.setPairLinked(0, true);
-  studio.setGain(0, 20);
-  await flush();
-  assert.deepEqual(sent("set_pre_gain").slice(-2), [{ id: 0, gain: 20 }, { id: 1, gain: 20 }], "the Studio+ panel sends a linked input's change to its partner too (hardware session 1, lines)");
 });
 
 test("Studio+ digital inputs link in pairs like its panel: lines, ADAT and S/PDIF each read and set with their own peripheral id", async () => {
@@ -179,14 +153,8 @@ test("Studio+ digital inputs link in pairs like its panel: lines, ADAT and S/PDI
 
   studio.setDigitalPairLinked("line", 2, true);
   studio.setDigitalPairLinked("spdif", 0, true);
-  studio.setDigitalGain("line", 4, 3);
   await flush();
   assert.deepEqual(sent("set_stereo_link"), [{ periph_id: 1, channel_id: 2, linked: 1 }, { periph_id: 3, channel_id: 0, linked: 1 }]);
-  assert.deepEqual(sent("set_line_gain"), [{ id: 4, gain: 3 }, { id: 5, gain: 3 }], "a linked line's gain goes to its partner too, as the Studio+ panel sends it (hardware session 1)");
-  studio.setDigitalPairLinked("line", 2, false);
-  studio.setDigitalGain("line", 4, 1);
-  await flush();
-  assert.deepEqual(sent("set_line_gain").slice(-1), [{ id: 4, gain: 1 }], "unlinked, only the one");
   assert.throws(() => studio.setDigitalPairLinked("adat", 8, true), RangeError);
 
   const quadro = store.inputs("loopback-0");

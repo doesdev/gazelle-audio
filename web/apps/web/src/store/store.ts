@@ -11,10 +11,11 @@
 // - Themes: built-in and community sources from the app, user themes from the server; the pick
 //   is remembered per browser.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type DeviceMixer, type Group, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { InputsModel } from "./inputs.ts";
+import { LinksModel } from "./links.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
@@ -24,7 +25,7 @@ export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
 export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { DeviceDescriptor, DeviceMixer, Group, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
+export type { DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
 
 /** The most recent command the mixer sent, with the bytes the server reported. */
 export interface SentCommand {
@@ -312,6 +313,23 @@ export class Store {
     return model;
   }
 
+  /** Workspace channel links (decision P51). */
+  readonly links: LinksModel = new LinksModel({
+    links: computed(() => this.#workspace.value?.links ?? []),
+    edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, links: update([...workspace.links]) })),
+    inputs: (deviceId) => this.#knownInputs(deviceId),
+  });
+
+  #knownInputs(deviceId: string): InputsModel | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    return family === undefined || family === null ? undefined : this.inputs(deviceId);
+  }
+
+  /** Shows an error notice, for a page that refused a change and must say why. */
+  reportError(text: string): void {
+    this.#notify("error", text);
+  }
+
   readonly #inputs = new Map<string, InputsModel>();
 
   /** A device's hardware inputs, created on first use; throws for a device of unknown model. */
@@ -326,6 +344,11 @@ export class Store {
       topology: topologies[family],
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
       read: (command, ext3) => this.#readCommand(deviceId, command, ext3),
+      peers: (kind, index) =>
+        this.links.peers(kind, deviceId, index).flatMap((peer) => {
+          const model = this.#knownInputs(peer.deviceId);
+          return model === undefined ? [] : [{ model, index: peer.channel, mode: peer.mode }];
+        }),
       field: (name) => this.field(deviceId, "0x73", name),
       watch: () => this.watchReport(deviceId, "0x73"),
       timers: this.#timers,

@@ -45,6 +45,9 @@ export interface PreampState {
 
 export type DigitalKind = "line" | "adat" | "spdif";
 
+/** The input kinds a workspace link can join. */
+export type InputLinkKind = "preamp" | DigitalKind;
+
 export interface DigitalGroup {
   kind: DigitalKind;
   label: string;
@@ -74,6 +77,8 @@ export interface InputsContext {
   invoke(command: string, args: Record<string, number>, options: { coalesce?: string }): Promise<boolean>;
   /** Reads a command's reply; `response` is null in dry run or when it failed (which the store reports). */
   read(command: string, ext3?: number): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+  /** The other members of this input's workspace link, if it is in one (LinksModel, decision P51). */
+  peers(kind: InputLinkKind, index: number): readonly { model: InputsModel; index: number; mode: "absolute" | "relative" }[];
   field(name: string): ReadonlySignal<unknown>;
   watch(): () => void;
   timers: InputsTimers;
@@ -154,13 +159,6 @@ export class InputsModel {
     return this.#pair(pair);
   }
 
-  /** The preamp this one is linked with, if its pair is linked. */
-  linkedWith(index: number): number | undefined {
-    this.#checkPreamp(index);
-    const partner = index % 2 === 0 ? index + 1 : index - 1;
-    return partner < this.preampCount && this.#links[Math.floor(index / 2)]?.peek() === true ? partner : undefined;
-  }
-
   /**
    * Reads which preamp pairs are linked. The Quadro's bundled format reads back only its first
    * pair; later pairs keep what was last set. Resolves false when nothing was read.
@@ -186,7 +184,7 @@ export class InputsModel {
     return this.#digitalPair(kind, pair);
   }
 
-  /** Links or unlinks a digital pair; while linked, `setDigitalGain` sends each change to both inputs. */
+  /** Sets a digital pair's device link flag. Which inputs change together is the workspace's (LinksModel). */
   setDigitalPairLinked(kind: DigitalKind, pair: number, on: boolean): void {
     this.#digitalPair(kind, pair).value = on;
     this.#send("set_stereo_link", { periph_id: DIGITAL_LINK_PERIPH[kind], channel_id: pair, linked: on ? 1 : 0 }, `${kind}_link:${pair}`);
@@ -200,56 +198,57 @@ export class InputsModel {
     return link;
   }
 
+  /** Sets a preamp pair's device link flag. Which inputs change together is the workspace's (LinksModel). */
   setPairLinked(pair: number, on: boolean): void {
     this.#pair(pair).value = on;
     this.#send("set_stereo_link", { periph_id: PREAMP_LINK_PERIPH, channel_id: pair, linked: on ? 1 : 0 }, `pre_link:${pair}`);
   }
 
-  setType(index: number, type: PreampType): void {
+  // Each setter changes this input and then, unless `follow` is false, the other members of its
+  // workspace link (on any device): the same value, or for relative links the same step from each
+  // member's own value, within that member's range. Both vendor panels send a linked input's changes
+  // to its partner the same way (Quadro bytecode; Studio+ in hardware session 1).
+
+  /** Sets a preamp's type, and its link's members'; when any of them has no Hi-Z, none changes. */
+  setType(index: number, type: PreampType, follow = true): void {
     this.#checkPreamp(index);
     if (!(type in GAIN_RANGE)) throw new RangeError(`no preamp type ${type}`);
-    if (this.linkedWith(index) !== undefined) throw new Error(`preamp ${index + 1} is linked; unlink the pair to change its type`);
-    if (type === 2 && index >= this.hizCount) throw new RangeError(`preamp ${index + 1} has no Hi-Z input (only 1..${this.hizCount})`);
+    const peers = follow ? this.#context.peers("preamp", index) : [];
+    for (const target of [{ model: this as InputsModel, index }, ...peers]) {
+      if (type === 2 && target.index >= target.model.hizCount) {
+        throw new RangeError(`preamp ${target.index + 1}${target.model === this ? "" : ` on ${target.model.deviceId}`} has no Hi-Z input (only 1..${target.model.hizCount})`);
+      }
+    }
     this.#change(`pre:${index}:type`, type, "preamps");
     this.#send("set_pre_type", { id: index, pretype: type }, `pre_type:${index}`);
+    for (const peer of peers) peer.model.setType(peer.index, type, false);
   }
 
-  setGain(index: number, gain: number): void {
+  setGain(index: number, gain: number, follow = true): void {
     const state = this.preamp(index).peek();
     const value = clamp(gain, GAIN_RANGE[state.type as PreampType] ?? GAIN_RANGE[0]);
-    for (const target of this.#targets(index)) {
-      this.#change(`pre:${target}:gain`, value, "preamp_gains");
-      this.#send("set_pre_gain", { id: target, gain: value }, `pre_gain:${target}`);
+    this.#change(`pre:${index}:gain`, value, "preamp_gains");
+    this.#send("set_pre_gain", { id: index, gain: value }, `pre_gain:${index}`);
+    if (!follow) return;
+    for (const peer of this.#context.peers("preamp", index)) {
+      peer.model.setGain(peer.index, peer.mode === "relative" ? peer.model.preamp(peer.index).peek().gain + (value - state.gain) : value, false);
     }
   }
 
-  /** Turns 48V on or off; returns false, sending nothing, when turning it on outside Mic. */
-  setPhantom(index: number, on: boolean): boolean {
+  /** Turns 48V on or off; returns false, sending nothing, when turning it on outside Mic. Members not on Mic are left off. */
+  setPhantom(index: number, on: boolean, follow = true): boolean {
     if (on && this.preamp(index).peek().type !== 0) return false;
-    for (const target of this.#targets(index)) {
-      if (on && this.preamp(target).peek().type !== 0) continue;
-      this.#change(`pre:${target}:phantom`, on ? 1 : 0, "preamps");
-      this.#send("set_pre_phantom", { id: target, phantom: on ? 1 : 0 }, `pre_phantom:${target}`);
-    }
+    this.#change(`pre:${index}:phantom`, on ? 1 : 0, "preamps");
+    this.#send("set_pre_phantom", { id: index, phantom: on ? 1 : 0 }, `pre_phantom:${index}`);
+    if (follow) for (const peer of this.#context.peers("preamp", index)) peer.model.setPhantom(peer.index, on, false);
     return true;
   }
 
-  setPhaseInvert(index: number, on: boolean): void {
+  setPhaseInvert(index: number, on: boolean, follow = true): void {
     this.#checkPreamp(index);
-    for (const target of this.#targets(index)) {
-      this.#change(`pre:${target}:phase`, on ? 1 : 0, "preamps");
-      this.#send(this.family === "quadro" ? "set_pre_phase_inv" : "set_pre_phaseinv", { id: target, phase_inv: on ? 1 : 0 }, `pre_phase:${target}`);
-    }
-  }
-
-  /**
-   * The preamps a change goes to: this one, then its linked partner. Both panels send each change
-   * to both inputs of a linked pair: the Quadro's in its bytecode, the Studio+ in hardware session 1
-   * (linked line gains; its preamps take the same path).
-   */
-  #targets(index: number): number[] {
-    const partner = this.linkedWith(index);
-    return partner === undefined ? [index] : [index, partner];
+    this.#change(`pre:${index}:phase`, on ? 1 : 0, "preamps");
+    this.#send(this.family === "quadro" ? "set_pre_phase_inv" : "set_pre_phaseinv", { id: index, phase_inv: on ? 1 : 0 }, `pre_phase:${index}`);
+    if (follow) for (const peer of this.#context.peers("preamp", index)) peer.model.setPhaseInvert(peer.index, on, false);
   }
 
   #pair(pair: number): Signal<boolean> {
@@ -276,16 +275,16 @@ export class InputsModel {
     return gain;
   }
 
-  setDigitalGain(kind: DigitalKind, index: number, gain: number): void {
+  setDigitalGain(kind: DigitalKind, index: number, gain: number, follow = true): void {
     const group = this.#checkDigital(kind, index);
     if (!group.editable) throw new Error(`the ${this.family} panel does not set ${group.label} gain, so neither does this page`);
+    const before = this.digitalGain(kind, index).peek() ?? 0;
     const value = clamp(gain, DIGITAL_GAIN);
-    // A linked pair's gain goes to both inputs, as the Studio+ panel sends it (hardware session 1).
-    const partner = index % 2 === 0 ? index + 1 : index - 1;
-    const linked = Math.floor(index / 2) < group.linkPairs && partner < group.count && this.#digitalPair(kind, Math.floor(index / 2)).peek();
-    for (const target of linked ? [index, partner] : [index]) {
-      this.#change(`dig:${kind}:${target}`, value, `${kind}_gains`);
-      this.#send(`set_${kind}_gain`, { id: target, gain: value }, `${kind}_gain:${target}`);
+    this.#change(`dig:${kind}:${index}`, value, `${kind}_gains`);
+    this.#send(`set_${kind}_gain`, { id: index, gain: value }, `${kind}_gain:${index}`);
+    if (!follow) return;
+    for (const peer of this.#context.peers(kind, index)) {
+      peer.model.setDigitalGain(kind, peer.index, peer.mode === "relative" ? (peer.model.digitalGain(kind, peer.index).peek() ?? 0) + (value - before) : value, false);
     }
   }
 
