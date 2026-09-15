@@ -197,13 +197,28 @@ fn one_running_probe_at_a_time_and_abandon() {
     assert_eq!(probe(&c).probe_id, "p2");
 }
 
+/// A capture file with no `ProbeStarted` mark is left by a crash mid-start. It is never
+/// overwritten: it is moved aside as `pN.orphan-<wall ns>.pcapng`, kept as evidence, and the probe
+/// starts (the user's choice, 2026-09-15). A file whose probe did start can't be reached here,
+/// since started ids are never planned again, and `create_capture` still refuses to overwrite.
 #[test]
-fn a_probe_never_reuses_a_capture_file() {
+fn an_unmarked_leftover_capture_is_moved_aside_and_the_probe_starts() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = setup(dir.path());
     c.plan_probe(plan(), 1).unwrap();
     std::fs::write(dir.path().join("captures/p1.pcapng"), b"old").unwrap();
-    assert!(matches!(c.start_probe("p1", source().0), Err(ControlError::Session(SessionError::CaptureExists(_)))));
+    c.start_probe("p1", source().0).unwrap();
+    assert_eq!(probe(&c).probe_id, "p1");
+
+    let aside: Vec<_> = std::fs::read_dir(dir.path().join("captures"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("p1.orphan-"))
+        .collect();
+    assert_eq!(aside.len(), 1, "one leftover moved aside: {aside:?}");
+    assert_eq!(aside[0].file_name().unwrap().to_string_lossy(), format!("p1.orphan-{T0}.pcapng"));
+    assert_eq!(std::fs::read(&aside[0]).unwrap(), b"old", "the leftover is kept as it was");
+    assert_ne!(std::fs::read(dir.path().join("captures/p1.pcapng")).unwrap(), b"old", "the new capture is a fresh file");
 }
 
 #[test]
@@ -386,8 +401,10 @@ fn a_failed_create_capture_leaves_no_probe_started_mark_or_skipped_id() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = setup(dir.path());
     c.plan_probe(plan(), 1).unwrap();
-    std::fs::write(dir.path().join("captures/p1.pcapng"), b"old").unwrap();
-    assert!(matches!(c.start_probe("p1", source().0), Err(ControlError::Session(SessionError::CaptureExists(_)))));
+    // An obstacle `create_capture` can't get past: `captures` is a file, not a directory.
+    std::fs::remove_dir_all(dir.path().join("captures")).unwrap();
+    std::fs::write(dir.path().join("captures"), b"not a directory").unwrap();
+    assert!(matches!(c.start_probe("p1", source().0), Err(ControlError::Session(_))));
 
     let store = SessionStore::open(dir.path()).unwrap();
     assert!(store.marks().unwrap().is_empty(), "no marks should have been written for the failed attempt");
@@ -397,7 +414,8 @@ fn a_failed_create_capture_leaves_no_probe_started_mark_or_skipped_id() {
     assert_eq!(p2.probe_id, "p2");
 
     // Once the obstacle is gone, retrying "p1" succeeds and records exactly one ProbeStarted.
-    std::fs::remove_file(dir.path().join("captures/p1.pcapng")).unwrap();
+    std::fs::remove_file(dir.path().join("captures")).unwrap();
+    std::fs::create_dir(dir.path().join("captures")).unwrap();
     c.start_probe("p1", source().0).unwrap();
     let started = store
         .marks()

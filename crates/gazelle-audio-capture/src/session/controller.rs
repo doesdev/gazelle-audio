@@ -11,7 +11,7 @@ use tokio::sync::watch;
 
 use super::authority::OperatorAuthority;
 use super::clock::Clock;
-use super::marks::{Mark, PacketClock};
+use super::marks::{Mark, MarkKind, PacketClock};
 use super::model::{Parameter, PlanError, ProbePlan};
 use super::plan::{expand, StepKind, StepSpec};
 use super::step::{OperatorCommand, ProbeRun, RunStatus, StepError, StepState, StepTiming};
@@ -229,6 +229,7 @@ impl Controller {
             return Err(ControlError::ProbeRunning);
         }
         let (plan, seed) = inner.planned.get(probe_id).cloned().ok_or_else(|| ControlError::UnknownProbe(probe_id.into()))?;
+        set_aside_unmarked_capture(&inner, probe_id)?;
         let info = inner.store.info()?;
         let stream = source.start()?;
         let file = match inner.store.create_capture(probe_id) {
@@ -381,6 +382,25 @@ impl Controller {
 }
 
 /// Stops the source, waits for the writer to flush, records the device descriptor.
+/// A capture file for a probe that has no `ProbeStarted` mark was left by a crash between
+/// `create_capture` and the marks append. It is kept as evidence under `pN.orphan-<wall ns>.pcapng`
+/// so the probe can start (the user's choice, 2026-09-15). A probe that did start keeps its file:
+/// `create_capture` still refuses to overwrite it.
+fn set_aside_unmarked_capture(inner: &Inner, probe_id: &str) -> Result<(), ControlError> {
+    let capture = inner.store.capture_path(probe_id);
+    if !capture.exists() {
+        return Ok(());
+    }
+    let started = inner.store.marks()?.iter().any(|m| m.probe == probe_id && matches!(m.kind, MarkKind::ProbeStarted { .. }));
+    if started {
+        return Ok(());
+    }
+    let aside = capture.with_file_name(format!("{probe_id}.orphan-{}.pcapng", inner.clock.now_ns()));
+    std::fs::rename(&capture, &aside).map_err(SessionError::from)?;
+    tracing::warn!(from = %capture.display(), to = %aside.display(), "moved aside a capture file with no ProbeStarted mark");
+    Ok(())
+}
+
 fn finish_capture(inner: &mut Inner) -> Result<(), ControlError> {
     let Some(active) = inner.active.as_mut() else {
         return Ok(());
