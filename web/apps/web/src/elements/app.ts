@@ -59,7 +59,7 @@ export class GaApp extends GaElement {
           h("ga-section", { heading: "Control Room" }, h("p", { class: "placeholder" }, "Main level, dim, talkback and downmix presets arrive in a later phase.")),
         ),
       ),
-      h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Channel strips, faders and meters arrive in phase 4."))),
+      h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Open the Mixer page for channel strips, faders and meters. A compact mixer here comes later."))),
       h("ga-notices"),
     );
 
@@ -75,7 +75,8 @@ export class GaApp extends GaElement {
     });
     this.watch(() => {
       const current = route.value;
-      const first = current.page === "devices" && current.id === undefined ? store.devices.value[0]?.id : undefined;
+      // Without a device in the address, a page shows the first device it can (for the mixer, the first of known model).
+      const first = current.id === undefined && (current.page === "devices" || current.page === "mixer") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
       title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
       page.replaceChildren(pageFor(current, first));
     });
@@ -90,8 +91,10 @@ function pageFor(current: Route, firstDeviceId: string | undefined): HTMLElement
     }
     case "workspace":
       return h("ga-workspace");
-    case "mixer":
-      return h("p", { class: "placeholder" }, "Channel strips, faders and meters arrive in phase 4.");
+    case "mixer": {
+      const id = current.id ?? firstDeviceId;
+      return id === undefined ? h("p", { class: "placeholder" }, "No device with a known mixer is connected.") : h("ga-mixer", { "device-id": id, mixer: current.sub ?? "0" });
+    }
     case "routing":
       return h("p", { class: "placeholder" }, "The routing matrix arrives in phase 5.");
   }

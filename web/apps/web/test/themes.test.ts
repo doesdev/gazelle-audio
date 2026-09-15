@@ -128,4 +128,6 @@ test("a theme becomes CSS custom properties with a dB-placed meter gradient", ()
     meterGradient([{ at: -60, color: "#000" }, { at: -18, color: "#0f0" }, { at: -6, color: "#ff0" }, { at: 6, color: "#f00" }]),
     "linear-gradient(to top, #000 0%, #0f0 70%, #ff0 90%, #f00 100%)",
   );
+  const halfway = (db: number) => (db < -20 ? 10 : 60);
+  assert.equal(meterGradient([{ at: -40, color: "#000" }, { at: -6, color: "#fff" }], undefined, "to top", halfway), "linear-gradient(to top, #000 10%, #fff 60%)", "a non-linear scale places the stops");
 });

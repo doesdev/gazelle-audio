@@ -27,5 +27,13 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
     await page.goto(`${server.url}/#/workspace`);
     await expect(page.locator("ga-workspace input").first()).toBeVisible();
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-workspace.png` });
+    for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
+      await page.goto(`${server.url}/#/mixer/${device}/0`);
+      const fader = page.getByTestId("fader-2");
+      await fader.focus();
+      for (let i = 0; i < 2; i++) await fader.press("PageDown");
+      await expect(page.locator('ga-strip[strip="0"] .readout').nth(1)).not.toHaveText("—");
+      await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
+    }
   });
 }

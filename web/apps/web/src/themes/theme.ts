@@ -253,10 +253,15 @@ export function cssVariable(key: string): string {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/** A CSS gradient with each stop placed at its dB position on the meter's scale. */
-export function meterGradient(stops: readonly MeterStop[], range: { min: number; max: number } = METER_RANGE, direction = "to top"): string {
+/**
+ * A CSS gradient with each stop placed at its dB position on the meter's scale: linear over
+ * `range` by default, or wherever `position` (dBFS → 0..100) puts it, for meters whose scale is
+ * not linear.
+ */
+export function meterGradient(stops: readonly MeterStop[], range: { min: number; max: number } = METER_RANGE, direction = "to top", position?: (db: number) => number): string {
   const span = range.max - range.min;
-  const parts = stops.map((stop) => `${stop.color} ${round(Math.min(100, Math.max(0, ((stop.at - range.min) / span) * 100)))}%`);
+  const place = position ?? ((db: number) => ((db - range.min) / span) * 100);
+  const parts = stops.map((stop) => `${stop.color} ${round(Math.min(100, Math.max(0, place(stop.at))))}%`);
   return `linear-gradient(${direction}, ${parts.join(", ")})`;
 }
 
