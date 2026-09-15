@@ -31,7 +31,23 @@ pub struct Workspace {
     /// documents without it load with none.
     #[serde(default)]
     pub mixers: BTreeMap<DeviceId, DeviceMixer>,
+    /// Mixer layouts the user saved, per device model (decision P56). Additive like `mixers`.
+    #[serde(default)]
+    pub layouts: Vec<SavedLayout>,
 }
+
+/// A mixer layout saved by name, which any device of `family` can start from.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SavedLayout {
+    pub id: String,
+    pub name: String,
+    /// One of [`LAYOUT_FAMILIES`].
+    pub family: String,
+    #[serde(default)]
+    pub mixer: DeviceMixer,
+}
+
+pub const LAYOUT_FAMILIES: &[&str] = &["quadro", "studio"];
 
 impl Default for Workspace {
     fn default() -> Self {
@@ -41,6 +57,7 @@ impl Default for Workspace {
             links: Vec::new(),
             aliases: BTreeMap::new(),
             mixers: BTreeMap::new(),
+            layouts: Vec::new(),
         }
     }
 }

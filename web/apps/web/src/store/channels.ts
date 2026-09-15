@@ -10,7 +10,7 @@
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import type { DeviceMixer, MixerChannel, MixerGroup, RouteSource, Topology } from "gazelle-audio-client";
+import type { DeviceMixer, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology } from "gazelle-audio-client";
 import { PROFILES } from "./profiles.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
@@ -28,6 +28,10 @@ export interface ChannelsContext {
   edit(update: (layout: DeviceMixer) => DeviceMixer): boolean;
   routing: Pick<RoutingModel, "route" | "load" | "destination" | "mute">;
   notify(text: string): void;
+  /** Every saved layout in the workspace, of any model. */
+  saved: ReadonlySignal<readonly SavedLayout[]>;
+  /** Changes the saved layouts; false when the workspace is not loaded. */
+  editSaved(update: (layouts: SavedLayout[]) => SavedLayout[]): boolean;
 }
 
 export const emptyLayout = (): DeviceMixer => ({ mixes: [], groups: [], channels: [] });
@@ -330,15 +334,52 @@ export class ChannelsModel {
   async applyProfile(id: string): Promise<boolean> {
     const profile = PROFILES[this.#context.family].find((p) => p.id === id);
     if (profile === undefined) throw new RangeError(`the ${this.#context.family} has no starting layout ${id}`);
-    if (this.layout.peek().channels.some((c) => this.isActive(c))) throw new Error("a starting layout only replaces a mixer with no channel set up");
     const channels: MixerChannel[] = profile.channels.map((c, i) => {
       const group = this.#context.topology.inputs.findIndex((g) => g.type === c.input);
       if (group < 0) throw new RangeError(`the ${this.#context.family} has no ${c.input} input`);
       return { id: this.#newId(), name: c.name, slot: this.firstSlot + i, source: { group, channel: c.channel }, main_mix: c.main_mix, sends: [...c.sends] };
     });
-    if (!this.#context.edit(() => ({ ...emptyLayout(), mixes: profile.mixes.map((name) => ({ name })), channels }))) return false;
+    return this.#startFrom({ mixes: profile.mixes.map((name) => ({ name })), groups: [], channels });
+  }
+
+  /** The layouts saved for this device's model, in the order they were saved. */
+  savedLayouts(): readonly SavedLayout[] {
+    return this.#context.saved.value.filter((l) => l.family === this.#context.family);
+  }
+
+  /** Saves the current mixer layout by name for this model; returns the new layout's id. */
+  saveLayout(name: string): string | undefined {
+    const trimmed = name.trim();
+    if (trimmed === "") throw new RangeError("a saved layout needs a name");
+    const id = this.#newId("layout");
+    const mixer = structuredClone(this.layout.peek());
+    return this.#context.editSaved((layouts) => [...layouts, { id, name: trimmed, family: this.#context.family, mixer }]) ? id : undefined;
+  }
+
+  /** Starts from a saved layout, as `applyProfile` starts from a built-in one: fresh ids, routed channels. */
+  async applySavedLayout(id: string): Promise<boolean> {
+    const saved = this.savedLayouts().find((l) => l.id === id);
+    if (saved === undefined) throw new RangeError(`no saved ${this.#context.family} layout ${id}`);
+    const groupIds = new Map(saved.mixer.groups.map((g) => [g.id, this.#newId("grp")]));
+    const channels = saved.mixer.channels.map((c): MixerChannel => {
+      const { group, ...rest } = structuredClone(c);
+      const renamed = group === undefined ? undefined : groupIds.get(group);
+      return { ...rest, id: this.#newId(), ...(renamed === undefined ? {} : { group: renamed }) };
+    });
+    return this.#startFrom({ mixes: structuredClone(saved.mixer.mixes), groups: saved.mixer.groups.map((g) => ({ ...g, id: groupIds.get(g.id) as string })), channels });
+  }
+
+  removeSavedLayout(id: string): boolean {
+    if (!this.savedLayouts().some((l) => l.id === id)) return false;
+    return this.#context.editSaved((layouts) => layouts.filter((l) => l.id !== id));
+  }
+
+  /** Replaces a mixer with no channel set up by `mixer` and routes its channels. */
+  async #startFrom(mixer: DeviceMixer): Promise<boolean> {
+    if (this.layout.peek().channels.some((c) => this.isActive(c))) throw new Error("a starting layout only replaces a mixer with no channel set up");
+    if (!this.#context.edit(() => ({ ...emptyLayout(), ...mixer }))) return false;
     let routed = true;
-    for (const c of channels) routed = (await this.#apply({ id: c.id, name: c.name, slot: c.slot, sends: [] }, c)) && routed;
+    for (const c of mixer.channels) routed = (await this.#apply({ id: c.id, name: c.name, slot: c.slot, sends: [] }, c)) && routed;
     return routed;
   }
 

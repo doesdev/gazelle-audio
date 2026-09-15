@@ -129,6 +129,37 @@ async fn channel_links_round_trip_and_are_validated() {
     assert_eq!(body["links"][0]["id"], "l1", "rejected saves change nothing");
 }
 
+/// Mixer layouts the user saves (decision P56) live in the workspace, per device model, so any
+/// device of that model can start from them. They hold a whole mixer layout, validated like one.
+#[tokio::test]
+async fn saved_layouts_round_trip_and_are_validated() {
+    let app = app();
+    let workspace = |layouts: Value| json!({"version": 1, "groups": [], "links": [], "aliases": {}, "mixers": {}, "layouts": layouts});
+    let mixer = json!({"mixes": [{"name": "Monitors"}], "groups": [], "channels": [{"id": "a", "name": "Vox", "slot": 6, "source": {"group": 0, "channel": 0}, "main_mix": 0, "sends": []}]});
+    let good = json!([{"id": "s1", "name": "My session", "family": "quadro", "mixer": mixer}]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(good)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["layouts"][0]["name"], "My session");
+    assert_eq!(body["layouts"][0]["mixer"]["channels"][0]["name"], "Vox");
+
+    let (_, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1})).await;
+    assert_eq!(body["layouts"], json!([]), "documents without layouts load with none");
+
+    let bad_slot = json!({"channels": [{"id": "a", "slot": 40, "sends": []}]});
+    let broken = [
+        ("repeated id", json!([{"id": "s", "name": "A", "family": "quadro", "mixer": {}}, {"id": "s", "name": "B", "family": "quadro", "mixer": {}}])),
+        ("unknown family", json!([{"id": "s", "name": "A", "family": "zen", "mixer": {}}])),
+        ("blank name", json!([{"id": "s", "name": "  ", "family": "studio", "mixer": {}}])),
+        ("mixer the hardware cannot hold", json!([{"id": "s", "name": "A", "family": "studio", "mixer": bad_slot}])),
+    ];
+    for (why, layouts) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(layouts)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value", "{why}");
+    }
+}
+
 /// Each device's mixer layout (plan 2026-09-16) lives in the workspace: mix names, channel groups,
 /// and channels in display order, each on one mixer input slot with an optional source, main mix
 /// and sends. The server rejects layouts the hardware cannot hold, leaving the stored one intact.

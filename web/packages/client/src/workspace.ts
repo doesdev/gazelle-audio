@@ -85,4 +85,14 @@ export interface Workspace {
   aliases: Record<string, string>;
   /** Device id → its mixer layout. */
   mixers: Record<string, DeviceMixer>;
+  /** Mixer layouts the user saved, per device model; older servers omit it. */
+  layouts?: SavedLayout[];
+}
+
+/** A mixer layout saved by name, which any device of `family` can start from. */
+export interface SavedLayout {
+  id: string;
+  name: string;
+  family: "quadro" | "studio";
+  mixer: DeviceMixer;
 }

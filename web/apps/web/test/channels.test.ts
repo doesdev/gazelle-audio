@@ -272,3 +272,29 @@ test("a starting layout replaces only a mixer with no channel set up, and every 
     }
   }
 });
+
+test("a mixer can be saved as a layout for its model, applied later like a starting layout, and removed", async () => {
+  const { store, at } = await setup();
+  const channels = store.channels(Q);
+  await channels.applyProfile("tracking");
+  const first = channels.layout.value.channels[0];
+  assert.ok(first);
+  channels.rename(first.id, "Vox");
+  assert.throws(() => channels.saveLayout("  "), RangeError, "a layout needs a name");
+  const id = channels.saveLayout("My session");
+  assert.ok(id);
+  assert.deepEqual(channels.savedLayouts().map((l) => [l.name, l.family, l.mixer.channels.length]), [["My session", "quadro", 6]]);
+  assert.deepEqual(store.channels(S).savedLayouts(), [], "saved per model: the Studio+ does not offer a Quadro layout");
+
+  await assert.rejects(channels.applySavedLayout(id), /set up/, "like starting layouts, it never replaces a working mixer");
+  for (const c of [...channels.layout.value.channels]) await channels.remove(c.id);
+  assert.equal(await channels.applySavedLayout(id), true);
+  assert.deepEqual(channels.layout.value.channels.map((c) => [c.name, c.slot]).slice(0, 2), [["Vox", 6], ["Preamp 2", 7]]);
+  assert.deepEqual(channels.layout.value.mixes.map((m) => m.name), ["Monitors", "Cue"]);
+  assert.deepEqual(at(Q, MIX[0] as number, 6), [PREAMP, 0], "applying routes the channels");
+  assert.ok(channels.layout.value.channels.every((c) => !channels.savedLayouts()[0]?.mixer.channels.some((s) => s.id === c.id)), "applied channels get fresh ids");
+
+  assert.equal(channels.removeSavedLayout(id), true);
+  assert.deepEqual(channels.savedLayouts(), []);
+  await assert.rejects(channels.applySavedLayout(id), RangeError);
+});

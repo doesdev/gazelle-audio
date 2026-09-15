@@ -10,6 +10,7 @@ export interface WorkspaceParts {
   links?: unknown[];
   aliases?: Record<string, string>;
   mixers?: Record<string, unknown>;
+  layouts?: unknown[];
 }
 
 /** Replaces the server's workspace with these parts; anything not given is empty. */

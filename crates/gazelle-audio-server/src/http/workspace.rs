@@ -22,8 +22,28 @@ pub async fn put_workspace(
     for (device, mixer) in &workspace.mixers {
         check_mixer(mixer).map_err(|m| ServerError::BadValue(format!("mixer for {device}: {m}")))?;
     }
+    check_layouts(&workspace.layouts)?;
     state.store.save(&workspace)?;
     Ok(Json(workspace))
+}
+
+/// Saved layouts need a unique id, a name, a known model and a mixer the hardware can hold.
+fn check_layouts(layouts: &[crate::workspace::model::SavedLayout]) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    for layout in layouts {
+        let bad = |message: String| ServerError::BadValue(format!("saved layout '{}': {message}", layout.id));
+        if !ids.insert(layout.id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        if layout.name.trim().is_empty() {
+            return Err(bad("it needs a name".into()));
+        }
+        if !crate::workspace::model::LAYOUT_FAMILIES.contains(&layout.family.as_str()) {
+            return Err(bad(format!("family must be one of {}, not {:?}", crate::workspace::model::LAYOUT_FAMILIES.join(", "), layout.family)));
+        }
+        check_mixer(&layout.mixer).map_err(bad)?;
+    }
+    Ok(())
 }
 
 fn valid_colour(colour: &str) -> bool {

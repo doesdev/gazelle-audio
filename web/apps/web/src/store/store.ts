@@ -316,6 +316,8 @@ export class Store {
       edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, mixers: { ...workspace.mixers, [deviceId]: update(workspace.mixers?.[deviceId] ?? emptyLayout()) } })),
       routing: this.routing(deviceId),
       notify: (text) => this.#notify("error", text),
+      saved: computed(() => this.#workspace.value?.layouts ?? []),
+      editSaved: (update) => this.editWorkspace((workspace) => ({ ...workspace, layouts: update([...(workspace.layouts ?? [])]) })),
     });
     this.#channels.set(deviceId, model);
     return model;

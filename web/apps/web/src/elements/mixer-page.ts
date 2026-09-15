@@ -164,16 +164,46 @@ export class GaMixer extends GaElement {
       ),
     );
 
-    // While no channel is set up, the mixer can start from one of the model's starting layouts.
+    // While no channel is set up, the mixer can start from a starting layout or one the user saved
+    // (value "saved:<id>"); once channels are set up, the layout can be saved by name.
     const starts = h("div", { class: "starts" });
+    const failed = (error: unknown) => store.reportError(error instanceof Error ? error.message : String(error));
     this.watch(() => {
-      const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
-      if (setUp || store.workspace.value === undefined) {
+      if (store.workspace.value === undefined) {
         starts.replaceChildren();
         return;
       }
+      const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
+      const saved = channels.savedLayouts();
+      if (setUp) {
+        const name = h("input", { type: "text", placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name" });
+        const save = h(
+          "button",
+          {
+            type: "button",
+            "data-testid": "layout-save",
+            title: "Save these channels, groups and mix names as a layout any device of this model can start from",
+            "on:click": () => {
+              try {
+                channels.saveLayout(name.value);
+              } catch (error) {
+                failed(error);
+              }
+            },
+          },
+          "Save layout",
+        );
+        starts.replaceChildren(h("span", { class: "caption" }, "Save as"), name, save);
+        return;
+      }
       const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
-      const select = h("select", { "aria-label": "Starting layout", "data-testid": "profile-select" }, choices.map((p) => h("option", { value: p.id, title: p.description }, p.name)));
+      const select = h(
+        "select",
+        { "aria-label": "Starting layout", "data-testid": "profile-select" },
+        h("optgroup", { label: "Starting layouts" }, choices.map((p) => h("option", { value: p.id, title: p.description }, p.name))),
+        saved.length > 0 ? h("optgroup", { label: "Saved" }, saved.map((l) => h("option", { value: `saved:${l.id}` }, l.name))) : undefined,
+      );
+      const chosenSaved = () => (select.value.startsWith("saved:") ? select.value.slice("saved:".length) : undefined);
       const apply = h(
         "button",
         {
@@ -181,12 +211,29 @@ export class GaMixer extends GaElement {
           "data-testid": "profile-apply",
           title: "Replace these channels with the chosen layout and route it",
           "on:click": () => {
-            channels.applyProfile(select.value).catch((error: unknown) => store.reportError(error instanceof Error ? error.message : String(error)));
+            const id = chosenSaved();
+            (id === undefined ? channels.applyProfile(select.value) : channels.applySavedLayout(id)).catch(failed);
           },
         },
         "Apply",
       );
-      starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply);
+      const remove = h(
+        "button",
+        {
+          type: "button",
+          "data-testid": "layout-remove",
+          title: "Delete the chosen saved layout",
+          "on:click": () => {
+            const id = chosenSaved();
+            if (id !== undefined) channels.removeSavedLayout(id);
+          },
+        },
+        "Delete",
+      );
+      const syncRemove = () => (remove.hidden = chosenSaved() === undefined);
+      select.addEventListener("change", syncRemove);
+      syncRemove();
+      starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove);
     });
 
     const strips = h("div", { class: "strips" });

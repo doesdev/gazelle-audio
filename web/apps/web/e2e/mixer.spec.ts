@@ -331,3 +331,22 @@ test("a mixer with no channel set up offers starting layouts; applying one build
   await expect(page.getByTestId("profile-select")).toHaveCount(0);
   await expect.poll(() => frames.filter((f) => f.command === "set_routing").length).toBeGreaterThan(0);
 });
+
+test("a set-up mixer can be saved as a layout, and an empty mixer offers saved layouts beside the starting ones", async ({ page }) => {
+  await layout({ "loopback-0": { mixes: [{ name: "Monitors" }], channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await page.getByTestId("layout-save-name").fill("Vocal booth");
+  await page.getByTestId("layout-save").click();
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { layouts: { name: string; family: string }[] }).layouts.map((l) => [l.name, l.family])).toEqual([["Vocal booth", "quadro"]]);
+
+  const saved = ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { layouts: unknown[] }).layouts;
+  await putWorkspace(server, { layouts: saved });
+  // The same address again would not load a new document, so reload to read the reset workspace.
+  await page.reload();
+  const select = page.getByTestId("profile-select");
+  await expect(select.locator("option")).toContainText(["Tracking", "Podcast", "Playback", "Vocal booth"]);
+  const option = await select.locator("option", { hasText: "Vocal booth" }).getAttribute("value");
+  await select.selectOption(option ?? "");
+  await page.getByTestId("profile-apply").click();
+  await expect(page.getByTestId("name-6")).toHaveValue("Vox");
+});
