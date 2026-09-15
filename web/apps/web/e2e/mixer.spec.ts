@@ -316,3 +316,16 @@ test("removing takes a second click and mutes the channel; a new order is saved"
   await page.reload();
   await expect.poll(() => page.locator("ga-channel").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")))).toEqual(["8", "7"]);
 });
+
+test("a mixer with no channel set up offers starting layouts; applying one builds its channels and routes them", async ({ page }) => {
+  const frames = recordFrames(page);
+  await layout({});
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.locator("ga-channel")).toHaveCount(1);
+  await page.getByTestId("profile-select").selectOption("tracking");
+  await page.getByTestId("profile-apply").click();
+  await expect(page.locator("ga-channel")).toHaveCount(6);
+  await expect(page.getByTestId("name-10")).toHaveValue("DAW L");
+  await expect(page.getByTestId("profile-select")).toHaveCount(0);
+  await expect.poll(() => frames.filter((f) => f.command === "set_routing").length).toBeGreaterThan(0);
+});

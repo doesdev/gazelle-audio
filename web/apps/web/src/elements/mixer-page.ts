@@ -6,6 +6,7 @@
 
 import { h } from "../core/dom.ts";
 import { meterDeflection } from "../store/mixer.ts";
+import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -116,6 +117,9 @@ export class GaMixer extends GaElement {
       }
       .masters:empty { display: none; }
       .masters ga-mix-master { flex: 0 0 96px; }
+      .starts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .starts:empty { display: none; }
+      .starts select, .starts button { min-height: 26px; }
       ${LINK_STYLES}
     `),
   ];
@@ -160,6 +164,31 @@ export class GaMixer extends GaElement {
       ),
     );
 
+    // While no channel is set up, the mixer can start from one of the model's starting layouts.
+    const starts = h("div", { class: "starts" });
+    this.watch(() => {
+      const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
+      if (setUp || store.workspace.value === undefined) {
+        starts.replaceChildren();
+        return;
+      }
+      const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
+      const select = h("select", { "aria-label": "Starting layout", "data-testid": "profile-select" }, choices.map((p) => h("option", { value: p.id, title: p.description }, p.name)));
+      const apply = h(
+        "button",
+        {
+          type: "button",
+          "data-testid": "profile-apply",
+          title: "Replace these channels with the chosen layout and route it",
+          "on:click": () => {
+            channels.applyProfile(select.value).catch((error: unknown) => store.reportError(error instanceof Error ? error.message : String(error)));
+          },
+        },
+        "Apply",
+      );
+      starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply);
+    });
+
     const strips = h("div", { class: "strips" });
     const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "on:click": () => channels.add() }, "+");
     const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
@@ -202,6 +231,7 @@ export class GaMixer extends GaElement {
     this.root.replaceChildren(
       h("div", { class: "bar" }, devices, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
+      starts,
       notes,
       strips,
     );

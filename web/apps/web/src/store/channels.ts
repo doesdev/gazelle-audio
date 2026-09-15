@@ -11,6 +11,7 @@
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { DeviceMixer, MixerChannel, MixerGroup, RouteSource, Topology } from "gazelle-audio-client";
+import { PROFILES } from "./profiles.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
 /** Quadro mixer inputs 1-6 carry the effect returns (vendor layout), so channels start after them. */
@@ -319,6 +320,26 @@ export class ChannelsModel {
       });
     if (channels.length === 0) channels.push({ id: this.#newId(), name: "", slot: this.firstSlot, sends: [] });
     return this.#context.edit(() => ({ ...emptyLayout(), channels }));
+  }
+
+  /**
+   * Replaces a layout with no channel set up by one of the device's starting layouts (profiles.ts):
+   * its channels on the first free slots, its mix names, and each channel routed into its mixes.
+   * Rejects when a channel is already set up, so a working mixer is never replaced.
+   */
+  async applyProfile(id: string): Promise<boolean> {
+    const profile = PROFILES[this.#context.family].find((p) => p.id === id);
+    if (profile === undefined) throw new RangeError(`the ${this.#context.family} has no starting layout ${id}`);
+    if (this.layout.peek().channels.some((c) => this.isActive(c))) throw new Error("a starting layout only replaces a mixer with no channel set up");
+    const channels: MixerChannel[] = profile.channels.map((c, i) => {
+      const group = this.#context.topology.inputs.findIndex((g) => g.type === c.input);
+      if (group < 0) throw new RangeError(`the ${this.#context.family} has no ${c.input} input`);
+      return { id: this.#newId(), name: c.name, slot: this.firstSlot + i, source: { group, channel: c.channel }, main_mix: c.main_mix, sends: [...c.sends] };
+    });
+    if (!this.#context.edit(() => ({ ...emptyLayout(), mixes: profile.mixes.map((name) => ({ name })), channels }))) return false;
+    let routed = true;
+    for (const c of channels) routed = (await this.#apply({ id: c.id, name: c.name, slot: c.slot, sends: [] }, c)) && routed;
+    return routed;
   }
 
   #require(id: string): MixerChannel {

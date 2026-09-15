@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import { PROFILES } from "../src/store/profiles.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
 
@@ -227,4 +228,47 @@ test("removing mutes every mix the channel fed; order, names, groups and mix nam
   await flush();
   assert.deepEqual(client.stored.mixers[Q]?.channels.map((x) => x.id), [c, b]);
   assert.deepEqual(client.stored.mixers[Q]?.mixes, [{}, { name: "Cue A" }]);
+});
+
+test("a starting layout makes its channels from the first free slots, names its mixes and routes the device", async () => {
+  const { store, at } = await setup();
+  const channels = store.channels(Q);
+  const tracking = PROFILES.quadro.find((p) => p.id === "tracking");
+  assert.ok(tracking, "the Quadro has a tracking layout");
+  assert.equal(await channels.applyProfile("tracking"), true);
+  assert.deepEqual(
+    channels.layout.value.channels.map((c) => [c.name, c.slot, c.source?.group, c.source?.channel, c.main_mix, c.sends]),
+    [
+      ["Preamp 1", 6, PREAMP, 0, 0, [1]],
+      ["Preamp 2", 7, PREAMP, 1, 0, [1]],
+      ["Preamp 3", 8, PREAMP, 2, 0, [1]],
+      ["Preamp 4", 9, PREAMP, 3, 0, [1]],
+      ["DAW L", 10, USB1, 0, 0, [1]],
+      ["DAW R", 11, USB1, 1, 0, [1]],
+    ],
+  );
+  assert.deepEqual(channels.layout.value.mixes.map((m) => m.name), ["Monitors", "Cue"]);
+  assert.deepEqual([at(Q, MIX[0] as number, 6), at(Q, MIX[1] as number, 11), at(Q, MIX[2] as number, 6)], [[PREAMP, 0], [USB1, 1], [MUTE, 0]], "main mix and send routed, other mixes left muted");
+});
+
+test("a starting layout replaces only a mixer with no channel set up, and every layout's inputs exist on its device", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  await channels.applyProfile("tracking");
+  await assert.rejects(channels.applyProfile("playback"), /set up/);
+  await assert.rejects(store.channels(S).applyProfile("no-such-layout"), RangeError);
+
+  for (const [family, deviceId] of [["quadro", Q], ["studio", S]] as const) {
+    const topology = store.topology(deviceId);
+    assert.ok(topology);
+    assert.ok(PROFILES[family].length >= 2, `${family} has layouts to choose from`);
+    for (const profile of PROFILES[family]) {
+      for (const channel of profile.channels) {
+        const group = topology.inputs.find((g) => g.type === channel.input);
+        assert.ok(group !== undefined && channel.channel < group.channels, `${family} ${profile.id}: ${channel.name} is on a real input`);
+        assert.ok(channel.main_mix < topology.mixers.count && channel.sends.every((m) => m < topology.mixers.count && m !== channel.main_mix));
+      }
+      assert.ok(profile.channels.length <= 32 - (family === "quadro" ? 6 : 0), `${family} ${profile.id} fits the free slots`);
+    }
+  }
 });
