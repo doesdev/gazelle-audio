@@ -155,6 +155,31 @@ test("a group's channels stay together: joining a group moves a channel after it
   assert.equal(channels.groupOf(b as string)?.name, "Keys");
 });
 
+test("a mix's outputs are the destination pairs its mix output feeds; turning one on routes left and right, off mutes them", async () => {
+  const { store, set, at } = await setup();
+  const channels = store.channels(Q);
+  // Quadro: mix 1's output is source 6 (LOOPBACK HP1). Destinations: LINE OUT 0, HP1 1, HP2 2, MONITOR 3, USB A REC 4 (16 channels), ...
+  const pairs = channels.outputPairs();
+  assert.deepEqual(pairs.slice(0, 6).map((p) => p.label), ["LINE OUT", "HP1", "HP2", "MONITOR", "USB A REC 1/2", "USB A REC 3/4"]);
+  assert.equal(pairs.some((p) => p.label.startsWith("MIX CH")), false, "mixer inputs are channels' business, not a mix's outputs");
+
+  set(Q, 3, 0, [6, 0]);
+  set(Q, 3, 1, [6, 1]);
+  set(Q, 4, 2, [6, 0]);
+  set(Q, 4, 3, [6, 1]);
+  set(Q, 1, 0, [6, 0]); // HP1 left only: not a whole pair
+  await channels.loadOutputs();
+  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["MONITOR", "USB A REC 3/4"]);
+
+  assert.equal(await channels.setMixOutput(0, { destination: 2, channel: 0 }, true), true);
+  assert.deepEqual([at(Q, 2, 0), at(Q, 2, 1)], [[6, 0], [6, 1]]);
+  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["HP2", "MONITOR", "USB A REC 3/4"]);
+  await channels.setMixOutput(0, { destination: 3, channel: 0 }, false);
+  assert.deepEqual([at(Q, 3, 0), at(Q, 3, 1)], [[MUTE, 0], [MUTE, 0]]);
+  assert.deepEqual(channels.mixOutputs(1).value, [], "mix 2 feeds nothing");
+  assert.throws(() => channels.setMixOutput(0, { destination: 8, channel: 0 }, true), RangeError, "a mixer input is not an output");
+});
+
 test("removing mutes every mix the channel fed; order, names, groups and mix names are saved in the workspace", async () => {
   const { client, store, at, timers } = await setup();
   const channels = store.channels(Q);

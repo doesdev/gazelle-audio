@@ -9,6 +9,7 @@ import { meterDeflection } from "../store/mixer.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+// Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { href } from "./router.ts";
 
 export class GaMixer extends GaElement {
@@ -110,7 +111,7 @@ export class GaMixer extends GaElement {
         box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);
       }
       .masters:empty { display: none; }
-      .masters ga-strip { flex: 0 0 78px; }
+      .masters ga-mix-master { flex: 0 0 96px; }
     `),
   ];
 
@@ -205,6 +206,16 @@ export class GaMixer extends GaElement {
 
     // Channels in layout order (consecutive channels of one group inside a group element), then
     // "+", then the masters of the mixes in use.
+    const headHeights = new Map<Element, number>();
+    const heads = new ResizeObserver((entries) => {
+      for (const entry of entries) headHeights.set(entry.target, entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height);
+      const tallest = Math.max(0, ...headHeights.values());
+      if (tallest > 0) masters.style.setProperty("--channel-head", `${tallest}px`);
+    });
+    this.onDisconnect(() => heads.disconnect());
+    // Where each mix plays is read from the device once the page opens.
+    void channels.loadOutputs();
+
     const elements = new Map<string, HTMLElement>();
     const groupElements = new Map<string, HTMLElement>();
     let structure = "";
@@ -255,10 +266,17 @@ export class GaMixer extends GaElement {
       add.disabled = list.length >= 32 - channels.firstSlot;
 
       const used = [...new Set(list.flatMap((c) => (channels.isActive(c) ? [c.main_mix as number, ...c.sends] : [])))].sort((a, b) => a - b);
-      const key = used.map((mix) => `${mix}:${channels.mixName(mix)}`).join("|");
+      const key = used.join("|");
       if (key !== mastersKey) {
         mastersKey = key;
-        masters.replaceChildren(...used.map((mix) => h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label: channels.mixName(mix), "data-mix": String(mix) })));
+        masters.replaceChildren(...used.map((mix) => h("ga-mix-master", { "device-id": deviceId, mix: String(mix) })));
+      }
+      // Masters' heads take the channel heads' height, so every fader starts level.
+      heads.disconnect();
+      headHeights.clear();
+      for (const channel of strips.querySelectorAll("ga-channel")) {
+        const channelHead = (channel as GaElement).root.querySelector(".head");
+        if (channelHead !== null) heads.observe(channelHead);
       }
     });
 

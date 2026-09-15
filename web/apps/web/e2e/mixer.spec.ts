@@ -102,7 +102,7 @@ test("a Quadro channel routes its input to its main mix, then its fader sends se
   // MIX CH2 is destination 9; slot 6 takes PREAMP (0) channel 2.
   await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 9, { 6: [0, 1] })));
   await expect(channelIn(page, 6)).not.toHaveAttribute("inactive", "");
-  await expect(page.locator('ga-strip[data-mix="1"]')).toBeVisible();
+  await expect(page.locator('ga-mix-master[mix="1"]')).toBeVisible();
 
   const fader = page.getByTestId("fader-6");
   await expect(fader).toHaveAttribute("aria-disabled", "false");
@@ -191,6 +191,31 @@ test("groups: made from a channel's menu, joined, renamed, coloured, collapsed (
   await page.getByRole("button", { name: "Remove group Drums" }).click();
   await expect(group).toHaveCount(0);
   await expect.poll(slots).toEqual(["6", "8", "7"]);
+});
+
+test("a mix master names the mix and sends it to outputs: the menu adds a left/right pair, a chip's × removes it", async ({ page }) => {
+  await layout({ "loopback-0": { mixes: [{ name: "Monitors" }], channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.getByTestId("mix-name-0")).toHaveValue("Monitors");
+  await expect(page.getByTestId("mix-outputs-0")).toContainText("Not playing anywhere");
+
+  await page.getByTestId("mix-add-output-0").selectOption({ label: "HP1" });
+  // HP1 is destination 1; mix 1's output is source 6 (LOOPBACK HP1): left to channel 1, right to channel 2.
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 1, { 0: [6, 0], 1: [6, 1] })));
+  await expect(page.getByTestId("mix-outputs-0")).toContainText("HP1");
+  await expect(page.getByTestId("mix-add-output-0").locator("option", { hasText: /^HP1$/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Stop Monitors feeding HP1" }).click();
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 1, {})));
+  await expect(page.getByTestId("mix-outputs-0")).toContainText("Not playing anywhere");
+
+  const name = page.getByTestId("mix-name-0");
+  await name.fill("Control Room");
+  await name.press("Enter");
+  await expect(page.getByTestId("out-6").locator("option", { hasText: "Control Room" })).toHaveCount(1);
+
+  const top = async (locator: string) => (await page.locator(locator).boundingBox())?.y ?? -1;
+  expect(Math.abs((await top('ga-mix-master[mix="0"] ga-strip')) - (await top('ga-channel[data-channel-slot="6"] ga-strip'))), "the master strip starts level with the channel strips").toBeLessThanOrEqual(1);
 });
 
 test("dragging a channel's fader coalesces and ends on the final level", async ({ page }) => {

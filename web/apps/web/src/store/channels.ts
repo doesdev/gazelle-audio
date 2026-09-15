@@ -31,6 +31,15 @@ export interface ChannelsContext {
 
 export const emptyLayout = (): DeviceMixer => ({ mixes: [], groups: [], channels: [] });
 
+/** A place a mix can play: a destination group's left/right pair (or a lone last channel). */
+export interface OutputPair {
+  /** Destination group position in the topology's `outputs`. */
+  destination: number;
+  /** The left channel. */
+  channel: number;
+  label: string;
+}
+
 let nextId = 0;
 
 export class ChannelsModel {
@@ -44,6 +53,10 @@ export class ChannelsModel {
   readonly #context: ChannelsContext;
   /** Each mix's MIX IN destination position in the topology. */
   readonly #mixInputs: readonly number[];
+  /** Each mix's MIX OUT source position in the topology. */
+  readonly #mixSources: readonly number[];
+  readonly #pairs: readonly OutputPair[];
+  readonly #outputs = new Map<number, ReadonlySignal<readonly OutputPair[]>>();
 
   constructor(context: ChannelsContext) {
     this.#context = context;
@@ -55,8 +68,66 @@ export class ChannelsModel {
       if (position < 0) throw new Error(`${context.topology.family} topology has no destination ${id}`);
       return position;
     });
+    this.#mixSources = context.topology.mixers.outputGroups.map((id) => {
+      const position = context.topology.inputs.findIndex((g) => g.id === id);
+      if (position < 0) throw new Error(`${context.topology.family} topology has no source ${id}`);
+      return position;
+    });
+    const pairs: OutputPair[] = [];
+    context.topology.outputs.forEach((group, destination) => {
+      if (group.type === "MIXER_IN") return;
+      for (let channel = 0; channel < group.channels; channel += 2) {
+        const label = group.channels <= 2 ? group.name : channel + 1 < group.channels ? `${group.name} ${channel + 1}/${channel + 2}` : `${group.name} ${channel + 1}`;
+        pairs.push({ destination, channel, label });
+      }
+    });
+    this.#pairs = pairs;
     const empty = emptyLayout();
     this.layout = computed(() => context.layout.value ?? empty);
+  }
+
+  /** Every place a mix can play, in topology order; mixer inputs are channels' business and are left out. */
+  outputPairs(): readonly OutputPair[] {
+    return this.#pairs;
+  }
+
+  /** Reads the routing of every output destination, so mixes show where the device sends them. */
+  async loadOutputs(): Promise<void> {
+    for (const destination of new Set(this.#pairs.map((p) => p.destination))) await this.#context.routing.load(destination);
+  }
+
+  /** Where a mix plays: the pairs whose left and right take the mix's left and right. */
+  mixOutputs(mix: number): ReadonlySignal<readonly OutputPair[]> {
+    this.#checkMix(mix);
+    let outputs = this.#outputs.get(mix);
+    if (outputs === undefined) {
+      const source = this.#mixSources[mix] as number;
+      outputs = computed(() =>
+        this.#pairs.filter((pair) => {
+          const slots = this.#context.routing.destination(pair.destination).value;
+          if (slots === undefined) return false;
+          const left = slots[pair.channel];
+          const right = slots[pair.channel + 1];
+          const stereo = pair.channel + 1 < (this.#context.topology.outputs[pair.destination]?.channels ?? 0);
+          return left?.source === source && left.channel === 0 && (!stereo || (right?.source === source && right.channel === 1));
+        }),
+      );
+      this.#outputs.set(mix, outputs);
+    }
+    return outputs;
+  }
+
+  /** Sends a mix to an output pair (its left and right), or mutes that pair. */
+  setMixOutput(mix: number, pair: { destination: number; channel: number }, on: boolean): Promise<boolean> {
+    this.#checkMix(mix);
+    const group = this.#context.topology.outputs[pair.destination];
+    if (group === undefined || group.type === "MIXER_IN" || !Number.isInteger(pair.channel) || pair.channel % 2 !== 0 || pair.channel < 0 || pair.channel >= group.channels) {
+      throw new RangeError(`no output pair ${pair.destination}:${pair.channel}`);
+    }
+    const source = this.#mixSources[mix] as number;
+    const writes = [this.#context.routing.route(pair.destination, pair.channel, on ? { source, channel: 0 } : null)];
+    if (pair.channel + 1 < group.channels) writes.push(this.#context.routing.route(pair.destination, pair.channel + 1, on ? { source, channel: 1 } : null));
+    return Promise.all(writes).then((sent) => sent.every(Boolean));
   }
 
   /** Whether this device has a layout yet; without one it can be imported from the device. */
