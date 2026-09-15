@@ -30,7 +30,7 @@ fn mixers_agree_with_the_command_schema() {
         let channels = mixers["channels"].as_u64().unwrap();
         let count = mixers["count"].as_u64().unwrap();
         assert_eq!((count, channels), (4, 32), "{family}: four mixers of 32 channels, as the panels build them");
-        assert!(channels + 1 <= 256, "master plus channels fit the channel byte");
+        assert!(channels < 256, "master plus channels fit the channel byte");
 
         let peaks = commands["cyclic_reports"]["0x73"]["fields"].as_array().unwrap().iter().find(|f| f["name"] == "peaks_mixer").unwrap_or_else(|| panic!("{family} 0x73 has peaks_mixer"));
         assert_eq!(peaks["size"].as_u64(), Some(channels), "{family}: one peak byte per mixer channel");

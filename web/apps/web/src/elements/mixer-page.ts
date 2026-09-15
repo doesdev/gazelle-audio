@@ -40,7 +40,17 @@ export class GaMixer extends GaElement {
         border-radius: 3px;
         background: var(--ga-surface-inset);
       }
-      .master { position: sticky; right: 0; margin-left: 8px; padding-left: 6px; background: var(--ga-surface-inset); }
+      .master {
+        position: sticky;
+        right: 0;
+        z-index: 1;
+        display: flex;
+        /* Cover the row's right padding too, so no strip shows past the master as it scrolls. */
+        margin: -4px -4px -4px 8px;
+        padding: 4px 4px 4px 6px;
+        background: var(--ga-surface-inset);
+        box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);
+      }
     `),
   ];
 

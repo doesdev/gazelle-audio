@@ -4,8 +4,9 @@
 //! emulating loopback only answers commands, so clients and the web UI would otherwise see no
 //! cyclic traffic without hardware. Every `interval` this emits one report per cyclic layout the
 //! device's registry declares, sized to the layout, with `seq` set to the contents' CRC32 as a
-//! device sets it. The contents are a byte pattern that shifts on each report so values visibly
-//! move; they are test data, not device state.
+//! device sets it. Every byte cycles through 6..=53 and shifts on each report, so values visibly
+//! move and meters (whose bytes are dB below full scale) swing without ever clipping; this is
+//! test data, not device state.
 
 use std::time::{Duration, Instant};
 
@@ -55,7 +56,7 @@ impl Device for CyclicLoopback {
             self.last = Instant::now();
             self.tick = self.tick.wrapping_add(1);
             for &(report_id, len) in &self.reports {
-                let contents: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_add(self.tick)).collect();
+                let contents: Vec<u8> = (0..len).map(|i| ((i * 7 + usize::from(self.tick)) % 48 + 6) as u8).collect();
                 reports.push(Report { header: Header::new(report_id, crc32(&contents), 0, 0), contents });
             }
         }

@@ -65,13 +65,13 @@ const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 export class GaStrip extends GaElement {
   static override styles = [
     sheet(`
-      :host { display: block; height: 100%; }
+      :host { display: flex; }
       .strip {
         display: flex;
+        flex: 1;
         flex-direction: column;
         gap: 4px;
         width: 64px;
-        height: 100%;
         padding: 4px 3px 0;
         border-radius: 3px;
         background: var(--ga-surface-raised);
