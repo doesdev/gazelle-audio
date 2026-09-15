@@ -1,5 +1,5 @@
 {
-  "source": "app_report_format.py",
+  "source": "report_format_1.0.4.json",
   "device": "zenquadrosc_usb2",
   "cyclic_reports": {
     "0x73": {
@@ -311,13 +311,7 @@
   },
   "unresolved_constants": [],
   "in_scope_zero_counts": [],
-  "unresolved_reply_counts": [
-    "get_afx_available_instances",
-    "get_afx_links",
-    "get_afx_max_available_instances",
-    "get_afx_order",
-    "get_afx_remaining_featured_instances"
-  ],
+  "unresolved_reply_counts": [],
   "report_version": 20,
   "authoritative": true,
   "scope": "intersection(35) + quadro-only(28)",
@@ -348,12 +342,9 @@
       "params": [],
       "returns": [
         {
-          "name": "type_id",
-          "type": "ubyte"
-        },
-        {
-          "name": "inst_count",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"type_id\", \"ubyte\"], [\"inst_count\", \"ubyte\"]], \"count\": 90}",
+          "size": 180
         }
       ]
     },
@@ -366,8 +357,9 @@
       "params": [],
       "returns": [
         {
-          "name": "linked",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"linked\", \"ubyte\"]], \"count\": 7}",
+          "size": 7
         }
       ]
     },
@@ -380,9 +372,9 @@
       "params": [],
       "returns": [
         {
-          "name": "slots",
-          "type": "{\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]], \"count\": 8}",
-          "size": 16
+          "name": "entries",
+          "type": "{\"fields\": [[\"slots\", {\"fields\": [[\"type\", \"ubyte\"], [\"inst\", \"ubyte\"]], \"count\": 8}]], \"count\": 14}",
+          "size": 224
         }
       ]
     },
@@ -1020,12 +1012,9 @@
       "params": [],
       "returns": [
         {
-          "name": "type_id",
-          "type": "ubyte"
-        },
-        {
-          "name": "inst_count",
-          "type": "ubyte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"type_id\", \"ubyte\"], [\"inst_count\", \"ubyte\"]], \"count\": 90}",
+          "size": 180
         }
       ]
     },
@@ -1038,12 +1027,9 @@
       "params": [],
       "returns": [
         {
-          "name": "type_id",
-          "type": "ubyte"
-        },
-        {
-          "name": "inst_count",
-          "type": "byte"
+          "name": "entries",
+          "type": "{\"fields\": [[\"type_id\", \"ubyte\"], [\"inst_count\", \"byte\"]], \"count\": 91}",
+          "size": 182
         }
       ]
     },

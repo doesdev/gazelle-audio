@@ -16,47 +16,62 @@ export interface QuadroCommands {
   get_afx_available_instances: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      type_id: number;
-      /** u8, 0..255 */
-      inst_count: number;
+      /** 90 × struct of 2 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        type_id: number;
+        /** u8, 0..255 */
+        inst_count: number;
+      }>;
     };
   };
   get_afx_links: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      linked: number;
+      /** 7 × struct of 1 byte */
+      entries: Array<{
+        /** u8, 0..255 */
+        linked: number;
+      }>;
     };
   };
   get_afx_max_available_instances: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      type_id: number;
-      /** u8, 0..255 */
-      inst_count: number;
+      /** 90 × struct of 2 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        type_id: number;
+        /** u8, 0..255 */
+        inst_count: number;
+      }>;
     };
   };
   get_afx_order: {
     params: Record<string, never>;
     returns: {
-      /** 8 × struct of 2 bytes */
-      slots: Array<{
-        /** u8, 0..255 */
-        type: number;
-        /** u8, 0..255 */
-        inst: number;
+      /** 14 × struct of 16 bytes */
+      entries: Array<{
+        /** 8 × struct of 2 bytes */
+        slots: Array<{
+          /** u8, 0..255 */
+          type: number;
+          /** u8, 0..255 */
+          inst: number;
+        }>;
       }>;
     };
   };
   get_afx_remaining_featured_instances: {
     params: Record<string, never>;
     returns: {
-      /** u8, 0..255 */
-      type_id: number;
-      /** i8, -128..127 */
-      inst_count: number;
+      /** 91 × struct of 2 bytes */
+      entries: Array<{
+        /** u8, 0..255 */
+        type_id: number;
+        /** i8, -128..127 */
+        inst_count: number;
+      }>;
     };
   };
   get_afx_strip_order: {
@@ -854,11 +869,11 @@ export interface QuadroCyclicReports {
 export const quadroSchema = {
   "commands": {
     "get_adats_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
-    "get_afx_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
-    "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] },
-    "get_afx_max_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
-    "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] },
-    "get_afx_remaining_featured_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "i8" }] },
+    "get_afx_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 90, "fields": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] }] },
+    "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 7, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_afx_max_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 90, "fields": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] }] },
+    "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 14, "fields": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] }] },
+    "get_afx_remaining_featured_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 91, "fields": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "i8" }] }] },
     "get_afx_strip_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] }] },
     "get_assignment_request": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "request", "elem": "u8", "count": 301 }] },
     "get_assignment_status": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }] },

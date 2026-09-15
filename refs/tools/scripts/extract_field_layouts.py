@@ -290,7 +290,13 @@ def load_report_format(path, blob_dir=None):
     evaluated for real. Only the AFX-only *module* objects (afx_pool, constants),
     whose attributes appear solely in out-of-scope AFX commands, remain stubbed.
     """
-    tree = ast.parse(open(path, "r", encoding="utf-8").read())
+    text = open(path, "r", encoding="utf-8").read()
+    # A device-supplied format (the manager saves it as panels/report_format_<version>) is plain
+    # JSON with the same shape: {"authorative", "version", "requests", "cyclic_reports"}. Every
+    # count in it is already a number, so nothing needs resolving.
+    if text.lstrip().startswith("{"):
+        return json.loads(text)
+    tree = ast.parse(text)
     ns = {"afx_pool": _sibling_ns(path, "antelope_ui_afx_platform_afx_pool.py",
                                   "afx_pool", blob_dir),
           "constants": _sibling_ns(path, "antelope_ui_afx_constants.py",
