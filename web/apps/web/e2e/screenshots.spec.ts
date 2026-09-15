@@ -73,6 +73,12 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       await expect(page.getByTestId("preamp-0")).toBeVisible();
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-inputs-${name}.png`, fullPage: true });
     }
+    for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {
+      await page.goto(`${server.url}/#/outputs/${device}`);
+      await expect(page.getByTestId("output-0")).toBeVisible();
+      await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-outputs-${name}.png` });
+    }
+    await page.goto(`${server.url}/#/inputs/loopback-1`);
     // A link being made: the bar open, two badges in the draft.
     await page.getByTestId("pre-link-2").click();
     await page.getByTestId("pre-link-3").click();

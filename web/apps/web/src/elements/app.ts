@@ -110,7 +110,7 @@ export class GaApp extends GaElement {
     this.watch(() => {
       const current = route.value;
       // Without a device in the address, a page shows the first device it can (for the mixer, the first of known model).
-      const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "mixer" || current.page === "routing") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
+      const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "outputs" || current.page === "mixer" || current.page === "routing") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
       title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
       page.replaceChildren(pageFor(current, first));
     });
@@ -128,6 +128,10 @@ function pageFor(current: Route, firstDeviceId: string | undefined): HTMLElement
     case "inputs": {
       const id = current.id ?? firstDeviceId;
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-inputs", { "device-id": id });
+    }
+    case "outputs": {
+      const id = current.id ?? firstDeviceId;
+      return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-outputs", { "device-id": id });
     }
     case "mixer": {
       const id = current.id ?? firstDeviceId;

@@ -16,6 +16,7 @@ import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
+import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
@@ -365,6 +366,26 @@ export class Store {
       timers: this.#timers,
     });
     this.#inputs.set(deviceId, model);
+    return model;
+  }
+
+  readonly #outputs = new Map<string, OutputsModel>();
+
+  /** A device's hardware output levels, created on first use; throws for a device of unknown model. */
+  outputs(deviceId: string): OutputsModel {
+    const existing = this.#outputs.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no known outputs`);
+    const model = new OutputsModel({
+      deviceId,
+      family,
+      invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      field: (name) => this.field(deviceId, "0x73", name),
+      watch: () => this.watchReport(deviceId, "0x73"),
+      timers: this.#timers,
+    });
+    this.#outputs.set(deviceId, model);
     return model;
   }
 
