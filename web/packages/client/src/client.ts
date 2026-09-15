@@ -50,6 +50,8 @@ export interface InvokeOptions {
   coalesce?: string;
   dryRun?: boolean;
   timeoutMs?: number;
+  /** The header `ext3` selector, for commands that take one (`get_routing`'s destination group, `get_mixer`'s mixer). */
+  ext3?: number;
 }
 
 export interface InvokeResult<R> {
@@ -152,6 +154,7 @@ interface Call {
   command: string;
   args: Record<string, unknown> | undefined;
   dryRun: boolean | undefined;
+  ext3: number | undefined;
   timeoutMs: number;
   returns: readonly FieldDescriptor[] | null;
   resolve(result: InvokeResult<unknown>): void;
@@ -439,6 +442,7 @@ class Connection implements Client {
         command: name,
         args: encodeArgs(descriptor?.params ?? [], args),
         dryRun: options.dryRun,
+        ext3: options.ext3,
         timeoutMs: options.timeoutMs ?? this.#timeoutMs,
         returns: descriptor?.returns ?? null,
         resolve,
@@ -461,6 +465,7 @@ class Connection implements Client {
     const frame: Frame = { id, device_id: call.deviceId, command: call.command };
     if (call.args !== undefined) frame["args"] = call.args;
     if (call.dryRun !== undefined) frame["dry_run"] = call.dryRun;
+    if (call.ext3 !== undefined) frame["ext3"] = call.ext3;
     const timer = this.#timers.setTimeout(() => this.#settle(id, new GazelleError("timeout", `${call.command} got no reply within ${call.timeoutMs} ms`)), call.timeoutMs);
     this.#pending.set(id, { call, timer, coalesce });
     try {

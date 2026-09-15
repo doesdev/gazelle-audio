@@ -4,4 +4,5 @@ pub mod cyclic_loopback;
 pub mod descriptor;
 pub mod handle;
 pub mod manager;
+pub mod routing_loopback;
 pub mod worker;

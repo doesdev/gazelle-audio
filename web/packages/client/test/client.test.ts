@@ -100,6 +100,21 @@ test("invoke sends one frame and decodes the response's bytes", async () => {
   await client.close();
 });
 
+test("an ext3 selector goes in the frame only when given", async () => {
+  const { client, socket } = await open();
+  const dev = quadro(client);
+  const routing = outcome(dev.invoke("get_routing", undefined, { ext3: 11 }));
+  assert.deepEqual(socket.sent[0], { id: 1, device_id: "loopback-0", command: "get_routing", ext3: 11 });
+  socket.receive(reply(socket.sent[0]!));
+  valueOf(await routing);
+
+  const plain = outcome(dev.invoke("get_routing"));
+  assert.equal("ext3" in socket.sent[1]!, false);
+  socket.receive(reply(socket.sent[1]!));
+  valueOf(await plain);
+  await client.close();
+});
+
 test("server errors pass through with their code and detail", async () => {
   const { client, socket } = await open();
   const dev = quadro(client);

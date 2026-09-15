@@ -285,6 +285,39 @@ async fn quadro_only_command_is_absent_on_studio() {
     assert_eq!(body["error"]["code"], "unknown_command");
 }
 
+/// The loopback keeps routing state like a device, so the web UI's read-before-write and import
+/// can be exercised without hardware: `set_routing` replaces one destination group's 32 slots,
+/// `get_routing` with that group in `ext3` reads them back, and other groups are untouched.
+/// Unset slots start on the family's MUTE source (Quadro source group 10).
+#[tokio::test]
+async fn loopback_routing_reads_back_what_was_set() {
+    let app = app();
+    let read = |group: u32| {
+        let app = app.clone();
+        async move {
+            let (status, body) = send(app, "POST", &format!("/api/v1/devices/loopback-0/command/get_routing?ext3={group}"), json!({})).await;
+            assert_eq!(status, StatusCode::OK, "body: {body}");
+            assert_eq!(body["response_error"], Value::Null, "body: {body}");
+            body["response"].clone()
+        }
+    };
+
+    let before = read(11).await;
+    assert_eq!(before["bank_idx"], 11);
+    assert_eq!(before["bank_configs"][31], json!({"in_periph_id": 10, "in_chann": 0}), "unset slots are muted");
+
+    // MIX IN 4 (group 11), slot 7 <- PREAMP (0) channel 2; everything else muted.
+    let mut slots: Vec<String> = (0..32).map(|_| "0a00".to_string()).collect();
+    slots[7] = "0002".to_string();
+    let (status, body) = send(app.clone(), "POST", "/api/v1/devices/loopback-0/command/set_routing", json!({"bank_idx": 11, "bank_configs": slots})).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let after = read(11).await;
+    assert_eq!(after["bank_configs"][7], json!({"in_periph_id": 0, "in_chann": 2}));
+    assert_eq!(after["bank_configs"][8], json!({"in_periph_id": 10, "in_chann": 0}));
+    assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 10, "in_chann": 0}), "other groups are untouched");
+}
+
 /// `get_routing` names the destination group in the header's `ext3` (the panel's
 /// `get_device_data` asks once per group), so a client must be able to set it per request.
 /// Only commands that take an `ext3` selector accept one: on any other command it would

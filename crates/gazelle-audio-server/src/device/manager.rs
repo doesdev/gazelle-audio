@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 
 use crate::device::cyclic_loopback::CyclicLoopback;
+use crate::device::routing_loopback::RoutingLoopback;
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::handle::DeviceHandle;
 use crate::device::worker::{self, DeviceEvent, WorkerContext};
@@ -122,7 +123,8 @@ impl DeviceManager {
             // `emulating` answers like a device (cmd + 1, same ext2), so the full
             // request/response path is exercised rather than only framing.
             let dev = LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size);
-            self.attach(DeviceId::loopback(n), Box::new(dev), "loopback", true);
+            let dev = RoutingLoopback::wrap(Box::new(dev), self.registries.for_pid(*pid).map(|m| m.registry.as_ref()));
+            self.attach(DeviceId::loopback(n), dev, "loopback", true);
         }
     }
 
@@ -143,7 +145,8 @@ impl DeviceManager {
                 })
                 .unwrap_or_default();
             let dev = CyclicLoopback::new(LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size), reports, interval);
-            self.attach(DeviceId::loopback(n), Box::new(dev), "loopback", true);
+            let dev = RoutingLoopback::wrap(Box::new(dev), self.registries.for_pid(*pid).map(|m| m.registry.as_ref()));
+            self.attach(DeviceId::loopback(n), dev, "loopback", true);
         }
     }
 
