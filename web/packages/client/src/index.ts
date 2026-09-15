@@ -21,7 +21,7 @@ export type {
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
 export { fromHex, toHex } from "./bytes.ts";
-export type { Bytes, CommandDescriptor, FamilySchema, FieldDescriptor, Scalar } from "./schema.ts";
-export { schemas } from "./generated/index.ts";
+export type { Bytes, CommandDescriptor, FamilySchema, FieldDescriptor, Scalar, Topology, TopologyGroup } from "./schema.ts";
+export { schemas, topologies } from "./generated/index.ts";
 export type { Family, FamilyTypes } from "./generated/index.ts";
 export type { ChannelRef, Group, Link, Workspace } from "./workspace.ts";

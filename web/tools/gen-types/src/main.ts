@@ -22,11 +22,15 @@ export interface RunResult {
 }
 
 export function run(options: RunOptions): RunResult {
-  const inputs = FAMILIES.map((family) => ({
-    family,
-    source: `refs/schemas/${family}_commands.json`,
-    schema: JSON.parse(readFileSync(join(options.schemasDir, `${family}_commands.json`), "utf8")),
-  }));
+  const inputs = FAMILIES.map((family) => {
+    const topologyPath = join(options.schemasDir, `${family}_topology.json`);
+    return {
+      family,
+      source: `refs/schemas/${family}_commands.json`,
+      schema: JSON.parse(readFileSync(join(options.schemasDir, `${family}_commands.json`), "utf8")),
+      ...(existsSync(topologyPath) ? { topology: JSON.parse(readFileSync(topologyPath, "utf8")) as unknown } : {}),
+    };
+  });
   const files = generate(inputs);
   // A checkout may have turned LF into CRLF; that is not drift.
   const current = (path: string) => (existsSync(path) ? readFileSync(path, "utf8").replace(/\r\n/g, "\n") : undefined);

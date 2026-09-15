@@ -100,11 +100,36 @@ test("an unrecognised type fails generation, naming the command", () => {
   assert.throws(() => generate([schema]), (e: unknown) => e instanceof SchemaError && e.message.includes("set_x.params.gain"));
 });
 
+test("topology is emitted as a typed constant, indexed by family, and checked", () => {
+  const topology = {
+    family: "quadro",
+    source: { tool: "refs/tools/scripts/extract_topology.py", bytecode: "3.8", blobs: [] },
+    inputs: [{ id: "PREAMP0", type: "PREAMP", typeId: 8, name: "PREAMP", channels: 4, color: "#25a844" }],
+    outputs: [],
+    signalPresent: [],
+    availableChannels: [],
+    mixers: { count: 4, channels: 32, command: "set_mixer", masterChannel: 0, stereoLinkId: 3, inputGroups: [], outputGroups: [] },
+    assumptions: ["group ids follow the controller"],
+  };
+  const files = generate([{ ...tiny(), topology }]);
+  assert.match(files.get("quadro.ts") ?? "", /export const quadroTopology = \{ "family": "quadro", "source": /);
+  assert.match(files.get("quadro.ts") ?? "", /"typeId": 8, "name": "PREAMP", "channels": 4, "color": "#25a844" \}\][\s\S]*\} as const satisfies Topology;/);
+  assert.match(files.get("index.ts") ?? "", /import \{ quadroSchema, quadroTopology, type QuadroCommands/);
+  assert.match(files.get("index.ts") ?? "", /export const topologies = \{ quadro: quadroTopology \} as const;/);
+  assert.doesNotMatch(generate([tiny()]).get("index.ts") ?? "", /topologies/, "no topology, no index entry");
+
+  const bad = (change: object) => () => generate([{ ...tiny(), topology: { ...topology, ...change } }]);
+  assert.throws(bad({ family: "studio" }), (e: unknown) => e instanceof SchemaError && e.message.includes('quadro topology: names family "studio"'));
+  assert.throws(bad({ mixers: { count: 4 } }), /mixers needs count, channels and command/);
+  assert.throws(bad({ inputs: "none" }), /inputs must be a list/);
+});
+
 test("the real schemas generate deterministically", () => {
   const inputs = ["quadro", "studio"].map((family) => ({
     family,
     source: `refs/schemas/${family}_commands.json`,
     schema: JSON.parse(readFileSync(new URL(`${family}_commands.json`, SCHEMAS), "utf8")),
+    topology: JSON.parse(readFileSync(new URL(`${family}_topology.json`, SCHEMAS), "utf8")) as unknown,
   }));
   const first = generate(inputs);
   assert.deepEqual([...first.keys()].sort(), ["index.ts", "quadro.ts", "studio.ts"]);
