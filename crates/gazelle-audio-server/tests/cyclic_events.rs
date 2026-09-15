@@ -131,7 +131,7 @@ async fn cyclic_loopbacks_emit_decoded_reports_and_still_answer() {
     let outcome = devices
         .handle(&id)
         .expect("handle")
-        .request("get_adats_links", PayloadValues::default(), false)
+        .request("get_adats_links", PayloadValues::default(), None, false)
         .await
         .expect("a live command is still answered alongside cyclic traffic");
     assert!(!outcome.dry_run);

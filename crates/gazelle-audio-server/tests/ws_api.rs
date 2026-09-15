@@ -95,6 +95,32 @@ async fn rpc_invokes_a_command_and_echoes_the_id() {
     assert!(!reply["result"]["sent_hex"].as_str().unwrap().is_empty());
 }
 
+/// The RPC frame carries the same `ext3` selector as the HTTP query (see `http_api.rs`).
+#[tokio::test]
+async fn rpc_ext3_selects_the_routing_group() {
+    let url = serve().await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
+    let _hello = next_json(&mut ws).await;
+
+    ws.send(Message::Text(
+        json!({"id": 1, "device_id": "loopback-1", "command": "get_routing", "ext3": 13, "dry_run": true}).to_string(),
+    ))
+    .await
+    .expect("send rpc");
+    let reply = next_json(&mut ws).await;
+    assert_eq!(reply["type"], "rpc_response", "reply: {reply}");
+    assert_eq!(&reply["result"]["sent_hex"].as_str().unwrap()[24..32], "0d000000");
+
+    ws.send(Message::Text(
+        json!({"id": 2, "device_id": "loopback-1", "command": "set_mixer_cfg", "ext3": 1, "dry_run": true}).to_string(),
+    ))
+    .await
+    .expect("send rpc");
+    let reply = next_json(&mut ws).await;
+    assert_eq!(reply["type"], "rpc_error", "reply: {reply}");
+    assert_eq!(reply["error"]["code"], "bad_value");
+}
+
 #[tokio::test]
 async fn rpc_errors_carry_the_id_and_a_code() {
     let url = serve().await;

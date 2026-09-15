@@ -30,6 +30,9 @@ struct RpcRequest {
     args: Json,
     #[serde(default)]
     dry_run: bool,
+    /// The header `ext3` selector, for commands that take one.
+    #[serde(default)]
+    ext3: Option<u32>,
 }
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -140,7 +143,7 @@ async fn invoke(state: &AppState, req: &RpcRequest) -> Result<Json, ServerError>
     let handle = state.devices.handle(&id)?;
     let values = json_to_payload_values(&req.args)?;
     let dry_run = req.dry_run || state.force_dry_run;
-    let outcome = handle.request(&req.command, values, dry_run).await?;
+    let outcome = handle.request(&req.command, values, req.ext3, dry_run).await?;
     Ok(json!({
         "device_id": id,
         "command": req.command,

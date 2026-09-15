@@ -285,6 +285,31 @@ async fn quadro_only_command_is_absent_on_studio() {
     assert_eq!(body["error"]["code"], "unknown_command");
 }
 
+/// `get_routing` names the destination group in the header's `ext3` (the panel's
+/// `get_device_data` asks once per group), so a client must be able to set it per request.
+/// Only commands that take an `ext3` selector accept one: on any other command it would
+/// silently change what the device is asked.
+#[tokio::test]
+async fn ext3_selector_sets_the_header_only_where_the_command_takes_one() {
+    let base = ground_truth()["get_routing"].as_str().expect("get_routing vector").to_string();
+    let (status, body) = send(app(), "POST", "/api/v1/devices/loopback-0/command/get_routing?dry_run=true&ext3=9", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let expected = format!("{}09000000", &base[..24]);
+    assert_eq!(body["sent_hex"], expected, "only ext3 (header bytes 12..16) changes");
+
+    let (status, body) = send(app(), "POST", "/api/v1/devices/loopback-1/command/get_mixer?dry_run=true&ext3=2", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(&body["sent_hex"].as_str().unwrap()[24..32], "02000000");
+
+    let (status, body) = send(app(), "POST", "/api/v1/devices/loopback-0/command/get_routing?dry_run=true", json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["sent_hex"], base, "without ext3 the schema's value is used");
+
+    let (refused, body) = send(app(), "POST", "/api/v1/devices/loopback-0/command/set_mixer?dry_run=true&ext3=1", json!({})).await;
+    assert_eq!(refused, StatusCode::BAD_REQUEST, "body: {body}");
+    assert_eq!(body["error"]["code"], "bad_value");
+}
+
 #[tokio::test]
 async fn shared_command_works_on_both_devices() {
     for id in ["loopback-0", "loopback-1"] {

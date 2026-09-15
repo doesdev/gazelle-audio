@@ -60,6 +60,8 @@ pub enum WorkerCommand {
     Request {
         name: String,
         values: PayloadValues,
+        /// A per-request header `ext3` selector, for commands that take one.
+        ext3: Option<u32>,
         dry_run: bool,
         respond: Box<dyn FnOnce(Result<CommandOutcome, ServerError>) + Send>,
     },
@@ -80,8 +82,8 @@ pub fn run(mut ctx: WorkerContext, rx: Receiver<WorkerCommand>) {
     loop {
         match rx.recv_timeout(POLL_INTERVAL) {
             Ok(WorkerCommand::Shutdown) => return,
-            Ok(WorkerCommand::Request { name, values, dry_run, respond }) => {
-                let result = handle_request(&mut ctx, &mut correlator, &name, &values, dry_run);
+            Ok(WorkerCommand::Request { name, values, ext3, dry_run, respond }) => {
+                let result = handle_request(&mut ctx, &mut correlator, &name, &values, ext3, dry_run);
                 respond(result);
             }
             Err(RecvTimeoutError::Timeout) => {
@@ -98,6 +100,7 @@ fn handle_request(
     correlator: &mut ResponseCorrelator,
     name: &str,
     values: &PayloadValues,
+    ext3: Option<u32>,
     dry_run: bool,
 ) -> Result<CommandOutcome, ServerError> {
     // Clone the Arc up front: the worker mutates `ctx.device` below, so it cannot keep a
@@ -115,8 +118,17 @@ fn handle_request(
         })?
         .clone();
 
+    // Checked here, not left to the builder's error, so the caller gets a bad value (400)
+    // rather than a protocol error (500).
+    if ext3.is_some() && !command.takes_ext3_selector() {
+        return Err(ServerError::BadValue(format!(
+            "'{name}' does not take an ext3 selector (only {})",
+            gazelle_audio_protocol::EXT3_SELECTOR_COMMANDS.join(", ")
+        )));
+    }
+
     let bytes = registry
-        .build_request(name, values)
+        .build_request_with_ext3(name, values, ext3)
         .map_err(|e| ServerError::Protocol(format!("building '{name}': {e:?}")))?;
 
     // Dry-run stops here: the bytes are reported, nothing is written to the device.

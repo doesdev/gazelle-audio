@@ -28,16 +28,21 @@ impl DeviceHandle {
     }
 
     /// Run a command on the device and await its outcome.
+    ///
+    /// `ext3` overrides the header selector for commands that take one (`get_routing`'s
+    /// destination group, `get_mixer`'s mixer id); the worker refuses it for any other command.
     pub async fn request(
         &self,
         name: &str,
         values: PayloadValues,
+        ext3: Option<u32>,
         dry_run: bool,
     ) -> Result<CommandOutcome, ServerError> {
         let (tx, rx) = oneshot::channel();
         let cmd = WorkerCommand::Request {
             name: name.to_string(),
             values,
+            ext3,
             dry_run,
             respond: Box::new(move |result| {
                 // The receiver is dropped if the caller went away (client disconnect);

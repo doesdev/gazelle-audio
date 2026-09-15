@@ -91,7 +91,42 @@ pub struct Command {
     pub auto_send_notification: bool,
 }
 
+/// Commands whose header `ext3` is a per-request selector rather than a fixed value.
+///
+/// The recovered schemas give every command a constant `ext3`, but the panels vary it per call
+/// for these (bytecode research, 2026-09):
+/// * `get_routing`: `ext3` is the destination group index; `get_device_data` asks once per group.
+/// * `get_mixer`: `ext3` is the mixer id; one call returns one mixer.
+///
+/// Every other command must keep its schema `ext3`: overriding it would silently change what
+/// the device is asked, so callers are refused rather than trusted.
+pub const EXT3_SELECTOR_COMMANDS: &[&str] = &["get_routing", "get_mixer"];
+
 impl Command {
+    /// Whether this command takes a per-request `ext3` selector (see [`EXT3_SELECTOR_COMMANDS`]).
+    pub fn takes_ext3_selector(&self) -> bool {
+        EXT3_SELECTOR_COMMANDS.contains(&self.name.as_str())
+    }
+
+    /// Build the request with `ext3` replaced by a per-request selector, when one is given.
+    ///
+    /// Fails with [`WireError::FieldOverflow`] if a selector is given for a command that does not
+    /// take one.
+    pub fn build_request_with_ext3(
+        &self,
+        values: &PayloadValues,
+        ext3: Option<u32>,
+    ) -> Result<Vec<u8>, WireError> {
+        let mut bytes = self.build_request(values)?;
+        if let Some(selector) = ext3 {
+            if !self.takes_ext3_selector() {
+                return Err(WireError::FieldOverflow);
+            }
+            bytes[12..16].copy_from_slice(&selector.to_le_bytes());
+        }
+        Ok(bytes)
+    }
+
     /// Build the serialized request bytes for this command.
     ///
     /// `values` maps each request field name to its value. The payload header

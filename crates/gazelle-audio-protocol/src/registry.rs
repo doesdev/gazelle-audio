@@ -123,6 +123,18 @@ impl Registry {
             .ok_or(WireError::FieldOverflow)?
             .build_request(values)
     }
+
+    /// Build the request bytes for a named command with an optional `ext3` selector.
+    pub fn build_request_with_ext3(
+        &self,
+        name: &str,
+        values: &crate::payload::PayloadValues,
+        ext3: Option<u32>,
+    ) -> Result<Vec<u8>, WireError> {
+        self.get(name)
+            .ok_or(WireError::FieldOverflow)?
+            .build_request_with_ext3(values, ext3)
+    }
 }
 
 impl Command {

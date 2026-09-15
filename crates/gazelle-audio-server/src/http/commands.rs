@@ -19,6 +19,9 @@ pub struct InvokeQuery {
     /// Return the bytes that would be sent without sending them.
     #[serde(default)]
     pub dry_run: bool,
+    /// The header `ext3` selector, for commands that take one (e.g. `get_routing`'s group).
+    #[serde(default)]
+    pub ext3: Option<u32>,
 }
 
 /// Describe one field for the introspection endpoint.
@@ -121,7 +124,7 @@ pub async fn invoke(
     // A server-wide dry run cannot be overridden per request: the safe setting wins.
     let dry_run = q.dry_run || state.force_dry_run;
 
-    let outcome = handle.request(&name, values, dry_run).await?;
+    let outcome = handle.request(&name, values, q.ext3, dry_run).await?;
 
     Ok(Json(json!({
         "device_id": id,
