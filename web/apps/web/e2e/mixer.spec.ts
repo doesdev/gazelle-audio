@@ -9,12 +9,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { REPO_ROOT, startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
+import { putWorkspace, resetWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 
 test.beforeAll(async () => {
   server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
 });
+
+test.beforeEach(() => resetWorkspace(server));
 
 test.afterAll(async () => {
   await server?.stop();
@@ -57,9 +60,8 @@ function routingHex(family: Family, destination: number, routed: Record<number, 
 }
 
 /** Replaces the server's workspace with these per-device mixer layouts. */
-async function layout(mixers: Record<string, unknown>): Promise<void> {
-  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers }) });
-  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status} ${await response.text()}`);
+function layout(mixers: Record<string, unknown>): Promise<void> {
+  return putWorkspace(server, { mixers });
 }
 
 const channelIn = (page: Page, slot: number) => page.locator(`ga-channel[data-channel-slot="${slot}"]`);

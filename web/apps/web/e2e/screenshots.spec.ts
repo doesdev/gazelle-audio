@@ -5,6 +5,7 @@
 import { expect, test } from "@playwright/test";
 
 import { REPO_ROOT, startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
+import { putWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 
@@ -28,8 +29,7 @@ test.beforeAll(async () => {
     { id: "vox", kind: "preamp", mode: "relative", members: [{ device_id: "loopback-0", channel: 0 }, { device_id: "loopback-1", channel: 0 }] },
     { id: "drums", kind: "mixer", mode: "absolute", members: [{ device_id: "loopback-1", channel: 0 }, { device_id: "loopback-1", channel: 1 }] },
   ];
-  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links, aliases: {}, mixers }) });
-  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status}`);
+  await putWorkspace(server, { links, mixers });
 });
 
 test.afterAll(async () => {

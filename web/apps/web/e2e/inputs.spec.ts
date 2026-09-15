@@ -8,12 +8,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { REPO_ROOT, startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
+import { resetWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 
 test.beforeAll(async () => {
   server = await startServer(["--dry-run"], { webUi: true });
 });
+
+test.beforeEach(() => resetWorkspace(server));
 
 test.afterAll(async () => {
   await server?.stop();

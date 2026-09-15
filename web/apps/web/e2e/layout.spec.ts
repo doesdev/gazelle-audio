@@ -5,6 +5,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
+import { putWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 
@@ -14,8 +15,7 @@ test.beforeAll(async () => {
   const channels = Array.from({ length: 26 }, (_, i) => (i === 0 ? { id: "c0", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] } : { id: `c${i}`, name: "", slot: 6 + i, sends: [] }));
   // The Studio+ has the tallest channel: a grouped preamp channel over a strip with its own send section.
   const studio = { groups: [{ id: "g", name: "Drums", collapsed: false }], channels: [{ id: "s0", name: "Kick", slot: 0, group: "g", source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }] };
-  const response = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: 1, groups: [], links: [], aliases: {}, mixers: { "loopback-0": { channels }, "loopback-1": studio } }) });
-  if (!response.ok) throw new Error(`workspace PUT failed: ${response.status}`);
+  await putWorkspace(server, { mixers: { "loopback-0": { channels }, "loopback-1": studio } });
 });
 
 test.afterAll(async () => {

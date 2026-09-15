@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
+import { resetWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 let themesDir: string;
@@ -21,6 +22,8 @@ test.afterAll(async () => {
   await server?.stop();
   rmSync(themesDir, { recursive: true, force: true });
 });
+
+test.beforeEach(() => resetWorkspace(server));
 
 const deviceName = (page: import("@playwright/test").Page, id: string) => page.locator(`ga-device-list a[data-device-id="${id}"] .name`);
 
