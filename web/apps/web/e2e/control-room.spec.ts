@@ -63,12 +63,15 @@ test("Studio+ trims include the ADC, and talkback sends set_talk, set_tbk_enable
 
   await page.getByTestId("talk-to-1").click();
   await expect(lastSent(page)).toContainText(studio("set_tbk_enable", { 17: 1, 18: 1 }));
-  // The mic level is the talkback preamp's gain: 0..65 dB on the Studio+.
+  // The talkback control is a level fader on the output-volume scale: 0 loudest, 96 = -inf.
   const volume = page.getByTestId("talk-volume");
   await volume.focus();
   await volume.press("End");
-  await expect(lastSent(page)).toContainText(studio("set_tbk_vol", { 17: 65 }));
-  await expect(volume).toHaveAttribute("aria-valuetext", "65 dB");
+  await expect(lastSent(page)).toContainText(studio("set_tbk_vol", { 17: 0 }));
+  await expect(volume).toHaveAttribute("aria-valuetext", "0 dB");
+  await volume.press("Home");
+  await expect(lastSent(page)).toContainText(studio("set_tbk_vol", { 17: 96 }));
+  await expect(volume).toHaveAttribute("aria-valuetext", "-inf");
 });
 
 test("the right zone's monitor panel follows the page's device and shares state with the Outputs page", async ({ page }) => {

@@ -8,9 +8,10 @@
 // - trims in seven steps from 20 to 14 dBu: Quadro set_trim_config (MONITOR 0, LINE OUT 1),
 //   Studio+ set_trim (MONITOR 0, LINE OUT 1, ADC 2), reported in `monitor_trim`, `line_out_trim`,
 //   `adc_trim`;
-// - talkback, Studio+ only: set_talk (momentary in the UI), set_tbk_vol for the talkback mic's
-//   preamp gain in dB (`tb_mic_volume`, 0..65 on the Studio+; the user, 2026-09-15) and
-//   set_tbk_enable to HP1 0, HP2 1, MONITOR 2.
+// - talkback, Studio+ only: set_talk (momentary in the UI), set_tbk_vol for the talkback level
+//   (`tb_mic_volume`) and set_tbk_enable to HP1 0, HP2 1, MONITOR 2. The panel's talkback control is
+//   a level fader, so it takes the same scale as the outputs' volume: dB of attenuation, 96 = -inf
+//   (the user and hardware session 2, 2026-09-15).
 // Volume is dB of attenuation, 0..96 with 96 as -inf (hardware session 1 Q5 for the Quadro monitor;
 // assumed for the Studio+, Q10). A change outranks the device's reports for ECHO_HOLD_MS, as input
 // changes do.
@@ -22,9 +23,6 @@ export const VOLUME_MAX = 96;
 
 /** The panels' trim steps, by index. */
 export const TRIM_LABELS = ["20 dBu", "19 dBu", "18 dBu", "17 dBu", "16 dBu", "15 dBu", "14 dBu"] as const;
-
-/** The talkback mic's preamp gain range in dB, per model (the user, 2026-09-15). Only the Studio+ has talkback commands. */
-const TALKBACK_GAIN_MAX = { studio: 65, quadro: 75 } as const;
 
 export function formatVolume(volume: number): string {
   return volume >= VOLUME_MAX ? "-inf" : volume === 0 ? "0 dB" : `-${volume} dB`;
@@ -102,8 +100,8 @@ export class OutputsModel {
   readonly family: "quadro" | "studio";
   readonly outputs: readonly OutputInfo[];
   readonly trims: readonly TrimInfo[];
-  /** Studio+ only. `gainMax` is the talkback mic's preamp gain range, 0..gainMax dB. */
-  readonly talkback: { destinations: readonly TrimInfo[]; gainMax: number } | undefined;
+  /** Studio+ only; its level uses the same scale as the outputs' volume. */
+  readonly talkback: { destinations: readonly TrimInfo[] } | undefined;
   readonly talk: ReadonlySignal<TalkState>;
   readonly #context: OutputsContext;
   readonly #states: ReadonlySignal<OutputState>[];
@@ -117,7 +115,7 @@ export class OutputsModel {
     const quadro = context.family === "quadro";
     this.outputs = NAMES.slice(0, quadro ? 4 : 5).map((name, id) => ({ id, name, dim: quadro }));
     this.trims = TRIMS.slice(0, quadro ? 2 : 3);
-    this.talkback = quadro ? undefined : { destinations: TALKBACK_DESTINATIONS, gainMax: TALKBACK_GAIN_MAX.studio };
+    this.talkback = quadro ? undefined : { destinations: TALKBACK_DESTINATIONS };
 
     const volumes = quadro ? context.field("volumes") : undefined;
     this.#states = this.outputs.map(({ id }) => {
@@ -216,10 +214,10 @@ export class OutputsModel {
     this.#send("set_talk", { on: on ? 1 : 0 }, "talk");
   }
 
-  /** Sets the talkback mic's gain in dB, clamped to 0..`talkback.gainMax`. */
+  /** Sets the talkback level: dB of attenuation on the outputs' scale, 0..VOLUME_MAX. */
   setTalkbackVolume(volume: number): void {
     this.#checkTalkback();
-    const value = Math.min(TALKBACK_GAIN_MAX[this.family], Math.max(0, Math.round(volume)));
+    const value = Math.min(VOLUME_MAX, Math.max(0, Math.round(volume)));
     this.#change("talk:volume", value, "tb_mic_volume");
     this.#send("set_tbk_vol", { volume: value }, "talk_volume");
   }

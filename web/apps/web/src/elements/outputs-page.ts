@@ -164,21 +164,21 @@ export class GaOutputs extends GaElement {
     // Talk is momentary: on only while held.
     const talk = h("button", { type: "button", class: "talk", "data-control": "", "data-testid": "talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk" }, "Talk");
     bindMomentary(talk, (on) => outputs.setTalk(on), enabled);
-    const gainMax = outputs.talkback?.gainMax ?? 0;
     const fill = h("div", { class: "fill" });
     const value = h("span", { class: "value" });
-    const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback mic gain", "aria-valuemin": 0, "aria-valuemax": gainMax, "data-testid": "talk-volume" }, fill, value);
-    bindControl(volume, { axis: "x", min: 0, max: gainMax, up: 1, page: 6, reset: 0, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled });
+    // The panel's talkback control is a level fader, on the outputs' scale: 0 dB at the right, -inf at the left.
+    const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback level", "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": "talk-volume" }, fill, value);
+    bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: 30, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled });
     const destinations = (outputs.talkback?.destinations ?? []).map((d) =>
       h("button", { type: "button", "data-control": "", "data-testid": `talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
     );
     this.watch(() => {
       const t = outputs.talk.value;
       talk.setAttribute("aria-pressed", String(t.on));
-      fill.style.width = `${gainMax === 0 ? 0 : (Math.min(gainMax, t.volume) / gainMax) * 100}%`;
-      value.textContent = `${t.volume} dB`;
-      volume.setAttribute("aria-valuenow", String(t.volume));
-      volume.setAttribute("aria-valuetext", `${t.volume} dB`);
+      fill.style.width = `${((VOLUME_MAX - Math.min(VOLUME_MAX, Math.max(0, t.volume))) / VOLUME_MAX) * 100}%`;
+      value.textContent = formatVolume(t.volume);
+      volume.setAttribute("aria-valuenow", String(-t.volume));
+      volume.setAttribute("aria-valuetext", formatVolume(t.volume));
       for (const [i, button] of destinations.entries()) button.setAttribute("aria-pressed", String(t.to[i] ?? false));
     });
     return h(
@@ -189,7 +189,7 @@ export class GaOutputs extends GaElement {
         "div",
         { class: "settings" },
         h("div", { class: "setting" }, h("span", { class: "name" }, "Talk"), h("div", { class: "toggles" }, talk)),
-        h("div", { class: "setting" }, h("span", { class: "name" }, "Mic gain"), volume),
+        h("div", { class: "setting" }, h("span", { class: "name" }, "Level"), volume),
         h("div", { class: "setting" }, h("span", { class: "name" }, "Send to"), h("div", { class: "destinations" }, destinations)),
       ),
     );
