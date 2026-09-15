@@ -14,8 +14,48 @@ export class GaMixer extends GaElement {
   static override styles = [
     sheet(`
       :host { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-      .width { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ga-text-secondary); }
-      .width input[type="number"] { width: 4.5em; }
+      /* Channel width: a caption, an Auto | Fixed segmented control and an inset px field, all the Mix tabs' height. */
+      .width { display: flex; align-items: center; gap: 6px; }
+      .width .caption { font-size: 11px; color: var(--ga-text-secondary); }
+      .segmented { display: flex; }
+      .segmented button {
+        min-height: 26px;
+        padding: 0 10px;
+        border-radius: 0;
+        color: var(--ga-text-secondary);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .segmented button + button { margin-left: -1px; }
+      .segmented button:first-child { border-radius: 3px 0 0 3px; }
+      .segmented button:last-child { border-radius: 0 3px 3px 0; }
+      .segmented button[aria-pressed="true"] { position: relative; border-color: var(--ga-accent); background: var(--ga-accent); color: var(--ga-accent-text); }
+      .px-field {
+        display: flex;
+        align-items: center;
+        height: 26px;
+        padding-right: 7px;
+        border: 1px solid var(--ga-border-subtle);
+        border-radius: 3px;
+        background: var(--ga-surface-inset);
+        cursor: text;
+      }
+      .px-field:focus-within { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
+      .px-field:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+      .px-field input {
+        width: 3.4em;
+        min-height: 24px;
+        padding: 0 2px 0 6px;
+        border: 0;
+        background: transparent;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        appearance: textfield;
+      }
+      .px-field input:disabled { background: transparent; }
+      .px-field input:focus-visible { outline: none; }
+      .px-field input::-webkit-inner-spin-button, .px-field input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+      .px-field .unit { font-size: 11px; color: var(--ga-text-muted); }
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .tabs { display: flex; gap: 2px; }
       .tabs a {
@@ -99,8 +139,22 @@ export class GaMixer extends GaElement {
 
     const strips = h("div", { class: "strips" }, Array.from({ length: mixer.channels }, (_, i) => h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: String(i) })), h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mixer.index), strip: "master" })));
 
-    const autoWidth = h("input", { type: "checkbox", "data-testid": "strip-width-auto", "on:change": (event) => store.setMixerWidth({ auto: (event.target as HTMLInputElement).checked }) });
-    const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width (px)", "data-testid": "strip-width" });
+    const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width in px", "data-testid": "strip-width" });
+    const autoWidth = h("button", { type: "button", title: "Fit channels to the window", "data-testid": "strip-width-auto", "on:click": () => store.setMixerWidth({ auto: true }) }, "Auto");
+    const fixedWidth = h(
+      "button",
+      {
+        type: "button",
+        title: "Set a channel width; channels scroll when they do not fit",
+        "data-testid": "strip-width-fixed",
+        "on:click": () => {
+          store.setMixerWidth({ auto: false });
+          stripWidth.focus();
+          stripWidth.select();
+        },
+      },
+      "Fixed",
+    );
     const commitWidth = () => {
       const px = Number(stripWidth.value);
       if (stripWidth.value.trim() !== "" && Number.isFinite(px)) store.setMixerWidth({ px });
@@ -110,7 +164,13 @@ export class GaMixer extends GaElement {
     stripWidth.addEventListener("keydown", (event) => {
       if (event.key === "Enter") commitWidth();
     });
-    const width = h("div", { class: "width" }, h("label", {}, autoWidth, "Auto width"), h("label", {}, "Channel", stripWidth, "px"));
+    const width = h(
+      "div",
+      { class: "width", role: "group", "aria-label": "Channel width" },
+      h("span", { class: "caption", "aria-hidden": "true" }, "Width"),
+      h("div", { class: "segmented" }, autoWidth, fixedWidth),
+      h("label", { class: "px-field" }, stripWidth, h("span", { class: "unit" }, "px")),
+    );
     strips.style.setProperty("--strip-width-min", `${STRIP_WIDTH_MIN}px`);
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
@@ -118,7 +178,8 @@ export class GaMixer extends GaElement {
 
     this.watch(() => {
       const { auto, px } = store.mixerWidth.value;
-      autoWidth.checked = auto;
+      autoWidth.setAttribute("aria-pressed", String(auto));
+      fixedWidth.setAttribute("aria-pressed", String(!auto));
       stripWidth.disabled = auto;
       if (this.root.activeElement !== stripWidth) stripWidth.value = String(px);
       strips.classList.toggle("fixed", !auto);

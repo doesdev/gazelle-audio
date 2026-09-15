@@ -43,7 +43,8 @@ test("auto width fits strips to the row within limits; a set width scrolls; both
   await page.goto(`${server.url}/#/mixer/loopback-0/0`);
   const strip = page.locator('ga-strip[strip="4"]');
   const row = strips(page);
-  await expect(page.getByTestId("strip-width-auto")).toBeChecked();
+  await expect(page.getByTestId("strip-width-auto")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("strip-width-fixed")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("strip-width")).toBeDisabled();
 
   const wide = await width(strip);
@@ -59,8 +60,9 @@ test("auto width fits strips to the row within limits; a set width scrolls; both
   await expect.poll(() => width(strip)).toBe(48);
   expect(await row.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0);
 
-  await page.getByTestId("strip-width-auto").uncheck();
+  await page.getByTestId("strip-width-fixed").click();
   const input = page.getByTestId("strip-width");
+  await expect(input).toBeFocused();
   await input.fill("100");
   await input.press("Enter");
   await expect.poll(() => width(strip)).toBe(100);
@@ -70,7 +72,7 @@ test("auto width fits strips to the row within limits; a set width scrolls; both
   await expect.poll(() => width(strip)).toBe(100);
 
   await page.reload();
-  await expect(page.getByTestId("strip-width-auto")).not.toBeChecked();
+  await expect(page.getByTestId("strip-width-fixed")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("strip-width")).toHaveValue("100");
   await expect.poll(() => width(strip)).toBe(100);
 });
