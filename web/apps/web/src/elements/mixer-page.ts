@@ -153,7 +153,6 @@ export class GaMixer extends GaElement {
         {},
         h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
         levelsNote,
-        mixer0.hasSend ? [h("li", {}, "The strip's Send shows the raw value: its scale has not been verified.")] : [],
       ),
     );
 

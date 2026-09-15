@@ -2,7 +2,7 @@
 // (reference/devices.md, "Mixer and meter value scales"; decisions P26–P30):
 // - level is dB of attenuation, 0..90 on a linear fader, shown 0 dB … −90 dB;
 // - pan is 2..62 with 32 as centre (27..38 snaps to it), shown −30…+30;
-// - Studio+ `send` is a raw byte whose scale is not known;
+// - Studio+ `send` is dB of attenuation, 0 (loudest) to 96 (off), like set_volume (hardware session 1);
 // - a meter byte is dB below full scale on Antelope's piecewise scale, and 0 latches clip;
 // - device channel 0 is the master and strip i is device channel i + 1 (assumed for Studio+).
 // Every strip command carries the whole strip, so coalescing per strip never loses a field.
@@ -19,7 +19,8 @@ export const PAN_MIN = 2;
 export const PAN_MAX = 62;
 export const PAN_CENTRE = 32;
 const PAN_SNAP = [27, 38] as const;
-export const SEND_MAX = 255;
+/** Send attenuation at which the send is off (−inf). */
+export const SEND_MAX = 96;
 /** Scale marks in dB below full scale. */
 export const METER_MARKS = [0, 5, 10, 15, 20, 30, 40, 60] as const;
 /** Quadro meter sources for mixers 1–3: MONITOR, HP2, LINE_OUT (mixer 4's is not known). */
@@ -35,6 +36,10 @@ export function levelFromDb(db: number): number {
 
 export function formatLevel(level: number): string {
   return `${levelDb(level)} dB`;
+}
+
+export function formatSend(send: number): string {
+  return send >= SEND_MAX ? "-inf" : send === 0 ? "0 dB" : `-${send} dB`;
 }
 
 export function clampPan(value: number): number {

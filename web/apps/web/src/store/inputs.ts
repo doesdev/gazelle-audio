@@ -186,7 +186,7 @@ export class InputsModel {
     return this.#digitalPair(kind, pair);
   }
 
-  /** Links or unlinks a digital pair. The Studio+ panel leaves the partner's gain to the device, so this sends only the link. */
+  /** Links or unlinks a digital pair; while linked, `setDigitalGain` sends each change to both inputs. */
   setDigitalPairLinked(kind: DigitalKind, pair: number, on: boolean): void {
     this.#digitalPair(kind, pair).value = on;
     this.#send("set_stereo_link", { periph_id: DIGITAL_LINK_PERIPH[kind], channel_id: pair, linked: on ? 1 : 0 }, `${kind}_link:${pair}`);
@@ -243,11 +243,12 @@ export class InputsModel {
   }
 
   /**
-   * The preamps a change goes to: this one, then its linked partner on the Quadro, whose panel
-   * sends each change to both. The Studio+ panel sends only the one; its device follows the link.
+   * The preamps a change goes to: this one, then its linked partner. Both panels send each change
+   * to both inputs of a linked pair: the Quadro's in its bytecode, the Studio+ in hardware session 1
+   * (linked line gains; its preamps take the same path).
    */
   #targets(index: number): number[] {
-    const partner = this.family === "quadro" ? this.linkedWith(index) : undefined;
+    const partner = this.linkedWith(index);
     return partner === undefined ? [index] : [index, partner];
   }
 
@@ -279,8 +280,13 @@ export class InputsModel {
     const group = this.#checkDigital(kind, index);
     if (!group.editable) throw new Error(`the ${this.family} panel does not set ${group.label} gain, so neither does this page`);
     const value = clamp(gain, DIGITAL_GAIN);
-    this.#change(`dig:${kind}:${index}`, value, `${kind}_gains`);
-    this.#send(`set_${kind}_gain`, { id: index, gain: value }, `${kind}_gain:${index}`);
+    // A linked pair's gain goes to both inputs, as the Studio+ panel sends it (hardware session 1).
+    const partner = index % 2 === 0 ? index + 1 : index - 1;
+    const linked = Math.floor(index / 2) < group.linkPairs && partner < group.count && this.#digitalPair(kind, Math.floor(index / 2)).peek();
+    for (const target of linked ? [index, partner] : [index]) {
+      this.#change(`dig:${kind}:${target}`, value, `${kind}_gains`);
+      this.#send(`set_${kind}_gain`, { id: target, gain: value }, `${kind}_gain:${target}`);
+    }
   }
 
   #send(command: string, args: Record<string, number>, key: string): void {

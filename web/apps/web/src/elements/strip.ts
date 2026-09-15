@@ -7,7 +7,7 @@
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
-import { formatLevel, formatPan, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
+import { formatLevel, formatPan, formatSend, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 
@@ -144,14 +144,16 @@ export class GaStrip extends GaElement {
       if (mixer.hasSend) {
         const sendFill = h("div", { class: "fill" });
         const sendValue = h("span", { class: "value" });
-        const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send (raw value, scale unverified)`, title: "Send: raw value; its scale is not known yet", "aria-valuemin": 0, "aria-valuemax": SEND_MAX }, sendFill, sendValue);
-        bindControl(send, { axis: "x", min: 0, max: SEND_MAX, up: 1, page: 16, reset: 0, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled });
+        // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.
+        const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send`, "aria-valuemin": -SEND_MAX, "aria-valuemax": 0 }, sendFill, sendValue);
+        bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: 0, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled });
         top.unshift(h("span", { class: "caption" }, "Send"), send);
         this.watch(() => {
           const value = state.value.send;
-          sendFill.style.cssText = `left: 0; width: ${(value / SEND_MAX) * 100}%`;
-          sendValue.textContent = String(value);
-          send.setAttribute("aria-valuenow", String(value));
+          sendFill.style.cssText = `left: 0; width: ${((SEND_MAX - Math.min(SEND_MAX, value)) / SEND_MAX) * 100}%`;
+          sendValue.textContent = formatSend(value);
+          send.setAttribute("aria-valuenow", String(-value));
+          send.setAttribute("aria-valuetext", formatSend(value));
         });
       }
 

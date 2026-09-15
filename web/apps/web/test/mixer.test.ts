@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
-import { clampPan, formatLevel, formatPan, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
+import { clampPan, formatLevel, formatPan, formatSend, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -57,9 +57,10 @@ test("Studio+ strips send set_mixer_cfg including send", async () => {
   mixer.toggleSolo(0);
   await flush();
   assert.deepEqual(sent(client, "set_mixer_cfg").map((c) => c.args), [
-    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 0, send: 255 },
-    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 1, send: 255 },
-  ]);
+    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 0, send: 96 },
+    { mixer_id: 3, channel: 1, level: 0, pan: PAN_CENTRE, mute: 0, solo: 1, send: 96 },
+  ], "send is dB of attenuation, 0 (loudest) to 96 (off), as captured in hardware session 1");
+  assert.deepEqual([formatSend(0), formatSend(50), formatSend(96)], ["0 dB", "-50 dB", "-inf"]);
 });
 
 test("linking sends the stereo link and mirrors level, mute and solo but not pan", async () => {

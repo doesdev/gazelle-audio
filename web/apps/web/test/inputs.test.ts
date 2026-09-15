@@ -163,7 +163,7 @@ test("on the Quadro a linked preamp's gain, 48V and phase go to its partner too,
   studio.setPairLinked(0, true);
   studio.setGain(0, 20);
   await flush();
-  assert.deepEqual(sent("set_pre_gain").slice(-1), [{ id: 0, gain: 20 }], "the Studio+ panel leaves the partner to the device");
+  assert.deepEqual(sent("set_pre_gain").slice(-2), [{ id: 0, gain: 20 }, { id: 1, gain: 20 }], "the Studio+ panel sends a linked input's change to its partner too (hardware session 1, lines)");
 });
 
 test("Studio+ digital inputs link in pairs like its panel: lines, ADAT and S/PDIF each read and set with their own peripheral id", async () => {
@@ -182,7 +182,11 @@ test("Studio+ digital inputs link in pairs like its panel: lines, ADAT and S/PDI
   studio.setDigitalGain("line", 4, 3);
   await flush();
   assert.deepEqual(sent("set_stereo_link"), [{ periph_id: 1, channel_id: 2, linked: 1 }, { periph_id: 3, channel_id: 0, linked: 1 }]);
-  assert.deepEqual(sent("set_line_gain"), [{ id: 4, gain: 3 }], "the Studio+ panel does not copy a linked input's gain to its partner");
+  assert.deepEqual(sent("set_line_gain"), [{ id: 4, gain: 3 }, { id: 5, gain: 3 }], "a linked line's gain goes to its partner too, as the Studio+ panel sends it (hardware session 1)");
+  studio.setDigitalPairLinked("line", 2, false);
+  studio.setDigitalGain("line", 4, 1);
+  await flush();
+  assert.deepEqual(sent("set_line_gain").slice(-1), [{ id: 4, gain: 1 }], "unlinked, only the one");
   assert.throws(() => studio.setDigitalPairLinked("adat", 8, true), RangeError);
 
   const quadro = store.inputs("loopback-0");
