@@ -283,6 +283,7 @@ export class Store {
       index,
       topology,
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      read: (command, ext3) => this.#readCommand(deviceId, command, ext3),
       field: (name) => this.field(deviceId, "0x73", name),
       watch: () => this.watchReport(deviceId, "0x73"),
     });
@@ -324,6 +325,7 @@ export class Store {
       family,
       topology: topologies[family],
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      read: (command, ext3) => this.#readCommand(deviceId, command, ext3),
       field: (name) => this.field(deviceId, "0x73", name),
       watch: () => this.watchReport(deviceId, "0x73"),
       timers: this.#timers,
@@ -361,6 +363,21 @@ export class Store {
     if (result.response_error !== null) throw new Error(result.response_error);
     const slots = result.response?.bank_configs?.map((s) => ({ source: s.in_periph_id, channel: s.in_chann }));
     return { slots, dryRun: result.dry_run };
+  }
+
+  /** Reads a command's reply (`ext3` for selectors). A failure becomes a notice and reads as no response. */
+  async #readCommand(deviceId: string, command: string, ext3: number | undefined): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }> {
+    try {
+      const device = this.#client.device(deviceId);
+      if (device.family === null) throw new Error(`${deviceId} has no known model`);
+      const invoke = device.invoke as unknown as (name: string, args: undefined, options: { ext3?: number }) => Promise<{ dry_run: boolean; response: Record<string, unknown> | null; response_error: string | null }>;
+      const result = await invoke(command, undefined, ext3 === undefined ? {} : { ext3 });
+      if (result.response_error !== null) throw new Error(result.response_error);
+      return { response: result.response, dryRun: result.dry_run };
+    } catch (error) {
+      this.#notify("error", `${command} could not be read: ${message(error)}`);
+      return { response: null, dryRun: false };
+    }
   }
 
   /** Sends a command; failures other than being superseded become notices. Resolves true when it was sent. */

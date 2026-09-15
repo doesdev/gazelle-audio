@@ -6,7 +6,9 @@
 // - a meter byte is dB below full scale on Antelope's piecewise scale, and 0 latches clip;
 // - device channel 0 is the master and strip i is device channel i + 1 (assumed for Studio+).
 // Every strip command carries the whole strip, so coalescing per strip never loses a field.
-// The registry cannot yet request one mixer's state, so values start at defaults.
+// `load()` reads the mixer's state: get_mixer with the mixer in ext3 (33 entries, master first)
+// and its 16 pairs of get_mixer_links (entry k covers strips 2k and 2k+1). Until then, and in dry
+// run, values are defaults.
 
 import type { Topology } from "gazelle-audio-client";
 
@@ -69,12 +71,16 @@ export type StripId = number | "master";
 
 export type MixerInvoke = (command: string, args: Record<string, number>, options: { coalesce?: string }) => Promise<boolean>;
 
+/** Reads a command's reply (`ext3` for selectors); `response` is null in dry run or when it failed (which the store reports). */
+export type CommandRead = (command: string, ext3?: number) => Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+
 export interface MixerContext {
   deviceId: string;
   family: "quadro" | "studio";
   index: number;
   topology: Topology;
   invoke: MixerInvoke;
+  read: CommandRead;
   field(name: string): ReadonlySignal<unknown>;
   watch(): () => void;
 }
@@ -89,9 +95,7 @@ export class MixerModel {
   readonly hasSend: boolean;
   /** Whether choosing this mixer can point the device's meters at it. */
   readonly meterSourceSelectable: boolean;
-  /** False until the protocol can read a mixer's current state; values are defaults until edited. */
-  readonly stateKnown = false;
-
+  readonly #known = signal(false);
   readonly #context: MixerContext;
   readonly #strips: Signal<StripState>[];
   readonly #master = signal<StripState>(DEFAULT_STRIP);
@@ -107,6 +111,38 @@ export class MixerModel {
     this.meterSourceSelectable = context.family === "studio" || context.index < QUADRO_METER_SOURCES.length;
     this.#strips = Array.from({ length: this.channels }, () => signal(DEFAULT_STRIP));
     this.#clips = Array.from({ length: this.channels }, () => signal(false));
+  }
+
+  /** True once the device's state has been read; until then values are defaults. */
+  get stateKnown(): ReadonlySignal<boolean> {
+    return this.#known;
+  }
+
+  /** Reads the mixer's strips and links from the device. Resolves false when nothing was read (dry run, or a failure the store reports). */
+  async load(): Promise<boolean> {
+    const strips = (await this.#context.read("get_mixer", this.index)).response?.["entries"];
+    if (!Array.isArray(strips)) return false;
+    const links = (await this.#context.read("get_mixer_links")).response?.["entries"];
+    const pairsPerMixer = this.channels / 2;
+    batch(() => {
+      strips.forEach((raw, entry) => {
+        const id: StripId = entry === 0 ? "master" : entry - 1;
+        if (id !== "master" && id >= this.channels) return;
+        const values = raw as Record<string, unknown>;
+        const pair = id === "master" || !Array.isArray(links) ? undefined : (links[this.index * pairsPerMixer + Math.floor(id / 2)] as Record<string, unknown> | undefined);
+        const strip = this.#signal(id);
+        strip.value = {
+          level: Number(values["level"] ?? 0),
+          pan: Number(values["pan"] ?? PAN_CENTRE),
+          mute: Number(values["mute"] ?? 0) === 1,
+          solo: Number(values["solo"] ?? 0) === 1,
+          send: Number(values["send"] ?? 0),
+          linked: pair === undefined ? strip.peek().linked : Number(pair["linked"] ?? 0) === 1,
+        };
+      });
+      this.#known.value = true;
+    });
+    return true;
   }
 
   strip(id: StripId): ReadonlySignal<StripState> {

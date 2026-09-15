@@ -29,7 +29,7 @@ test("Quadro strips send set_mixer with the whole strip, coalesced per strip, ma
   const { client, store } = setup();
   const mixer = store.mixer("loopback-0", 1);
   assert.equal(mixer.hasSend, false);
-  assert.equal(mixer.stateKnown, false, "state is not readable yet, so values are defaults");
+  assert.equal(mixer.stateKnown.value, false, "until loaded, values are defaults");
 
   mixer.setLevel(3, 20);
   mixer.setPan(3, 50);
@@ -140,6 +140,36 @@ test("failed commands post a notice; superseded ones do not", async () => {
   mixer.setLevel(0, 6);
   await flush();
   assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["error", "set_mixer failed: level out of range"]]);
+});
+
+test("loading reads the mixer's strips (master first) and its links from the device, and marks the state known", async () => {
+  const { client, store } = setup();
+  const strips = Array.from({ length: 33 }, (_, i) => ({ level: i === 0 ? 4 : i === 4 ? 20 : 0, pan: i === 4 ? 50 : PAN_CENTRE, mute: i === 4 ? 1 : 0, solo: 0 }));
+  // Mixer 1's pairs are entries 16..31; entry 17 is its pair 1, strips 2 and 3.
+  const links = Array.from({ length: 64 }, (_, i) => ({ linked: i === 17 ? 1 : 0 }));
+  const reply = (call: { deviceId: string; command: string }, response: unknown, dryRun = false) => ({ device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: dryRun, response, response_error: null });
+  client.respond = async (call) => reply(call, call.command === "get_mixer" ? { entries: strips } : call.command === "get_mixer_links" ? { entries: links } : null);
+
+  const mixer = store.mixer("loopback-0", 1);
+  assert.equal(mixer.stateKnown.value, false);
+  assert.equal(await mixer.load(), true);
+  assert.deepEqual(sent(client, "get_mixer").map((c) => c.options?.["ext3"]), [1], "ext3 names the mixer");
+  assert.deepEqual(mixer.strip("master").value, { level: 4, pan: PAN_CENTRE, mute: false, solo: false, send: 0, linked: false });
+  assert.deepEqual(mixer.strip(3).value, { level: 20, pan: 50, mute: true, solo: false, send: 0, linked: true }, "entry 4 is strip 3");
+  assert.deepEqual([mixer.strip(2).value.linked, mixer.strip(4).value.linked], [true, false]);
+  assert.equal(mixer.stateKnown.value, true);
+  assert.equal(sent(client, "set_mixer").length, 0, "loading sends nothing back");
+
+  client.respond = async (call) => reply(call, call.command === "get_mixer" ? { entries: strips.map((s) => ({ ...s, send: 77 })) } : { entries: links });
+  const studio = store.mixer("loopback-1", 0);
+  await studio.load();
+  assert.equal(studio.strip(3).value.send, 77, "Studio+ entries carry send");
+
+  const dry = store.mixer("loopback-0", 2);
+  client.respond = async (call) => reply(call, null, true);
+  assert.equal(await dry.load(), false, "a dry run reads nothing");
+  assert.equal(dry.stateKnown.value, false);
+  assert.equal(dry.strip(3).value.level, 0);
 });
 
 test("mixers exist only for known models and within the topology", () => {

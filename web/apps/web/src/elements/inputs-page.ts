@@ -39,6 +39,9 @@ export class GaInputs extends GaElement {
       .name { font-family: "Josefin Sans Variable", system-ui, sans-serif; font-size: 13px; font-weight: 600; }
       .hpf { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
       .hpf[data-on] { color: var(--ga-text-inverse); background: var(--ga-accent); }
+      .badges { display: flex; align-items: center; gap: 4px; }
+      .link { min-width: 0; min-height: 16px; padding: 0 5px; font-size: 11px; line-height: 1; }
+      .link[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .segmented { display: flex; }
       .segmented button { flex: 1; min-width: 0; min-height: 22px; padding: 0 4px; border-radius: 0; font-size: 11px; font-weight: 600; }
       .segmented button + button { margin-left: -1px; }
@@ -79,6 +82,7 @@ export class GaInputs extends GaElement {
     }
     const inputs = store.inputs(deviceId);
     this.onDisconnect(inputs.activate());
+    void inputs.loadLinks();
     const enabled = () => store.connected.peek();
 
     const devices = h("select", {
@@ -167,6 +171,12 @@ export class GaInputs extends GaElement {
     this.onDisconnect(disarm);
     const phase = h("button", { type: "button", class: "phase", "data-control": "", "data-testid": `pre-phase-${i}`, "aria-label": `${label} phase invert`, "on:click": () => inputs.setPhaseInvert(i, !state.peek().phaseInvert) }, "Ø");
     const hpf = h("span", { class: "hpf", "data-testid": `pre-hpf-${i}`, title: "High-pass filter, as the device reports it" }, "HPF");
+    // The first preamp of each pair carries the pair's link; a linked pair's type is locked.
+    const pair = Math.floor(i / 2);
+    const link =
+      i % 2 === 0 && pair < inputs.pairCount
+        ? h("button", { type: "button", class: "link", "data-control": "", "data-testid": `pre-link-${pair}`, "aria-label": `Link preamps ${i + 1} and ${i + 2}`, title: `Link preamps ${i + 1} and ${i + 2}`, "on:click": () => inputs.setPairLinked(pair, !inputs.pairLinked(pair).peek()) }, "⇆")
+        : undefined;
 
     this.watch(() => {
       const s = state.value;
@@ -187,9 +197,16 @@ export class GaInputs extends GaElement {
       if (s.phantom) disarm();
       phase.setAttribute("aria-pressed", String(s.phaseInvert));
       hpf.toggleAttribute("data-on", s.hpf);
+      const linked = pair < inputs.pairCount && inputs.pairLinked(pair).value;
+      link?.setAttribute("aria-pressed", String(linked));
+      for (const button of types) {
+        button.toggleAttribute("data-unavailable", linked);
+        button.disabled = linked || !enabled();
+        button.title = linked ? "Unlink the pair to change its type" : "";
+      }
     });
 
-    return h("div", { class: "preamp", "data-testid": `preamp-${i}` }, h("div", { class: "head" }, h("span", { class: "name" }, label), hpf), h("div", { class: "segmented", role: "group", "aria-label": `${label} type` }, types), gain, h("div", { class: "toggles" }, phantom, phase));
+    return h("div", { class: "preamp", "data-testid": `preamp-${i}` }, h("div", { class: "head" }, h("span", { class: "name" }, label), h("span", { class: "badges" }, link, hpf)), h("div", { class: "segmented", role: "group", "aria-label": `${label} type` }, types), gain, h("div", { class: "toggles" }, phantom, phase));
   }
 
   #digital(inputs: InputsModel, group: DigitalGroup, i: number, enabled: () => boolean): HTMLElement {

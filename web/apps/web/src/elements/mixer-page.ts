@@ -137,6 +137,12 @@ export class GaMixer extends GaElement {
     const metered = h("select", { "aria-label": "Metered mix", "data-testid": "metered-mix", "on:change": () => (channels.meteredMix.value = Number(metered.value)) });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
+    // Every mix's strips and links are read when the page opens (sends show other mixes' levels).
+    for (let mix = 0; mix < topology.mixers.count; mix++) void store.mixer(deviceId, mix).load();
+    const levelsNote = h("li", {}, "The device's mixer levels have not been read (as in dry run), so controls start at defaults and send when changed.");
+    this.watch(() => {
+      levelsNote.hidden = mixer0.stateKnown.value;
+    });
     // One line by default, so the channels keep the height.
     const notes = h(
       "details",
@@ -146,7 +152,7 @@ export class GaMixer extends GaElement {
         "ul",
         {},
         h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
-        mixer0.stateKnown ? [] : [h("li", {}, "The device's current mixer levels cannot be read yet, so controls start at defaults and send when changed.")],
+        levelsNote,
         mixer0.hasSend ? [h("li", {}, "The strip's Send shows the raw value: its scale has not been verified.")] : [],
       ),
     );

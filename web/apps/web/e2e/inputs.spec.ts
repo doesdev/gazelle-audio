@@ -62,6 +62,31 @@ test("Quadro preamps send type, gain, a confirmed 48V and phase, with the panels
   await expect(page.getByTestId("adat-gain-0")).toHaveText("—", { timeout: 1000 });
 });
 
+test("linking a Quadro preamp pair sends set_stereo_link, locks the pair's type, and its gain changes go to both", async ({ page }) => {
+  const gains: number[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      const frame = typeof event.payload === "string" ? (JSON.parse(event.payload) as { command?: string; args?: { id?: number } }) : {};
+      if (frame.command === "set_pre_gain" && frame.args?.id !== undefined) gains.push(frame.args.id);
+    }),
+  );
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await page.getByTestId("pre-link-1").click();
+  // set_stereo_link(periph 0 = preamps, pair 1 = preamps 3 and 4, linked 1): three bytes after a one-byte payload header.
+  const vectors = JSON.parse(readFileSync(join(REPO_ROOT, "crates", "gazelle-audio-protocol", "tests", "ground_truth.json"), "utf8")) as Record<string, string>;
+  const bytes = Uint8Array.from(vectors["set_stereo_link"]?.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  [bytes[17], bytes[18], bytes[19]] = [0, 1, 1];
+  await expect(lastSent(page)).toContainText(`Dry run, would send set_stereo_link: ${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`);
+  await expect(page.getByTestId("pre-link-1")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("pre-type-2-line")).toBeDisabled();
+  await expect(page.getByTestId("pre-type-0-line")).toBeEnabled();
+
+  const gain = page.getByTestId("pre-gain-2");
+  await gain.focus();
+  await gain.press("ArrowRight");
+  await expect.poll(() => gains).toEqual([2, 3]);
+});
+
 test("Studio+ sends set_pre_phaseinv and digital input gains; Hi-Z is on preamps 1-4", async ({ page }) => {
   const studio = (command: string, id: number, value: number) => `Dry run, would send ${command}: ${expectedHex("ground_truth_studio.json", command, id, value)}`;
   await page.goto(`${server.url}/#/inputs/loopback-1`);
