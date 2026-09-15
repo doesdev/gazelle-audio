@@ -38,7 +38,8 @@ export class GaMixer extends GaElement {
         flex: 1;
         gap: 2px;
         min-height: 0;
-        padding: 4px;
+        /* No right padding: the sticky master sits flush with the edge, so no strip shows past it. */
+        padding: 4px 0 4px 4px;
         overflow-x: auto;
         overflow-y: hidden;
         border-radius: 3px;
@@ -54,8 +55,7 @@ export class GaMixer extends GaElement {
         right: 0;
         z-index: 1;
         display: flex;
-        /* Cover the row's right padding too, so no strip shows past the master as it scrolls. */
-        margin: -4px -4px -4px 0;
+        margin: -4px 0;
         padding: 4px 4px 4px 6px;
         background: var(--ga-surface-inset);
         box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5);

@@ -91,6 +91,11 @@ test("each side panel collapses to a rail and stays collapsed after a reload", a
 
   await page.getByRole("button", { name: "Collapse the meters panel" }).click();
   await expect.poll(() => width(right)).toBeLessThanOrEqual(30);
+  const edge = await page.locator("ga-mixer .strips").evaluate((row) => {
+    row.scrollLeft = 200;
+    return row.getBoundingClientRect().right - (row.querySelector(".master") as HTMLElement).getBoundingClientRect().right;
+  });
+  expect(edge, "the master stays flush with the row's right edge while strips scroll").toBeLessThanOrEqual(0.5);
   expect(await width(main)).toBeGreaterThan(mainBefore + 350);
 
   await page.reload();

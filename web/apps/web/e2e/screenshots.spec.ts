@@ -35,5 +35,12 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       await expect(page.locator('ga-strip[strip="0"] .readout').nth(1)).not.toHaveText("—");
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
     }
+    // Both side panels collapsed, at a width where auto strips stretch past the floor.
+    await page.getByRole("button", { name: "Collapse the devices panel" }).click();
+    await page.getByRole("button", { name: "Collapse the meters panel" }).click();
+    await page.setViewportSize({ width: 2200, height: 1000 });
+    await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-collapsed.png` });
+    await page.getByRole("button", { name: "Expand the devices panel" }).click();
+    await page.getByRole("button", { name: "Expand the meters panel" }).click();
   });
 }
