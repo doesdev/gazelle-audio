@@ -20,11 +20,23 @@ Usage
 
 The directory is an extracted ``PYZ-00.pyz`` (see ``extract_pyz.py``). Writing the table by hand
 would be 100 lines of transcription, which is exactly the kind of thing to get quietly wrong.
+
+Licensing
+---------
+Which emulations a device may use is in its own ``get_feature_mask`` reply, parsed by
+``antelope/herd/feature_managers.py``: ``parse_feature_mask`` drops the reply's first byte and reads
+the fields of ``_feature_mask_format`` (a list of ``[name, bit length]``) one after another, least
+significant bit first. No model class names its feature: ``MicModelBase.__init__`` hands each model,
+in ``emu_idx`` order, the next field that ``(mic_emu_(base))|(mic_emu_model_(base)_((city).*)?)``
+matches, so index 0 (the microphone itself) takes the microphone's own ``mic_emu_<base>`` and each
+emulation the next ``mic_emu_model_<base>_<name>``. This script does the same, and checks that the
+name the panel would derive from each feature is the one derived from its class.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +56,8 @@ TARGETS = [
     (5, "ACCORD", "Accord", "accord"),
     (6, "EDGE_NOTE", "Edge Note", "edge_note"),
 ]
+
+FEATURE_MANAGERS = "antelope_herd_feature_managers.pyc"
 
 # utils._first_parts_of_a_name and utils._second_parts_of_a_name_edge_cases.
 CITIES = ["berlin", "tokyo", "oxford", "vienna", "sacramento", "minnesota", "illinois", "perth", "freiburg", "aalborg", "hamburg"]
@@ -97,6 +111,75 @@ def class_attributes(blob: Path) -> list[tuple[str, dict[str, int]]]:
     return out
 
 
+def base_name(blob: Path) -> str:
+    """The `base_name` a module's base model class assigns: the stem of its features' names."""
+    code = pyc_dis.load_blob(str(blob), (3, 8))
+    found = set()
+    for body in pyc_dis.walk(code):
+        if not body.name.startswith("MicModel") or "Base" not in body.name:
+            continue
+        pending = None
+        for instruction in pyc_dis.disassemble(body, (3, 8)):
+            if instruction.opname == "LOAD_CONST":
+                value = body.consts[instruction.arg]
+                pending = value if isinstance(value, str) else None
+            elif instruction.opname == "STORE_NAME" and body.names[instruction.arg] == "base_name" and pending is not None:
+                found.add(pending)
+            elif instruction.opname != "EXTENDED_ARG":
+                pending = None
+    if len(found) != 1:
+        raise SystemExit(f"{blob.name}: expected one base_name, found {sorted(found)}")
+    return found.pop()
+
+
+def feature_mask_format(blob: Path) -> list[tuple[str, int, int]]:
+    """`_feature_mask_format` as (name, first bit, bit length), in order.
+
+    The module builds it from two-element lists, `LOAD_CONST name; LOAD_CONST bits; BUILD_LIST 2`,
+    closed by `BUILD_LIST n; STORE_NAME _feature_mask_format`.
+    """
+    code = pyc_dis.load_blob(str(blob), (3, 8))
+    instructions = [i for i in pyc_dis.disassemble(code, (3, 8)) if i.opname != "EXTENDED_ARG"]
+    fields: list[tuple[str, int]] = []
+    for k, instruction in enumerate(instructions):
+        if instruction.opname == "STORE_NAME" and code.names[instruction.arg] == "_feature_mask_format":
+            count = instructions[k - 1].arg
+            if len(fields) < count:
+                raise SystemExit(f"_feature_mask_format: expected {count} fields, found {len(fields)}")
+            fields = fields[-count:]
+            break
+        if instruction.opname == "BUILD_LIST" and instruction.arg == 2 and k >= 2:
+            name, bits = instructions[k - 2], instructions[k - 1]
+            if name.opname == bits.opname == "LOAD_CONST":
+                key, width = code.consts[name.arg], code.consts[bits.arg]
+                if isinstance(key, str) and isinstance(width, int):
+                    fields.append((key, width))
+    else:
+        raise SystemExit("_feature_mask_format not found")
+    out, bit = [], 0
+    for name, width in fields:
+        out.append((name, bit, width))
+        bit += width
+    return out
+
+
+def licence_bits(fields: list[tuple[str, int, int]], base: str, labels: list[str], display: str) -> list[tuple[int, str]]:
+    """Each model's feature bit, in emu_idx order, as `MicModelBase.parse_next_feature_name` assigns it."""
+    pattern = re.compile(f"(mic_emu_({base}))|(mic_emu_model_({base})_(({'|'.join(CITIES)}).*)?)")
+    matches = [(name, bit, width) for name, bit, width in fields if pattern.fullmatch(name)]
+    if len(matches) != len(labels):
+        raise SystemExit(f"{base}: {len(labels)} models but {len(matches)} features: {[m[0] for m in matches]}")
+    out = []
+    for index, ((name, bit, width), label) in enumerate(zip(matches, labels)):
+        found = pattern.fullmatch(name)
+        # Index 0 is the microphone itself, and takes the microphone's own feature.
+        derived = display if found.group(2) else label_for(found.group(5))
+        if width != 1 or derived != label or (index == 0) != bool(found.group(2)):
+            raise SystemExit(f"{base}: model {index} ({label}) would take {name} ({derived}, {width} bits)")
+        out.append((bit, name))
+    return out
+
+
 def strip_suffix(name: str) -> str:
     stem = name[len("MicModel") :]
     for suffix in SUFFIXES:
@@ -113,6 +196,8 @@ def main() -> int:
 
     blocks = []
     patterns = []
+    licences = []
+    fields = feature_mask_format(args.extracted / FEATURE_MANAGERS)
     for value, member, display, module in TARGETS:
         blob = args.extracted / f"antelope_components_preamps_models_mic_emulation_{module}_models.pyc"
         entries = []
@@ -132,6 +217,9 @@ def main() -> int:
         if [index for index, _ in entries] != expected:
             raise SystemExit(f"{member}: emu_idx values are not 0..{len(entries) - 1}: {[i for i, _ in entries]}")
         blocks.append(f"  // MicTarget.{member}\n  {value}: [\n{lines},\n  ],")
+        bits = licence_bits(fields, base_name(blob), [label for _, label in entries], display)
+        rows = "\n".join(f"    {bit}, // {name}" for bit, name in bits)
+        licences.append(f"  // MicTarget.{member}\n  {value}: [\n{rows}\n  ],")
         if ranges:
             ranges.sort()
             rows = "\n".join(
@@ -142,6 +230,7 @@ def main() -> int:
 
     body = "\n".join(blocks)
     pattern_body = "\n".join(patterns)
+    licence_body = "\n".join(licences)
     text = f"""// Generated by refs/tools/scripts/mic_emulations.py from the Quadro panel's own model classes.
 // Do not edit by hand: re-run the script against an extracted PYZ instead.
 //
@@ -180,6 +269,16 @@ export interface PatternRange {{
 
 export const MIC_PATTERNS: Readonly<Record<number, Readonly<Record<number, PatternRange>>>> = {{
 {pattern_body}
+}};
+
+/**
+ * Where each emulation's licence sits in `get_feature_mask`, by target and then `emu_model`: a bit
+ * counted from the reply's second byte, least significant bit first (the panel's
+ * `parse_feature_mask`). Index 0, the microphone itself, is the microphone's own feature, which the
+ * panel also uses to grey the microphone out of its list; each emulation has a feature of its own.
+ */
+export const MIC_LICENCE_BITS: Readonly<Record<number, readonly number[]>> = {{
+{licence_body}
 }};
 """
     if args.out is None:

@@ -437,6 +437,105 @@ test("stereo presets set both of an Edge Quadro's heads, and only where its mode
   assert.deepEqual(quadro.emulationPresets(0), []);
 });
 
+/** A `get_feature_mask` payload with these licence bits set, counted as the panel counts them. */
+function featureMask(...bits: number[]): Uint8Array {
+  const payload = new Uint8Array(290);
+  // The panel's `parse_feature_mask` skips the first byte, so filling it must change nothing.
+  payload[0] = 0xff;
+  for (const bit of bits) payload[1 + (bit >> 3)] = (payload[1 + (bit >> 3)] as number) | (1 << (bit & 7));
+  return payload;
+}
+
+test("mic emulation licence: the device's feature mask decides which microphones and emulations are offered", async () => {
+  const { client, store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  const offered = () => quadro.micTargets.map((t) => [t.name, t.licensed]);
+
+  // Until the mask is read, nothing is known to be unlicensed, so everything is offered.
+  assert.ok(quadro.micTargets.every((t) => t.licensed));
+  assert.equal(quadro.emulationLicensed(2, 3), true);
+
+  // An Edge Duo with Berlin 47 FT and Berlin 67, and an Edge Solo with nothing but itself; bit 0
+  // is `device_assigned`. Edge Duo's features are mic_emu_edge (408), then 410, 411, 412 for
+  // Berlin 47 FT, 87 and 67; Edge Solo's own is 499, and 500 is its Tokyo 800T.
+  let mask: unknown = featureMask(0, 408, 410, 412, 499);
+  client.respond = async (call) => ({
+    device_id: call.deviceId,
+    command: call.command,
+    sent_hex: "74",
+    sent_len: 16,
+    dry_run: false,
+    response: call.command === "get_feature_mask" ? { payload: mask } : call.command === "get_mic_emulations" ? { entries: [{ target: 2, emu_model: 5, ch_swap: 0, pattern: 0 }, { target: 1, emu_model: 2, ch_swap: 0, pattern: 0 }] } : null,
+    response_error: null,
+  });
+  assert.equal(await quadro.loadLicence(), true);
+  assert.deepEqual(offered(), [
+    ["None", true],
+    ["Edge Duo", true],
+    ["Verge", false],
+    ["Edge Solo", true],
+    ["Edge Quadro", false],
+    ["Accord", false],
+    ["Edge Note", false],
+  ]);
+  // Licensing is per emulation as well as per microphone, and index 0 is the microphone's own.
+  assert.deepEqual([0, 1, 2, 3, 4].map((model) => quadro.emulationLicensed(1, model)), [true, true, false, true, false]);
+  assert.deepEqual([0, 1].map((model) => quadro.emulationLicensed(3, model)), [true, false]);
+  assert.equal(quadro.emulationLicensed(0, 0), true, "no microphone needs no licence");
+  // The catalogue itself is unchanged: an index is the device's, so nothing may shift.
+  assert.equal(quadro.emulationModels(1)[3], "Berlin 67");
+
+  // What the licence does not cover cannot be picked.
+  assert.throws(() => quadro.setEmulationTarget(0, 2), /not licensed/);
+  quadro.setEmulationTarget(0, 1);
+  assert.throws(() => quadro.setEmulationModel(0, 2), /not licensed/);
+  quadro.setEmulationModel(0, 3);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").at(-1), { preamp_ch: 1, target: 1, emu_model: 3, ch_swap: 0, pattern: 0 });
+
+  // A device already on an emulation its licence does not cover still shows it as it is, and
+  // what else is on that microphone can still change.
+  assert.equal(await quadro.loadEmulations(), true);
+  assert.deepEqual(quadro.emulation(0).value, { target: 2, model: 5, swap: false, pattern: 0 });
+  assert.deepEqual(quadro.emulation(1).value, { target: 1, model: 2, swap: false, pattern: 0 });
+  assert.equal(quadro.emulationLicensed(2, 5), false);
+  quadro.setEmulationTarget(0, 3);
+  assert.equal(quadro.emulation(0).value.target, 3);
+
+  // A reply too short to hold the microphones' bits is not a licence: everything is offered again.
+  mask = new Uint8Array(100);
+  assert.equal(await quadro.loadLicence(), false);
+  assert.ok(quadro.micTargets.every((t) => t.licensed));
+  assert.deepEqual(store.notices.value, []);
+  // The read is the page's own, and asks nothing of the Studio+, which has no mic emulation.
+  assert.equal(await store.inputs("loopback-1").loadLicence(), false);
+  assert.equal(client.invocations.filter((call) => call.command === "get_feature_mask" && call.deviceId === "loopback-1").length, 0);
+});
+
+test("a feature mask that cannot be read offers every microphone and emulation, without an error notice", async () => {
+  const { client, store } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  // The loopback answers every read with an empty payload, and a dry run with none at all; neither
+  // may hide what the device might well be licensed for.
+  client.respond = async (call) => ({
+    device_id: call.deviceId,
+    command: call.command,
+    sent_hex: "74",
+    sent_len: 16,
+    dry_run: false,
+    response: null,
+    response_error: "could not decode 0 bytes of response for 'get_feature_mask': TruncatedPayload",
+  });
+  assert.equal(await quadro.loadLicence(), false);
+  assert.ok(quadro.micTargets.every((t) => t.licensed));
+  assert.ok([1, 2, 3, 4, 5, 6].every((target) => quadro.emulationModels(target).every((_, model) => quadro.emulationLicensed(target, model))));
+  quadro.setEmulationTarget(0, 5);
+  quadro.setEmulationModel(0, 18);
+  assert.deepEqual(store.notices.value, []);
+});
+
 test("a device that will not answer get_mic_emulations leaves emulation unknown, without an error notice", async () => {
   const { client, store } = setup();
   await store.start();

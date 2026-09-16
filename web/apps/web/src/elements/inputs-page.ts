@@ -21,6 +21,9 @@ const testId = <E extends Element>(element: E, id: string): E => {
 
 const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db} dB`;
 
+/** A microphone or emulation's name in a list, saying so when the device's licence does not cover it. */
+const unlicensed = (name: string, licensed: boolean) => (licensed ? name : `${name} (not licensed)`);
+
 export class GaInputs extends GaElement {
   static override styles = [
     sheet(`
@@ -146,6 +149,7 @@ export class GaInputs extends GaElement {
           h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. A polar pattern runs from omni through cardioid to figure-8, as far as the emulated microphone allows, and its plot draws a lobe of inverted polarity dashed. A stereo technique also wants the top head turned 90°, which is yours to do: the Edge Quadro's plot shows the heads as the technique wants them turned, not as they sit."),
         );
     void inputs.loadEmulations();
+    void inputs.loadLicence();
 
     const links = linkBar((fn) => this.watch(fn), deviceId);
     this.root.replaceChildren(
@@ -315,6 +319,14 @@ export class GaInputs extends GaElement {
       for (const channel of channels) inputs.emulation(channel).value;
       name.textContent = span === 1 ? `Preamp ${i + 1}` : `Preamps ${first + 1}–${first + span}`;
       if (this.root.activeElement !== target) target.value = String(current.target);
+      // What the device's licence does not cover stays listed, greyed, as the panel greys it; one
+      // the device is already on still shows as selected.
+      for (const t of inputs.micTargets) {
+        const option = target.options[t.value];
+        if (option === undefined) continue;
+        option.disabled = !t.licensed;
+        option.textContent = unlicensed(t.name, t.licensed);
+      }
 
       const catalogue = inputs.emulationModels(current.target);
       const heads = catalogue.length === 0 ? [] : inputs.emulationHeads(i, current.target);
@@ -327,7 +339,10 @@ export class GaInputs extends GaElement {
           const select = h(
             "select",
             { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": `mic-model-${i}${which}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
-            catalogue.map((label, index) => h("option", { value: String(index) }, label)),
+            catalogue.map((label, index) => {
+              const licensed = inputs.emulationLicensed(current.target, index);
+              return h("option", { value: String(index), ...(licensed ? {} : { disabled: "" }) }, unlicensed(label, licensed));
+            }),
           );
           select.value = String(Math.min(Math.max(0, inputs.emulation(head.channel).peek().model), catalogue.length - 1));
           const parts: Element[] = [...(head.name === "" ? [] : [h("span", { class: "head-name" }, head.name)]), select];
