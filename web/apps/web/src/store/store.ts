@@ -41,6 +41,12 @@ import { batch, computed, signal, type ReadonlySignal, type Signal } from "../co
 import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type ThemeSource } from "../themes/theme.ts";
 
 export const SAVE_DEBOUNCE_MS = 300;
+/**
+ * The device's own preset slots, numbered 1..5 as both panels number them (`bind_presets`
+ * enumerates from 1). These are the device's memory, not the workspace layouts (decision 0011).
+ */
+export const PRESET_SLOTS = 5;
+
 /** The panels' brightness range, 0..100 (their sliders' max_value). */
 export const BRIGHTNESS_MAX = 100;
 
@@ -598,6 +604,24 @@ export class Store {
     if (clock === undefined) return false;
     if (!Number.isInteger(index) || index < 0 || index >= clock.sources.length) throw new RangeError(`no clock source ${index}: this model has 0..${clock.sources.length - 1}`);
     void this.#invokeCommand(deviceId, "set_sync_source", { src_index: index }, { coalesce: `sync_source:${deviceId}` });
+    return true;
+  }
+
+  /** Recalls one of the device's own presets, 1..[`PRESET_SLOTS`]. */
+  recallPreset(deviceId: string, slot: number): boolean {
+    return this.#preset(deviceId, slot, "preset_recall");
+  }
+
+  /** Saves the device's current state into one of its presets, overwriting what is there. */
+  savePreset(deviceId: string, slot: number): boolean {
+    return this.#preset(deviceId, slot, "preset_save");
+  }
+
+  #preset(deviceId: string, slot: number, command: "preset_recall" | "preset_save"): boolean {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return false;
+    if (!Number.isInteger(slot) || slot < 1 || slot > PRESET_SLOTS) throw new RangeError(`no preset ${slot}: the device has 1..${PRESET_SLOTS}`);
+    void this.#invokeCommand(deviceId, command, { preset_idx: slot }, {});
     return true;
   }
 

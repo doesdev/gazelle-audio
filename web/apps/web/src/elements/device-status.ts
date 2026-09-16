@@ -2,7 +2,7 @@
 // and a few live values from its status report.
 
 import { h } from "../core/dom.ts";
-import { BRIGHTNESS_MAX, displayName } from "../store/store.ts";
+import { BRIGHTNESS_MAX, displayName, PRESET_SLOTS } from "../store/store.ts";
 import { bindControl } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
@@ -37,6 +37,11 @@ export class GaDeviceStatus extends GaElement {
       .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
       .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
       .note-inline { margin: 6px 0 0; font-size: 11px; color: var(--ga-text-muted); }
+      .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .presets button { min-width: 34px; min-height: 26px; font-size: 12px; font-weight: 600; }
+      .presets button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .presets .save[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .presets .spacer { flex: 1; }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
@@ -134,6 +139,62 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
+    // Presets: the device's own five slots. Recall is one click; saving overwrites what is in the
+    // slot, so it takes a confirming second click, as standby does.
+    let presetSection: HTMLElement | undefined;
+    if (device.family !== null) {
+      const slots = Array.from({ length: PRESET_SLOTS }, (_, i) => i + 1);
+      const buttons = slots.map((slot) =>
+        h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}`, "on:click": () => store.recallPreset(id, slot) }, String(slot)),
+      );
+      const into = h("select", { "aria-label": "Preset to save into", "data-testid": "preset-save-slot" }, slots.map((slot) => h("option", { value: String(slot) }, String(slot))));
+      let armTimer: ReturnType<typeof setTimeout> | undefined;
+      const disarm = () => {
+        clearTimeout(armTimer);
+        armTimer = undefined;
+        save.removeAttribute("data-armed");
+        save.textContent = "Save";
+      };
+      const save = h(
+        "button",
+        {
+          type: "button",
+          class: "save",
+          "data-testid": "preset-save",
+          title: "Save the device's current state into the chosen preset: click twice",
+          "on:click": () => {
+            if (armTimer !== undefined) {
+              disarm();
+              store.savePreset(id, Number(into.value));
+              return;
+            }
+            save.setAttribute("data-armed", "");
+            save.textContent = "Confirm save";
+            armTimer = setTimeout(disarm, ARM_MS);
+          },
+        },
+        "Save",
+      );
+      this.onDisconnect(disarm);
+      presetSection = h(
+        "ga-section",
+        { heading: "Presets" },
+        h("div", { class: "presets" }, buttons, h("span", { class: "spacer" }), h("span", { class: "caption" }, "Save into"), into, save),
+        h("p", { class: "note-inline" }, "The device's own presets, not the workspace layout. Saving overwrites what is in that slot."),
+      );
+      this.watch(() => {
+        const current = Number(store.field(id, STATUS_REPORT, "current_preset").value ?? 0);
+        const connected = store.connected.value;
+        for (const [i, button] of buttons.entries()) {
+          button.setAttribute("aria-pressed", String(current === slots[i]));
+          button.disabled = !connected;
+        }
+        into.disabled = !connected;
+        save.disabled = !connected;
+        if (!connected) disarm();
+      });
+    }
+
     // Clock: the source and sample rate the device runs at, and what it measures.
     let clockSection: HTMLElement | undefined;
     const clock = store.clock(id);
@@ -194,6 +255,7 @@ export class GaDeviceStatus extends GaElement {
       ),
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
+      ...(presetSection === undefined ? [] : [presetSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );
 

@@ -5,7 +5,7 @@ import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { effect } from "../src/core/signal.ts";
-import { displayName, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { displayName, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -259,4 +259,22 @@ test("clock state: the measured frequency and lock come from the status report",
   report({ sync_freq_hi: 1, sync_freq_mid: 119, sync_freq_low: 0, sync_source: 0, locked: 0, base_index: 4 });
   assert.deepEqual(store.clockState("loopback-0"), { source: 0, hz: 96000, locked: false, rate: 4 });
   listen();
+});
+
+test("device presets: five slots numbered from one, recall and save, refusing anything else", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("usb:1", null, null));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  assert.equal(PRESET_SLOTS, 5, "both panels show five presets");
+  assert.equal(store.recallPreset("loopback-0", 3), true);
+  assert.equal(store.savePreset("loopback-0", 5), true);
+  await flush();
+  assert.deepEqual(client.invocations.filter((c) => c.command === "preset_recall").map((c) => c.args), [{ preset_idx: 3 }]);
+  assert.deepEqual(client.invocations.filter((c) => c.command === "preset_save").map((c) => c.args), [{ preset_idx: 5 }]);
+
+  // The panels number presets 1..5; slot 0 is not one of them.
+  assert.throws(() => store.recallPreset("loopback-0", 0), RangeError);
+  assert.throws(() => store.savePreset("loopback-0", 6), RangeError);
+  assert.equal(store.recallPreset("usb:1", 1), false, "a device of unknown model has no known commands");
 });

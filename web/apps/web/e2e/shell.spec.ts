@@ -155,3 +155,26 @@ test("the Devices page sets the clock source and sample rate, and shows the meas
   // The measured rate and lock come from the device's report, whatever the loopback is sending.
   await expect(page.getByTestId("clock-measured")).not.toHaveText("—");
 });
+
+test("the Devices page recalls a device preset, and saves into one behind a confirm", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  const sent = (command: string) => frames.filter((f) => f.command === command).map((f) => f.args?.["preset_idx"]);
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+
+  await page.getByTestId("preset-3").click();
+  await expect.poll(() => sent("preset_recall")).toEqual([3]);
+
+  // Saving overwrites the slot, so it takes a confirming second click.
+  await page.getByTestId("preset-save-slot").selectOption("5");
+  const save = page.getByTestId("preset-save");
+  await save.click();
+  await expect(save).toHaveText(/Confirm/);
+  await expect.poll(() => sent("preset_save")).toEqual([]);
+  await save.click();
+  await expect.poll(() => sent("preset_save")).toEqual([5]);
+});
