@@ -635,3 +635,33 @@ async fn descriptors_carry_the_model_family() {
     let families: Vec<Value> = body.as_array().unwrap().iter().map(|d| d["family"].clone()).collect();
     assert_eq!(families, vec![json!("quadro"), json!("studio")]);
 }
+
+/// A command the device never answers still succeeds, and quickly.
+///
+/// Set commands (`0x70`) get no reply from the real hardware — the panels' captures show none, and
+/// hardware session 2 hit this: every live write reported a timeout although the device had applied
+/// it. Only commands that declare a return wait for one. The device here echoes verbatim, so
+/// nothing ever correlates, which is what a real device looks like for a set.
+#[tokio::test]
+async fn a_set_command_does_not_wait_for_a_reply_the_device_never_sends() {
+    use gazelle_audio_server::device::descriptor::DeviceId;
+    use gazelle_audio_transport::LoopbackDevice;
+
+    let registries = RegistrySet::builtin().expect("registries");
+    let devices = DeviceManager::new(registries);
+    devices.attach(DeviceId::loopback(0), Box::new(LoopbackDevice::new(0x23e5, PID_QUADRO, 320)), "loopback", true);
+    let app = http::router(AppState {
+        devices,
+        store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
+        force_dry_run: false,
+        backend: "loopback".into(),
+        themes_dir: None,
+    });
+
+    let started = std::time::Instant::now();
+    let (status, body) = send(app, "POST", "/api/v1/devices/loopback-0/command/set_brightness", json!({"brightness": 7})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["response"], serde_json::Value::Null, "a set command has nothing to return");
+    assert_eq!(body["response_error"], serde_json::Value::Null);
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "it waited: {:?}", started.elapsed());
+}

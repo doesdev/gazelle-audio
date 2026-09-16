@@ -185,6 +185,14 @@ fn handle_request(
         ctx.device.on_received_data(RawPacket { bytes: seg.clone() });
     }
 
+    // A command that declares no return gets no reply: the panels' captures show none for the
+    // `0x70` sets, and hardware session 2 confirmed it — every live write reported a timeout while
+    // the device had in fact applied it. Waiting would also leave the reply the *next* request
+    // expects behind this one. Cyclic traffic seen meanwhile is published by the next drain.
+    if command.returns.is_empty() {
+        return Ok(CommandOutcome { sent: bytes, response: None, response_error: None, dry_run: false });
+    }
+
     // Wait for the correlated response, publishing any cyclic traffic seen meanwhile.
     let deadline = Instant::now() + REQUEST_TIMEOUT;
     while Instant::now() < deadline {

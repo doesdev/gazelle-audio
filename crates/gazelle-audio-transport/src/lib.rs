@@ -186,11 +186,10 @@ impl LoopbackDevice {
 
 impl Device for LoopbackDevice {
     fn send(&mut self, report: &Report) -> Result<bool, WireError> {
-        // A loopback "writes" nothing, but we validate the report is well-formed
-        // (header present, contents non-empty) so bad reports surface here.
-        if report.contents.is_empty() {
-            return Err(WireError::TruncatedPayload);
-        }
+        // A loopback "writes" nothing. A header-only report is valid — the `get_*` requests carry
+        // no payload — and before requests were sent plain they always arrived wrapped, so an
+        // empty-contents check looked harmless and rejected them the moment they did.
+        let _ = report;
         Ok(true)
     }
 
@@ -228,9 +227,16 @@ impl Device for LoopbackDevice {
                     });
                 }
             }
-            // Not a segment: forward the raw packet as a complete report.
+            // Not a segment: a whole report. A request that fits in one packet is sent plain
+            // (`segment_report`), so this path answers exactly as the segmented one does, or the
+            // loopback would answer only the large requests.
             Err(WireError::FieldOverflow) => {
                 if let Ok(header) = Header::from_bytes(&packet.bytes) {
+                    let header = if self.emulate_responses {
+                        Header::new(header.cmd.wrapping_add(1), header.seq, header.ext2, header.ext3)
+                    } else {
+                        header
+                    };
                     let _ = self.tx.send(Report {
                         header,
                         contents: packet.bytes[HEADER_SIZE..].to_vec(),
@@ -317,8 +323,12 @@ pub fn build_report(cmd: u32, seq: u32, ext2: u32, ext3: u32, contents: &[u8]) -
     buf
 }
 
-/// Split a report into the wire segments a real device would transmit, padding
-/// each to `max_packet_size`. Returns the raw segment byte buffers.
+/// Split a report into the packets the device is written with.
+///
+/// A report that fits in one packet is sent as itself: the vendor panel only wraps what does not
+/// fit, and hardware session 2 found the device silently ignores an 8052-wrapped small report — the
+/// write is accepted by the HID stack and nothing happens. Anything larger is split into 8052
+/// segments, which the device reassembles.
 pub fn segment_report(
     cmd: u32,
     seq: u32,
@@ -328,6 +338,9 @@ pub fn segment_report(
     max_packet_size: usize,
 ) -> Vec<Vec<u8>> {
     let report = build_report(cmd, seq, ext2, ext3, contents);
+    if report.len() <= max_packet_size {
+        return vec![report];
+    }
     split_in_segments(&report, max_packet_size)
         .into_iter()
         .map(|seg| {

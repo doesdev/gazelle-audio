@@ -82,3 +82,26 @@ fn malformed_device_segments_are_dropped_without_wedging() {
     let reports: Vec<_> = device_segments(&reply).iter().filter_map(|s| host.push(s)).collect();
     assert_eq!(reports.len(), 1, "a good message still reassembles afterwards");
 }
+
+/// A report that fits in one packet goes out as itself, not wrapped in an 8052 segment.
+///
+/// The vendor panel only segments what does not fit (the captures show plain `0x70` writes), and
+/// hardware session 2 found the device silently ignores a wrapped small report: the first live
+/// write was accepted by the HID stack and changed nothing until this was fixed.
+#[test]
+fn a_report_that_fits_is_sent_plain_and_only_larger_ones_are_segmented() {
+    let contents = [7u8; 8];
+    let small = gazelle_audio_transport::segment_report(0x70, 24, 0, 0, &contents, PACKET);
+    assert_eq!(small.len(), 1);
+    let header = Header::from_bytes(&small[0]).expect("a header");
+    assert_eq!(header.cmd, 0x70, "the report keeps its own id: no 8052 wrapper");
+    assert_eq!(&small[0][HEADER_SIZE..HEADER_SIZE + contents.len()], &contents);
+
+    // One that cannot fit is still segmented, and the pieces carry the send id.
+    let big = vec![9u8; PACKET * 2];
+    let segments = gazelle_audio_transport::segment_report(0x70, big.len() as u32 + 16, 0, 0, &big, PACKET);
+    assert!(segments.len() > 1);
+    for segment in &segments {
+        assert_eq!(Header::from_bytes(segment).unwrap().cmd, gazelle_audio_transport::framing::SEGMENT_SEND_ID);
+    }
+}
