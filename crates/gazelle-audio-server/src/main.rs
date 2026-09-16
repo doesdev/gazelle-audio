@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gazelle_audio_server::config::{default_themes_dir, default_workspace_path};
+use gazelle_audio_server::device::descriptor::DeviceId;
 use gazelle_audio_server::device::manager::DeviceManager;
+use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
@@ -18,7 +20,7 @@ use gazelle_audio_server::{http, AppState};
 enum Backend {
     /// Hardware-free emulator. The default.
     Loopback,
-    /// Real USB devices. Not implemented yet.
+    /// Real USB devices, over the OS HID stack.
     Usb,
 }
 
@@ -76,18 +78,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
-    if args.backend == Backend::Usb {
-        // Refuse clearly rather than pretending: no physical adapter exists yet, and
-        // silently falling back to loopback would be worse than failing.
-        eprintln!(
-            "error: the USB backend is not implemented yet.\n\
-             \n\
-             The protocol and transport layers are validated against ground truth, but no\n\
-             physical adapter has been written, and neither device has ever been driven by\n\
-             this software. Run with --backend loopback (the default) meanwhile."
-        );
-        std::process::exit(2);
-    }
 
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -104,9 +94,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let devices = DeviceManager::new(registries);
-    match args.loopback_cyclic_ms {
-        Some(ms) => devices.attach_cyclic_loopbacks(&pids, 64, std::time::Duration::from_millis(ms.max(1))),
-        None => devices.attach_loopbacks(&pids, 64),
+    if args.backend == Backend::Usb {
+        attach_usb_devices(&devices)?;
+    } else {
+        match args.loopback_cyclic_ms {
+            Some(ms) => devices.attach_cyclic_loopbacks(&pids, 64, std::time::Duration::from_millis(ms.max(1))),
+            None => devices.attach_loopbacks(&pids, 64),
+        }
     }
 
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
@@ -161,5 +155,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
         .await?;
+    Ok(())
+}
+
+/// Attaches every Antelope control interface the HID stack can open.
+///
+/// Finding none usually does not mean nothing is plugged in: Antelope's Manager Service holds the
+/// devices exclusively while it runs, so nothing else can even enumerate them (hardware session 2).
+/// The error says so, since that is the fix in practice.
+fn attach_usb_devices(devices: &Arc<DeviceManager>) -> Result<(), Box<dyn std::error::Error>> {
+    let api = hidapi::HidApi::new().map_err(|e| format!("opening the HID stack: {e}"))?;
+    let found = usb::discover(&api);
+    if found.is_empty() {
+        return Err("no Antelope device could be opened.
+
+             If one is attached, Antelope's own software is probably holding it: the Antelope
+             Manager Service opens the devices exclusively, so nothing else can even enumerate
+             them. Stop that service and its panels and try again, or run with --backend loopback
+             (the default)."
+            .into());
+    }
+    for (n, info) in found.iter().enumerate() {
+        let device = usb::UsbDevice::open(&api, info)
+            .map_err(|e| format!("opening {:04x}:{:04x}: {e}", info.vendor_id(), info.product_id()))?;
+        // A serial keeps the id stable across replugs; without one, the enumeration index is all
+        // there is, and `identity_stable` tells clients their layout may not follow the device.
+        let (id, stable) = match device.serial() {
+            Some(serial) => (DeviceId::from_serial(serial), true),
+            None => (DeviceId::from_topology(info.vendor_id(), info.product_id(), 0, n as u8), false),
+        };
+        let descriptor = devices.attach(id, Box::new(device), "usb", stable);
+        tracing::info!(
+            "attached {} ({:04x}:{:04x}) as {}",
+            descriptor.model.as_deref().unwrap_or("an unknown model"),
+            descriptor.vid,
+            descriptor.pid,
+            descriptor.id
+        );
+    }
     Ok(())
 }
