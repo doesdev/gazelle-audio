@@ -330,3 +330,35 @@ test("a read the user asked for still says so when it fails", async () => {
   await store.inputs("loopback-0").loadLinks();
   assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["error", "get_preamps_links could not be read: unsupported"]]);
 });
+
+test("DC coupling: the Quadro's two switches, one per side, reported back and sent with the side's id", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = store.watchReport("loopback-0", "0x73");
+  const report = (fields: Record<string, unknown>) => {
+    client.cyclic.get("loopback-0|0x73")?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+
+  assert.equal(store.hasDcCoupling("loopback-0"), true);
+  assert.equal(store.hasDcCoupling("loopback-1"), false, "the Studio+ has no DC coupling command");
+  assert.equal(store.hasDcCoupling("usb:1"), false);
+  assert.equal(store.dcCoupling("loopback-1"), undefined);
+
+  assert.deepEqual(store.dcCoupling("loopback-0"), { inputs: false, outputs: false });
+  report({ dc_coupled_in: 1, dc_coupled_out: 0 });
+  assert.deepEqual(store.dcCoupling("loopback-0"), { inputs: true, outputs: false });
+
+  // `dc_coupled_io` names the side: 0 the inputs, 1 the outputs (the panel's two check buttons).
+  assert.equal(store.setDcCoupled("loopback-0", "inputs", false), true);
+  assert.equal(store.setDcCoupled("loopback-0", "outputs", true), true);
+  await flush();
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_dc_coupled").map((c) => c.args), [
+    { dc_coupled: 0, dc_coupled_io: 0 },
+    { dc_coupled: 1, dc_coupled_io: 1 },
+  ]);
+  assert.equal(store.setDcCoupled("loopback-1", "inputs", true), false, "nothing is sent to a model without it");
+  listen();
+});

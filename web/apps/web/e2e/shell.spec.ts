@@ -195,3 +195,24 @@ test("the Devices page sets the Quadro's panning law; the Studio+ has none", asy
   await law.selectOption("2");
   await expect.poll(() => frames.filter((f) => f.command === "set_panning_law").map((f) => f.args?.["panning"])).toEqual([2]);
 });
+
+test("the Devices page switches DC coupling per side on the Quadro; the Studio+ has none", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/devices/loopback-1`);
+  await expect(page.getByTestId("dc-inputs")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  await page.getByTestId("dc-inputs").click();
+  await page.getByTestId("dc-outputs").click();
+  // The switches show what the device reports, so on the loopback they stay put: what is sent is
+  // what matters. `dc_coupled_io` names the side, inputs 0 and outputs 1.
+  await expect.poll(() => frames.filter((f) => f.command === "set_dc_coupled").map((f) => [f.args?.["dc_coupled"], f.args?.["dc_coupled_io"]])).toEqual([
+    [1, 0],
+    [1, 1],
+  ]);
+});

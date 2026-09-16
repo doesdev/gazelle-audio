@@ -237,6 +237,40 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
+    // DC coupling: whether the converters pass DC, for control voltages rather than audio. One
+    // switch per side, as the Quadro's settings page has, and each is reported back.
+    let dcSection: HTMLElement | undefined;
+    if (store.hasDcCoupling(id)) {
+      const sides = [
+        { side: "inputs" as const, name: "Inputs" },
+        { side: "outputs" as const, name: "Outputs" },
+      ];
+      const switches = sides.map(({ side, name }) =>
+        h("button", {
+          type: "button",
+          "data-control": "",
+          "data-testid": `dc-${side}`,
+          "aria-label": `DC coupled ${name.toLowerCase()}`,
+          "on:click": () => store.setDcCoupled(id, side, !(store.dcCoupling(id)?.[side] ?? false)),
+        }, "DC coupled"),
+      );
+      dcSection = h(
+        "ga-section",
+        { heading: "DC coupling" },
+        h("dl", { class: "fields" }, ...sides.map(({ name }, i) => field(name, switches[i] as HTMLElement))),
+        h("p", { class: "note-inline" }, "Lets the converters pass control voltages as well as audio, for modular gear. Leave it off for audio."),
+      );
+      this.watch(() => {
+        const state = store.dcCoupling(id);
+        const connected = store.connected.value;
+        sides.forEach(({ side }, i) => {
+          const button = switches[i] as HTMLButtonElement;
+          button.setAttribute("aria-pressed", String(state?.[side] ?? false));
+          button.disabled = !connected;
+        });
+      });
+    }
+
     // Panning law: how much a centre-panned signal is attenuated. Quadro only, and not in the
     // status report, so it is read once here; every mixer pan, and the mono downmix, is heard
     // through it.
@@ -281,6 +315,7 @@ export class GaDeviceStatus extends GaElement {
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
       ...(panningSection === undefined ? [] : [panningSection]),
+      ...(dcSection === undefined ? [] : [dcSection]),
       ...(presetSection === undefined ? [] : [presetSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );

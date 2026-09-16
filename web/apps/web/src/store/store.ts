@@ -618,6 +618,29 @@ export class Store {
     return true;
   }
 
+  /** Whether the device can pass DC: the Quadro can, and the Studio+ has no such command. */
+  hasDcCoupling(deviceId: string): boolean {
+    return this.#devices.peek().find((d) => d.id === deviceId)?.family === "quadro";
+  }
+
+  /**
+   * Whether each side passes DC, from the status report (`dc_coupled_in`, `dc_coupled_out`).
+   * Reading it is reactive. Undefined for a model without it.
+   */
+  dcCoupling(deviceId: string): { inputs: boolean; outputs: boolean } | undefined {
+    if (!this.hasDcCoupling(deviceId)) return undefined;
+    const bit = (name: string) => Number(this.field(deviceId, "0x73", name).value ?? 0) === 1;
+    return { inputs: bit("dc_coupled_in"), outputs: bit("dc_coupled_out") };
+  }
+
+  /** Lets one side pass DC, or blocks it. The side is `dc_coupled_io`: inputs 0, outputs 1. */
+  setDcCoupled(deviceId: string, side: "inputs" | "outputs", on: boolean): boolean {
+    if (!this.hasDcCoupling(deviceId)) return false;
+    const io = side === "inputs" ? 0 : 1;
+    void this.#invokeCommand(deviceId, "set_dc_coupled", { dc_coupled: on ? 1 : 0, dc_coupled_io: io }, { coalesce: `dc_coupled:${side}:${deviceId}` });
+    return true;
+  }
+
   /** The panning laws a device offers, or undefined for a model that has none (the Studio+). */
   panningLaws(deviceId: string): readonly string[] | undefined {
     const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
