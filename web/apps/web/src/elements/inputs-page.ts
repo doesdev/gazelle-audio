@@ -8,10 +8,16 @@ import { DIGITAL_GAIN, GAIN_RANGE, PREAMP_TYPES, type DigitalGroup, type InputsM
 import { bindControl, type ControlOptions } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar, linkButton } from "./link-bar.ts";
+import { polarPlot, POLAR_PLOT_STYLES, stereoOrientation, type PlotHead } from "./polar-plot.ts";
 import { href } from "./router.ts";
 
 /** How long a first 48V click waits for its confirmation. */
 const ARM_MS = 3000;
+
+const testId = <E extends Element>(element: E, id: string): E => {
+  element.setAttribute("data-testid", id);
+  return element;
+};
 
 const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db} dB`;
 
@@ -70,8 +76,18 @@ export class GaInputs extends GaElement {
       .models select { flex: 1; min-width: 0; }
       .head { display: flex; flex: 1; min-width: 0; align-items: center; gap: 4px; }
       .head select { flex: 1; min-width: 0; }
-      .preset[hidden] { display: none; }
-      .head-name { font-size: 10px; color: var(--ga-text-muted); }
+      .stereo { display: flex; min-width: 0; align-items: center; gap: 6px; }
+      .stereo[hidden] { display: none; }
+      .stereo select { min-width: 0; }
+      .head-name { font-size: 10px; color: var(--ga-text-muted); white-space: nowrap; }
+      /* Two heads stack, one line each, beside the plot that draws them both. */
+      .models[data-heads="2"] { flex-direction: column; }
+      .models[data-heads="2"] .head-name { min-width: 48px; }
+      /* With both heads in one plot, each head's name carries its tone as the plot's legend. */
+      .head-name[data-tone]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%; vertical-align: 1px; }
+      .head-name[data-tone="0"]::before { background: var(--ga-accent); }
+      .head-name[data-tone="1"]::before { background: var(--ga-text-primary); }
+      ${POLAR_PLOT_STYLES}
       .mic .name { font-size: 12px; color: var(--ga-text-secondary); }
       .swap { font-size: 11px; font-weight: 700; }
       .swap[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
@@ -127,7 +143,7 @@ export class GaInputs extends GaElement {
           {},
           h("h2", {}, "Mic emulation"),
           h("div", { class: "mics" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#emulation(inputs, i))),
-          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. A polar pattern runs from omni through cardioid to figure-8, as far as the emulated microphone allows; a stereo technique also wants the top head turned 90°, which is yours to do."),
+          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. A polar pattern runs from omni through cardioid to figure-8, as far as the emulated microphone allows, and its plot draws a lobe of inverted polarity dashed. A stereo technique also wants the top head turned 90°, which is yours to do: the Edge Quadro's plot shows the heads as the technique wants them turned, not as they sit."),
         );
     void inputs.loadEmulations();
 
@@ -273,7 +289,9 @@ export class GaInputs extends GaElement {
       inputs.micTargets.map((t) => h("option", { value: String(t.value) }, t.name)),
     );
     const models = h("span", { class: "models" });
-    const preset = h("select", { class: "preset", "aria-label": `Preamp ${i + 1} stereo technique`, "data-testid": `mic-preset-${i}`, hidden: "", "on:change": () => inputs.setEmulationPreset(i, Number(preset.value)) });
+    const preset = h("select", { class: "preset", "aria-label": `Preamp ${i + 1} stereo technique`, "data-testid": `mic-preset-${i}`, "on:change": () => inputs.setEmulationPreset(i, Number(preset.value)) });
+    // The technique, and beside it both heads' patterns in one plot, which is how a technique reads best.
+    const stereo = h("span", { class: "stereo", hidden: "" }, preset);
     const swap = h("button", {
       type: "button",
       class: "swap",
@@ -300,6 +318,9 @@ export class GaInputs extends GaElement {
 
       const catalogue = inputs.emulationModels(current.target);
       const heads = catalogue.length === 0 ? [] : inputs.emulationHeads(i, current.target);
+      // A microphone with two heads draws them together beside its technique; one head draws its own.
+      const overlaid = heads.length > 1;
+      models.setAttribute("data-heads", String(heads.length));
       models.replaceChildren(
         ...heads.map((head) => {
           const which = head.name === "" ? "" : `-${head.name.toLowerCase()}`;
@@ -309,7 +330,7 @@ export class GaInputs extends GaElement {
             catalogue.map((label, index) => h("option", { value: String(index) }, label)),
           );
           select.value = String(Math.min(Math.max(0, inputs.emulation(head.channel).peek().model), catalogue.length - 1));
-          const parts: HTMLElement[] = [...(head.name === "" ? [] : [h("span", { class: "head-name" }, head.name)]), select];
+          const parts: Element[] = [...(head.name === "" ? [] : [h("span", { class: "head-name" }, head.name)]), select];
           // The polar pattern is the head's, and only some emulations have one to point.
           const pattern = inputs.emulationPattern(head.channel);
           if (pattern !== undefined) {
@@ -322,6 +343,8 @@ export class GaInputs extends GaElement {
             polar.value = String(pattern.value);
             polar.disabled = steps.length < 2;
             parts.push(polar);
+            if (overlaid) parts[0]?.setAttribute("data-tone", String(heads.indexOf(head)));
+            else parts.push(testId(polarPlot([{ angle: pattern.angle }], `Polar pattern: ${pattern.label}`), `mic-plot-${i}`));
           }
           return parts.length === 1 ? select : h("span", { class: "head" }, ...parts);
         }),
@@ -329,11 +352,14 @@ export class GaInputs extends GaElement {
 
       // A stereo technique belongs to the microphone, not a head, so it sits beside the swap.
       const presets = inputs.emulationPresets(i);
-      if (presets.length === 0) preset.hidden = true;
+      if (presets.length === 0) stereo.hidden = true;
       else {
-        preset.hidden = false;
+        stereo.hidden = false;
         preset.replaceChildren(...presets.map((p) => h("option", { value: String(p.value), ...(p.available ? {} : { disabled: "" }) }, p.name)));
         preset.value = String(inputs.emulationPreset(i));
+        // Only the plot is replaced: moving the select would take focus from it mid-pick.
+        stereo.querySelector(".polar-plot")?.remove();
+        stereo.append(...this.#overlay(inputs, i, heads, presets[inputs.emulationPreset(i)]?.name ?? "None"));
       }
       // With no microphone named there is nothing to emulate and nothing to swap.
       if (heads.length === 0) models.replaceChildren(h("select", { "aria-label": `Preamp ${i + 1} emulation`, "data-testid": `mic-model-${i}`, disabled: "" }));
@@ -346,11 +372,33 @@ export class GaInputs extends GaElement {
       for (const select of models.querySelectorAll("select")) select.disabled = !onMic || heads.length === 0;
       for (const polar of models.querySelectorAll<HTMLSelectElement>(".polar")) if (polar.options.length < 2) polar.disabled = true;
       preset.disabled = !onMic;
+      for (const plot of row.querySelectorAll(".polar-plot")) plot.setAttribute("aria-disabled", String(!onMic));
       if (!onMic) swap.toggleAttribute("data-unavailable", true);
     });
 
-    row.replaceChildren(name, target, models, preset, swap);
+    row.replaceChildren(name, target, models, stereo, swap);
     return row;
+  }
+
+  /**
+   * Both heads of a microphone in one plot, Bottom in the accent and Top in the text colour. Under a
+   * stereo technique they are drawn turned as it wants them, and the label says so, since the app
+   * cannot see how the heads really sit. Empty when neither head has a pattern to draw.
+   */
+  #overlay(inputs: InputsModel, i: number, heads: readonly { name: string; channel: number }[], technique: string): SVGSVGElement[] {
+    const patterns = heads.map((head) => inputs.emulationPattern(head.channel));
+    if (patterns.every((pattern) => pattern === undefined)) return [];
+    const [bottom, top] = patterns;
+    const turns = bottom !== undefined && top !== undefined ? stereoOrientation(technique, [bottom.angle, top.angle]) : [0, 0];
+    const drawn: PlotHead[] = [];
+    const named: string[] = [];
+    patterns.forEach((pattern, which) => {
+      if (pattern === undefined) return;
+      drawn.push({ angle: pattern.angle, rotation: turns[which] ?? 0, tone: which });
+      named.push(`${heads[which]?.name ?? ""} ${pattern.label}`);
+    });
+    const turned = turns.some((turn) => turn !== 0) ? `, drawn turned as ${technique} wants the heads, not as they sit` : "";
+    return [testId(polarPlot(drawn, `Polar patterns: ${named.join(", ")}${turned}`, 36), `mic-plot-${i}`)];
   }
 
   #digital(inputs: InputsModel, group: DigitalGroup, i: number, enabled: () => boolean): HTMLElement {
