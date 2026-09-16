@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
-import { displayName, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -360,5 +361,58 @@ test("DC coupling: the Quadro's two switches, one per side, reported back and se
     { dc_coupled: 1, dc_coupled_io: 1 },
   ]);
   assert.equal(store.setDcCoupled("loopback-1", "inputs", true), false, "nothing is sent to a model without it");
+  listen();
+});
+
+test("oscillator: both models, two tones with a shared level, sent as one command and held over stale reports", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const frames: (() => void)[] = [];
+  const timers = new ManualTimers();
+  const store = new Store(client, { timers, storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = store.watchReport("loopback-0", "0x73");
+  const report = (fields: Record<string, unknown>) => {
+    client.cyclic.get("loopback-0|0x73")?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  const sent = () => client.invocations.filter((c) => c.command === "set_sine_gen").map((c) => c.args);
+
+  // The panels' own lists: only two of the four frequency codes are used.
+  assert.deepEqual(OSCILLATOR_FREQUENCIES, ["1 kHz", "440 Hz"]);
+  assert.deepEqual(OSCILLATOR_LEVELS, ["0 dBFS", "-6 dBFS", "-12 dBFS", "-18 dBFS"]);
+  assert.equal(store.oscillator("usb:1"), undefined, "a device of unknown model has no known oscillator");
+  assert.notEqual(store.oscillator("loopback-1"), undefined, "the Studio+ has one too");
+
+  // Before any report nothing is known, and a tone shown as running would be the misleading half.
+  assert.deepEqual(store.oscillator("loopback-1"), { left: 0, right: 0, level: 0, onLeft: false, onRight: false });
+
+  // A muted side is a side with no tone, so the app shows tones on rather than mutes.
+  report({ freq_left: 1, freq_right: 0, level: 2, mute_left: 0, mute_right: 1 });
+  assert.deepEqual(store.oscillator("loopback-0"), { left: 1, right: 0, level: 2, onLeft: true, onRight: false });
+
+  // Every change carries all five fields, because they share one byte.
+  assert.equal(store.setOscillator("loopback-0", { onRight: true }), true);
+  await flush();
+  assert.deepEqual(sent(), [{ freq_left: 1, freq_right: 0, level: 2, mute_left: 0, mute_right: 0 }]);
+
+  // A second change before the device has echoed the first must not undo it.
+  report({ freq_left: 1, freq_right: 0, level: 2, mute_left: 0, mute_right: 1 });
+  assert.equal(store.oscillator("loopback-0")?.onRight, true, "the change outranks a report still carrying the old value");
+  store.setOscillator("loopback-0", { right: 1 });
+  await flush();
+  assert.deepEqual(sent().at(-1), { freq_left: 1, freq_right: 1, level: 2, mute_left: 0, mute_right: 0 });
+
+  timers.advance(ECHO_HOLD_MS);
+  report({ freq_left: 1, freq_right: 0, level: 2, mute_left: 0, mute_right: 1 });
+  assert.deepEqual(store.oscillator("loopback-0"), { left: 1, right: 0, level: 2, onLeft: true, onRight: false }, "after the hold the device's report wins");
+
+  // A device that has reported nothing has only what the app sent it, so that stays past the hold.
+  assert.equal(store.setOscillator("loopback-1", { onLeft: true }), true);
+  timers.advance(ECHO_HOLD_MS);
+  assert.equal(store.oscillator("loopback-1")?.onLeft, true);
+
+  assert.throws(() => store.setOscillator("loopback-0", { level: 4 }), RangeError);
+  assert.throws(() => store.setOscillator("loopback-0", { left: 2 }), RangeError);
+  assert.equal(store.setOscillator("usb:1", { onLeft: true }), false);
   listen();
 });

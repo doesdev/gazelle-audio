@@ -4,6 +4,7 @@
 // and marks itself disconnected when the server goes away.
 
 import { h } from "../core/dom.ts";
+import { untracked } from "../core/signal.ts";
 import { cssProperties } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { followHash, PAGES, route, type Route } from "./router.ts";
@@ -112,7 +113,10 @@ export class GaApp extends GaElement {
       // Without a device in the address, a page shows the first device it can (for the mixer, the first of known model).
       const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "outputs" || current.page === "mixer" || current.page === "routing") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
       title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
-      page.replaceChildren(pageFor(current, first));
+      // A page element renders as it is appended, and whatever it reads there would otherwise
+      // become a dependency of this effect: the page would be torn down and rebuilt on every
+      // report, losing anything half-done in it. Only the address decides what is built here.
+      untracked(() => page.replaceChildren(pageFor(current, first)));
     });
   }
 }

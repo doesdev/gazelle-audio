@@ -14,7 +14,7 @@
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
-import { InputsModel } from "./inputs.ts";
+import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
@@ -56,6 +56,29 @@ export const BRIGHTNESS_MAX = 100;
  * the mixer, and so the mono downmix built on them, is heard through whichever of these is set.
  */
 export const PANNING_LAWS = ["0 dB", "-6 dB", "-3 dB", "-4.5 dB"] as const;
+
+/**
+ * The test oscillator's frequencies, in `set_sine_gen`'s index order. Both panels offer these two,
+ * though the field is two bits wide; the other two codes are not used and are not offered here.
+ */
+export const OSCILLATOR_FREQUENCIES = ["1 kHz", "440 Hz"] as const;
+
+/** The test oscillator's level, shared by both tones, in `set_sine_gen`'s index order. */
+export const OSCILLATOR_LEVELS = ["0 dBFS", "-6 dBFS", "-12 dBFS", "-18 dBFS"] as const;
+
+/**
+ * The test oscillator: one tone per side, each with its own frequency, over a shared level. The
+ * device carries the two as mute bits; here they are tones that are on, which is how they are used.
+ */
+export interface OscillatorState {
+  /** Frequencies as indexes into [`OSCILLATOR_FREQUENCIES`]. */
+  left: number;
+  right: number;
+  /** An index into [`OSCILLATOR_LEVELS`]. */
+  level: number;
+  onLeft: boolean;
+  onRight: boolean;
+}
 
 /** The sample rates both panels offer, in `set_samp_rate`'s index order. */
 export const SAMPLE_RATES = ["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"] as const;
@@ -617,6 +640,73 @@ export class Store {
     void this.#invokeCommand(deviceId, "set_sync_source", { src_index: index }, { coalesce: `sync_source:${deviceId}` });
     return true;
   }
+
+  /**
+   * The device's test oscillator, from the status report. Undefined for a model that is unknown;
+   * both families have one. A change of its own is held over the device's reports for
+   * `ECHO_HOLD_MS`, because all five fields share one byte: a stale report read back between two
+   * quick changes would undo the first.
+   */
+  oscillator(deviceId: string): OscillatorState | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    const held = this.#osc(deviceId).value.value;
+    if (held !== undefined) return held;
+    // A tone the device has not reported shows as off. Nothing is known either way until a report
+    // arrives, and showing a tone as running is the misleading half of that.
+    const byte = (name: string, unknown: number) => {
+      const value = this.field(deviceId, "0x73", name).value;
+      return value === undefined ? unknown : Number(value);
+    };
+    const choice = (name: string, choices: readonly string[]) => Math.min(choices.length - 1, Math.max(0, byte(name, 0)));
+    return {
+      left: choice("freq_left", OSCILLATOR_FREQUENCIES),
+      right: choice("freq_right", OSCILLATOR_FREQUENCIES),
+      level: choice("level", OSCILLATOR_LEVELS),
+      onLeft: byte("mute_left", 1) === 0,
+      onRight: byte("mute_right", 1) === 0,
+    };
+  }
+
+  /** Changes part of the oscillator. All five fields go together, since they share one byte. */
+  setOscillator(deviceId: string, change: Partial<OscillatorState>): boolean {
+    const current = this.oscillator(deviceId);
+    if (current === undefined) return false;
+    const next = { ...current, ...change };
+    const check = (value: number, choices: readonly string[], what: string) => {
+      if (!Number.isInteger(value) || value < 0 || value >= choices.length) throw new RangeError(`no oscillator ${what} ${value}: 0..${choices.length - 1}`);
+    };
+    check(next.left, OSCILLATOR_FREQUENCIES, "frequency");
+    check(next.right, OSCILLATOR_FREQUENCIES, "frequency");
+    check(next.level, OSCILLATOR_LEVELS, "level");
+
+    const held = this.#osc(deviceId);
+    held.value.value = next;
+    this.#timers.clearTimeout(held.timer);
+    held.timer = this.#timers.setTimeout(() => {
+      // Without any report the local state is all there is, so it stays, as an output's does.
+      if (this.field(deviceId, "0x73", "mute_left").peek() !== undefined) held.value.value = undefined;
+    }, ECHO_HOLD_MS);
+
+    const args = { freq_left: next.left, freq_right: next.right, level: next.level, mute_left: next.onLeft ? 0 : 1, mute_right: next.onRight ? 0 : 1 };
+    void this.#invokeCommand(deviceId, "set_sine_gen", args, { coalesce: `sine_gen:${deviceId}` });
+    return true;
+  }
+
+  /**
+   * One entry per device, made on first use and kept: a change must reach whatever is already
+   * watching the oscillator, which a signal created only on the first change never would.
+   */
+  #osc(deviceId: string): { value: Signal<OscillatorState | undefined>; timer: unknown } {
+    let entry = this.#oscillators.get(deviceId);
+    if (entry === undefined) {
+      entry = { value: signal<OscillatorState | undefined>(undefined), timer: undefined };
+      this.#oscillators.set(deviceId, entry);
+    }
+    return entry;
+  }
+
+  readonly #oscillators = new Map<string, { value: Signal<OscillatorState | undefined>; timer: unknown }>();
 
   /** Whether the device can pass DC: the Quadro can, and the Studio+ has no such command. */
   hasDcCoupling(deviceId: string): boolean {

@@ -216,3 +216,57 @@ test("the Devices page switches DC coupling per side on the Quadro; the Studio+ 
     [1, 1],
   ]);
 });
+
+test("the Devices page runs the test oscillator: a tone per side over a shared level", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  // Its own server, whose loopback is not sending reports: the oscillator's five fields share one
+  // byte, so every change carries the other four, and a device changing under the test would make
+  // what is sent unreadable. With nothing reported, both tones read as off.
+  const own = await startServer(["--dry-run"], { webUi: true });
+  try {
+  await page.goto(`${own.url}/#/devices/loopback-0`);
+  await expect(page.getByTestId("osc-freq-left").locator("option")).toHaveText(["1 kHz", "440 Hz"]);
+  await expect(page.getByTestId("osc-level").locator("option")).toHaveText(["0 dBFS", "-6 dBFS", "-12 dBFS", "-18 dBFS"]);
+
+  await page.getByTestId("osc-level").selectOption("3");
+  await page.getByTestId("osc-freq-right").selectOption("1");
+  await page.getByTestId("osc-on-left").click();
+  // All five fields travel together, and each change keeps the ones before it.
+  await expect.poll(() => frames.filter((f) => f.command === "set_sine_gen").at(-1)?.args).toEqual({
+    freq_left: 0,
+    freq_right: 1,
+    level: 3,
+    mute_left: 0,
+    mute_right: 1,
+  });
+  await expect(page.getByTestId("osc-on-left")).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await own.stop();
+  }
+});
+
+test("a page keeps its element while the address stays the same, so a half-made change is not thrown away", async ({ page }) => {
+  // Rebuilding a page throws away whatever is half-done in it: an armed confirm, a half-typed
+  // name. Only a change of address is a reason to do that — not a report arriving. This caught the
+  // page being rebuilt on every cyclic report, which silently dropped a confirming second click.
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  await expect(page.getByTestId("device-standby")).toBeVisible();
+  await page.evaluate(() => {
+    const window_ = window as unknown as { __built: string[] };
+    window_.__built = [];
+    const root = document.querySelector("ga-app")?.shadowRoot;
+    if (root === undefined || root === null) throw new Error("the app has no shadow root");
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) if (node instanceof Element) window_.__built.push(node.tagName);
+      }
+    }).observe(root, { childList: true, subtree: true });
+  });
+  await page.waitForTimeout(1500);
+  expect(await page.evaluate(() => (window as unknown as { __built: string[] }).__built.filter((tag) => tag === "GA-DEVICE-STATUS"))).toEqual([]);
+});

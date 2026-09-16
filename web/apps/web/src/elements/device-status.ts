@@ -2,7 +2,7 @@
 // and a few live values from its status report.
 
 import { h } from "../core/dom.ts";
-import { BRIGHTNESS_MAX, displayName, PRESET_SLOTS } from "../store/store.ts";
+import { BRIGHTNESS_MAX, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PRESET_SLOTS, type OscillatorState } from "../store/store.ts";
 import { bindControl } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
@@ -42,6 +42,9 @@ export class GaDeviceStatus extends GaElement {
       .presets button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .presets .save[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .presets .spacer { flex: 1; }
+      .tone-row { display: flex; align-items: center; gap: 6px; }
+      .osc select { min-height: 24px; }
+      .tone[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
@@ -237,6 +240,63 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
+    // Test oscillator: a tone per side over a shared level, for lining up a signal path. Both
+    // models have it. The device holds the two as mute bits; here they are tones you switch on,
+    // which is how they are used, and a tone at 0 dBFS is loud, so the note says so.
+    let oscSection: HTMLElement | undefined;
+    if (device.family !== null) {
+      const state = () => store.oscillator(id) as OscillatorState;
+      const freq = (side: "left" | "right") => {
+        const select = h(
+          "select",
+          { "aria-label": `Oscillator ${side} frequency`, "data-testid": `osc-freq-${side}`, "on:change": () => store.setOscillator(id, { [side]: Number(select.value) }) },
+          OSCILLATOR_FREQUENCIES.map((name, index) => h("option", { value: String(index) }, name)),
+        );
+        return select;
+      };
+      const on = (side: "left" | "right") =>
+        h("button", {
+          type: "button",
+          class: "tone",
+          "data-control": "",
+          "data-testid": `osc-on-${side}`,
+          "aria-label": `Oscillator ${side} on`,
+          "on:click": () => store.setOscillator(id, side === "left" ? { onLeft: !state().onLeft } : { onRight: !state().onRight }),
+        }, "Tone");
+      const level = h(
+        "select",
+        { "aria-label": "Oscillator level", "data-testid": "osc-level", "on:change": () => store.setOscillator(id, { level: Number(level.value) }) },
+        OSCILLATOR_LEVELS.map((name, index) => h("option", { value: String(index) }, name)),
+      );
+      const sides = [
+        { side: "left" as const, name: "Left", freq: freq("left"), on: on("left") },
+        { side: "right" as const, name: "Right", freq: freq("right"), on: on("right") },
+      ];
+      oscSection = h(
+        "ga-section",
+        { heading: "Test oscillator" },
+        h(
+          "dl",
+          { class: "fields osc" },
+          ...sides.map(({ name, freq: select, on: button }) => field(name, h("span", { class: "tone-row" }, select, button))),
+          field("Level", level),
+        ),
+        h("p", { class: "note-inline" }, "A sine tone straight to the outputs, for lining up a signal path. At 0 dBFS it is as loud as the device goes."),
+      );
+      this.watch(() => {
+        const current = state();
+        const connected = store.connected.value;
+        level.disabled = !connected;
+        if (this.root.activeElement !== level) level.value = String(current.level);
+        for (const { side, freq: select, on: button } of sides) {
+          select.disabled = !connected;
+          if (this.root.activeElement !== select) select.value = String(current[side]);
+          button.setAttribute("aria-pressed", String(side === "left" ? current.onLeft : current.onRight));
+          (button as HTMLButtonElement).disabled = !connected;
+        }
+      });
+    }
+
     // DC coupling: whether the converters pass DC, for control voltages rather than audio. One
     // switch per side, as the Quadro's settings page has, and each is reported back.
     let dcSection: HTMLElement | undefined;
@@ -316,6 +376,7 @@ export class GaDeviceStatus extends GaElement {
       ...(clockSection === undefined ? [] : [clockSection]),
       ...(panningSection === undefined ? [] : [panningSection]),
       ...(dcSection === undefined ? [] : [dcSection]),
+      ...(oscSection === undefined ? [] : [oscSection]),
       ...(presetSection === undefined ? [] : [presetSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );
