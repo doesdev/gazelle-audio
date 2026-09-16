@@ -90,9 +90,10 @@ export function commitOnEnter(input: HTMLInputElement, commit: (value: string) =
     if (draft !== undefined) draft.value = input.value === saved() ? undefined : input.value;
   });
   // `blur` rather than `change`: a draft put back is committed by leaving the field too, though it
-  // was not typed since the field took focus.
+  // was not typed since the field took focus. A field removed with its page gets no blur (checked
+  // by e2e), so a page going away commits nothing.
   input.addEventListener("blur", () => {
-    if (!pressedLink && input.isConnected) apply();
+    if (!pressedLink) apply();
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -101,8 +102,7 @@ export function commitOnEnter(input: HTMLInputElement, commit: (value: string) =
     } else if (event.key === "Escape") {
       input.value = saved();
       committed = input.value;
-      if (draft !== undefined) draft.value = undefined;
-      input.blur();
+      input.blur(); // which drops the draft, as there is nothing left to commit
     }
   });
   return (value) => {
