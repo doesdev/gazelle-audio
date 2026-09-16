@@ -276,10 +276,17 @@ export class Store {
           this.#status.value = status;
           this.#server.value = client.server;
           refreshDevices();
+          // Mixes are read once and kept (P80). While the connection is down the server may restart
+          // or the device change, so they are read again once it is back.
+          if (status !== "open") for (const mixer of this.#mixers.values()) mixer.forget();
         }),
       ),
       client.on("device_added", refreshDevices),
-      client.on("device_removed", refreshDevices),
+      client.on("device_removed", (deviceId) => {
+        refreshDevices();
+        // Unplugged, or about to be re-attached: what comes back may not be as it was.
+        for (const mixer of this.#mixers.values()) if (mixer.deviceId === deviceId) mixer.forget();
+      }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
     );
   }

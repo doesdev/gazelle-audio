@@ -57,7 +57,7 @@ export class GaChannelGroup extends GaElement {
 
     const toggle = h("button", { type: "button", "on:click": () => channels.toggleGroup(groupId) });
     const name = h("input", { type: "text", "aria-label": "Group name" });
-    commitOnEnter(name, (value) => channels.renameGroup(groupId, value.trim() === "" ? (current()?.name ?? "") : value.trim()), () => current()?.name ?? "");
+    const showName = commitOnEnter(name, (value) => channels.renameGroup(groupId, value.trim() === "" ? (current()?.name ?? "") : value.trim()), () => current()?.name ?? "", store.view<string | undefined>(`draft:mixer:${deviceId}:group:${groupId}:name`, undefined));
     const color = h("input", { type: "color", "on:input": () => channels.setGroupColor(groupId, color.value) });
     const remove = h("button", { type: "button", class: "remove", "on:click": () => channels.removeGroup(groupId) }, "×");
     const vertical = h("span", { class: "vertical" });
@@ -67,7 +67,7 @@ export class GaChannelGroup extends GaElement {
     this.watch(() => {
       const group = channels.layout.value.groups.find((g) => g.id === groupId);
       if (group === undefined) return;
-      if (this.root.activeElement !== name) name.value = group.name;
+      showName(group.name);
       color.value = group.color ?? "#5a5f66";
       color.setAttribute("aria-label", `${group.name} colour`);
       remove.setAttribute("aria-label", `Remove group ${group.name}`);

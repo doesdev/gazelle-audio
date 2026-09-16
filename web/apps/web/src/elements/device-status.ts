@@ -67,7 +67,7 @@ export class GaDeviceStatus extends GaElement {
       placeholder: device.model ?? device.id,
       "data-testid": "device-name",
     });
-    commitOnEnter(name, (value) => store.renameDevice(id, value), () => store.workspace.peek()?.aliases[id] ?? "");
+    const showName = commitOnEnter(name, (value) => store.renameDevice(id, value), () => store.workspace.peek()?.aliases[id] ?? "", store.view<string | undefined>(`draft:devices:${id}:name`, undefined));
     const field = (label: string, value: Node | string) => [h("dt", {}, label), h("dd", {}, value)];
 
     const live = h("dl", { class: "fields" });
@@ -390,7 +390,7 @@ export class GaDeviceStatus extends GaElement {
     this.watch(() => {
       const workspace = store.workspace.value;
       name.disabled = !store.connected.value;
-      if (this.root.activeElement !== name) name.value = workspace?.aliases[id] ?? "";
+      showName(workspace?.aliases[id] ?? "");
       name.title = `Shown as “${displayName(device, workspace)}”. Leave empty to use the model name.`;
     });
   }

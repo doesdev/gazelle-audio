@@ -9,7 +9,9 @@
 // Every strip command carries the whole strip, so coalescing per strip never loses a field.
 // `load()` reads the mixer's state: get_mixer with the mixer in ext3 (33 entries, master first)
 // and its 16 pairs of get_mixer_links (entry k covers strips 2k and 2k+1). Until then, and in dry
-// run, values are defaults.
+// run, values are defaults. `readOnce()` is what a page calls: the state read is kept and reused
+// (decision P80), since this app's own commands keep it current, until `forget()` says the device
+// may have changed without it (the connection dropped, or the device went away).
 
 import type { Topology } from "gazelle-audio-client";
 
@@ -108,6 +110,10 @@ export class MixerModel {
   /** Whether choosing this mixer can point the device's meters at it. */
   readonly meterSourceSelectable: boolean;
   readonly #known = signal(false);
+  readonly #needsRead = signal(true);
+  /** Bumped by `forget()`, so a read begun before it neither counts nor holds back the next. */
+  #generation = 0;
+  #reading: number | undefined;
   readonly #context: MixerContext;
   readonly #strips: Signal<StripState>[];
   readonly #master = signal<StripState>(DEFAULT_STRIP);
@@ -130,10 +136,43 @@ export class MixerModel {
     return this.#known;
   }
 
+  /** True until the state has been read (or found to have nothing to read, in dry run), and again after `forget()`. */
+  get needsRead(): ReadonlySignal<boolean> {
+    return this.#needsRead;
+  }
+
+  /**
+   * Reads the mixer's state unless it has been read since the last `forget()`, or a read is under
+   * way. Resolves true when this call read. A read that fails leaves it to be tried next time.
+   */
+  async readOnce(): Promise<boolean> {
+    const generation = this.#generation;
+    if (!this.#needsRead.peek() || this.#reading === generation) return false;
+    this.#reading = generation;
+    try {
+      const outcome = await this.#load();
+      if (outcome !== "failed" && generation === this.#generation) this.#needsRead.value = false;
+    } finally {
+      if (this.#reading === generation) this.#reading = undefined;
+    }
+    return true;
+  }
+
+  /** The device may have changed without this app (it reconnected or was re-attached): read again next time. */
+  forget(): void {
+    this.#generation += 1;
+    this.#needsRead.value = true;
+  }
+
   /** Reads the mixer's strips and links from the device. Resolves false when nothing was read (dry run, or a failure the store reports). */
   async load(): Promise<boolean> {
-    const strips = (await this.#context.read("get_mixer", this.index)).response?.["entries"];
-    if (!Array.isArray(strips)) return false;
+    return (await this.#load()) === "read";
+  }
+
+  async #load(): Promise<"read" | "dry run" | "failed"> {
+    const reply = await this.#context.read("get_mixer", this.index);
+    const strips = reply.response?.["entries"];
+    if (!Array.isArray(strips)) return reply.dryRun ? "dry run" : "failed";
     const links = (await this.#context.read("get_mixer_links")).response?.["entries"];
     const pairsPerMixer = this.channels / 2;
     batch(() => {
@@ -154,7 +193,7 @@ export class MixerModel {
       });
       this.#known.value = true;
     });
-    return true;
+    return "read";
   }
 
   strip(id: StripId): ReadonlySignal<StripState> {

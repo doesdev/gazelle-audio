@@ -3,7 +3,7 @@
 // page left and come back to finds its scroll, open sections and selections as they were. The
 // device and mix are remembered per browser; the rest for the tab.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
 import { startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
 import { putWorkspace, resetWorkspace } from "./workspace.ts";
@@ -88,7 +88,7 @@ test("each device keeps its selected mix: the address names it, and a page witho
   await expect(metered).toHaveValue("1");
 });
 
-test("a page that is not shown is gone and sends nothing; choosing a mix re-reads nothing", async ({ page }) => {
+test("a page that is not shown is gone and sends nothing; choosing a mix or coming back re-reads no mix", async ({ page }) => {
   // View state is kept in the store rather than by keeping pages alive, so leaving a page must
   // dispose of it: no element left to follow reports or point the device's meters.
   const sent: string[] = [];
@@ -117,6 +117,132 @@ test("a page that is not shown is gone and sends nothing; choosing a mix re-read
   const before = sent.length;
   await page.waitForTimeout(1000);
   expect(sent.slice(before)).toEqual([]);
+
+  // Coming back reads no mix, nor the device's link flags that follow a read (P80): the store has
+  // them from the first visit. The meters are pointed at the page's mix again, and where each mix
+  // plays is read again (routing is read fresh by design, P80).
+  await open(page, "mixer");
+  await expect.poll(() => count("set_peak_source")).toBe(3);
+  await page.waitForTimeout(1000);
+  expect(sent.slice(before).filter((c) => c.startsWith("get_") && c !== "get_routing"), "a second visit re-reads no mix").toEqual([]);
+});
+
+test("the Mixer reads every mix again when the connection to the server comes back", async ({ page }) => {
+  const sent: string[] = [];
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    const upstream = ws.connectToServer();
+    sockets.push(ws);
+    ws.onMessage((message) => {
+      if (typeof message === "string") {
+        const command = (JSON.parse(message) as { command?: string }).command;
+        if (command !== undefined) sent.push(command);
+      }
+      upstream.send(message);
+    });
+  });
+  const count = (command: string) => sent.filter((c) => c === command).length;
+
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  await expect.poll(() => count("get_mixer")).toBe(4);
+  await open(page, "inputs");
+  await open(page, "mixer");
+  await page.waitForTimeout(500);
+  expect(count("get_mixer"), "not on coming back").toBe(4);
+
+  // The server may have restarted, or the device been changed, while the connection was down.
+  await sockets.at(-1)?.close();
+  await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
+  await expect(page.getByTestId("connection")).toHaveText("Connected", { timeout: 15_000 });
+  await expect.poll(() => count("get_mixer"), "while the page is open").toBe(8);
+  await open(page, "inputs");
+  await open(page, "mixer");
+  await page.waitForTimeout(500);
+  expect(count("get_mixer"), "and once only").toBe(8);
+});
+
+test("a half-typed name is a draft: leaving the page keeps it without saving it, until Enter or Escape", async ({ page }) => {
+  const saved = async () => (await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { aliases: Record<string, string>; mixers: Record<string, { mixes: { name: string }[]; groups: { name: string }[] }> };
+  const settle = () => page.waitForTimeout(700); // longer than the workspace's save debounce
+  await putWorkspace(server, {
+    mixers: {
+      "loopback-0": {
+        mixes: [{ name: "Monitors" }],
+        groups: [{ id: "g", name: "Drums", collapsed: false }],
+        channels: [{ id: "a", name: "Kick", slot: 6, group: "g", source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }],
+      },
+    },
+  });
+
+  // Devices: typed, then a header link. Not saved, and there again on coming back, for that device only.
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  const deviceName = page.getByTestId("device-name");
+  await deviceName.fill("Desk Qu");
+  await open(page, "workspace");
+  await expect(page.getByLabel("Name for loopback-0")).toHaveValue("");
+  await settle();
+  expect((await saved()).aliases["loopback-0"]).toBeUndefined();
+  await open(page, "devices");
+  await expect(deviceName).toHaveValue("Desk Qu");
+  await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
+  await expect(page.locator("ga-device-status")).toHaveAttribute("device-id", "loopback-1");
+  await expect(deviceName).toHaveValue("");
+  await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
+  await expect(deviceName).toHaveValue("Desk Qu");
+  // Escape drops the draft.
+  await deviceName.press("Escape");
+  await expect(deviceName).toHaveValue("");
+  await open(page, "workspace");
+  await open(page, "devices");
+  await expect(deviceName).toHaveValue("");
+
+  // Workspace: left without the field losing focus first (the address changed), then Enter saves it.
+  await open(page, "workspace");
+  const studioName = page.getByLabel("Name for loopback-1");
+  await studioName.fill("Stud");
+  await page.evaluate(() => (location.hash = "#/routing"));
+  await expect(page.locator("ga-routing")).toBeVisible();
+  await open(page, "workspace");
+  await expect(studioName).toHaveValue("Stud");
+  await settle();
+  expect((await saved()).aliases["loopback-1"]).toBeUndefined();
+  await studioName.press("Enter");
+  await expect.poll(async () => (await saved()).aliases["loopback-1"]).toBe("Stud");
+  // Committed, it is no longer a draft: a new name given elsewhere shows here.
+  await open(page, "devices");
+  await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
+  await deviceName.fill("Studio");
+  await deviceName.press("Enter");
+  await open(page, "workspace");
+  await expect(studioName).toHaveValue("Studio");
+
+  // Mixer: a mix name kept over a visit elsewhere, then saved with Enter.
+  await open(page, "mixer");
+  await page.locator("ga-mixer").getByLabel("Device", { exact: true }).selectOption("loopback-0");
+  const mixName = page.getByTestId("mix-name-0");
+  await mixName.fill("Control Ro");
+  await open(page, "outputs");
+  await open(page, "mixer");
+  await expect(mixName).toHaveValue("Control Ro");
+  await settle();
+  expect((await saved()).mixers["loopback-0"]?.mixes[0]?.name).toBe("Monitors");
+  await mixName.press("Enter");
+  await expect.poll(async () => (await saved()).mixers["loopback-0"]?.mixes[0]?.name).toBe("Control Ro");
+
+  // A group name kept likewise; going into the field and leaving it for another on the page saves it.
+  const groupName = page.getByRole("textbox", { name: "Group name" });
+  await groupName.fill("Perc");
+  await open(page, "routing");
+  await open(page, "mixer");
+  await expect(groupName).toHaveValue("Perc");
+  await settle();
+  expect((await saved()).mixers["loopback-0"]?.groups[0]?.name).toBe("Drums");
+  await groupName.click();
+  await page.getByTestId("layout-save-name").click();
+  await expect.poll(async () => (await saved()).mixers["loopback-0"]?.groups[0]?.name).toBe("Perc");
+  await open(page, "routing");
+  await open(page, "mixer");
+  await expect(groupName).toHaveValue("Perc");
 });
 
 test("a page left and come back to finds its scroll, sections and selections as they were", async ({ page }) => {

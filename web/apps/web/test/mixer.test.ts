@@ -189,6 +189,78 @@ test("loading reads the mixer's strips (master first) and its links from the dev
   assert.equal(dry.strip(3).value.level, 0);
 });
 
+test("a mix is read once and then reused, and read again after the connection drops or the device goes (P80)", async () => {
+  const { client, store } = setup();
+  const strips = Array.from({ length: 33 }, (_, i) => ({ level: i === 4 ? 20 : 0, pan: PAN_CENTRE, mute: 0, solo: 0 }));
+  const reply = (call: { deviceId: string; command: string }, response: unknown, dryRun = false) => ({ device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: dryRun, response, response_error: null });
+  client.respond = async (call) => reply(call, call.command === "get_mixer" ? { entries: strips } : call.command === "get_mixer_links" ? { entries: [] } : null);
+  const reads = () => sent(client, "get_mixer").length;
+
+  const mixer = store.mixer("loopback-0", 0);
+  assert.equal(mixer.needsRead.value, true);
+  assert.deepEqual(await Promise.all([mixer.readOnce(), mixer.readOnce()]), [true, false], "one read while one is in flight");
+  assert.equal(reads(), 1);
+  assert.equal(mixer.needsRead.value, false);
+  assert.equal(await mixer.readOnce(), false, "read already");
+  assert.equal(reads(), 1);
+
+  // What the app sends is what the cache holds, so it stays current without reading.
+  mixer.setLevel(3, 12);
+  assert.equal(await mixer.readOnce(), false);
+  assert.equal(mixer.strip(3).value.level, 12);
+
+  // The connection dropping: the server may have restarted or the device changed meanwhile.
+  client.status = "reconnecting";
+  client.emit("status", "reconnecting");
+  assert.equal(mixer.needsRead.value, true);
+  client.status = "open";
+  client.emit("status", "open");
+  assert.equal(await mixer.readOnce(), true);
+  assert.equal(reads(), 2);
+  assert.equal(mixer.strip(3).value.level, 20, "the device's state again");
+
+  // A device going (unplugged, or re-attached): its mixes only.
+  const other = store.mixer("loopback-1", 0);
+  await other.readOnce();
+  const removed = client.devices.get("loopback-0");
+  client.devices.delete("loopback-0");
+  client.emit("device_removed", "loopback-0");
+  assert.equal(mixer.needsRead.value, true);
+  assert.equal(other.needsRead.value, false);
+  if (removed !== undefined) client.devices.set("loopback-0", removed);
+  client.emit("device_added", removed as never);
+  assert.equal(await mixer.readOnce(), true);
+
+  // A read that fails is tried again next time; a dry run, which has nothing to read, is not.
+  const failing = store.mixer("loopback-0", 1);
+  client.respond = async () => {
+    throw new GazelleError("timeout", "no reply");
+  };
+  assert.equal(await failing.readOnce(), true);
+  assert.equal(failing.needsRead.value, true);
+  const dry = store.mixer("loopback-0", 2);
+  client.respond = async (call) => reply(call, null, true);
+  assert.equal(await dry.readOnce(), true);
+  assert.equal(dry.needsRead.value, false);
+  assert.equal(dry.stateKnown.value, false);
+
+  // A read still in flight when the device goes does not count, nor hold back the next one.
+  const held: (() => void)[] = [];
+  client.respond = (call) => (call.command === "get_mixer" ? new Promise((resolve) => held.push(() => resolve(reply(call, { entries: strips })))) : Promise.resolve(reply(call, { entries: [] })));
+  const late = store.mixer("loopback-0", 3);
+  const pending = late.readOnce();
+  client.emit("device_removed", "loopback-0");
+  client.emit("device_added", removed as never);
+  const again = late.readOnce();
+  assert.equal(sent(client, "get_mixer").filter((c) => c.options?.["ext3"] === 3).length, 2, "the next read is not held back");
+  held[0]?.();
+  assert.equal(await pending, true);
+  assert.equal(late.needsRead.value, true, "a read from before the device went does not count");
+  held[1]?.();
+  assert.equal(await again, true);
+  assert.equal(late.needsRead.value, false);
+});
+
 test("mixers exist only for known models and within the topology", () => {
   const { store } = setup();
   assert.equal(store.mixer("loopback-0", 0), store.mixer("loopback-0", 0), "one model per mixer");

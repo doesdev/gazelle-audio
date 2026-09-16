@@ -6,7 +6,8 @@
 // command sent. The notes, the channels' scroll and a half-typed layout name are kept for the tab.
 
 import { h } from "../core/dom.ts";
-import { meterDeflection } from "../store/mixer.ts";
+import { untracked } from "../core/signal.ts";
+import { meterDeflection, type MixerModel } from "../store/mixer.ts";
 import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
@@ -151,11 +152,21 @@ export class GaMixer extends GaElement {
       },
     });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
-    const mixer0 = store.mixer(deviceId, 0);
-    // Every mix's strips and links are read when the page opens (sends show other mixes' levels).
-    const loads = Array.from({ length: topology.mixers.count }, (_, mix) => store.mixer(deviceId, mix).load());
-    // Then pairs linked on the device (by its own panel) become links, unless already in one.
-    void Promise.all(loads).then(() => store.links.importDevicePairs(deviceId));
+    const mixers = Array.from({ length: topology.mixers.count }, (_, mix) => store.mixer(deviceId, mix));
+    const mixer0 = mixers[0] as MixerModel;
+    // Every mix's strips and links are read (sends show other mixes' levels), once: coming back to
+    // the page uses what the store has, and they are read again only once the connection or the
+    // device has come back (P80). Then pairs linked on the device (by its own panel) become links,
+    // unless already in one.
+    this.watch(() => {
+      const needed = mixers.map((m) => m.needsRead.value).some(Boolean);
+      if (!needed || !store.connected.value || !store.devices.value.some((d) => d.id === deviceId)) return;
+      untracked(() => {
+        void Promise.all(mixers.map((m) => m.readOnce())).then((read) => {
+          if (read.some(Boolean)) void store.links.importDevicePairs(deviceId);
+        });
+      });
+    });
     const levelsNote = h("li", {}, "The device's mixer levels have not been read (as in dry run), so controls start at defaults and send when changed.");
     this.watch(() => {
       levelsNote.hidden = mixer0.stateKnown.value;
