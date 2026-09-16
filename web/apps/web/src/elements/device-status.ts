@@ -237,6 +237,31 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
+    // Panning law: how much a centre-panned signal is attenuated. Quadro only, and not in the
+    // status report, so it is read once here; every mixer pan, and the mono downmix, is heard
+    // through it.
+    let panningSection: HTMLElement | undefined;
+    const panningLaws = store.panningLaws(id);
+    if (panningLaws !== undefined) {
+      const law = h(
+        "select",
+        { "aria-label": "Panning law", "data-testid": "panning-law", "on:change": () => store.setPanningLaw(id, Number(law.value)) },
+        panningLaws.map((name, index) => h("option", { value: String(index) }, name)),
+      );
+      panningSection = h(
+        "ga-section",
+        { heading: "Panning law" },
+        h("dl", { class: "fields" }, field("Centre attenuation", law)),
+        h("p", { class: "note-inline" }, "How much a centred signal is attenuated in every mix, including a mix summed to mono."),
+      );
+      void store.loadPanningLaw(id);
+      this.watch(() => {
+        law.disabled = !store.connected.value;
+        const current = String(store.panningLaw(id).value);
+        if (this.root.activeElement !== law) law.value = current;
+      });
+    }
+
     this.root.replaceChildren(
       h(
         "ga-section",
@@ -255,6 +280,7 @@ export class GaDeviceStatus extends GaElement {
       ),
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
+      ...(panningSection === undefined ? [] : [panningSection]),
       ...(presetSection === undefined ? [] : [presetSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );

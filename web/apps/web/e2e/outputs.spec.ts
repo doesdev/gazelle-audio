@@ -69,3 +69,16 @@ test("Outputs is in the header and opens the first device of known model", async
   await expect(page).toHaveURL(/#\/outputs$/);
   await expect(page.getByTestId("output-0")).toBeVisible();
 });
+
+test("hard mute is a Quadro-only switch that mutes every output at once", async ({ page }) => {
+  await page.goto(`${server.url}/#/outputs/loopback-1`);
+  await expect(page.getByTestId("hard-mute")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/outputs/loopback-0`);
+  const hardMute = page.getByTestId("hard-mute");
+  await expect(hardMute).toHaveAttribute("aria-pressed", "false");
+  await hardMute.click();
+  // One payload field, so the value sits at byte 17 where sentText puts the id.
+  await expect(lastSent(page)).toContainText(sentText("ground_truth.json", "set_hard_mute", 1, 0));
+  await expect(hardMute).toHaveAttribute("aria-pressed", "true");
+});

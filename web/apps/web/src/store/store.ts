@@ -50,6 +50,13 @@ export const PRESET_SLOTS = 5;
 /** The panels' brightness range, 0..100 (their sliders' max_value). */
 export const BRIGHTNESS_MAX = 100;
 
+/**
+ * How much a centre-panned signal is attenuated, in `set_panning_law`'s index order — which is the
+ * Quadro settings dialog's own order, not ascending. The Studio+ has no such command. Every pan in
+ * the mixer, and so the mono downmix built on them, is heard through whichever of these is set.
+ */
+export const PANNING_LAWS = ["0 dB", "-6 dB", "-3 dB", "-4.5 dB"] as const;
+
 /** The sample rates both panels offer, in `set_samp_rate`'s index order. */
 export const SAMPLE_RATES = ["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"] as const;
 
@@ -463,8 +470,12 @@ export class Store {
     return { slots, dryRun: result.dry_run };
   }
 
-  /** Reads a command's reply (`ext3` for selectors). A failure becomes a notice and reads as no response. */
-  async #readCommand(deviceId: string, command: string, ext3: number | undefined): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }> {
+  /**
+   * Reads a command's reply (`ext3` for selectors). A failure becomes a notice and reads as no
+   * response, except under `quiet`, which is for reads a page makes on its own: there a refusal
+   * leaves the value unknown and is not the user's problem.
+   */
+  async #readCommand(deviceId: string, command: string, ext3: number | undefined, quiet = false): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }> {
     try {
       const device = this.#client.device(deviceId);
       if (device.family === null) throw new Error(`${deviceId} has no known model`);
@@ -473,7 +484,7 @@ export class Store {
       if (result.response_error !== null) throw new Error(result.response_error);
       return { response: result.response, dryRun: result.dry_run };
     } catch (error) {
-      this.#notify("error", `${command} could not be read: ${message(error)}`);
+      if (!quiet) this.#notify("error", `${command} could not be read: ${message(error)}`);
       return { response: null, dryRun: false };
     }
   }
@@ -606,6 +617,46 @@ export class Store {
     void this.#invokeCommand(deviceId, "set_sync_source", { src_index: index }, { coalesce: `sync_source:${deviceId}` });
     return true;
   }
+
+  /** The panning laws a device offers, or undefined for a model that has none (the Studio+). */
+  panningLaws(deviceId: string): readonly string[] | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    return family === "quadro" ? PANNING_LAWS : undefined;
+  }
+
+  /**
+   * The device's panning law as an index into [`PANNING_LAWS`], as last read or set. Unlike the
+   * clock and brightness it is not in the status report, so it is only known after `loadPanningLaw`.
+   */
+  panningLaw(deviceId: string): ReadonlySignal<number> {
+    let value = this.#panningLaws.get(deviceId);
+    if (value === undefined) {
+      value = signal(0);
+      this.#panningLaws.set(deviceId, value);
+    }
+    return value;
+  }
+
+  /** Reads the device's panning law (`get_panning_law`). Resolves false when nothing was read. */
+  async loadPanningLaw(deviceId: string): Promise<boolean> {
+    if (this.panningLaws(deviceId) === undefined) return false;
+    const panning = (await this.#readCommand(deviceId, "get_panning_law", undefined, true)).response?.["panning"];
+    if (panning === undefined || panning === null) return false;
+    (this.panningLaw(deviceId) as Signal<number>).value = Math.min(PANNING_LAWS.length - 1, Math.max(0, Number(panning)));
+    return true;
+  }
+
+  /** Sets the panning law by index into [`PANNING_LAWS`]. */
+  setPanningLaw(deviceId: string, index: number): boolean {
+    const laws = this.panningLaws(deviceId);
+    if (laws === undefined) return false;
+    if (!Number.isInteger(index) || index < 0 || index >= laws.length) throw new RangeError(`no panning law ${index}: this model has 0..${laws.length - 1}`);
+    (this.panningLaw(deviceId) as Signal<number>).value = index;
+    void this.#invokeCommand(deviceId, "set_panning_law", { panning: index }, { coalesce: `panning_law:${deviceId}` });
+    return true;
+  }
+
+  readonly #panningLaws = new Map<string, Signal<number>>();
 
   /** Recalls one of the device's own presets, 1..[`PRESET_SLOTS`]. */
   recallPreset(deviceId: string, slot: number): boolean {

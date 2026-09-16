@@ -59,6 +59,8 @@ export class GaOutputs extends GaElement {
       .destinations { display: flex; flex-wrap: wrap; gap: 4px; }
       .destinations button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .note-inline { font-size: 11px; color: var(--ga-text-muted); }
+      .hard-mute { font-size: 11px; font-weight: 700; }
+      .hard-mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
       @media (max-width: 480px) {
         .output { grid-template-columns: 1fr auto; }
         .volume { grid-column: 1 / -1; grid-row: 2; }
@@ -84,12 +86,38 @@ export class GaOutputs extends GaElement {
       },
     });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    // The Quadro's one switch over all four outputs; the vendor panel throws it while it restores a
+    // session, and it is the same thing to reach for before changing monitors.
+    const hardMute = !outputs.hasHardMute
+      ? undefined
+      : h("button", {
+          type: "button",
+          class: "hard-mute",
+          "data-control": "",
+          "data-testid": "hard-mute",
+          "aria-label": "Hard mute: mute every output",
+          title: "Mutes every output at once",
+          "on:click": () => outputs.setHardMute(!outputs.hardMute.peek()),
+        }, "Hard mute");
     const note = h("p", { class: "note" });
     const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => this.#row(outputs, output, enabled)));
 
     const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
     const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
-    this.root.replaceChildren(h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent), note, rows, trims, ...(talkback === undefined ? [] : [talkback]));
+    this.root.replaceChildren(
+      h("div", { class: "bar" }, devices, ...(hardMute === undefined ? [] : [hardMute]), h("span", { class: "spacer" }), lastSent),
+      note,
+      rows,
+      trims,
+      ...(talkback === undefined ? [] : [talkback]),
+    );
+
+    if (hardMute !== undefined) {
+      this.watch(() => {
+        hardMute.setAttribute("aria-pressed", String(outputs.hardMute.value));
+        hardMute.disabled = !store.connected.value;
+      });
+    }
 
     this.watch(() => {
       const known = store.devices.value.filter((d) => d.family !== null);

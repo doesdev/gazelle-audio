@@ -145,3 +145,22 @@ test("talkback is the Studio+'s: talk, its level fader and where it goes; the Qu
   assert.deepEqual(studio.talk.value, { known: true, on: false, volume: 24, to: [true, true, true] });
   assert.throws(() => studio.setTalkbackTo(3, true), RangeError);
 });
+
+test("hard mute is the Quadro's all-outputs mute, reported back; the Studio+ has none", async () => {
+  const { store, report, sent } = setup();
+  const quadro = store.outputs("loopback-0");
+  const studio = store.outputs("loopback-1");
+  assert.equal(quadro.hasHardMute, true);
+  assert.equal(studio.hasHardMute, false);
+  assert.throws(() => studio.setHardMute(true), /no hard mute/);
+
+  assert.equal(quadro.hardMute.value, false);
+  quadro.activate();
+  report("loopback-0", { hard_mute: 1 });
+  assert.equal(quadro.hardMute.value, true, "the device reports it");
+
+  quadro.setHardMute(false);
+  await flush();
+  assert.deepEqual(sent("loopback-0", "set_hard_mute"), [{ value: 0 }]);
+  assert.equal(quadro.hardMute.value, false, "the change shows at once, over the stale report");
+});

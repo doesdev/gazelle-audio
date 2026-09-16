@@ -178,3 +178,20 @@ test("the Devices page recalls a device preset, and saves into one behind a conf
   await save.click();
   await expect.poll(() => sent("preset_save")).toEqual([5]);
 });
+
+test("the Devices page sets the Quadro's panning law; the Studio+ has none", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/devices/loopback-1`);
+  await expect(page.getByTestId("panning-law")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  const law = page.getByTestId("panning-law");
+  await expect(law.locator("option")).toHaveText(["0 dB", "-6 dB", "-3 dB", "-4.5 dB"]);
+  await law.selectOption("2");
+  await expect.poll(() => frames.filter((f) => f.command === "set_panning_law").map((f) => f.args?.["panning"])).toEqual([2]);
+});

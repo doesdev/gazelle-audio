@@ -5,7 +5,7 @@ import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { effect } from "../src/core/signal.ts";
-import { displayName, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { displayName, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -277,4 +277,56 @@ test("device presets: five slots numbered from one, recall and save, refusing an
   assert.throws(() => store.recallPreset("loopback-0", 0), RangeError);
   assert.throws(() => store.savePreset("loopback-0", 6), RangeError);
   assert.equal(store.recallPreset("usb:1", 1), false, "a device of unknown model has no known commands");
+});
+
+test("panning law: the Quadro's four choices, read back with get_panning_law and set by index", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  // The Quadro panel's settings dialog, in its own order: how much a centred signal is attenuated.
+  assert.deepEqual(PANNING_LAWS, ["0 dB", "-6 dB", "-3 dB", "-4.5 dB"]);
+  assert.deepEqual(store.panningLaws("loopback-0"), PANNING_LAWS);
+  assert.equal(store.panningLaws("loopback-1"), undefined, "the Studio+ has no panning law command");
+  assert.equal(store.panningLaws("usb:1"), undefined);
+
+  assert.equal(store.panningLaw("loopback-0").value, 0, "until it is read, the first choice shows");
+  client.respond = async (call) => ({ device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 1, dry_run: false, response: { panning: 2 }, response_error: null });
+  assert.equal(await store.loadPanningLaw("loopback-0"), true);
+  assert.equal(store.panningLaw("loopback-0").value, 2);
+  assert.deepEqual(client.invocations.filter((c) => c.command === "get_panning_law").map((c) => c.deviceId), ["loopback-0"]);
+  assert.equal(await store.loadPanningLaw("loopback-1"), false, "nothing is read from a model without it");
+
+  assert.equal(store.setPanningLaw("loopback-0", 1), true);
+  await flush();
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_panning_law").map((c) => c.args), [{ panning: 1 }]);
+  assert.equal(store.panningLaw("loopback-0").value, 1, "the choice shows at once");
+  assert.throws(() => store.setPanningLaw("loopback-0", 4), RangeError);
+  assert.equal(store.setPanningLaw("loopback-1", 1), false);
+});
+
+test("a device that will not answer get_panning_law leaves the choice unknown, without an error notice", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  // Nothing asked for this read: the page does it on its own, so a refusal is not the user's problem.
+  client.respond = async () => {
+    throw new Error("unsupported");
+  };
+  assert.equal(await store.loadPanningLaw("loopback-0"), false);
+  assert.equal(store.panningLaw("loopback-0").value, 0);
+  assert.deepEqual(store.notices.value, []);
+});
+
+test("a read the user asked for still says so when it fails", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  client.respond = async () => {
+    throw new Error("unsupported");
+  };
+  await store.inputs("loopback-0").loadLinks();
+  assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["error", "get_preamps_links could not be read: unsupported"]]);
 });

@@ -103,6 +103,9 @@ export class OutputsModel {
   /** Studio+ only; its level uses the same scale as the outputs' volume. */
   readonly talkback: { destinations: readonly TrimInfo[] } | undefined;
   readonly talk: ReadonlySignal<TalkState>;
+  /** Quadro only: one switch that mutes every output, for changing monitors safely. */
+  readonly hasHardMute: boolean;
+  readonly hardMute: ReadonlySignal<boolean>;
   readonly #context: OutputsContext;
   readonly #states: ReadonlySignal<OutputState>[];
   readonly #trims: ReadonlySignal<TrimState>[];
@@ -116,6 +119,9 @@ export class OutputsModel {
     this.outputs = NAMES.slice(0, quadro ? 4 : 5).map((name, id) => ({ id, name, dim: quadro }));
     this.trims = TRIMS.slice(0, quadro ? 2 : 3);
     this.talkback = quadro ? undefined : { destinations: TALKBACK_DESTINATIONS };
+    this.hasHardMute = quadro;
+    const hardMute = context.field("hard_mute");
+    this.hardMute = computed(() => (this.#hold("hard_mute").value ?? Number(hardMute.value ?? 0)) === 1);
 
     const volumes = quadro ? context.field("volumes") : undefined;
     this.#states = this.outputs.map(({ id }) => {
@@ -206,6 +212,16 @@ export class OutputsModel {
     } else {
       this.#send("set_trim", { id, trim_idx: value }, `out_trim:${id}`);
     }
+  }
+
+  /**
+   * Mutes or unmutes every output at once. The vendor panel uses this while it restores a session,
+   * so nothing plays through half-applied routing; here it is the same idea under the user's hand.
+   */
+  setHardMute(on: boolean): void {
+    if (!this.hasHardMute) throw new Error(`the ${this.#modelName()} has no hard mute`);
+    this.#change("hard_mute", on ? 1 : 0, "hard_mute");
+    this.#send("set_hard_mute", { value: on ? 1 : 0 }, "hard_mute");
   }
 
   setTalk(on: boolean): void {
