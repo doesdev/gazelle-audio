@@ -234,3 +234,103 @@ test("mic emulation: a target and one of its models per preamp, Quadro only, rea
   assert.throws(() => quadro.setEmulationModel(0, 14), RangeError, "the Edge Note has fourteen, 0..13");
   assert.throws(() => quadro.setEmulationModel(4, 0), RangeError, "the Quadro has four preamps");
 });
+
+test("a dual-capsule microphone covers more than one preamp: the Edge Duo two, the Edge Quadro four", async () => {
+  const { store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+
+  // From the panel's own regrouping (link_len 4 for EDGE_QUADRO, 2 for EDGE_DUO, 1 otherwise) and
+  // the Edge manual: the Duo's two membranes are two XLRs, the Quadro's two heads are four.
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map((target) => quadro.emulationSpan(target)), [1, 2, 1, 1, 4, 1, 1]);
+  assert.deepEqual(quadro.emulationChannels(3, 1), [2, 3], "a Duo on preamp 4 covers the pair it belongs to");
+  assert.deepEqual(quadro.emulationChannels(2, 4), [0, 1, 2, 3], "a Quadro covers its whole block of four");
+  // Channels 3 and 4 are the Top head (`is_quad_top`: ch % 4 >= 2), each head with its own emulation.
+  assert.deepEqual(quadro.emulationHeads(0, 4), [{ name: "Bottom", channel: 0 }, { name: "Top", channel: 2 }]);
+  assert.deepEqual(quadro.emulationHeads(0, 1), [{ name: "", channel: 0 }]);
+
+  // The target reaches every channel of the microphone, because it is one microphone.
+  quadro.setEmulationTarget(1, 1);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation"), [
+    { preamp_ch: 0, target: 1, emu_model: 0, ch_swap: 0, pattern: 0 },
+    { preamp_ch: 1, target: 1, emu_model: 0, ch_swap: 0, pattern: 0 },
+  ]);
+  // And the app links those preamps, absolute, so their gain and 48V move together.
+  const link = store.links.linkOf("preamp", "loopback-0", 0);
+  assert.equal(link?.mode, "absolute");
+  assert.deepEqual(link?.members.map((m) => m.channel), [0, 1]);
+
+  // A membrane pair shares one emulation; the swap is the microphone's, so it covers both.
+  quadro.setEmulationModel(1, 3);
+  quadro.setEmulationSwap(0, true);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").slice(2), [
+    { preamp_ch: 0, target: 1, emu_model: 3, ch_swap: 0, pattern: 0 },
+    { preamp_ch: 1, target: 1, emu_model: 3, ch_swap: 0, pattern: 0 },
+    { preamp_ch: 0, target: 1, emu_model: 3, ch_swap: 1, pattern: 0 },
+    { preamp_ch: 1, target: 1, emu_model: 3, ch_swap: 1, pattern: 0 },
+  ]);
+
+  // Going back to a single-channel microphone takes the link away with it.
+  quadro.setEmulationTarget(1, 3);
+  assert.equal(store.links.linkOf("preamp", "loopback-0", 0), undefined);
+  assert.deepEqual(quadro.emulation(0).value, { target: 3, model: 0, swap: false, pattern: 0 });
+  assert.deepEqual(quadro.emulation(1).value, { target: 3, model: 0, swap: false, pattern: 0 });
+});
+
+test("the Edge Quadro's two heads take an emulation each, and it needs four preamps to fit", async () => {
+  const { store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  quadro.setEmulationTarget(0, 4);
+  await flush();
+  assert.equal(sent("set_mic_emulation").length, 4, "all four channels are the one microphone");
+
+  // Each head has its own emulation, so a model reaches only that head's two membranes.
+  quadro.setEmulationModel(2, 5);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").slice(4), [
+    { preamp_ch: 2, target: 4, emu_model: 5, ch_swap: 0, pattern: 0 },
+    { preamp_ch: 3, target: 4, emu_model: 5, ch_swap: 0, pattern: 0 },
+  ]);
+  assert.deepEqual([0, 1, 2, 3].map((i) => quadro.emulation(i).value.model), [0, 0, 5, 5]);
+
+  // Both heads are one microphone, so the swap covers all four membranes.
+  quadro.setEmulationSwap(3, true);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").slice(6).map((a) => [(a as Record<string, number>)["preamp_ch"], (a as Record<string, number>)["ch_swap"]]), [
+    [0, 1],
+    [1, 1],
+    [2, 1],
+    [3, 1],
+  ]);
+
+  assert.throws(() => store.inputs("loopback-1").emulationChannels(0, 4), /no mic emulation/, "the Studio+ has none of this");
+});
+
+test("a device reporting a mixed set of microphones is not written over by its neighbour's head", async () => {
+  const { client, store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  // The device can report what the app would not have made: an Edge Quadro on three preamps and
+  // something else on the fourth, which is what unplugging one of its XLRs leaves (the Edge manual).
+  client.respond = async (call) => ({
+    device_id: call.deviceId,
+    command: call.command,
+    sent_hex: "74",
+    sent_len: 16,
+    dry_run: false,
+    response:
+      call.command === "get_mic_emulations"
+        ? { entries: [{ target: 4, emu_model: 1, ch_swap: 0, pattern: 0 }, { target: 4, emu_model: 1, ch_swap: 0, pattern: 0 }, { target: 3, emu_model: 2, ch_swap: 0, pattern: 0 }, { target: 4, emu_model: 1, ch_swap: 0, pattern: 0 }] }
+        : null,
+    response_error: null,
+  });
+  assert.equal(await quadro.loadEmulations(), true);
+
+  quadro.setEmulationModel(3, 5);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation"), [{ preamp_ch: 3, target: 4, emu_model: 5, ch_swap: 0, pattern: 0 }], "preamp 3 has its own microphone and keeps it");
+  assert.equal(quadro.emulation(2).value.model, 2);
+});

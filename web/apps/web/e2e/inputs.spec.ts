@@ -237,3 +237,32 @@ test("mic emulation: a microphone per preamp and one of its emulations; the Stud
   await model.selectOption("2");
   await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").at(-1)?.args).toEqual({ preamp_ch: 0, target: 3, emu_model: 2, ch_swap: 0, pattern: 0 });
 });
+
+test("an Edge Duo covers two preamps and an Edge Quadro four, linked, with an emulation per head", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  const emulations = () => frames.filter((f) => f.command === "set_mic_emulation").map((f) => f.args?.["preamp_ch"]);
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+
+  // An Edge Duo is one microphone on two preamps, so the second preamp's row steps aside.
+  await page.getByTestId("mic-target-0").selectOption("1");
+  await expect.poll(emulations).toEqual([0, 1]);
+  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1–2");
+  await expect(page.getByTestId("mic-row-1")).toBeHidden();
+  // Its preamps are linked, absolute, so their gain and 48V move together.
+  await expect(page.getByTestId("pre-link-0")).toHaveAttribute("aria-pressed", "true");
+
+  // The Edge Quadro is two heads on four preamps, and each head takes its own emulation.
+  await page.getByTestId("mic-target-0").selectOption("4");
+  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1–4");
+  await expect(page.getByTestId("mic-row-2")).toBeHidden();
+  await page.getByTestId("mic-model-0-top").selectOption("3");
+  await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").slice(-2).map((f) => [f.args?.["preamp_ch"], f.args?.["emu_model"]])).toEqual([
+    [2, 3],
+    [3, 3],
+  ]);
+});

@@ -10,7 +10,7 @@
 // report still carrying the old value does not undo a change that is on its way.
 
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import { MIC_EMULATIONS } from "./mic-emulations.ts";
+import { MIC_EMULATIONS, MIC_TARGETS } from "./mic-emulations.ts";
 import type { Topology } from "gazelle-audio-client";
 
 export type PreampType = 0 | 1 | 2;
@@ -97,6 +97,11 @@ export interface InputsContext {
   read(command: string, ext3?: number): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
   /** The other members of this input's workspace link, if it is in one (LinksModel, decision P51). */
   peers(kind: InputLinkKind, index: number): readonly { model: InputsModel; index: number; mode: "absolute" | "relative" }[];
+  /**
+   * Links or unlinks these preamps in the workspace, absolute. A microphone that covers more than
+   * one preamp is still one microphone, so its channels belong together (the user, 2026-09-16).
+   */
+  linkPreamps(channels: readonly number[], on: boolean): void;
   field(name: string): ReadonlySignal<unknown>;
   watch(): () => void;
   timers: InputsTimers;
@@ -242,31 +247,103 @@ export class InputsModel {
     return true;
   }
 
-  /** Says which Antelope microphone is on a preamp. Its catalogue is its own, so the model resets. */
-  setEmulationTarget(index: number, target: number): void {
-    if (!Number.isInteger(target) || target < 0 || target >= MIC_TARGET_NAMES.length) throw new RangeError(`no microphone ${target}: 0..${MIC_TARGET_NAMES.length - 1}`);
-    this.#setEmulation(index, { target, model: 0 });
+  /**
+   * How many preamps a microphone occupies. The Edge Duo is one capsule with two membranes on two
+   * XLRs, and the Edge Quadro is two such heads on four — which is the only way its emulations work
+   * (the Edge manual, and the panel's own `_regroup_link`: a link group of 4, 2, or 1).
+   */
+  emulationSpan(target: number): number {
+    if (target === MIC_TARGETS.EDGE_QUADRO) return 4;
+    if (target === MIC_TARGETS.EDGE_DUO) return 2;
+    return 1;
   }
 
-  /** Picks what the microphone is made to sound like, by index into its target's catalogue. */
+  /**
+   * The preamps a microphone picked on `index` covers. A microphone sits in a block aligned to its
+   * own size, as the panel's `get_quad_buddy_pre` does; one that would not fit is refused.
+   */
+  emulationChannels(index: number, target: number): readonly number[] {
+    this.#emulation(index);
+    const span = this.emulationSpan(target);
+    const first = Math.floor(index / span) * span;
+    if (first + span > this.preampCount) throw new RangeError(`a ${MIC_TARGET_NAMES[target] ?? target} needs ${span} preamps, and this device has ${this.preampCount}`);
+    return Array.from({ length: span }, (_, k) => first + k);
+  }
+
+  /**
+   * The heads of a microphone at `index`, each with the first of its two membranes. The Edge Quadro
+   * has two, and each takes its own emulation (`get_quad_models` returns the pair); everything else
+   * has one. Channels 3 and 4 are the Top head (`is_quad_top`: `ch % 4 >= 2`).
+   */
+  emulationHeads(index: number, target: number): readonly { name: string; channel: number }[] {
+    const channels = this.emulationChannels(index, target);
+    if (channels.length < 4) return [{ name: "", channel: channels[0] as number }];
+    return [
+      { name: "Bottom", channel: channels[0] as number },
+      { name: "Top", channel: channels[2] as number },
+    ];
+  }
+
+  /**
+   * Says which Antelope microphone is on a preamp, over all the preamps it covers. Its catalogue is
+   * its own, so the model resets; a microphone on more than one preamp is linked, and one that is
+   * replaced by a single-membrane microphone takes its link away with it.
+   */
+  setEmulationTarget(index: number, target: number): void {
+    if (!Number.isInteger(target) || target < 0 || target >= MIC_TARGET_NAMES.length) throw new RangeError(`no microphone ${target}: 0..${MIC_TARGET_NAMES.length - 1}`);
+    const previous = this.#group(index);
+    const channels = this.emulationChannels(index, target);
+    // The microphone that was there is gone from every preamp it was on, so the new one replaces it
+    // across all of them: swapping an Edge Duo for an Edge Solo leaves no half of a Duo behind.
+    const replaced = [...new Set([...previous, ...channels])].sort((a, b) => a - b);
+    this.#apply(replaced, { target, model: 0, swap: false });
+    if (channels.length > 1) this.#context.linkPreamps(channels, true);
+    else this.#context.linkPreamps(previous.length > 1 ? previous : channels, false);
+  }
+
+  /**
+   * Picks what a head is made to sound like, by index into its target's catalogue. It reaches that
+   * head's membranes and no further: the Edge Quadro's two heads take an emulation each.
+   */
   setEmulationModel(index: number, model: number): void {
     const current = this.#emulation(index).peek();
     const models = this.emulationModels(current.target);
     if (!Number.isInteger(model) || model < 0 || model >= models.length) throw new RangeError(`no emulation ${model} for this microphone: 0..${models.length - 1}`);
-    this.#setEmulation(index, { model });
+    this.#apply(this.#head(index), { model });
   }
 
-  /** Swaps a dual-capsule microphone's two sides. */
+  /** Swaps a microphone's front and rear membranes. It is one microphone, so it covers all of it. */
   setEmulationSwap(index: number, on: boolean): void {
-    this.#setEmulation(index, { swap: on });
+    this.#apply(this.#group(index), { swap: on });
   }
 
-  #setEmulation(index: number, change: Partial<MicEmulationState>): void {
-    const held = this.#emulation(index);
-    const next = { ...held.peek(), ...change };
-    held.value = next;
-    // All five travel together, and `pattern` goes back as it was read: this does not set it.
-    this.#send("set_mic_emulation", { preamp_ch: index, target: next.target, emu_model: next.model, ch_swap: next.swap ? 1 : 0, pattern: next.pattern }, `mic_emu:${index}`);
+  /**
+   * The preamps the microphone at `index` is actually on: its block, less any channel carrying a
+   * different microphone. A Duo with one XLR unplugged is a single-membrane microphone (the Edge
+   * manual), so its neighbour is free for something else and must not be written over.
+   */
+  #group(index: number): readonly number[] {
+    const target = this.#emulation(index).peek().target;
+    return this.emulationChannels(index, target).filter((channel) => channel === index || this.#emulation(channel).peek().target === target);
+  }
+
+  /** The membranes of one head: a capsule pair of the same microphone, else the preamp alone. */
+  #head(index: number): readonly number[] {
+    const group = this.#group(index);
+    if (group.length < 2) return [index];
+    const first = Math.floor(index / 2) * 2;
+    return group.filter((channel) => channel === first || channel === first + 1);
+  }
+
+  #apply(channels: readonly number[], change: Partial<MicEmulationState>): void {
+    const next = channels.map((channel) => ({ channel, state: { ...this.#emulation(channel).peek(), ...change } }));
+    batch(() => {
+      for (const { channel, state } of next) this.#emulation(channel).value = state;
+    });
+    for (const { channel, state } of next) {
+      // All five travel together, and `pattern` goes back as it was read: this does not set it.
+      this.#send("set_mic_emulation", { preamp_ch: channel, target: state.target, emu_model: state.model, ch_swap: state.swap ? 1 : 0, pattern: state.pattern }, `mic_emu:${channel}`);
+    }
   }
 
   #emulation(index: number): Signal<MicEmulationState> {

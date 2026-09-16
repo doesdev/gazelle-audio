@@ -434,6 +434,10 @@ export class Store {
           const model = this.#knownInputs(peer.deviceId);
           return model === undefined ? [] : [{ model, index: peer.channel, mode: peer.mode }];
         }),
+      linkPreamps: (channels, on) => {
+        if (on) this.links.create("preamp", channels.map((channel) => ({ device_id: deviceId, channel })), "absolute");
+        else for (const channel of channels) this.links.removeMember("preamp", deviceId, channel);
+      },
       field: (name) => this.field(deviceId, "0x73", name),
       watch: () => this.watchReport(deviceId, "0x73"),
       timers: this.#timers,

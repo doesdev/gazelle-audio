@@ -66,6 +66,10 @@ export class GaInputs extends GaElement {
       .mics { display: grid; gap: 6px; max-width: 640px; }
       .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
       .mic select { min-width: 0; min-height: 24px; }
+      .models { display: flex; min-width: 0; gap: 6px; }
+      .models select { flex: 1; min-width: 0; }
+      .head { display: flex; flex: 1; min-width: 0; align-items: center; gap: 4px; }
+      .head-name { font-size: 10px; color: var(--ga-text-muted); }
       .mic .name { font-size: 12px; color: var(--ga-text-secondary); }
       .swap { font-size: 11px; font-weight: 700; }
       .swap[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
@@ -121,7 +125,7 @@ export class GaInputs extends GaElement {
           {},
           h("h2", {}, "Mic emulation"),
           h("div", { class: "mics" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#emulation(inputs, i))),
-          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. The stereo pattern presets of the dual-capsule microphones are not set here."),
+          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. The stereo pattern presets are not set here."),
         );
     void inputs.loadEmulations();
 
@@ -253,46 +257,68 @@ export class GaInputs extends GaElement {
     return h("div", { class: "preamp", "data-testid": `preamp-${i}` }, h("div", { class: "head" }, h("span", { class: "name" }, label), h("span", { class: "badges" }, link, hpf)), h("div", { class: "segmented", role: "group", "aria-label": `${label} type` }, types), gain, h("div", { class: "toggles" }, phantom, phase));
   }
 
-  /** One preamp's microphone and emulation. The catalogue is the microphone's, so it follows it. */
+  /**
+   * One preamp's row in the Mic emulation section. A microphone that covers more than one preamp
+   * shows on the first of them and hides the rest, with an emulation for each of its heads.
+   */
   #emulation(inputs: InputsModel, i: number): HTMLElement {
-    const label = `Preamp ${i + 1}`;
     const state = inputs.emulation(i);
+    const row = h("div", { class: "mic", "data-testid": `mic-row-${i}` });
+    const name = h("span", { class: "name" });
     const target = h(
       "select",
-      { "aria-label": `${label} microphone`, "data-testid": `mic-target-${i}`, "on:change": () => inputs.setEmulationTarget(i, Number(target.value)) },
+      { "aria-label": `Preamp ${i + 1} microphone`, "data-testid": `mic-target-${i}`, "on:change": () => inputs.setEmulationTarget(i, Number(target.value)) },
       inputs.micTargets.map((t) => h("option", { value: String(t.value) }, t.name)),
     );
-    const model = h("select", { "aria-label": `${label} emulation`, "data-testid": `mic-model-${i}`, "on:change": () => inputs.setEmulationModel(i, Number(model.value)) });
+    const models = h("span", { class: "models" });
     const swap = h("button", {
       type: "button",
       class: "swap",
       "data-control": "",
       "data-testid": `mic-swap-${i}`,
-      "aria-label": `${label} swap the microphone's two sides`,
-      title: "Swap the two sides of a dual-capsule microphone",
+      "aria-label": `Preamp ${i + 1} swap the microphone's front and rear membranes`,
+      title: "Swap the microphone's front and rear membranes",
       "on:click": () => inputs.setEmulationSwap(i, !state.peek().swap),
     }, "Swap");
 
     this.watch(() => {
       const current = state.value;
-      const models = inputs.emulationModels(current.target);
+      const span = inputs.emulationSpan(current.target);
+      const first = Math.floor(i / span) * span;
+      // Only the microphone's first preamp carries its controls; the ones it covers step aside.
+      row.hidden = first !== i;
+      if (row.hidden) return;
+      const channels = inputs.emulationChannels(i, current.target);
+      name.textContent = span === 1 ? `Preamp ${i + 1}` : `Preamps ${first + 1}–${first + span}`;
       if (this.root.activeElement !== target) target.value = String(current.target);
-      model.replaceChildren(...models.map((name, index) => h("option", { value: String(index) }, name)));
-      model.value = String(Math.min(Math.max(0, current.model), Math.max(0, models.length - 1)));
+
+      const catalogue = inputs.emulationModels(current.target);
+      const heads = catalogue.length === 0 ? [] : inputs.emulationHeads(i, current.target);
+      models.replaceChildren(
+        ...heads.map((head) => {
+          const select = h(
+            "select",
+            { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": head.name === "" ? `mic-model-${i}` : `mic-model-${i}-${head.name.toLowerCase()}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
+            catalogue.map((label, index) => h("option", { value: String(index) }, label)),
+          );
+          select.value = String(Math.min(Math.max(0, inputs.emulation(head.channel).peek().model), catalogue.length - 1));
+          return head.name === "" ? select : h("span", { class: "head" }, h("span", { class: "head-name" }, head.name), select);
+        }),
+      );
       // With no microphone named there is nothing to emulate and nothing to swap.
-      model.disabled = models.length === 0;
-      swap.toggleAttribute("data-unavailable", models.length === 0);
+      if (heads.length === 0) models.replaceChildren(h("select", { "aria-label": `Preamp ${i + 1} emulation`, "data-testid": `mic-model-${i}`, disabled: "" }));
+      swap.toggleAttribute("data-unavailable", span === 1);
       swap.setAttribute("aria-pressed", String(current.swap));
-    });
-    // The panel offers emulation only on a preamp set to Mic, and so does this.
-    this.watch(() => {
-      const mic = inputs.preamp(i).value.type === 0;
-      target.disabled = !mic;
-      swap.toggleAttribute("data-unavailable", !mic);
-      if (!mic) model.disabled = true;
+      // The panel offers emulation only on a preamp set to Mic, and so does this. A microphone on
+      // more than one preamp needs all of them on Mic, since they are all the one microphone.
+      const onMic = channels.every((channel) => inputs.preamp(channel).value.type === 0);
+      target.disabled = !onMic;
+      for (const select of models.querySelectorAll("select")) select.disabled = !onMic || heads.length === 0;
+      if (!onMic) swap.toggleAttribute("data-unavailable", true);
     });
 
-    return h("div", { class: "mic" }, h("span", { class: "name" }, label), target, model, swap);
+    row.replaceChildren(name, target, models, swap);
+    return row;
   }
 
   #digital(inputs: InputsModel, group: DigitalGroup, i: number, enabled: () => boolean): HTMLElement {
