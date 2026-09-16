@@ -16,6 +16,12 @@ pub fn config_dir(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     if let Some(dir) = var("XDG_CONFIG_HOME") {
         return Some(PathBuf::from(dir).join("gazelle"));
     }
+    // Windows gives every process `APPDATA`, while `HOME` exists only inside shells like Git Bash:
+    // without this a login entry or an Explorer launch had no config folder, and wrote to a working
+    // directory it could not write (the user, 2026-09-16).
+    if let Some(dir) = var("APPDATA") {
+        return Some(PathBuf::from(dir).join("gazelle"));
+    }
     var("HOME").map(|home| PathBuf::from(home).join(".config").join("gazelle"))
 }
 
@@ -76,6 +82,21 @@ mod tests {
         let p = default_workspace_path(env(&[("HOME", "/home/u")]));
         assert_eq!(p, PathBuf::from("/home/u/.config/gazelle/workspace.json"));
         assert_eq!(default_workspace_path(env(&[])), PathBuf::from("workspace.json"));
+    }
+
+    /// Windows sets `APPDATA` for every process, and only Git Bash sets `HOME`, so preferring it gives
+    /// a server started from a terminal, the tray, Explorer or a login entry the same workspace. A
+    /// login entry starts in a folder Windows picks (usually System32) and cannot fall back to that.
+    #[test]
+    fn appdata_is_the_windows_config_folder_ahead_of_home() {
+        let appdata = r"C:\Users\u\AppData\Roaming";
+        let p = default_workspace_path(env(&[("APPDATA", appdata), ("HOME", "/home/u")]));
+        assert_eq!(p, PathBuf::from(appdata).join("gazelle").join("workspace.json"));
+        assert_eq!(default_themes_dir(env(&[("APPDATA", appdata)])), PathBuf::from(appdata).join("gazelle").join("themes"));
+        // The explicit and XDG overrides still win, and an empty APPDATA names nothing.
+        assert_eq!(default_workspace_path(env(&[("GAZELLE_CONFIG_DIR", "/srv/gazelle"), ("APPDATA", appdata)])), PathBuf::from("/srv/gazelle/workspace.json"));
+        assert_eq!(default_workspace_path(env(&[("XDG_CONFIG_HOME", "/xdg"), ("APPDATA", appdata)])), PathBuf::from("/xdg/gazelle/workspace.json"));
+        assert_eq!(default_workspace_path(env(&[("APPDATA", ""), ("HOME", "/home/u")])), PathBuf::from("/home/u/.config/gazelle/workspace.json"));
     }
 
     #[test]
