@@ -34,7 +34,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW,
 };
 
-use super::boot::{RunKey, StartOnBoot};
+use super::boot::{boot_program, RunKey, StartOnBoot};
 use super::{device_label, menu, ui_url, Command, Context, Item, Status, ANTELOPE_SERVICE};
 
 /// The message the icon sends to the window.
@@ -125,7 +125,10 @@ pub fn start(context: Context) -> Result<Tray, String> {
         return Err(format!("creating the tray window: {}", io::Error::last_os_error()));
     }
 
-    let boot = StartOnBoot::new(Box::new(UserRunKey), context.exe.clone(), &context.boot_args);
+    // The login entry runs the windowless build when it sits beside this one, so logging in opens
+    // no console window.
+    let program = boot_program(&context.exe, |p| p.is_file());
+    let boot = StartOnBoot::new(Box::new(UserRunKey), program, &context.boot_args);
     let state = Rc::new(State {
         icon: make_icon(),
         taskbar_created: unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },
@@ -208,12 +211,21 @@ fn open_ui(state: &State) {
     }
     state.last_open.set(Some(Instant::now()));
     let url = ui_url(state.context.address);
+    if let Err(code) = shell_open(&url) {
+        tracing::warn!("opening {url} in the browser failed (ShellExecute returned {code})");
+    }
+}
+
+/// Open a URL or a folder as Explorer would.
+fn shell_open(target: &str) -> Result<(), usize> {
     let result = unsafe {
-        ShellExecuteW(null_mut(), wide("open").as_ptr(), wide(&url).as_ptr(), null(), null(), SW_SHOWNORMAL)
+        ShellExecuteW(null_mut(), wide("open").as_ptr(), wide(target).as_ptr(), null(), null(), SW_SHOWNORMAL)
     };
     // ShellExecute reports success as a value above 32.
     if (result as usize) <= 32 {
-        tracing::warn!("opening {url} in the browser failed (ShellExecute returned {})", result as usize);
+        Err(result as usize)
+    } else {
+        Ok(())
     }
 }
 
@@ -227,6 +239,7 @@ fn status(state: &State) -> Status {
         devices: c.devices.descriptors().iter().map(device_label).collect(),
         antelope_service_running: service_running(ANTELOPE_SERVICE),
         start_on_boot: state.boot.is_enabled(),
+        log_file: c.log_dir.is_some(),
     }
 }
 
@@ -277,6 +290,13 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
             Ok(false) => tracing::info!("start on boot: off"),
             Err(e) => tracing::warn!("changing start on boot: {e}"),
         },
+        Some(Command::OpenLogFolder) => {
+            if let Some(dir) = &state.context.log_dir {
+                if let Err(code) = shell_open(&dir.display().to_string()) {
+                    tracing::warn!("opening the log folder {} failed (ShellExecute returned {code})", dir.display());
+                }
+            }
+        }
         Some(Command::Quit) => {
             tracing::info!("quit from the tray");
             (state.context.quit)();

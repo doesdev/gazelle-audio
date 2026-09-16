@@ -8,14 +8,14 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gazelle_audio_server::config::{default_themes_dir, default_workspace_path};
+use gazelle_audio_server::config::{default_log_dir, default_themes_dir, default_workspace_path};
 use gazelle_audio_server::device::descriptor::DeviceId;
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::tray::{self, boot::BootArgs};
-use gazelle_audio_server::{http, AppState};
+use gazelle_audio_server::{http, logging, AppState};
 use tokio::sync::Notify;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -71,19 +71,31 @@ struct Args {
     /// create one (no desktop session) also runs without it, and says so.
     #[arg(long)]
     no_tray: bool,
+
+    /// Also log to a size-capped file in DIR. Tray runs do by default, in the platform's state
+    /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
+    #[arg(long, value_name = "DIR")]
+    log_dir: Option<PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "gazelle_audio_server=info,tower_http=info".into()),
-        )
-        .init();
-
+/// Public so the windowless build (`bin/gazelle-audio-serverw.rs`) runs this same server.
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let log_dir = logging::init(logging::file_log_dir(!args.no_tray, args.log_dir.clone(), || {
+        default_log_dir(|k| std::env::var(k).ok())
+    }));
+    // The error is printed to the console on return anyway; a log file needs it too, since a
+    // server with no terminal (the likeliest reason: its port is taken) leaves nothing else.
+    run(&args, log_dir.clone()).inspect_err(|e| {
+        if log_dir.is_some() {
+            tracing::error!("the server stopped: {e}");
+        }
+    })
+}
+
+fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
-    let (listener, app, devices) = runtime.block_on(prepare(&args))?;
+    let (listener, app, devices) = runtime.block_on(prepare(args))?;
     let address = listener.local_addr()?;
 
     // Quit in the tray and Ctrl-C both end the server the same way.
@@ -94,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tray = if args.no_tray {
         None
     } else {
-        match tray::start(tray_context(&args, address, &devices, &quit)) {
+        match tray::start(tray_context(args, address, &devices, &quit, log_dir)) {
             Ok(tray) => {
                 tracing::info!("tray icon added (--no-tray to run without one)");
                 Some(tray)
@@ -212,7 +224,13 @@ async fn serve(
 }
 
 /// What the tray is told about this server, including the arguments a boot entry repeats.
-fn tray_context(args: &Args, address: SocketAddr, devices: &Arc<DeviceManager>, quit: &Arc<Notify>) -> tray::Context {
+fn tray_context(
+    args: &Args,
+    address: SocketAddr,
+    devices: &Arc<DeviceManager>,
+    quit: &Arc<Notify>,
+    log_dir: Option<PathBuf>,
+) -> tray::Context {
     let backend = format!("{:?}", args.backend).to_lowercase();
     let boot_args = BootArgs {
         bind: args.bind,
@@ -220,6 +238,7 @@ fn tray_context(args: &Args, address: SocketAddr, devices: &Arc<DeviceManager>, 
         dry_run: args.dry_run,
         workspace: args.workspace.clone(),
         themes_dir: args.themes_dir.clone(),
+        log_dir: args.log_dir.clone(),
         loopback_models: args.loopback_models.clone(),
         loopback_cyclic_ms: args.loopback_cyclic_ms,
         no_web_ui: args.no_web_ui,
@@ -237,6 +256,7 @@ fn tray_context(args: &Args, address: SocketAddr, devices: &Arc<DeviceManager>, 
         devices: devices.clone(),
         exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("gazelle-audio-server")),
         boot_args,
+        log_dir,
         quit: Box::new(move || quit.notify_one()),
     }
 }
