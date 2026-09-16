@@ -114,6 +114,24 @@ test("a Quadro channel routes its input to its main mix, then its fader sends se
   await expect(lastSent(page)).toContainText(dryRun("set_mixer", mixerHex("quadro", { mixer: 1, channel: 7, level: 18 })));
 });
 
+test("a channel with no name goes by its input's name until one is typed (the user, 2026-09-16)", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 6, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const name = page.getByTestId("name-6");
+  // No input yet: known by its mixer input.
+  await expect(name).toHaveAttribute("placeholder", "Ch 7");
+  await page.getByTestId("in-6").selectOption("0:1");
+  const input = (await page.getByTestId("in-6").locator("option:checked").textContent())?.trim() ?? "";
+  expect(input).not.toBe("");
+  await expect(name).toHaveAttribute("placeholder", input);
+  await expect(name).toHaveValue("");
+  await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-label", `${input} level`);
+
+  await name.fill("Vox");
+  await name.press("Enter");
+  await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-label", "Vox level");
+});
+
 test("a Studio+ channel's send routes it into another mix, and the send level sets its level there", async ({ page }) => {
   await layout({ "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 2, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-1`);

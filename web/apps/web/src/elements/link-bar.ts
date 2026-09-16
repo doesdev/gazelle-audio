@@ -45,8 +45,9 @@ function memberName(kind: LinkKind, member: ChannelRef, shown: string): string {
   const device = store.devices.peek().find((d) => d.id === member.device_id);
   let name = `${KIND_NAMES[kind]} ${member.channel + 1}`;
   if (kind === "mixer" && device !== undefined && device.family !== null) {
-    const own = store.channels(member.device_id).layout.peek().channels.find((c) => c.slot === member.channel)?.name;
-    if (own !== undefined && own !== "") name = own;
+    const channels = store.channels(member.device_id);
+    const own = channels.layout.peek().channels.find((c) => c.slot === member.channel);
+    if (own !== undefined) name = channels.displayName(own);
   }
   return member.device_id === shown ? name : `${device?.model ?? member.device_id} ${name}`;
 }

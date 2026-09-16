@@ -298,3 +298,24 @@ test("a mixer can be saved as a layout for its model, applied later like a start
   assert.deepEqual(channels.savedLayouts(), []);
   await assert.rejects(channels.applySavedLayout(id), RangeError);
 });
+
+test("a channel with no name of its own is called by its input's name, and a typed name replaces it", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const id = channels.add() as string;
+  const name = () => channels.displayName(channels.channel(id) as NonNullable<ReturnType<typeof channels.channel>>);
+
+  // With no input yet there is nothing to borrow, so it is known by its mixer input.
+  assert.equal(name(), "Ch 7");
+  await channels.setSource(id, { group: PREAMP, channel: 2 });
+  assert.equal(name(), channels.sourceLabel({ group: PREAMP, channel: 2 }));
+  // It follows the input while the name is not set.
+  await channels.setSource(id, { group: USB1, channel: 5 });
+  assert.equal(name(), channels.sourceLabel({ group: USB1, channel: 5 }));
+
+  channels.rename(id, "Kick");
+  assert.equal(name(), "Kick");
+  // Clearing the typed name hands the channel back to its input's name.
+  channels.rename(id, "");
+  assert.equal(name(), channels.sourceLabel({ group: USB1, channel: 5 }));
+});

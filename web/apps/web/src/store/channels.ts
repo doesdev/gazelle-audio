@@ -172,6 +172,15 @@ export class ChannelsModel {
     return this.layout.value.mixes[mix]?.name || `Mix ${mix + 1}`;
   }
 
+  /**
+   * What a channel is called: the name typed for it, else its input's name, else its mixer input
+   * (the user, 2026-09-16). An unnamed channel follows its input as the input changes.
+   */
+  displayName(channel: MixerChannel): string {
+    if (channel.name !== "") return channel.name;
+    return channel.source === undefined ? `Ch ${channel.slot + 1}` : this.sourceLabel(channel.source);
+  }
+
   sourceLabel(source: RouteSource): string {
     const group = this.#context.topology.inputs[source.group];
     if (group === undefined) return `Source ${source.group}:${source.channel + 1}`;
