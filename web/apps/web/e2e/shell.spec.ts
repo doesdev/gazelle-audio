@@ -132,3 +132,26 @@ test("the Devices page sets the front-panel brightness", async ({ page }) => {
   // is what matters here. On hardware the device echoes the change within about 30 ms.
   await expect.poll(() => frames.filter((f) => f.command === "set_brightness").map((f) => f.args?.["brightness"]).at(-1)).toBe(100);
 });
+
+test("the Devices page sets the clock source and sample rate, and shows the measured rate", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+
+  const source = page.getByTestId("clock-source");
+  await expect(source.locator("option")).toHaveText(["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]);
+  await source.selectOption("4");
+  await expect.poll(() => frames.filter((f) => f.command === "set_sync_source").map((f) => f.args?.["src_index"])).toEqual([4]);
+
+  const rate = page.getByTestId("clock-rate");
+  await expect(rate.locator("option")).toHaveText(["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"]);
+  await rate.selectOption("2");
+  await expect.poll(() => frames.filter((f) => f.command === "set_samp_rate").map((f) => f.args?.["srate_idx"])).toEqual([2]);
+
+  // The measured rate and lock come from the device's report, whatever the loopback is sending.
+  await expect(page.getByTestId("clock-measured")).not.toHaveText("—");
+});

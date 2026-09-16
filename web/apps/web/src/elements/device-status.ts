@@ -26,11 +26,17 @@ export class GaDeviceStatus extends GaElement {
       ga-section + ga-section { margin-top: 10px; }
       .name { width: 100%; max-width: 280px; }
       .power { display: flex; gap: 6px; margin-top: 8px; }
+      .brightness-row { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; margin-top: 8px; }
+      .brightness-row .caption { font-size: 12px; color: var(--ga-text-secondary); }
       .brightness { position: relative; height: 22px; margin-top: 8px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; touch-action: none; outline: none; }
       .brightness:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
       .brightness .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .brightness .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .brightness[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
+      .clock select { min-height: 24px; }
+      .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
+      .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
+      .note-inline { margin: 6px 0 0; font-size: 11px; color: var(--ga-text-muted); }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
@@ -119,12 +125,54 @@ export class GaDeviceStatus extends GaElement {
         brightness.setAttribute("aria-valuetext", `${value}%`);
         brightness.setAttribute("aria-disabled", String(!store.connected.value));
       });
-      powerControls = h("div", {}, powerControls, brightness);
+      powerControls = h("div", {}, powerControls, h("div", { class: "brightness-row" }, h("span", { class: "caption" }, "Brightness"), brightness));
       this.watch(() => {
         const connected = store.connected.value;
         powerOn.disabled = !connected;
         standby.disabled = !connected;
         if (!connected) disarm();
+      });
+    }
+
+    // Clock: the source and sample rate the device runs at, and what it measures.
+    let clockSection: HTMLElement | undefined;
+    const clock = store.clock(id);
+    if (clock !== undefined) {
+      const source = h(
+        "select",
+        { "aria-label": "Clock source", "data-testid": "clock-source", "on:change": () => store.setClockSource(id, Number(source.value)) },
+        clock.sources.map((name, index) => h("option", { value: String(index) }, name)),
+      );
+      const rate = h(
+        "select",
+        { "aria-label": "Sample rate", "data-testid": "clock-rate", "on:change": () => store.setSampleRate(id, Number(rate.value)) },
+        clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
+      );
+      const lock = h("span", { class: "lock" }, "NO LOCK");
+      const measured = h("span", { class: "readout", "data-testid": "clock-measured" }, "—");
+      clockSection = h(
+        "ga-section",
+        { heading: "Clock" },
+        h(
+          "dl",
+          { class: "fields clock" },
+          field("Source", source),
+          field("Sample rate", rate),
+          field("Measured", h("span", {}, measured, " ", lock)),
+        ),
+        h("p", { class: "note-inline" }, "While the device follows an external clock, it takes the rate from that source and ignores the sample rate here."),
+      );
+      this.watch(() => {
+        const state = store.clockState(id);
+        const connected = store.connected.value;
+        source.disabled = !connected;
+        rate.disabled = !connected;
+        if (state === undefined) return;
+        if (this.root.activeElement !== source) source.value = String(Math.min(clock.sources.length - 1, Math.max(0, state.source)));
+        if (this.root.activeElement !== rate) rate.value = String(state.rate);
+        measured.textContent = state.hz > 0 ? `${(state.hz / 1000).toFixed(1)} kHz` : "—";
+        lock.textContent = state.locked ? "LOCKED" : "NO LOCK";
+        lock.toggleAttribute("data-locked", state.locked);
       });
     }
 
@@ -145,6 +193,7 @@ export class GaDeviceStatus extends GaElement {
         ),
       ),
       liveSection,
+      ...(clockSection === undefined ? [] : [clockSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );
 

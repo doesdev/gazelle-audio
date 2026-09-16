@@ -220,3 +220,43 @@ test("device brightness: set_brightness is the panels' 0..100, clamped, and only
   );
   assert.equal(store.setBrightness("usb:1", 50), false, "a device of unknown model has no known commands");
 });
+
+test("clock: sample rates are the panels' seven, sources differ per model, and both send an index", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  assert.deepEqual(store.clock("loopback-0")?.rates, ["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"]);
+  assert.deepEqual(store.clock("loopback-0")?.sources, ["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]);
+  assert.deepEqual(store.clock("loopback-1")?.sources, ["Oven", "Word clock", "ADAT", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]);
+  assert.equal(store.clock("usb:1"), undefined, "a device of unknown model has no known clock");
+
+  assert.equal(store.setSampleRate("loopback-0", 2), true);
+  assert.equal(store.setClockSource("loopback-1", 5), true);
+  await flush();
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_samp_rate").map((c) => [c.deviceId, c.args]), [["loopback-0", { srate_idx: 2 }]]);
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_sync_source").map((c) => [c.deviceId, c.args]), [["loopback-1", { src_index: 5 }]]);
+
+  // An index the model does not have is refused rather than sent.
+  assert.throws(() => store.setSampleRate("loopback-0", 7), RangeError);
+  assert.throws(() => store.setClockSource("loopback-0", 6), RangeError, "the Quadro has six sources");
+  assert.equal(store.setSampleRate("usb:1", 0), false);
+});
+
+test("clock state: the measured frequency and lock come from the status report", () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  const listen = store.watchReport("loopback-0", "0x73");
+  const report = (fields: Record<string, unknown>) => {
+    client.cyclic.get("loopback-0|0x73")?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  // 48000 Hz over three bytes, high first.
+  report({ sync_freq_hi: 0, sync_freq_mid: 0xbb, sync_freq_low: 0x80, sync_source: 3, locked: 1, base_index: 2 });
+  assert.deepEqual(store.clockState("loopback-0"), { source: 3, hz: 48000, locked: true, rate: 2 });
+  // The devices run at 96 kHz as `base_index` 4 with the three bytes 1,119,0 (hardware session 2).
+  report({ sync_freq_hi: 1, sync_freq_mid: 119, sync_freq_low: 0, sync_source: 0, locked: 0, base_index: 4 });
+  assert.deepEqual(store.clockState("loopback-0"), { source: 0, hz: 96000, locked: false, rate: 4 });
+  listen();
+});

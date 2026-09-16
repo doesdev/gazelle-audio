@@ -43,6 +43,30 @@ import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type 
 export const SAVE_DEBOUNCE_MS = 300;
 /** The panels' brightness range, 0..100 (their sliders' max_value). */
 export const BRIGHTNESS_MAX = 100;
+
+/** The sample rates both panels offer, in `set_samp_rate`'s index order. */
+export const SAMPLE_RATES = ["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"] as const;
+
+/**
+ * Clock sources in `set_sync_source`'s index order, per model, as each panel lists them
+ * (`app/ui/cpanel.py` and `zenstudiotb/ui/widgets/comboboxes.py`). The Studio+'s internal clock is
+ * its oven-controlled oscillator, and it alone has a word clock input.
+ */
+export const CLOCK_SOURCES: Readonly<Record<"quadro" | "studio", readonly string[]>> = {
+  quadro: ["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"],
+  studio: ["Oven", "Word clock", "ADAT", "ADAT x2", "ADAT x4", "S/PDIF", "USB"],
+};
+
+/** What the device reports about its clock. */
+export interface ClockState {
+  /** Index into the model's `CLOCK_SOURCES`. */
+  source: number;
+  /** The measured rate in Hz, from the status report's three frequency bytes. */
+  hz: number;
+  locked: boolean;
+  /** The rate the device is on, as an index into [`SAMPLE_RATES`] (the report's `base_index`). */
+  rate: number;
+}
 export const THEME_STORAGE_KEY = "gazelle.theme";
 
 export interface Timers {
@@ -532,6 +556,48 @@ export class Store {
     if (family === undefined || family === null) return false;
     const brightness = Math.min(BRIGHTNESS_MAX, Math.max(0, Math.round(value)));
     void this.#invokeCommand(deviceId, "set_brightness", { brightness }, { coalesce: `brightness:${deviceId}` });
+    return true;
+  }
+
+  /** The clock choices a device's model offers, or undefined when the model is unknown. */
+  clock(deviceId: string): { rates: readonly string[]; sources: readonly string[] } | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    return { rates: SAMPLE_RATES, sources: CLOCK_SOURCES[family] };
+  }
+
+  /**
+   * What the device reports about its clock. Reading it is reactive, so a watch that calls it
+   * re-runs as the report changes. The frequency is three bytes, high first; the lock bit is
+   * `locked` on the Quadro and `locked_wc` on the Studio+.
+   */
+  clockState(deviceId: string): ClockState | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    const byte = (name: string) => Number(this.field(deviceId, "0x73", name).value ?? 0);
+    return {
+      source: byte("sync_source"),
+      hz: (byte("sync_freq_hi") << 16) | (byte("sync_freq_mid") << 8) | byte("sync_freq_low"),
+      locked: byte(family === "quadro" ? "locked" : "locked_wc") === 1,
+      rate: Math.min(SAMPLE_RATES.length - 1, Math.max(0, byte("base_index"))),
+    };
+  }
+
+  /** Sets the sample rate by index into [`SAMPLE_RATES`]. */
+  setSampleRate(deviceId: string, index: number): boolean {
+    const clock = this.clock(deviceId);
+    if (clock === undefined) return false;
+    if (!Number.isInteger(index) || index < 0 || index >= clock.rates.length) throw new RangeError(`no sample rate ${index}: this model has 0..${clock.rates.length - 1}`);
+    void this.#invokeCommand(deviceId, "set_samp_rate", { srate_idx: index }, { coalesce: `samp_rate:${deviceId}` });
+    return true;
+  }
+
+  /** Sets the clock source by index into the model's [`CLOCK_SOURCES`]. */
+  setClockSource(deviceId: string, index: number): boolean {
+    const clock = this.clock(deviceId);
+    if (clock === undefined) return false;
+    if (!Number.isInteger(index) || index < 0 || index >= clock.sources.length) throw new RangeError(`no clock source ${index}: this model has 0..${clock.sources.length - 1}`);
+    void this.#invokeCommand(deviceId, "set_sync_source", { src_index: index }, { coalesce: `sync_source:${deviceId}` });
     return true;
   }
 
