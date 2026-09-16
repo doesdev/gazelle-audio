@@ -37,7 +37,7 @@ fn lines(child: &mut Child) -> mpsc::Receiver<String> {
 #[test]
 fn port_zero_reports_the_bound_port() {
     let mut child = Command::new(BIN)
-        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui"])
+        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

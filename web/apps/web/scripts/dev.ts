@@ -23,7 +23,7 @@ function cargo(): string {
 
 const server = spawn(
   cargo(),
-  ["run", "-p", "gazelle-audio-server", "--", "--bind", `127.0.0.1:${SERVER_PORT}`, "--no-persist", "--no-web-ui", "--loopback-cyclic-ms", "50"],
+  ["run", "-p", "gazelle-audio-server", "--", "--bind", `127.0.0.1:${SERVER_PORT}`, "--no-persist", "--no-web-ui", "--no-tray", "--loopback-cyclic-ms", "50"],
   // A separate target directory: Windows locks a running executable, so a dev server running from
   // target/debug would make every `cargo build` and test run meanwhile fail to replace it.
   { cwd: repo, stdio: "inherit", env: { ...process.env, CARGO_TARGET_DIR: join(repo, "target", "dev") } },

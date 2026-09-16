@@ -23,6 +23,20 @@ clap = { version = "~4.5.61", features = ["derive"] }
 futures-util = "0.3"
 rust-embed = { version = "=8.11.0", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
 
+# The tray icon, on Win32 directly. `hidapi` already brings in this exact crate, so the tray adds
+# features, not packages, to what the Rust floor audit covers.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [features]
 default = ["web-ui"]
 # Serve the built web UI from the binary. Needs no Node at build time: when

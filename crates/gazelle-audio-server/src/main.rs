@@ -14,7 +14,9 @@ use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
+use gazelle_audio_server::tray::{self, boot::BootArgs};
 use gazelle_audio_server::{http, AppState};
+use tokio::sync::Notify;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum Backend {
@@ -62,13 +64,16 @@ struct Args {
     loopback_cyclic_ms: Option<u64>,
 
     /// Serve only the API, not the embedded web UI.
-    #[cfg_attr(not(feature = "web-ui"), allow(dead_code))]
     #[arg(long)]
     no_web_ui: bool,
+
+    /// Run without the tray icon, as test harnesses and services do. A server that cannot
+    /// create one (no desktop session) also runs without it, and says so.
+    #[arg(long)]
+    no_tray: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -77,8 +82,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    let runtime = tokio::runtime::Runtime::new()?;
+    let (listener, app, devices) = runtime.block_on(prepare(&args))?;
+    let address = listener.local_addr()?;
 
+    // Quit in the tray and Ctrl-C both end the server the same way.
+    let quit = Arc::new(Notify::new());
 
+    // The tray's message loop needs the thread that created the icon, so it takes this one and
+    // the server runs on the runtime's workers.
+    let tray = if args.no_tray {
+        None
+    } else {
+        match tray::start(tray_context(&args, address, &devices, &quit)) {
+            Ok(tray) => {
+                tracing::info!("tray icon added (--no-tray to run without one)");
+                Some(tray)
+            }
+            Err(e) => {
+                tracing::warn!("no tray icon, running headless: {e}");
+                None
+            }
+        }
+    };
+
+    let closer = tray.as_ref().map(tray::Tray::closer);
+    let server = runtime.spawn(async move {
+        let result = serve(listener, app, devices, quit).await;
+        // Stopped by Ctrl-C or an error rather than the tray: take the icon down too.
+        if let Some(closer) = closer {
+            closer.close();
+        }
+        result
+    });
+    if let Some(tray) = tray {
+        tray.run();
+    }
+    runtime.block_on(server)??;
+    Ok(())
+}
+
+/// Everything up to a bound listener: devices attached, workspace store chosen, routes built.
+async fn prepare(
+    args: &Args,
+) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
     let pids: Vec<u16> = args
@@ -143,19 +190,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let shutdown = {
-        let devices = devices.clone();
-        async move {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("shutting down, stopping device workers");
-            devices.shutdown_all();
-        }
-    };
+    Ok((listener, app, devices))
+}
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
-    Ok(())
+/// Serve until Ctrl-C or Quit, then stop the device workers.
+async fn serve(
+    listener: tokio::net::TcpListener,
+    app: axum::Router,
+    devices: Arc<DeviceManager>,
+    quit: Arc<Notify>,
+) -> std::io::Result<()> {
+    let shutdown = async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = quit.notified() => {}
+        }
+        tracing::info!("shutting down, stopping device workers");
+        devices.shutdown_all();
+    };
+    axum::serve(listener, app).with_graceful_shutdown(shutdown).await
+}
+
+/// What the tray is told about this server, including the arguments a boot entry repeats.
+fn tray_context(args: &Args, address: SocketAddr, devices: &Arc<DeviceManager>, quit: &Arc<Notify>) -> tray::Context {
+    let backend = format!("{:?}", args.backend).to_lowercase();
+    let boot_args = BootArgs {
+        bind: args.bind,
+        backend: backend.clone(),
+        dry_run: args.dry_run,
+        workspace: args.workspace.clone(),
+        themes_dir: args.themes_dir.clone(),
+        loopback_models: args.loopback_models.clone(),
+        loopback_cyclic_ms: args.loopback_cyclic_ms,
+        no_web_ui: args.no_web_ui,
+    };
+    let boot_args = match std::env::current_dir() {
+        Ok(cwd) => boot_args.absolute(&cwd),
+        Err(_) => boot_args,
+    };
+    let quit = quit.clone();
+    tray::Context {
+        address,
+        backend,
+        dry_run: args.dry_run,
+        web_ui: cfg!(feature = "web-ui") && !args.no_web_ui,
+        devices: devices.clone(),
+        exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("gazelle-audio-server")),
+        boot_args,
+        quit: Box::new(move || quit.notify_one()),
+    }
 }
 
 /// Attaches every Antelope control interface the HID stack can open.

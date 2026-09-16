@@ -1,9 +1,10 @@
 // Starts the real gazelle-audio-server for integration tests (decision P8). The server is built
 // with cargo once per process, then the built binary is spawned directly, not through
 // `cargo run`, so killing it stops the server itself. It binds port 0 and the tests read the
-// port it logs. stop() kills it and waits for it to exit; on Windows kill() terminates the
-// process outright, which loses nothing under --no-persist. A process exit handler kills any
-// server a crashed or interrupted test run leaves behind.
+// port it logs. It runs with --no-tray, or every test server would add an icon to the taskbar.
+// stop() kills it and waits for it to exit; on Windows kill() terminates the process outright,
+// which loses nothing under --no-persist. A process exit handler kills any server a crashed or
+// interrupted test run leaves behind.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -57,7 +58,7 @@ export interface StartOptions {
 
 export async function startServer(extraArgs: readonly string[] = [], options: StartOptions = {}): Promise<RunningServer> {
   const binary = buildServer();
-  const args = ["--bind", "127.0.0.1:0", "--no-persist", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
+  const args = ["--bind", "127.0.0.1:0", "--no-persist", "--no-tray", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
   const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
   live.add(child);
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
