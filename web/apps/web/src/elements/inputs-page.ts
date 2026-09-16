@@ -64,11 +64,13 @@ export class GaInputs extends GaElement {
       .gain .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .gain[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
       .mics { display: grid; gap: 6px; max-width: 640px; }
-      .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 2fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
       .mic select { min-width: 0; min-height: 24px; }
       .models { display: flex; min-width: 0; gap: 6px; }
       .models select { flex: 1; min-width: 0; }
       .head { display: flex; flex: 1; min-width: 0; align-items: center; gap: 4px; }
+      .head select { flex: 1; min-width: 0; }
+      .preset[hidden] { display: none; }
       .head-name { font-size: 10px; color: var(--ga-text-muted); }
       .mic .name { font-size: 12px; color: var(--ga-text-secondary); }
       .swap { font-size: 11px; font-weight: 700; }
@@ -125,7 +127,7 @@ export class GaInputs extends GaElement {
           {},
           h("h2", {}, "Mic emulation"),
           h("div", { class: "mics" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#emulation(inputs, i))),
-          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. The stereo pattern presets are not set here."),
+          h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. A polar pattern runs from omni through cardioid to figure-8, as far as the emulated microphone allows; a stereo technique also wants the top head turned 90°, which is yours to do."),
         );
     void inputs.loadEmulations();
 
@@ -271,6 +273,7 @@ export class GaInputs extends GaElement {
       inputs.micTargets.map((t) => h("option", { value: String(t.value) }, t.name)),
     );
     const models = h("span", { class: "models" });
+    const preset = h("select", { class: "preset", "aria-label": `Preamp ${i + 1} stereo technique`, "data-testid": `mic-preset-${i}`, hidden: "", "on:change": () => inputs.setEmulationPreset(i, Number(preset.value)) });
     const swap = h("button", {
       type: "button",
       class: "swap",
@@ -289,6 +292,9 @@ export class GaInputs extends GaElement {
       row.hidden = first !== i;
       if (row.hidden) return;
       const channels = inputs.emulationChannels(i, current.target);
+      // The row shows the whole microphone, so it follows every channel of it: a head's model and
+      // polar pattern live on their own channel's state, which this one would not otherwise read.
+      for (const channel of channels) inputs.emulation(channel).value;
       name.textContent = span === 1 ? `Preamp ${i + 1}` : `Preamps ${first + 1}–${first + span}`;
       if (this.root.activeElement !== target) target.value = String(current.target);
 
@@ -296,15 +302,39 @@ export class GaInputs extends GaElement {
       const heads = catalogue.length === 0 ? [] : inputs.emulationHeads(i, current.target);
       models.replaceChildren(
         ...heads.map((head) => {
+          const which = head.name === "" ? "" : `-${head.name.toLowerCase()}`;
           const select = h(
             "select",
-            { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": head.name === "" ? `mic-model-${i}` : `mic-model-${i}-${head.name.toLowerCase()}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
+            { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": `mic-model-${i}${which}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
             catalogue.map((label, index) => h("option", { value: String(index) }, label)),
           );
           select.value = String(Math.min(Math.max(0, inputs.emulation(head.channel).peek().model), catalogue.length - 1));
-          return head.name === "" ? select : h("span", { class: "head" }, h("span", { class: "head-name" }, head.name), select);
+          const parts: HTMLElement[] = [...(head.name === "" ? [] : [h("span", { class: "head-name" }, head.name)]), select];
+          // The polar pattern is the head's, and only some emulations have one to point.
+          const pattern = inputs.emulationPattern(head.channel);
+          if (pattern !== undefined) {
+            const steps = pattern.steps ?? Array.from({ length: 11 }, (_, k) => ({ value: Math.round(pattern.min + (k / 10) * (pattern.max - pattern.min)), label: "" }));
+            const polar = h(
+              "select",
+              { class: "polar", "aria-label": `Preamp ${i + 1} ${head.name === "" ? "polar pattern" : `${head.name} head polar pattern`}`, "data-testid": `mic-pattern-${i}${which}`, "on:change": () => inputs.setEmulationPattern(head.channel, Number(polar.value)) },
+              steps.map((step) => h("option", { value: String(step.value) }, step.label === "" ? String(step.value) : step.label)),
+            );
+            polar.value = String(pattern.value);
+            polar.disabled = steps.length < 2;
+            parts.push(polar);
+          }
+          return parts.length === 1 ? select : h("span", { class: "head" }, ...parts);
         }),
       );
+
+      // A stereo technique belongs to the microphone, not a head, so it sits beside the swap.
+      const presets = inputs.emulationPresets(i);
+      if (presets.length === 0) preset.hidden = true;
+      else {
+        preset.hidden = false;
+        preset.replaceChildren(...presets.map((p) => h("option", { value: String(p.value), ...(p.available ? {} : { disabled: "" }) }, p.name)));
+        preset.value = String(inputs.emulationPreset(i));
+      }
       // With no microphone named there is nothing to emulate and nothing to swap.
       if (heads.length === 0) models.replaceChildren(h("select", { "aria-label": `Preamp ${i + 1} emulation`, "data-testid": `mic-model-${i}`, disabled: "" }));
       swap.toggleAttribute("data-unavailable", span === 1);
@@ -314,10 +344,12 @@ export class GaInputs extends GaElement {
       const onMic = channels.every((channel) => inputs.preamp(channel).value.type === 0);
       target.disabled = !onMic;
       for (const select of models.querySelectorAll("select")) select.disabled = !onMic || heads.length === 0;
+      for (const polar of models.querySelectorAll<HTMLSelectElement>(".polar")) if (polar.options.length < 2) polar.disabled = true;
+      preset.disabled = !onMic;
       if (!onMic) swap.toggleAttribute("data-unavailable", true);
     });
 
-    row.replaceChildren(name, target, models, swap);
+    row.replaceChildren(name, target, models, preset, swap);
     return row;
   }
 

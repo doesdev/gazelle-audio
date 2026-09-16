@@ -140,3 +140,86 @@ export const MIC_EMULATIONS: Readonly<Record<number, readonly string[]>> = {
     "Vienna 112",
   ],
 };
+
+/**
+ * A model's polar pattern. `pattern` runs from `min` to `max` and means an angle from `minAngle` to
+ * `maxAngle`: +1 omni, 0 cardioid, -1 figure-8 (`MicModelBaseWithPAngle`). A model whose `min` and
+ * `max` are equal has a fixed pattern. A microphone missing from this table has no polar pattern at
+ * all — only the Edge Duo, Edge Quadro and Accord models carry one.
+ */
+export interface PatternRange {
+  min: number;
+  max: number;
+  initial: number;
+  minAngle: number;
+  maxAngle: number;
+}
+
+export const MIC_PATTERNS: Readonly<Record<number, Readonly<Record<number, PatternRange>>>> = {
+  // MicTarget.EDGE_DUO
+  1: {
+    0: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    1: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    2: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    3: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    4: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    5: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    6: { min: 0, max: 0, initial: 0, minAngle: -1, maxAngle: -1 },
+    7: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    8: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    9: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    10: { min: 0, max: 0, initial: 0, minAngle: -1, maxAngle: -1 },
+    11: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    12: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    13: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    14: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    15: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    16: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    17: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    18: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+  },
+  // MicTarget.EDGE_QUADRO
+  4: {
+    0: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    1: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    2: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    3: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    4: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    5: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    6: { min: 0, max: 0, initial: 0, minAngle: -1, maxAngle: -1 },
+    7: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    8: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    9: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    10: { min: 0, max: 0, initial: 0, minAngle: -1, maxAngle: -1 },
+    11: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    12: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    13: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    14: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    15: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    16: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    17: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    18: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+  },
+  // MicTarget.ACCORD
+  5: {
+    0: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    1: { min: 0, max: 1, initial: 1, minAngle: 1, maxAngle: 0 },
+    2: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    3: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    4: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    5: { min: 0, max: 0, initial: 0, minAngle: 0, maxAngle: 0 },
+    6: { min: 0, max: 2, initial: 1, minAngle: 1, maxAngle: -1 },
+    7: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    8: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    9: { min: 0, max: 8, initial: 4, minAngle: 1, maxAngle: -1 },
+    10: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    11: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    12: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    13: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    14: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    15: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    16: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    17: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+    18: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
+  },
+};

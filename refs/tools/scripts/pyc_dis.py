@@ -14,10 +14,11 @@ disassembling 3.8 bytecode with 3.14's tables produces confident nonsense.
 
 Usage
 -----
-    pyc_dis.py <blob.pyc> [--py 3.8] [--func NAME] [--list]
+    pyc_dis.py <blob.pyc> [--py 3.8] [--func NAME] [--line N] [--list]
 
-    --list     name every code object in the module
-    --func     disassemble just this function (searched recursively)
+    --list     name every code object in the module, with the line it starts at
+    --func     disassemble just this function (searched recursively, first match)
+    --line     disassemble the code object starting at that line, for an overridden name
 
 Verify the tables before trusting output on a new version:
 
@@ -229,6 +230,7 @@ def main() -> int:
     ap.add_argument("blob", nargs="?")
     ap.add_argument("--py", default="3.8")
     ap.add_argument("--func")
+    ap.add_argument("--line", type=int, help="disassemble the code object starting at this source line (--list shows them); use it when a name is overridden")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
@@ -242,10 +244,16 @@ def main() -> int:
         for c in walk(code):
             print(f"{c.name:32} {c.filename}:{c.firstlineno}  ({len(c.code)} bytes)")
         return 0
-    target = find(code, args.func) if args.func else code
-    if target is None:
-        print(f"error: no code object named {args.func!r}", file=sys.stderr)
-        return 1
+    if args.line is not None:
+        target = next((c for c in walk(code) if c.firstlineno == args.line), None)
+        if target is None:
+            print(f"error: no code object starting at line {args.line}", file=sys.stderr)
+            return 1
+    else:
+        target = find(code, args.func) if args.func else code
+        if target is None:
+            print(f"error: no code object named {args.func!r}", file=sys.stderr)
+            return 1
     print(render(target, py))
     return 0
 

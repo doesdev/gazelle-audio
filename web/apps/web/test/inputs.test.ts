@@ -334,3 +334,105 @@ test("a device reporting a mixed set of microphones is not written over by its n
   assert.deepEqual(sent("set_mic_emulation"), [{ preamp_ch: 3, target: 4, emu_model: 5, ch_swap: 0, pattern: 0 }], "preamp 3 has its own microphone and keeps it");
   assert.equal(quadro.emulation(2).value.model, 2);
 });
+
+test("polar pattern: a head's pattern is its model's, from omni through cardioid to figure-8", async () => {
+  const { store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+
+  // Only the Edge Duo, Edge Quadro and Accord models have a polar pattern; the single-membrane
+  // microphones inherit a base whose pattern means nothing (`MicModelBase.pattern_to_pangle`).
+  quadro.setEmulationTarget(0, 3);
+  assert.equal(quadro.emulationPattern(0), undefined, "an Edge Solo has no polar pattern");
+
+  quadro.setEmulationTarget(0, 1);
+  // Index 0 is the microphone itself: a continuous sweep, 0..100 with 50 the middle.
+  assert.deepEqual(quadro.emulationPattern(0), { value: 0, min: 0, max: 100, angle: 1, label: "Omni", steps: undefined });
+
+  // Berlin 67 is a three-position switch, as the microphone it models is.
+  quadro.setEmulationModel(0, 3);
+  const berlin67 = quadro.emulationPattern(0);
+  assert.deepEqual(berlin67?.steps, [
+    { value: 0, label: "Omni" },
+    { value: 1, label: "Cardioid" },
+    { value: 2, label: "Figure-8" },
+  ]);
+  // Berlin 47 FT has one fixed pattern, so there is nothing to choose.
+  quadro.setEmulationModel(0, 1);
+  assert.deepEqual(quadro.emulationPattern(0)?.steps, [{ value: 0, label: "Cardioid" }]);
+
+  quadro.setEmulationModel(0, 3);
+  await flush();
+  const before = sent("set_mic_emulation").length;
+  quadro.setEmulationPattern(0, 2);
+  await flush();
+  // The pattern belongs to the head, so it reaches both of its membranes and no further.
+  assert.deepEqual(sent("set_mic_emulation").slice(before).map((a) => [(a as Record<string, number>)["preamp_ch"], (a as Record<string, number>)["pattern"]]), [
+    [0, 2],
+    [1, 2],
+  ]);
+  assert.equal(quadro.emulationPattern(0)?.label, "Figure-8");
+  assert.throws(() => quadro.setEmulationPattern(0, 3), RangeError);
+});
+
+test("stereo presets set both of an Edge Quadro's heads, and only where its models allow", async () => {
+  const { store, sent } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  quadro.setEmulationTarget(0, 4);
+  // Berlin 67 on both heads: three positions each, so every preset is reachable.
+  quadro.setEmulationModel(0, 3);
+  quadro.setEmulationModel(2, 3);
+
+  assert.deepEqual(quadro.emulationPresets(0), [
+    { value: 0, name: "None", available: true },
+    { value: 1, name: "XY", available: true },
+    { value: 2, name: "M/S", available: true },
+    { value: 3, name: "Blumlein", available: true },
+  ]);
+  assert.equal(quadro.emulationPreset(0), 0, "nothing is a preset until the patterns say so");
+
+  await flush();
+  const before = sent("set_mic_emulation").length;
+  quadro.setEmulationPreset(0, 1);
+  await flush();
+  // XY is both capsules at cardioid; the offset of 90 degrees is the user turning the head.
+  assert.deepEqual(sent("set_mic_emulation").slice(before).map((a) => [(a as Record<string, number>)["preamp_ch"], (a as Record<string, number>)["pattern"]]), [
+    [0, 1],
+    [1, 1],
+    [2, 1],
+    [3, 1],
+  ]);
+  assert.equal(quadro.emulationPreset(0), 1);
+
+  // Blumlein is both at figure-8; M/S is the top head at cardioid over the bottom at figure-8.
+  quadro.setEmulationPreset(0, 3);
+  assert.deepEqual([0, 1, 2, 3].map((i) => quadro.emulationPattern(i)?.label), ["Figure-8", "Figure-8", "Figure-8", "Figure-8"]);
+  assert.equal(quadro.emulationPreset(0), 3);
+  quadro.setEmulationPreset(0, 2);
+  assert.deepEqual([0, 2].map((i) => quadro.emulationPattern(i)?.label), ["Figure-8", "Cardioid"], "the bottom head is the side, the top the mid");
+  assert.equal(quadro.emulationPreset(0), 2);
+
+  // Oxford 4038 is fixed at figure-8, so a head carrying it can be Blumlein or the side of M/S,
+  // and never XY (`xy_supported`: both heads must have cardioid).
+  quadro.setEmulationModel(2, 6);
+  assert.deepEqual(quadro.emulationPresets(0).map((p) => p.available), [true, false, true, true]);
+
+  // A head's pattern is its own: pointing one capsule leaves the other where it was.
+  quadro.setEmulationModel(2, 3);
+  quadro.setEmulationPreset(0, 1);
+  const mark = sent("set_mic_emulation").length;
+  quadro.setEmulationPattern(2, 2);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").slice(mark).map((a) => (a as Record<string, number>)["preamp_ch"]), [2, 3]);
+  assert.deepEqual([0, 2].map((i) => quadro.emulationPattern(i)?.label), ["Cardioid", "Figure-8"]);
+
+  // Berlin 47 FT is fixed at cardioid, so a head carrying it can never be Blumlein, and the
+  // microphone can still be XY or the mid of M/S.
+  quadro.setEmulationModel(2, 1);
+  assert.deepEqual(quadro.emulationPresets(0).map((p) => p.available), [true, true, true, false]);
+
+  // A microphone with one head has no stereo preset at all.
+  quadro.setEmulationTarget(0, 1);
+  assert.deepEqual(quadro.emulationPresets(0), []);
+});

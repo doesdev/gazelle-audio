@@ -25,12 +25,12 @@ would be 100 lines of transcription, which is exactly the kind of thing to get q
 from __future__ import annotations
 
 import argparse
-import re
-import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import pyc_dis  # noqa: E402  (a sibling script, not a package)
 
 # MicTarget in antelope/components/preamps/models/mic_emulation/utils.py, with the module holding
 # that target's models. MicTarget.ANY (0) has no models: no Antelope mic is on the preamp.
@@ -51,6 +51,13 @@ EDGE_CASES = {"47fet": " 47 FT", "m25": "/Halske M25"}
 
 SUFFIXES = ["_Solo", "_Duo", "_Go", "_Quadro", "_EdgeNote", "_Verge", "_Accord"]
 
+# `MicModelBaseWithPAngle`'s defaults, for a model that overrides only some of them. `pattern` runs
+# from min_pattern to max_pattern and means a polar angle from min_pangle to max_pangle: +1 omni,
+# 0 cardioid, -1 figure-8. Only the Edge Duo, Edge Quadro and Accord models inherit it; the others
+# inherit `MicModelBase`, whose `pattern_to_pangle` returns nothing at all.
+PANGLE_DEFAULTS = {"min_pattern": 0, "max_pattern": 100, "initial_value": 50, "min_pangle": 1, "max_pangle": -1}
+WITH_PANGLE = {"edge_duo", "edge_quadro", "accord"}
+
 
 def label_for(name: str) -> str | None:
     """The panel's displayed name for a model class, or None when it is not a mic's name."""
@@ -63,23 +70,31 @@ def label_for(name: str) -> str | None:
     return None
 
 
-def models_in(blob: Path) -> list[tuple[int, str]]:
-    """Every `MicModel…` class in the module with its `emu_idx`, in the module's own order."""
-    dump = subprocess.run([sys.executable, str(HERE / "pyc_inspect.py"), "consts", str(blob)], capture_output=True, text=True, check=True).stdout
-    found: dict[str, int] = {}
-    order: list[str] = []
-    for line in dump.splitlines():
-        match = re.match(r"^(MicModel\w+): (\d+)$", line)
-        if match is None:
+def class_attributes(blob: Path) -> list[tuple[str, dict[str, int]]]:
+    """Every `MicModel…` class in the module with the constants its body assigns, in module order.
+
+    A class body is a code object of its own whose attributes are `LOAD_CONST` / `STORE_NAME`
+    pairs: `emu_idx`, and for a model with an adjustable polar pattern the `min_pattern` /
+    `max_pattern` / `initial_value` range and sometimes `min_pangle` / `max_pangle`.
+    """
+    code = pyc_dis.load_blob(str(blob), (3, 8))
+    out = []
+    for body in pyc_dis.walk(code):
+        if not body.name.startswith("MicModel") or "Base" in body.name:
             continue
-        name, value = match.group(1), int(match.group(2))
-        # The first integer in a class body is its emu_idx; a dual-capsule model carries its
-        # supported polar patterns after it, which this pass does not use.
-        if name in found or "Base" in name:
-            continue
-        found[name] = value
-        order.append(name)
-    return [(found[name], name) for name in order]
+        attributes: dict[str, int] = {}
+        pending = None
+        for instruction in pyc_dis.disassemble(body, (3, 8)):
+            if instruction.opname == "LOAD_CONST":
+                value = body.consts[instruction.arg] if instruction.arg < len(body.consts) else None
+                pending = value if isinstance(value, int) and not isinstance(value, bool) else None
+            elif instruction.opname == "STORE_NAME" and pending is not None:
+                attributes[body.names[instruction.arg]] = pending
+                pending = None
+            else:
+                pending = None
+        out.append((body.name, attributes))
+    return out
 
 
 def strip_suffix(name: str) -> str:
@@ -97,22 +112,36 @@ def main() -> int:
     args = parser.parse_args()
 
     blocks = []
+    patterns = []
     for value, member, display, module in TARGETS:
         blob = args.extracted / f"antelope_components_preamps_models_mic_emulation_{module}_models.pyc"
         entries = []
-        for index, name in models_in(blob):
-            stem = strip_suffix(name)
-            label = label_for(stem)
+        ranges = []
+        for name, attributes in class_attributes(blob):
+            index = attributes.get("emu_idx")
+            if index is None:
+                continue
+            label = label_for(strip_suffix(name))
             # Index 0 is the microphone itself, unemulated; the panel falls back to its own name.
             entries.append((index, display if label is None else label))
+            if module in WITH_PANGLE:
+                ranges.append((index, {key: attributes.get(key, fallback) for key, fallback in PANGLE_DEFAULTS.items()}))
         entries.sort()
         lines = ",\n".join(f'    "{label}"' for _, label in entries)
         expected = list(range(len(entries)))
         if [index for index, _ in entries] != expected:
             raise SystemExit(f"{member}: emu_idx values are not 0..{len(entries) - 1}: {[i for i, _ in entries]}")
         blocks.append(f"  // MicTarget.{member}\n  {value}: [\n{lines},\n  ],")
+        if ranges:
+            ranges.sort()
+            rows = "\n".join(
+                f'    {index}: {{ min: {got["min_pattern"]}, max: {got["max_pattern"]}, initial: {got["initial_value"]}, minAngle: {got["min_pangle"]}, maxAngle: {got["max_pangle"]} }},'
+                for index, got in ranges
+            )
+            patterns.append(f"  // MicTarget.{member}\n  {value}: {{\n{rows}\n  }},")
 
     body = "\n".join(blocks)
+    pattern_body = "\n".join(patterns)
     text = f"""// Generated by refs/tools/scripts/mic_emulations.py from the Quadro panel's own model classes.
 // Do not edit by hand: re-run the script against an extracted PYZ instead.
 //
@@ -133,6 +162,24 @@ export const MIC_TARGETS = {{
 /** `emu_model` by target: the microphones each one can be made to sound like. */
 export const MIC_EMULATIONS: Readonly<Record<number, readonly string[]>> = {{
 {body}
+}};
+
+/**
+ * A model's polar pattern. `pattern` runs from `min` to `max` and means an angle from `minAngle` to
+ * `maxAngle`: +1 omni, 0 cardioid, -1 figure-8 (`MicModelBaseWithPAngle`). A model whose `min` and
+ * `max` are equal has a fixed pattern. A microphone missing from this table has no polar pattern at
+ * all — only the Edge Duo, Edge Quadro and Accord models carry one.
+ */
+export interface PatternRange {{
+  min: number;
+  max: number;
+  initial: number;
+  minAngle: number;
+  maxAngle: number;
+}}
+
+export const MIC_PATTERNS: Readonly<Record<number, Readonly<Record<number, PatternRange>>>> = {{
+{pattern_body}
 }};
 """
     if args.out is None:

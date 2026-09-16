@@ -266,3 +266,38 @@ test("an Edge Duo covers two preamps and an Edge Quadro four, linked, with an em
     [3, 3],
   ]);
 });
+
+test("polar patterns per head, and the stereo techniques an Edge Quadro's heads allow", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+
+  // An Edge Solo has no polar pattern at all: its emulations inherit a base without one.
+  await page.getByTestId("mic-target-0").selectOption("3");
+  await expect(page.getByTestId("mic-pattern-0")).toHaveCount(0);
+  await expect(page.getByTestId("mic-preset-0")).toBeHidden();
+
+  // An Edge Quadro has one per head, and a stereo technique over both.
+  await page.getByTestId("mic-target-0").selectOption("4");
+  await page.getByTestId("mic-model-0-top").selectOption("3");
+  await page.getByTestId("mic-model-0-bottom").selectOption("3");
+  const top = page.getByTestId("mic-pattern-0-top");
+  await expect(top.locator("option")).toHaveText(["Omni", "Cardioid", "Figure-8"]);
+
+  const preset = page.getByTestId("mic-preset-0");
+  await expect(preset).toBeVisible();
+  await expect(preset.locator("option")).toHaveText(["None", "XY", "M/S", "Blumlein"]);
+  await preset.selectOption("3");
+  // Blumlein is both capsules at figure-8, which on this model is the last of its three positions.
+  await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").slice(-4).map((f) => f.args?.["pattern"])).toEqual([2, 2, 2, 2]);
+  await expect(top).toHaveValue("2");
+
+  // Oxford 4038 is fixed at figure-8, so XY is not on offer once a head carries it.
+  await page.getByTestId("mic-model-0-top").selectOption("6");
+  await expect(page.getByTestId("mic-preset-0").locator("option").nth(1)).toBeDisabled();
+  await expect(page.getByTestId("mic-pattern-0-top")).toBeDisabled();
+});

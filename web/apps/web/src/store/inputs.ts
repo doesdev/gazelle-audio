@@ -10,7 +10,7 @@
 // report still carrying the old value does not undo a change that is on its way.
 
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import { MIC_EMULATIONS, MIC_TARGETS } from "./mic-emulations.ts";
+import { MIC_EMULATIONS, MIC_PATTERNS, MIC_TARGETS, type PatternRange } from "./mic-emulations.ts";
 import type { Topology } from "gazelle-audio-client";
 
 export type PreampType = 0 | 1 | 2;
@@ -61,6 +61,35 @@ export interface MicEmulationState {
 /** The microphones a preamp can have on it, in `MicTarget` order. */
 const MIC_TARGET_NAMES: readonly string[] = ["None", "Edge Duo", "Verge", "Edge Solo", "Edge Quadro", "Accord", "Edge Note"];
 
+/** The stereo techniques two heads can be set to, in `MicPatternPreset` order. */
+const PATTERN_PRESET_NAMES: readonly string[] = ["None", "XY", "M/S", "Blumlein"];
+
+/** A polar angle of +1 is omni, 0 cardioid and -1 figure-8; the positions between have no name. */
+const PATTERN_LANDMARKS: readonly (readonly [angle: number, name: string])[] = [
+  [1, "Omni"],
+  [0, "Cardioid"],
+  [-1, "Figure-8"],
+];
+
+/** Rounds away the error of stepping through a range, so a landmark is recognised as one. */
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+
+/** A head's polar pattern: where it is, what it can be, and what that means. */
+export interface PatternState {
+  /** The `pattern` byte itself. */
+  value: number;
+  min: number;
+  max: number;
+  /** +1 omni, 0 cardioid, -1 figure-8. */
+  angle: number;
+  label: string;
+  /** Each position this model offers, or undefined when the range is too long to list. */
+  steps: readonly { value: number; label: string }[] | undefined;
+}
+
+/** The longest range still worth showing as a list of positions rather than a sweep. */
+const PATTERN_STEP_LIMIT = 8;
+
 export type DigitalKind = "line" | "adat" | "spdif";
 
 /** The input kinds a workspace link can join. */
@@ -108,6 +137,25 @@ export interface InputsContext {
 }
 
 const signed = (byte: number) => (byte > 127 ? byte - 256 : byte);
+
+/** The panel's own conversion (`MicModelBaseWithPAngle.pattern_to_pangle`). */
+function angleOf(range: PatternRange, pattern: number): number {
+  const span = range.max - range.min;
+  return span === 0 ? range.minAngle : range.minAngle + (pattern / span) * (range.maxAngle - range.minAngle);
+}
+
+/** Its inverse (`pangle_to_pattern`), truncated as the panel truncates it. */
+function patternForAngle(range: PatternRange, angle: number): number {
+  const span = range.maxAngle - range.minAngle;
+  const relative = span === 0 ? 0 : ((angle - range.minAngle) / span) * (range.max - range.min);
+  return Math.min(range.max, Math.max(range.min, Math.trunc(range.min + relative)));
+}
+
+function patternLabel(angle: number): string {
+  const landmark = PATTERN_LANDMARKS.find(([at]) => near(at, angle));
+  // The positions between the three named patterns have no name, so they show as the angle itself.
+  return landmark === undefined ? angle.toFixed(2) : landmark[1];
+}
 const clamp = (value: number, range: { min: number; max: number }) => Math.min(range.max, Math.max(range.min, Math.round(value)));
 
 export class InputsModel {
@@ -315,6 +363,89 @@ export class InputsModel {
   /** Swaps a microphone's front and rear membranes. It is one microphone, so it covers all of it. */
   setEmulationSwap(index: number, on: boolean): void {
     this.#apply(this.#group(index), { swap: on });
+  }
+
+  /**
+   * A head's polar pattern, or undefined for a microphone whose pattern means nothing — only the
+   * Edge Duo, Edge Quadro and Accord models carry one (`MicModelBaseWithPAngle`).
+   */
+  emulationPattern(index: number): PatternState | undefined {
+    const range = this.#patternRange(index);
+    if (range === undefined) return undefined;
+    const value = Math.min(range.max, Math.max(range.min, this.#emulation(index).peek().pattern));
+    const steps =
+      range.max - range.min > PATTERN_STEP_LIMIT
+        ? undefined
+        : Array.from({ length: range.max - range.min + 1 }, (_, k) => ({ value: range.min + k, label: patternLabel(angleOf(range, range.min + k)) }));
+    return { value, min: range.min, max: range.max, angle: angleOf(range, value), label: patternLabel(angleOf(range, value)), steps };
+  }
+
+  /** Points a head's capsule, from omni through cardioid to figure-8 as far as its model allows. */
+  setEmulationPattern(index: number, pattern: number): void {
+    const range = this.#patternRange(index);
+    if (range === undefined) throw new Error("this microphone has no polar pattern");
+    if (!Number.isInteger(pattern) || pattern < range.min || pattern > range.max) throw new RangeError(`no polar pattern ${pattern}: ${range.min}..${range.max}`);
+    this.#apply(this.#head(index), { pattern });
+  }
+
+  /**
+   * The stereo techniques a microphone's two heads can be set to. Empty for a microphone with one
+   * head, and a technique is offered only where both heads' models reach the patterns it needs
+   * (the panel's `xy_supported`, `ms_supported` and `bl_supported`).
+   */
+  emulationPresets(index: number): readonly { value: number; name: string; available: boolean }[] {
+    const heads = this.#heads(index);
+    if (heads.length < 2) return [];
+    const [a, b] = heads.map((head) => this.#patternRange(head));
+    const cardioid = (range: PatternRange | undefined) => range !== undefined && range.maxAngle <= 0 && 0 <= range.minAngle;
+    const figure8 = (range: PatternRange | undefined) => range !== undefined && near(range.maxAngle, -1);
+    const available = [true, cardioid(a) && cardioid(b), (cardioid(a) && figure8(b)) || (figure8(a) && cardioid(b)), figure8(a) && figure8(b)];
+    return PATTERN_PRESET_NAMES.map((name, value) => ({ value, name, available: available[value] === true }));
+  }
+
+  /** Which technique the heads are at now, or 0 when they are at none of them. */
+  emulationPreset(index: number): number {
+    const heads = this.#heads(index);
+    if (heads.length < 2) return 0;
+    const angles = heads.map((head) => this.emulationPattern(head)?.angle);
+    const at = (angle: number | undefined, wanted: number) => angle !== undefined && near(angle, wanted);
+    if (angles.every((angle) => at(angle, 0))) return 1;
+    if (angles.every((angle) => at(angle, -1))) return 3;
+    if (angles.some((angle) => at(angle, 0)) && angles.some((angle) => at(angle, -1))) return 2;
+    return 0;
+  }
+
+  /**
+   * Sets both heads for a stereo technique. XY is both capsules at cardioid and Blumlein both at
+   * figure-8; M/S is the top head at cardioid over the bottom at figure-8 (the Edge manual). The
+   * 90-degree offset each technique also wants is the user turning the head, not a command.
+   */
+  setEmulationPreset(index: number, preset: number): void {
+    const chosen = this.emulationPresets(index)[preset];
+    if (chosen === undefined) throw new RangeError(`no stereo preset ${preset} for this microphone`);
+    if (!chosen.available) throw new Error(`these microphones cannot be set to ${chosen.name}`);
+    if (preset === 0) return;
+    const wanted: Readonly<Record<number, readonly [bottom: number, top: number]>> = { 1: [0, 0], 2: [-1, 0], 3: [-1, -1] };
+    const angles = wanted[preset] as readonly [number, number];
+    // One batch for the whole microphone: both heads move together, so what is watching it sees
+    // one change rather than a half-applied technique.
+    batch(() => {
+      this.#heads(index).forEach((head, which) => {
+        const range = this.#patternRange(head);
+        if (range === undefined) return;
+        this.#apply(this.#head(head), { pattern: patternForAngle(range, angles[which] as number) });
+      });
+    });
+  }
+
+  /** The first membrane of each of a microphone's heads, as `emulationHeads` names them. */
+  #heads(index: number): readonly number[] {
+    return this.emulationHeads(index, this.#emulation(index).peek().target).map((head) => head.channel);
+  }
+
+  #patternRange(index: number): PatternRange | undefined {
+    const current = this.#emulation(index).peek();
+    return MIC_PATTERNS[current.target]?.[current.model];
   }
 
   /**
