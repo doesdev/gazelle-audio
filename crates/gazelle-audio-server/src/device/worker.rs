@@ -76,12 +76,22 @@ pub struct WorkerContext {
     pub events: Box<dyn Fn(DeviceEvent) + Send>,
 }
 
-/// Run the worker loop until shutdown or the command channel closes.
-pub fn run(mut ctx: WorkerContext, rx: Receiver<WorkerCommand>) {
+/// Why a worker stopped.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Exit {
+    /// Asked to, or every handle to it was dropped.
+    Shutdown,
+    /// The device went away ([`Device::is_connected`] turned false). Requests still queued fail
+    /// as [`ServerError::DeviceGone`] when their channel is dropped; the owner detaches it.
+    DeviceGone,
+}
+
+/// Run the worker loop until shutdown, the command channel closes, or the device goes away.
+pub fn run(mut ctx: WorkerContext, rx: Receiver<WorkerCommand>) -> Exit {
     let mut correlator = ResponseCorrelator::new();
     loop {
         match rx.recv_timeout(POLL_INTERVAL) {
-            Ok(WorkerCommand::Shutdown) => return,
+            Ok(WorkerCommand::Shutdown) => return Exit::Shutdown,
             Ok(WorkerCommand::Request { name, values, ext3, dry_run, respond }) => {
                 let result = handle_request(&mut ctx, &mut correlator, &name, &values, ext3, dry_run);
                 respond(result);
@@ -90,7 +100,10 @@ pub fn run(mut ctx: WorkerContext, rx: Receiver<WorkerCommand>) {
                 // Idle: still drain anything the device pushed at us.
                 drain_events(&mut ctx, &mut correlator);
             }
-            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Disconnected) => return Exit::Shutdown,
+        }
+        if !ctx.device.is_connected() {
+            return Exit::DeviceGone;
         }
     }
 }
@@ -184,6 +197,10 @@ fn handle_request(
         // The transport delivers what it was given; a real adapter writes to the wire here.
         ctx.device.on_received_data(RawPacket { bytes: seg.clone() });
     }
+    // A write to a device that has gone is not a success, whatever the command expects back.
+    if !ctx.device.is_connected() {
+        return Err(ServerError::DeviceGone(ctx.device_id.to_string()));
+    }
 
     // A command that declares no return gets no reply: the panels' captures show none for the
     // `0x70` sets, and hardware session 2 confirmed it — every live write reported a timeout while
@@ -211,6 +228,10 @@ fn handle_request(
                 response_error,
                 dry_run: false,
             });
+        }
+        // A reply that arrived before the device went is still the reply; no reply is coming now.
+        if !ctx.device.is_connected() {
+            return Err(ServerError::DeviceGone(ctx.device_id.to_string()));
         }
         std::thread::sleep(POLL_INTERVAL);
     }

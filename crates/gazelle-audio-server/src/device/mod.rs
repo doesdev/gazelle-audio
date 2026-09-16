@@ -3,6 +3,7 @@
 pub mod cyclic_loopback;
 pub mod descriptor;
 pub mod handle;
+pub mod hotplug;
 pub mod manager;
 pub mod mixer_loopback;
 pub mod routing_loopback;

@@ -20,6 +20,8 @@ use gazelle_audio_protocol::wire::WireError;
 use gazelle_audio_transport::{Device, HostReceiver, RawPacket, Report};
 use hidapi::{DeviceInfo, HidApi, HidDevice, HidError};
 
+use crate::device::hotplug::{Enumerator, Found};
+
 /// Antelope's USB vendor id, 9189.
 pub const ANTELOPE_USB_VID: u16 = 0x23e5;
 
@@ -58,6 +60,9 @@ pub struct UsbDevice {
     serial: Option<String>,
     receiver: HostReceiver,
     pending: VecDeque<Report>,
+    /// False once a read or write has failed. On Windows a HID handle does not come back after
+    /// the device is unplugged, so the device is not used again; the rescan opens it afresh.
+    connected: bool,
 }
 
 impl UsbDevice {
@@ -72,6 +77,7 @@ impl UsbDevice {
             serial: info.serial_number().map(str::to_string),
             receiver: HostReceiver::new(),
             pending: VecDeque::new(),
+            connected: true,
         })
     }
 
@@ -80,10 +86,18 @@ impl UsbDevice {
         self.serial.as_deref()
     }
 
+    /// A read or write failed: the device is unplugged, or as good as. Said once.
+    fn lost(&mut self, what: &str, e: HidError) {
+        if self.connected {
+            tracing::warn!(vid = self.vid, pid = self.pid, "HID {what} failed, treating the device as gone: {e}");
+        }
+        self.connected = false;
+    }
+
     /// Reads whatever the OS has buffered, without blocking, and reassembles it.
     fn drain(&mut self) {
         let mut buf = [0u8; REPORT_SIZE];
-        loop {
+        while self.connected {
             match self.device.read_timeout(&mut buf, 0) {
                 Ok(0) => return,
                 Ok(len) => {
@@ -91,12 +105,9 @@ impl UsbDevice {
                         self.pending.push_back(report);
                     }
                 }
-                Err(e) => {
-                    // A read error is the device going away or a driver fault; stop draining and
-                    // let the next poll report it again rather than spinning.
-                    tracing::warn!(vid = self.vid, pid = self.pid, "HID read failed: {e}");
-                    return;
-                }
+                // Before, this warned and returned, and the next poll 5 ms later failed and warned
+                // again: an unplugged device logged 200 lines a second and stayed attached.
+                Err(e) => self.lost("read", e),
             }
         }
     }
@@ -105,10 +116,13 @@ impl UsbDevice {
 impl Device for UsbDevice {
     fn send(&mut self, report: &Report) -> Result<bool, WireError> {
         let buf = write_buffer(report, REPORT_SIZE)?;
+        if !self.connected {
+            return Ok(false);
+        }
         match self.device.write(&buf) {
             Ok(_) => Ok(true),
             Err(e) => {
-                tracing::warn!(vid = self.vid, pid = self.pid, "HID write failed: {e}");
+                self.lost("write", e);
                 Ok(false)
             }
         }
@@ -134,6 +148,10 @@ impl Device for UsbDevice {
         self.drain();
         self.pending.drain(..).collect()
     }
+
+    fn is_connected(&self) -> bool {
+        self.connected
+    }
 }
 
 /// Every Antelope control interface the HID stack can open, in enumeration order.
@@ -145,6 +163,42 @@ pub fn discover(api: &HidApi) -> Vec<&DeviceInfo> {
     api.device_list()
         .filter(|info| is_control_interface(info.vendor_id(), info.usage_page()))
         .collect()
+}
+
+/// The HID stack as the hot-plug scanner sees it. Listing is read-only; only [`Enumerator::open`]
+/// opens a device.
+pub struct HidEnumerator {
+    api: HidApi,
+}
+
+impl HidEnumerator {
+    pub fn new(api: HidApi) -> Self {
+        HidEnumerator { api }
+    }
+}
+
+impl Enumerator for HidEnumerator {
+    fn list(&mut self) -> Result<Vec<Found>, String> {
+        self.api.refresh_devices().map_err(|e| e.to_string())?;
+        Ok(discover(&self.api)
+            .into_iter()
+            .map(|info| Found {
+                vid: info.vendor_id(),
+                pid: info.product_id(),
+                serial: info.serial_number().map(str::to_string),
+                path: info.path().to_string_lossy().into_owned(),
+            })
+            .collect())
+    }
+
+    fn open(&mut self, found: &Found) -> Result<Box<dyn Device + Send>, String> {
+        let info = discover(&self.api)
+            .into_iter()
+            .find(|info| info.path().to_string_lossy() == found.path.as_str())
+            .ok_or("no longer listed")?;
+        let device = UsbDevice::open(&self.api, info).map_err(|e| e.to_string())?;
+        Ok(Box::new(device))
+    }
 }
 
 #[cfg(test)]

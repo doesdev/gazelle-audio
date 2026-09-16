@@ -103,18 +103,39 @@ impl DeviceManager {
             }),
         };
 
+        // A worker whose device goes away removes its own entry. The lock is held until the entry
+        // is in and added has been announced, so a device gone at once is still removed after it.
+        let mut entries = self.entries.write().unwrap();
+        let manager = Arc::downgrade(self);
+        let worker_id = id.clone();
         let join = std::thread::Builder::new()
             .name(format!("gazelle-device-{id}"))
-            .spawn(move || worker::run(ctx, rx))
+            .spawn(move || {
+                if worker::run(ctx, rx) == worker::Exit::DeviceGone {
+                    if let Some(manager) = manager.upgrade() {
+                        manager.remove_gone(&worker_id);
+                    }
+                }
+            })
             .expect("spawn device worker");
 
         let handle = DeviceHandle::new(id.to_string(), tx);
-        self.entries.write().unwrap().insert(
-            id.clone(),
-            Entry { descriptor: descriptor.clone(), handle, join: Some(join) },
-        );
+        entries.insert(id.clone(), Entry { descriptor: descriptor.clone(), handle, join: Some(join) });
         let _ = self.events.send(ServerEvent::DeviceAdded(descriptor.clone()));
         descriptor
+    }
+
+    /// Called by a worker whose device went away: forget the device and tell clients.
+    ///
+    /// No join, since this runs on that worker's own thread, which ends straight after. If the
+    /// device was detached meanwhile, `detach` removed the entry and announced it, and waits for
+    /// this thread, so an entry found here is always this worker's own.
+    fn remove_gone(&self, id: &DeviceId) {
+        if self.entries.write().unwrap().remove(id).is_none() {
+            return;
+        }
+        tracing::warn!("{id} stopped responding (unplugged?) and was detached");
+        let _ = self.events.send(ServerEvent::DeviceRemoved(id.clone()));
     }
 
     /// Attach `count` loopback devices for a given model. Used as the safe default backend
@@ -214,5 +235,187 @@ impl DeviceManager {
         for id in ids {
             let _ = self.detach(&id);
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::registry_set::PID_QUADRO;
+    use gazelle_audio_protocol::payload::PayloadValues;
+    use gazelle_audio_protocol::wire::WireError;
+    use gazelle_audio_transport::{RawPacket, Report};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+
+    /// An answering loopback that can be unplugged: once `unplugged` is set, its next write fails
+    /// (or its next poll, with `on_poll`) and from then on it reports itself gone, as the USB
+    /// device does.
+    pub(crate) struct Unpluggable {
+        inner: LoopbackDevice,
+        unplugged: Arc<AtomicBool>,
+        connected: bool,
+        on_poll: bool,
+        /// Pulled out just as a write lands: the write succeeds, no reply comes, the next poll fails.
+        after_write: bool,
+    }
+
+    impl Unpluggable {
+        pub(crate) fn new(pid: u16, on_poll: bool) -> (Self, Arc<AtomicBool>) {
+            let unplugged = Arc::new(AtomicBool::new(false));
+            let device = Unpluggable {
+                inner: LoopbackDevice::emulating(ANTELOPE_USB_VID, pid, 64),
+                unplugged: unplugged.clone(),
+                connected: true,
+                on_poll,
+                after_write: false,
+            };
+            (device, unplugged)
+        }
+    }
+
+    impl Device for Unpluggable {
+        fn send(&mut self, report: &Report) -> Result<bool, WireError> {
+            if self.unplugged.load(Ordering::SeqCst) {
+                self.connected = false;
+            }
+            if !self.connected {
+                return Ok(false);
+            }
+            let sent = self.inner.send(report);
+            if self.after_write {
+                self.unplugged.store(true, Ordering::SeqCst);
+            }
+            sent
+        }
+        fn on_received_data(&mut self, packet: RawPacket) {
+            if !self.unplugged.load(Ordering::SeqCst) {
+                self.inner.on_received_data(packet)
+            }
+        }
+        fn max_packet_size(&self) -> usize {
+            self.inner.max_packet_size()
+        }
+        fn vid(&self) -> u16 {
+            self.inner.vid()
+        }
+        fn pid(&self) -> u16 {
+            self.inner.pid()
+        }
+        fn poll_reports(&mut self) -> Vec<Report> {
+            if self.on_poll && self.unplugged.load(Ordering::SeqCst) {
+                self.connected = false;
+            }
+            self.inner.poll_reports()
+        }
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+    }
+
+    fn manager() -> Arc<DeviceManager> {
+        DeviceManager::new(RegistrySet::builtin().expect("registries"))
+    }
+
+    /// The next lifecycle event, skipping device traffic, within `within`.
+    pub(crate) fn next_lifecycle(events: &mut broadcast::Receiver<ServerEvent>, within: Duration) -> Option<ServerEvent> {
+        let deadline = Instant::now() + within;
+        while Instant::now() < deadline {
+            match events.try_recv() {
+                Ok(ServerEvent::Device(_)) => {}
+                Ok(event) => return Some(event),
+                Err(_) => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_device_that_goes_away_while_idle_is_detached_and_clients_are_told() {
+        let devices = manager();
+        let mut events = devices.subscribe();
+        let (device, unplugged) = Unpluggable::new(PID_QUADRO, true);
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        assert!(matches!(next_lifecycle(&mut events, Duration::from_secs(1)), Some(ServerEvent::DeviceAdded(d)) if d.id == id));
+
+        unplugged.store(true, Ordering::SeqCst);
+        match next_lifecycle(&mut events, Duration::from_secs(2)) {
+            Some(ServerEvent::DeviceRemoved(gone)) => assert_eq!(gone, id),
+            other => panic!("expected the device to be removed, got {other:?}"),
+        }
+        assert!(devices.is_empty(), "the device is no longer listed");
+        assert!(matches!(devices.handle(&id), Err(ServerError::UnknownDevice(_))));
+        assert!(next_lifecycle(&mut events, Duration::from_millis(100)).is_none(), "removed once");
+    }
+
+    #[tokio::test]
+    async fn a_request_to_a_device_that_went_away_fails_as_gone_at_once_not_as_a_timeout() {
+        let devices = manager();
+        let mut events = devices.subscribe();
+        // Only a write shows it gone, so the request is what finds out.
+        let (device, unplugged) = Unpluggable::new(PID_QUADRO, false);
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        let handle = devices.handle(&id).unwrap();
+        handle.request("get_adats_links", PayloadValues::default(), None, false).await.expect("answered while plugged in");
+
+        unplugged.store(true, Ordering::SeqCst);
+        let started = Instant::now();
+        let result = handle.request("get_adats_links", PayloadValues::default(), None, false).await;
+        assert!(matches!(result, Err(ServerError::DeviceGone(_))), "got {result:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
+
+        let removed = tokio::task::spawn_blocking(move || {
+            std::iter::from_fn(|| next_lifecycle(&mut events, Duration::from_secs(2)))
+                .find(|e| matches!(e, ServerEvent::DeviceRemoved(_)))
+        })
+        .await
+        .unwrap();
+        assert!(matches!(removed, Some(ServerEvent::DeviceRemoved(gone)) if gone == id));
+        assert!(devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_set_written_to_a_device_that_went_away_is_not_reported_done() {
+        let devices = manager();
+        let (device, unplugged) = Unpluggable::new(PID_QUADRO, false);
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        let handle = devices.handle(&id).unwrap();
+        let values = || crate::value::json_to_payload_values(&serde_json::json!({"level": 64})).unwrap();
+        handle.request("set_mixer", values(), None, false).await.expect("done while plugged in");
+
+        // A set waits for no reply, so the write is all there is to go on.
+        unplugged.store(true, Ordering::SeqCst);
+        let result = handle.request("set_mixer", values(), None, false).await;
+        assert!(matches!(result, Err(ServerError::DeviceGone(_))), "got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_device_pulled_out_while_a_reply_is_awaited_fails_the_request_at_once() {
+        let devices = manager();
+        let (mut device, _) = Unpluggable::new(PID_QUADRO, true);
+        device.after_write = true;
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+
+        let started = Instant::now();
+        let result = devices.handle(&id).unwrap().request("get_adats_links", PayloadValues::default(), None, false).await;
+        assert!(matches!(result, Err(ServerError::DeviceGone(_))), "got {result:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn detaching_a_device_tells_clients_once() {
+        let devices = manager();
+        let mut events = devices.subscribe();
+        let (device, _) = Unpluggable::new(PID_QUADRO, true);
+        let id = DeviceId::from_serial("1");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        devices.detach(&id).unwrap();
+        assert!(matches!(next_lifecycle(&mut events, Duration::from_secs(1)), Some(ServerEvent::DeviceAdded(_))));
+        assert!(matches!(next_lifecycle(&mut events, Duration::from_secs(1)), Some(ServerEvent::DeviceRemoved(gone)) if gone == id));
+        assert!(next_lifecycle(&mut events, Duration::from_millis(100)).is_none());
     }
 }

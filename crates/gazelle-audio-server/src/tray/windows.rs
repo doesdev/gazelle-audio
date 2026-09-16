@@ -227,6 +227,7 @@ fn status(state: &State) -> Status {
         devices: c.devices.descriptors().iter().map(device_label).collect(),
         antelope_service_running: service_running(ANTELOPE_SERVICE),
         start_on_boot: state.boot.is_enabled(),
+        can_rescan: c.rescan.is_some(),
     }
 }
 
@@ -277,6 +278,13 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
             Ok(false) => tracing::info!("start on boot: off"),
             Err(e) => tracing::warn!("changing start on boot: {e}"),
         },
+        // The scan runs on its own thread; the next time the menu opens, its lines show the result.
+        Some(Command::Rescan) => {
+            if let Some(rescan) = &state.context.rescan {
+                tracing::info!("rescanning devices, from the tray");
+                rescan();
+            }
+        }
         Some(Command::Quit) => {
             tracing::info!("quit from the tray");
             (state.context.quit)();

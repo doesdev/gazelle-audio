@@ -102,6 +102,16 @@ pub trait Device {
     ///
     /// Returns an empty vector when nothing is pending; it never blocks.
     fn poll_reports(&mut self) -> Vec<Report>;
+
+    /// Whether the device is still there. A transport that can lose its device (a USB device
+    /// unplugged mid-run) returns `false` once a read or write has shown it gone, and never
+    /// `true` again: its owner stops using it and opens the device afresh if it comes back.
+    ///
+    /// Defaults to `true`, which is right for anything that cannot go away, like a loopback.
+    /// A wrapper around a device that can go away must forward it.
+    fn is_connected(&self) -> bool {
+        true
+    }
 }
 
 /// A [`Device`] that never touches hardware.

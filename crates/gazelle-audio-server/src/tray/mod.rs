@@ -1,4 +1,5 @@
-//! The server's tray icon: open the UI, see what the server is doing, start it on boot, quit.
+//! The server's tray icon: open the UI, see what the server is doing, rescan devices, start it on
+//! boot, quit.
 //!
 //! What the menu holds is decided here, as plain data, so it is tested without a desktop. The
 //! Windows module only draws it. The menu is rebuilt each time it opens, so the status lines
@@ -38,6 +39,9 @@ pub struct Context {
     pub boot_args: BootArgs,
     /// Asks the server to stop. The tray removes itself straight after.
     pub quit: Box<dyn Fn()>,
+    /// Asks for a device scan now. `None` where devices cannot come and go (the loopback), and
+    /// the menu then has no Rescan item.
+    pub rescan: Option<Box<dyn Fn()>>,
 }
 
 /// The tray, created but not yet running. [`Tray::run`] pumps its messages on this thread until
@@ -87,6 +91,7 @@ pub enum Command {
     Open,
     StartOnBoot,
     Quit,
+    Rescan,
 }
 
 impl Command {
@@ -96,11 +101,12 @@ impl Command {
             Command::Open => 1,
             Command::StartOnBoot => 2,
             Command::Quit => 3,
+            Command::Rescan => 4,
         }
     }
 
     pub fn from_id(id: usize) -> Option<Command> {
-        [Command::Open, Command::StartOnBoot, Command::Quit].into_iter().find(|c| c.id() == id)
+        [Command::Open, Command::StartOnBoot, Command::Quit, Command::Rescan].into_iter().find(|c| c.id() == id)
     }
 }
 
@@ -125,6 +131,8 @@ pub struct Status {
     pub devices: Vec<String>,
     pub antelope_service_running: bool,
     pub start_on_boot: bool,
+    /// Whether devices can come and go, so a rescan means something (the USB backend).
+    pub can_rescan: bool,
 }
 
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
@@ -168,6 +176,15 @@ pub fn menu(status: &Status) -> Vec<Item> {
     if status.antelope_service_running {
         items.push(Item::Info("Warning: Antelope Manager Service is running and holds the devices".into()));
     }
+    if status.can_rescan {
+        items.push(Item::Action {
+            command: Command::Rescan,
+            label: "Rescan devices".into(),
+            enabled: true,
+            checked: None,
+            default: false,
+        });
+    }
     items.extend([
         Item::Separator,
         Item::Action {
@@ -197,6 +214,7 @@ mod tests {
             devices: vec!["Zen Quadro".into(), "Zen Studio+".into()],
             antelope_service_running: false,
             start_on_boot: false,
+            can_rescan: false,
         }
     }
 
@@ -276,6 +294,25 @@ mod tests {
     }
 
     #[test]
+    fn rescan_follows_the_device_lines_where_devices_can_come_and_go() {
+        let items = menu(&Status { backend: "usb".into(), can_rescan: true, antelope_service_running: true, ..status() });
+        let commands: Vec<Command> =
+            items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
+        assert_eq!(commands, [Command::Open, Command::Rescan, Command::StartOnBoot, Command::Quit]);
+        assert_eq!(
+            action(&items, Command::Rescan),
+            &Item::Action { command: Command::Rescan, label: "Rescan devices".into(), enabled: true, checked: None, default: false }
+        );
+        let at = items.iter().position(|i| i == action(&items, Command::Rescan)).unwrap();
+        assert_eq!(items[at - 1], Item::Info("Warning: Antelope Manager Service is running and holds the devices".into()));
+        assert_eq!(items[at + 1], Item::Separator);
+
+        // The loopback's devices never change, so there is nothing to offer.
+        let items = menu(&status());
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::Rescan, .. })));
+    }
+
+    #[test]
     fn without_the_web_ui_there_is_nothing_to_open() {
         let items = menu(&Status { web_ui: false, ..status() });
         assert!(matches!(action(&items, Command::Open), Item::Action { enabled: false, default: false, .. }));
@@ -283,7 +320,7 @@ mod tests {
 
     #[test]
     fn command_ids_round_trip_and_zero_is_no_command() {
-        for c in [Command::Open, Command::StartOnBoot, Command::Quit] {
+        for c in [Command::Open, Command::StartOnBoot, Command::Quit, Command::Rescan] {
             assert_eq!(Command::from_id(c.id()), Some(c));
         }
         assert_eq!(Command::from_id(0), None);
