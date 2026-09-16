@@ -17,6 +17,8 @@ import { GaNotices } from "./notices.ts";
 import { GaSection } from "./section.ts";
 import { GaWorkspace } from "./workspace.ts";
 
+import { installSelectWheel } from "./select-wheel.ts";
+
 export { provideStore } from "./element.ts";
 
 const elements: [string, CustomElementConstructor][] = [
@@ -42,3 +44,6 @@ const elements: [string, CustomElementConstructor][] = [
 for (const [name, element] of elements) {
   if (customElements.get(name) === undefined) customElements.define(name, element);
 }
+
+// The wheel steps any select in the app, from one listener rather than each page's own.
+installSelectWheel();

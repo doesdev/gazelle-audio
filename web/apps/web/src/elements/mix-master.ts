@@ -51,6 +51,8 @@ export class GaMixMaster extends GaElement {
     const add = h("select", {
       "aria-label": `Add an output for mix ${mix + 1}`,
       "data-testid": `mix-add-output-${mix}`,
+      // A menu of actions rather than a value: each wheel step would add an output (P73).
+      "data-no-wheel": true,
       "on:change": () => {
         const [destination, channel] = add.value.split(":").map(Number);
         add.value = "";

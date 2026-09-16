@@ -198,18 +198,20 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
-    // Clock: the source and sample rate the device runs at, and what it measures.
+    // Clock: the source and sample rate the device runs at, and what it measures. Neither takes the
+    // wheel (P73): each step would reclock the device, interrupting everything playing through it,
+    // and a source with no signal behind it loses lock.
     let clockSection: HTMLElement | undefined;
     const clock = store.clock(id);
     if (clock !== undefined) {
       const source = h(
         "select",
-        { "aria-label": "Clock source", "data-testid": "clock-source", "on:change": () => store.setClockSource(id, Number(source.value)) },
+        { "aria-label": "Clock source", "data-testid": "clock-source", "data-no-wheel": true, "on:change": () => store.setClockSource(id, Number(source.value)) },
         clock.sources.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const rate = h(
         "select",
-        { "aria-label": "Sample rate", "data-testid": "clock-rate", "on:change": () => store.setSampleRate(id, Number(rate.value)) },
+        { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "on:change": () => store.setSampleRate(id, Number(rate.value)) },
         clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const lock = h("span", { class: "lock" }, "NO LOCK");
