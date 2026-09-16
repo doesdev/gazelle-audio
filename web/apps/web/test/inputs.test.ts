@@ -436,3 +436,23 @@ test("stereo presets set both of an Edge Quadro's heads, and only where its mode
   quadro.setEmulationTarget(0, 1);
   assert.deepEqual(quadro.emulationPresets(0), []);
 });
+
+test("a device that will not answer get_mic_emulations leaves emulation unknown, without an error notice", async () => {
+  const { client, store } = setup();
+  await store.start();
+  const quadro = store.inputs("loopback-0");
+  // The Inputs page reads this on its own every time it opens, so a refusal is not the user's
+  // problem (P63) — the loopback, for one, answers every read with an empty payload.
+  client.respond = async (call) => ({
+    device_id: call.deviceId,
+    command: call.command,
+    sent_hex: "74",
+    sent_len: 16,
+    dry_run: false,
+    response: null,
+    response_error: "could not decode 0 bytes of response for 'get_mic_emulations': TruncatedPayload",
+  });
+  assert.equal(await quadro.loadEmulations(), false);
+  assert.deepEqual(quadro.emulation(0).value, { target: 0, model: 0, swap: false, pattern: 0 });
+  assert.deepEqual(store.notices.value, []);
+});

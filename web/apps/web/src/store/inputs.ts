@@ -122,8 +122,11 @@ export interface InputsContext {
   family: "quadro" | "studio";
   topology: Topology;
   invoke(command: string, args: Record<string, number>, options: { coalesce?: string }): Promise<boolean>;
-  /** Reads a command's reply; `response` is null in dry run or when it failed (which the store reports). */
-  read(command: string, ext3?: number): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+  /**
+   * Reads a command's reply; `response` is null in dry run or when it failed. The store reports a
+   * failure, unless `quiet`: a read the page makes on its own leaves the value unknown instead (P63).
+   */
+  read(command: string, ext3?: number, quiet?: boolean): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
   /** The other members of this input's workspace link, if it is in one (LinksModel, decision P51). */
   peers(kind: InputLinkKind, index: number): readonly { model: InputsModel; index: number; mode: "absolute" | "relative" }[];
   /**
@@ -279,7 +282,8 @@ export class InputsModel {
    */
   async loadEmulations(): Promise<boolean> {
     if (!this.hasMicEmulation) return false;
-    const entries = (await this.#context.read("get_mic_emulations", undefined)).response?.["entries"];
+    // The Inputs page reads this every time it opens, so a refusal is not the user's to hear about.
+    const entries = (await this.#context.read("get_mic_emulations", undefined, true)).response?.["entries"];
     if (!Array.isArray(entries)) return false;
     batch(() => {
       entries.slice(0, this.preampCount).forEach((entry, index) => {

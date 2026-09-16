@@ -509,7 +509,7 @@ export class Store {
       family,
       topology: topologies[family],
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
-      read: (command, ext3) => this.#readCommand(deviceId, command, ext3),
+      read: (command, ext3, quiet) => this.#readCommand(deviceId, command, ext3, quiet),
       peers: (kind, index) =>
         this.links.peers(kind, deviceId, index).flatMap((peer) => {
           const model = this.#knownInputs(peer.deviceId);
