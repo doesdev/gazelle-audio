@@ -218,6 +218,18 @@ export class GaDeviceStatus extends GaElement {
       );
       const lock = h("span", { class: "lock" }, "NO LOCK");
       const measured = h("span", { class: "readout", "data-testid": "clock-measured" }, "—");
+      // The Studio+'s S/PDIF sample-rate converter: with it on, a digital input at another rate or on
+      // another clock is converted rather than having to be the clock. A switch, as the panel's is.
+      const spdifSrc = store.hasSpdifSrc(id)
+        ? h("button", {
+            type: "button",
+            "data-control": "",
+            "data-testid": "spdif-src",
+            "aria-label": "S/PDIF sample-rate converter",
+            title: "Convert the S/PDIF input's sample rate, so it need not follow the device's clock",
+            "on:click": () => store.setSpdifSrc(id, !(store.spdifSrc(id) ?? false)),
+          }, "Converter")
+        : undefined;
       clockSection = h(
         "ga-section",
         { heading: "Clock" },
@@ -227,6 +239,7 @@ export class GaDeviceStatus extends GaElement {
           field("Source", source),
           field("Sample rate", rate),
           field("Measured", h("span", {}, measured, " ", lock)),
+          ...(spdifSrc === undefined ? [] : field("S/PDIF SRC", spdifSrc)),
         ),
         h("p", { class: "note-inline" }, "While the device follows an external clock, it takes the rate from that source and ignores the sample rate here."),
       );
@@ -235,6 +248,10 @@ export class GaDeviceStatus extends GaElement {
         const connected = store.connected.value;
         source.disabled = !connected;
         rate.disabled = !connected;
+        if (spdifSrc !== undefined) {
+          spdifSrc.setAttribute("aria-pressed", String(store.spdifSrc(id) ?? false));
+          (spdifSrc as HTMLButtonElement).disabled = !connected;
+        }
         if (state === undefined) return;
         if (this.root.activeElement !== source) source.value = String(Math.min(clock.sources.length - 1, Math.max(0, state.source)));
         if (this.root.activeElement !== rate) rate.value = String(state.rate);

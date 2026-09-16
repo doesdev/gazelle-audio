@@ -727,6 +727,28 @@ export class Store {
   }
 
   /**
+   * Whether the device has a switchable sample-rate converter on its S/PDIF input (`set_spdif_src`;
+   * SRC is the converter, not a source). The Studio+ has it; the Quadro's command table lists it,
+   * but nothing in its panel sends it and its report has no field for it, so it is left alone there.
+   */
+  hasSpdifSrc(deviceId: string): boolean {
+    return this.#devices.peek().find((d) => d.id === deviceId)?.family === "studio";
+  }
+
+  /** Whether the S/PDIF converter is on, from the status report's `spdif_src`. Reactive; undefined for a model without it. */
+  spdifSrc(deviceId: string): boolean | undefined {
+    if (!this.hasSpdifSrc(deviceId)) return undefined;
+    return Number(this.field(deviceId, "0x73", "spdif_src").value ?? 0) === 1;
+  }
+
+  /** Switches the S/PDIF converter on or off. */
+  setSpdifSrc(deviceId: string, on: boolean): boolean {
+    if (!this.hasSpdifSrc(deviceId)) return false;
+    void this.#invokeCommand(deviceId, "set_spdif_src", { spdif_src: on ? 1 : 0 }, { coalesce: `spdif_src:${deviceId}` });
+    return true;
+  }
+
+  /**
    * The device's test oscillator, from the status report. Undefined for a model that is unknown;
    * both families have one. A change of its own is held over the device's reports for
    * `ECHO_HOLD_MS`, because all five fields share one byte: a stale report read back between two

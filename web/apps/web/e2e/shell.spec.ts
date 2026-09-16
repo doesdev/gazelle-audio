@@ -156,6 +156,27 @@ test("the Devices page sets the clock source and sample rate, and shows the meas
   await expect(page.getByTestId("clock-measured")).not.toHaveText("—");
 });
 
+test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the Quadro has none", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  await expect(page.getByTestId("clock-source")).toBeVisible();
+  await expect(page.getByTestId("spdif-src")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/devices/loopback-1`);
+  const src = page.getByTestId("spdif-src");
+  // It sits with the clock: with the converter on, an S/PDIF input need not follow the device's clock.
+  await expect(page.locator('ga-section[heading="Clock"]').getByTestId("spdif-src")).toHaveCount(1);
+  // The switch shows what the device reports, so on the loopback it stays off: what is sent is what matters.
+  await expect(src).toHaveAttribute("aria-pressed", "false");
+  await src.click();
+  await expect.poll(() => frames.filter((f) => f.command === "set_spdif_src").map((f) => f.args?.["spdif_src"])).toEqual([1]);
+});
+
 test("the Devices page recalls a device preset, and saves into one behind a confirm", async ({ page }) => {
   const frames: { command?: string; args?: Record<string, number> }[] = [];
   page.on("websocket", (socket) =>

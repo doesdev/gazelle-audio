@@ -262,6 +262,40 @@ test("clock state: the measured frequency and lock come from the status report",
   listen();
 });
 
+test("S/PDIF SRC: the Studio+'s switch, reported back as spdif_src and sent as 0 or 1; the Quadro panel never sends it", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = store.watchReport("loopback-1", "0x73");
+  const report = (fields: Record<string, unknown>) => {
+    client.cyclic.get("loopback-1|0x73")?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+
+  assert.equal(store.hasSpdifSrc("loopback-1"), true);
+  assert.equal(store.hasSpdifSrc("loopback-0"), false, "the Quadro's command table has it, but nothing in its panel sends it or reads it back");
+  assert.equal(store.hasSpdifSrc("usb:1"), false);
+  assert.equal(store.spdifSrc("loopback-0"), undefined);
+
+  assert.equal(store.spdifSrc("loopback-1"), false, "off until the device says otherwise");
+  report({ spdif_src: 1 });
+  assert.equal(store.spdifSrc("loopback-1"), true);
+  report({ spdif_src: 0 });
+  assert.equal(store.spdifSrc("loopback-1"), false);
+
+  assert.equal(store.setSpdifSrc("loopback-1", true), true);
+  assert.equal(store.setSpdifSrc("loopback-1", false), true);
+  await flush();
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_spdif_src").map((c) => [c.deviceId, c.args]), [
+    ["loopback-1", { spdif_src: 1 }],
+    ["loopback-1", { spdif_src: 0 }],
+  ]);
+  assert.equal(store.setSpdifSrc("loopback-0", true), false, "nothing is sent to a model without it");
+  assert.equal(store.setSpdifSrc("usb:1", true), false);
+  listen();
+});
+
 test("device presets: five slots numbered from one, recall and save, refusing anything else", async () => {
   const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("usb:1", null, null));
   const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
