@@ -204,3 +204,19 @@ test("device power: set_power carries 1 or 0, and only devices of known model ha
   assert.deepEqual(client.invocations.filter((c) => c.command === "set_power").map((c) => c.options?.["coalesce"]), [undefined, undefined]);
   assert.equal(store.setPower("usb:1", true), false, "a device of unknown model has no known commands");
 });
+
+test("device brightness: set_brightness is the panels' 0..100, clamped, and only for known models", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("usb:1", null, null));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  store.setBrightness("loopback-0", 40);
+  store.setBrightness("loopback-0", 999);
+  store.setBrightness("loopback-0", -5);
+  await flush();
+  assert.deepEqual(
+    client.invocations.filter((c) => c.command === "set_brightness").map((c) => c.args),
+    [{ brightness: 40 }, { brightness: 100 }, { brightness: 0 }],
+  );
+  assert.equal(store.setBrightness("usb:1", 50), false, "a device of unknown model has no known commands");
+});

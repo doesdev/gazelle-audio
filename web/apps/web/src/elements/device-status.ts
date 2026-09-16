@@ -2,7 +2,8 @@
 // and a few live values from its status report.
 
 import { h } from "../core/dom.ts";
-import { displayName } from "../store/store.ts";
+import { BRIGHTNESS_MAX, displayName } from "../store/store.ts";
+import { bindControl } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
 const STATUS_REPORT = "0x73";
@@ -25,6 +26,11 @@ export class GaDeviceStatus extends GaElement {
       ga-section + ga-section { margin-top: 10px; }
       .name { width: 100%; max-width: 280px; }
       .power { display: flex; gap: 6px; margin-top: 8px; }
+      .brightness { position: relative; height: 22px; margin-top: 8px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; touch-action: none; outline: none; }
+      .brightness:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
+      .brightness .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
+      .brightness .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+      .brightness[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
@@ -98,6 +104,22 @@ export class GaDeviceStatus extends GaElement {
       );
       this.onDisconnect(disarm);
       powerControls = h("div", { class: "power", role: "group", "aria-label": "Device power" }, powerOn, standby);
+
+      // Front-panel brightness, 0..100 as both panels' sliders use.
+      const fill = h("div", { class: "fill" });
+      const shown = h("span", { class: "value" });
+      const brightness = h("div", { class: "brightness", role: "slider", tabindex: 0, "aria-label": "Front-panel brightness", "aria-valuemin": 0, "aria-valuemax": BRIGHTNESS_MAX, "data-testid": "device-brightness" }, fill, shown);
+      const reported = () => Number(store.field(id, STATUS_REPORT, "brightness").peek() ?? 0);
+      bindControl(brightness, { axis: "x", min: 0, max: BRIGHTNESS_MAX, up: 1, page: 10, reset: 50, get: reported, set: (v) => store.setBrightness(id, v), enabled: () => store.connected.peek() });
+      this.watch(() => {
+        const value = Math.min(BRIGHTNESS_MAX, Math.max(0, Number(store.field(id, STATUS_REPORT, "brightness").value ?? 0)));
+        fill.style.width = `${value}%`;
+        shown.textContent = `${value}%`;
+        brightness.setAttribute("aria-valuenow", String(value));
+        brightness.setAttribute("aria-valuetext", `${value}%`);
+        brightness.setAttribute("aria-disabled", String(!store.connected.value));
+      });
+      powerControls = h("div", {}, powerControls, brightness);
       this.watch(() => {
         const connected = store.connected.value;
         powerOn.disabled = !connected;

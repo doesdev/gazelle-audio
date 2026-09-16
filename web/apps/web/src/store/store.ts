@@ -41,6 +41,8 @@ import { batch, computed, signal, type ReadonlySignal, type Signal } from "../co
 import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type ThemeSource } from "../themes/theme.ts";
 
 export const SAVE_DEBOUNCE_MS = 300;
+/** The panels' brightness range, 0..100 (their sliders' max_value). */
+export const BRIGHTNESS_MAX = 100;
 export const THEME_STORAGE_KEY = "gazelle.theme";
 
 export interface Timers {
@@ -518,6 +520,18 @@ export class Store {
     const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
     if (family === undefined || family === null) return false;
     void this.#invokeCommand(deviceId, "set_power", { power: on ? 1 : 0 }, {});
+    return true;
+  }
+
+  /**
+   * Sets the device's front-panel brightness, 0..100 as both panels' sliders use (`set_brightness`,
+   * reported back as `brightness`). Returns false for a device whose model is unknown.
+   */
+  setBrightness(deviceId: string, value: number): boolean {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return false;
+    const brightness = Math.min(BRIGHTNESS_MAX, Math.max(0, Math.round(value)));
+    void this.#invokeCommand(deviceId, "set_brightness", { brightness }, { coalesce: `brightness:${deviceId}` });
     return true;
   }
 

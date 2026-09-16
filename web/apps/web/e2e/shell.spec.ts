@@ -116,3 +116,19 @@ test("the Devices page powers a device on, and to standby behind a confirm", asy
   await standby.click();
   await expect.poll(powers).toEqual([1, 0]);
 });
+
+test("the Devices page sets the front-panel brightness", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  const brightness = page.getByTestId("device-brightness");
+  await brightness.focus();
+  await brightness.press("End");
+  // The slider shows what the device reports, so on the loopback it does not move: the value sent
+  // is what matters here. On hardware the device echoes the change within about 30 ms.
+  await expect.poll(() => frames.filter((f) => f.command === "set_brightness").map((f) => f.args?.["brightness"]).at(-1)).toBe(100);
+});
