@@ -1,5 +1,5 @@
 // <ga-control-room>: the right zone's monitor panel (decision P56). It shows the device on the
-// current page, or the first of known model, as a <ga-monitor device-id="…">: the monitor output's
+// current page, or the one last selected (P71), as a <ga-monitor device-id="…">: the monitor output's
 // volume, mute and (Quadro) dim, a mono badge where the device reports one, and the Studio+ talk
 // button. The panel uses the same OutputsModel as the Outputs page, so the two stay in step.
 
@@ -21,10 +21,10 @@ export class GaControlRoom extends GaElement {
     this.watch(() => {
       const current = route.value;
       const known = store.devices.value.filter((d) => d.family !== null);
-      const device = known.find((d) => d.id === current.id) ?? known[0];
-      if (device?.id === shown && this.root.childElementCount > 0) return;
-      shown = device?.id;
-      this.root.replaceChildren(device === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-monitor", { "device-id": device.id }));
+      const id = known.find((d) => d.id === current.id)?.id ?? store.deviceInView(true);
+      if (id === shown && this.root.childElementCount > 0) return;
+      shown = id;
+      this.root.replaceChildren(id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-monitor", { "device-id": id }));
     });
   }
 }

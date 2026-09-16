@@ -1,8 +1,9 @@
 // <ga-mixer device-id="…">: one device's mixer, built from the channels the user made (plan
 // 2026-09-16). Channels scroll horizontally, followed by a "+" to add one; the masters of the mixes
 // in use sit on the right. A device with no layout imports one from its routing when the page
-// opens. The device meters one mix at a time, chosen in the bar. In dry run it shows the bytes of
-// the last command sent.
+// opens. The device meters one mix at a time, chosen in the bar: that is the page's selected mix,
+// remembered per device and carried in the address. In dry run it shows the bytes of the last
+// command sent. The notes, the channels' scroll and a half-typed layout name are kept for the tab.
 
 import { h } from "../core/dom.ts";
 import { meterDeflection } from "../store/mixer.ts";
@@ -12,7 +13,8 @@ import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
-import { href } from "./router.ts";
+import { href, replaceRoute } from "./router.ts";
+import { keepOpen, keepScroll } from "./view-state.ts";
 
 export class GaMixer extends GaElement {
   static override styles = [
@@ -140,7 +142,14 @@ export class GaMixer extends GaElement {
         location.hash = href({ page: "mixer", id: (event.target as HTMLSelectElement).value });
       },
     });
-    const metered = h("select", { "aria-label": "Metered mix", "data-testid": "metered-mix", "on:change": () => (channels.meteredMix.value = Number(metered.value)) });
+    const metered = h("select", {
+      "aria-label": "Metered mix",
+      "data-testid": "metered-mix",
+      "on:change": () => {
+        channels.meteredMix.value = Number(metered.value);
+        replaceRoute({ page: "mixer", id: deviceId, sub: metered.value });
+      },
+    });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
     // Every mix's strips and links are read when the page opens (sends show other mixes' levels).
@@ -163,6 +172,9 @@ export class GaMixer extends GaElement {
         levelsNote,
       ),
     );
+    keepOpen(notes, store.view("mixer:notes-open", false));
+    const layoutName = store.view(`mixer:${deviceId}:layout-name`, "");
+    const startFrom = store.view<string | undefined>(`mixer:${deviceId}:start-from`, undefined);
 
     // While no channel is set up, the mixer can start from a starting layout or one the user saved
     // (value "saved:<id>"); once channels are set up, the layout can be saved by name.
@@ -176,7 +188,8 @@ export class GaMixer extends GaElement {
       const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
       const saved = channels.savedLayouts();
       if (setUp) {
-        const name = h("input", { type: "text", placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name" });
+        // This row is rebuilt as the channels change, so the name typed so far is kept outside it.
+        const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "on:input": () => (layoutName.value = name.value) });
         const save = h(
           "button",
           {
@@ -186,6 +199,7 @@ export class GaMixer extends GaElement {
             "on:click": () => {
               try {
                 channels.saveLayout(name.value);
+                layoutName.value = "";
               } catch (error) {
                 failed(error);
               }
@@ -231,6 +245,9 @@ export class GaMixer extends GaElement {
         "Delete",
       );
       const syncRemove = () => (remove.hidden = chosenSaved() === undefined);
+      const chosen = startFrom.peek();
+      if (chosen !== undefined && [...select.options].some((o) => o.value === chosen)) select.value = chosen;
+      select.addEventListener("change", () => (startFrom.value = select.value));
       select.addEventListener("change", syncRemove);
       syncRemove();
       starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove);
@@ -413,6 +430,9 @@ export class GaMixer extends GaElement {
         if (channelHead !== null) heads.observe(channelHead);
       }
     });
+
+    // After the channels are in, so there is something to scroll back to.
+    this.onDisconnect(keepScroll(strips, store.view(`mixer:${deviceId}:scroll`, 0), "left"));
 
     this.watch(() => {
       const { auto, px } = store.mixerWidth.value;

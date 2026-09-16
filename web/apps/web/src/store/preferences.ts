@@ -69,3 +69,14 @@ export function parsePanels(stored: unknown): PanelState | undefined {
   if (!isRecord(stored) || typeof stored["leftCollapsed"] !== "boolean" || typeof stored["rightCollapsed"] !== "boolean") return undefined;
   return { leftCollapsed: stored["leftCollapsed"], rightCollapsed: stored["rightCollapsed"] };
 }
+
+/** A remembered device id, from a page that named it. */
+export function parseSelectedDevice(stored: unknown): string | undefined {
+  return typeof stored === "string" && stored !== "" ? stored : undefined;
+}
+
+/** The mix last chosen per device id; entries that are not a mix index are dropped. */
+export function parseSelectedMixes(stored: unknown): Record<string, number> | undefined {
+  if (!isRecord(stored)) return undefined;
+  return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, number] => Number.isInteger(entry[1]) && (entry[1] as number) >= 0));
+}

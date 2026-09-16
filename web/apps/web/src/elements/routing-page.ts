@@ -71,14 +71,16 @@ export class GaRouting extends GaElement {
     const reload = h("button", { type: "button", "on:click": () => void routing.loadAll() }, "Read from device");
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
 
-    // The selection: a run of channels in one source group.
-    let selection: { group: number; anchor: number; from: number; to: number } | undefined;
+    // The selection: a run of channels in one source group. It is kept per device for the tab.
+    const kept = store.view<{ group: number; anchor: number; from: number; to: number } | undefined>(`routing:${deviceId}:selection`, undefined);
+    let selection = kept.peek();
     const chips: HTMLButtonElement[][] = [];
     const selected = (): RouteSlot[] => (selection === undefined ? [] : Array.from({ length: selection.to - selection.from + 1 }, (_, i) => ({ source: (selection as { group: number }).group, channel: (selection as { from: number }).from + i })));
     const paint = () =>
       chips.forEach((row, group) => row.forEach((chip, channel) => chip.setAttribute("aria-pressed", String(selection !== undefined && selection.group === group && channel >= selection.from && channel <= selection.to))));
     const select = (group: number, channel: number, extend: boolean) => {
       selection = extend && selection?.group === group ? { ...selection, from: Math.min(selection.anchor, channel), to: Math.max(selection.anchor, channel) } : { group, anchor: channel, from: channel, to: channel };
+      kept.value = selection;
       paint();
     };
     const readOnly = (destination: number) => topology.outputs[destination]?.type === "MIXER_IN";
@@ -113,6 +115,8 @@ export class GaRouting extends GaElement {
       );
       return [h("div", { class: "row", style: `--group-colour: ${group.color}` }, h("span", { class: "label" }, h("span", { class: "swatch" }), group.name), h("span", { class: "spacer-tools" }), h("div", { class: "cells" }, chips[g]))];
     });
+
+    paint();
 
     const destinationRows = topology.outputs.map((group, d) => {
       const locked = readOnly(d);

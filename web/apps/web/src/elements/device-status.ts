@@ -5,6 +5,8 @@ import { h } from "../core/dom.ts";
 import { BRIGHTNESS_MAX, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PRESET_SLOTS, type OscillatorState } from "../store/store.ts";
 import { bindControl } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import type { GaSection } from "./section.ts";
+import { keepCollapsed } from "./view-state.ts";
 
 const STATUS_REPORT = "0x73";
 
@@ -382,6 +384,8 @@ export class GaDeviceStatus extends GaElement {
       ...(presetSection === undefined ? [] : [presetSection]),
       ...(powerControls === undefined ? [] : [powerControls]),
     );
+    // A section closed on one device's page stays closed on every device's, for the tab.
+    for (const section of this.root.querySelectorAll<GaSection>("ga-section")) keepCollapsed(section, store.view(`devices:collapsed:${section.getAttribute("heading") ?? ""}`, false));
 
     this.watch(() => {
       const workspace = store.workspace.value;
