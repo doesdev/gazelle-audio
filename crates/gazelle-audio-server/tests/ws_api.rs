@@ -248,3 +248,60 @@ async fn a_pending_rpc_does_not_stall_events() {
          blocked on the request"
     );
 }
+
+/// Answers nothing, and goes away once `unplugged` is set, as an unplugged USB device does.
+struct UnpluggableDevice {
+    unplugged: Arc<std::sync::atomic::AtomicBool>,
+    connected: bool,
+}
+
+impl Device for UnpluggableDevice {
+    fn send(&mut self, _report: &Report) -> Result<bool, WireError> {
+        Ok(self.connected)
+    }
+    fn on_received_data(&mut self, _packet: RawPacket) {}
+    fn max_packet_size(&self) -> usize {
+        320
+    }
+    fn vid(&self) -> u16 {
+        9189
+    }
+    fn pid(&self) -> u16 {
+        PID_STUDIO
+    }
+    fn poll_reports(&mut self) -> Vec<Report> {
+        if self.unplugged.load(std::sync::atomic::Ordering::SeqCst) {
+            self.connected = false;
+        }
+        Vec::new()
+    }
+    fn is_connected(&self) -> bool {
+        self.connected
+    }
+}
+
+/// A device that goes away mid-run is announced to connected clients, and one plugged in is too.
+#[tokio::test]
+async fn devices_coming_and_going_reach_a_connected_client() {
+    let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
+    let unplugged = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let studio = DeviceId::from_serial("S1");
+    devices.attach(studio.clone(), Box::new(UnpluggableDevice { unplugged: unplugged.clone(), connected: true }), "usb", true);
+
+    let url = serve_with(devices.clone()).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["devices"][0]["id"], "serial:S1");
+
+    unplugged.store(true, std::sync::atomic::Ordering::SeqCst);
+    let frame = tokio::time::timeout(Duration::from_secs(2), next_json(&mut ws)).await.expect("told within 2 s");
+    assert_eq!(frame, json!({"type": "device_removed", "device_id": "serial:S1"}));
+
+    unplugged.store(false, std::sync::atomic::Ordering::SeqCst);
+    devices.attach(studio, Box::new(UnpluggableDevice { unplugged, connected: true }), "usb", true);
+    let frame = tokio::time::timeout(Duration::from_secs(2), next_json(&mut ws)).await.expect("told within 2 s");
+    assert_eq!(frame["type"], "device_added");
+    assert_eq!(frame["device"]["id"], "serial:S1");
+    assert_eq!(frame["device"]["model"], "Zen Studio+");
+    devices.shutdown_all();
+}

@@ -240,6 +240,7 @@ fn status(state: &State) -> Status {
         antelope_service_running: service_running(ANTELOPE_SERVICE),
         start_on_boot: state.boot.is_enabled(),
         log_file: c.log_dir.is_some(),
+        can_rescan: c.rescan.is_some(),
     }
 }
 
@@ -295,6 +296,13 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
                 if let Err(code) = shell_open(&dir.display().to_string()) {
                     tracing::warn!("opening the log folder {} failed (ShellExecute returned {code})", dir.display());
                 }
+            }
+        }
+        // The scan runs on its own thread; the next time the menu opens, its lines show the result.
+        Some(Command::Rescan) => {
+            if let Some(rescan) = &state.context.rescan {
+                tracing::info!("rescanning devices, from the tray");
+                rescan();
             }
         }
         Some(Command::Quit) => {

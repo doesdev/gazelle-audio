@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gazelle_audio_server::config::{default_log_dir, default_themes_dir, default_workspace_path};
-use gazelle_audio_server::device::descriptor::DeviceId;
+use gazelle_audio_server::device::hotplug::{self, HotPlug, Scanner};
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
@@ -95,7 +95,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
-    let (listener, app, devices) = runtime.block_on(prepare(args))?;
+    let (listener, app, devices, hotplug) = runtime.block_on(prepare(args))?;
     let address = listener.local_addr()?;
 
     // Quit in the tray and Ctrl-C both end the server the same way.
@@ -106,7 +106,12 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     let tray = if args.no_tray {
         None
     } else {
-        match tray::start(tray_context(args, address, &devices, &quit, log_dir)) {
+        let mut context = tray_context(args, address, &devices, &quit, log_dir);
+        context.rescan = hotplug.as_ref().map(|hotplug| {
+            let rescan = hotplug.rescan();
+            Box::new(move || rescan.now()) as Box<dyn Fn()>
+        });
+        match tray::start(context) {
             Ok(tray) => {
                 tracing::info!("tray icon added (--no-tray to run without one)");
                 Some(tray)
@@ -120,7 +125,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
     let closer = tray.as_ref().map(tray::Tray::closer);
     let server = runtime.spawn(async move {
-        let result = serve(listener, app, devices, quit).await;
+        let result = serve(listener, app, devices, hotplug, quit).await;
         // Stopped by Ctrl-C or an error rather than the tray: take the icon down too.
         if let Some(closer) = closer {
             closer.close();
@@ -134,10 +139,11 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// Everything up to a bound listener: devices attached, workspace store chosen, routes built.
+/// Everything up to a bound listener: devices attached, workspace store chosen, routes built. For
+/// the USB backend, also the scanner that keeps attaching and detaching devices from then on.
 async fn prepare(
     args: &Args,
-) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>), Box<dyn std::error::Error>> {
+) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
     let pids: Vec<u16> = args
@@ -153,14 +159,15 @@ async fn prepare(
         .collect();
 
     let devices = DeviceManager::new(registries);
-    if args.backend == Backend::Usb {
-        attach_usb_devices(&devices)?;
+    let hotplug = if args.backend == Backend::Usb {
+        Some(attach_usb_devices(&devices)?)
     } else {
         match args.loopback_cyclic_ms {
             Some(ms) => devices.attach_cyclic_loopbacks(&pids, 64, std::time::Duration::from_millis(ms.max(1))),
             None => devices.attach_loopbacks(&pids, 64),
         }
-    }
+        None
+    };
 
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
         Arc::new(MemoryStore::default())
@@ -202,7 +209,7 @@ async fn prepare(
         );
     }
 
-    Ok((listener, app, devices))
+    Ok((listener, app, devices, hotplug))
 }
 
 /// Serve until Ctrl-C or Quit, then stop the device workers.
@@ -210,6 +217,7 @@ async fn serve(
     listener: tokio::net::TcpListener,
     app: axum::Router,
     devices: Arc<DeviceManager>,
+    hotplug: Option<HotPlug>,
     quit: Arc<Notify>,
 ) -> std::io::Result<()> {
     let shutdown = async move {
@@ -218,6 +226,10 @@ async fn serve(
             _ = quit.notified() => {}
         }
         tracing::info!("shutting down, stopping device workers");
+        // Scanning stops first, so nothing is attached behind the shutdown.
+        if let Some(hotplug) = hotplug {
+            hotplug.stop();
+        }
         devices.shutdown_all();
     };
     axum::serve(listener, app).with_graceful_shutdown(shutdown).await
@@ -258,43 +270,20 @@ fn tray_context(
         boot_args,
         log_dir,
         quit: Box::new(move || quit.notify_one()),
+        rescan: None,
     }
 }
 
-/// Attaches every Antelope control interface the HID stack can open.
+/// Attaches every Antelope control interface the HID stack can open now, then keeps scanning.
 ///
-/// Finding none usually does not mean nothing is plugged in: Antelope's Manager Service holds the
-/// devices exclusively while it runs, so nothing else can even enumerate them (hardware session 2).
-/// The error says so, since that is the fix in practice.
-fn attach_usb_devices(devices: &Arc<DeviceManager>) -> Result<(), Box<dyn std::error::Error>> {
+/// Finding none, or none that opens, no longer stops the server: Antelope's Manager Service holds
+/// the devices exclusively while it runs (hardware session 2), and they attach within a scan of it
+/// being stopped. The scanner's log says so. Only a HID stack that cannot start at all is fatal.
+fn attach_usb_devices(devices: &Arc<DeviceManager>) -> Result<HotPlug, Box<dyn std::error::Error>> {
     let api = hidapi::HidApi::new().map_err(|e| format!("opening the HID stack: {e}"))?;
-    let found = usb::discover(&api);
-    if found.is_empty() {
-        return Err("no Antelope device could be opened.
-
-             If one is attached, Antelope's own software is probably holding it: the Antelope
-             Manager Service opens the devices exclusively, so nothing else can even enumerate
-             them. Stop that service and its panels and try again, or run with --backend loopback
-             (the default)."
-            .into());
+    let mut scanner = Scanner::new(usb::HidEnumerator::new(api));
+    for change in scanner.scan(devices) {
+        change.log();
     }
-    for (n, info) in found.iter().enumerate() {
-        let device = usb::UsbDevice::open(&api, info)
-            .map_err(|e| format!("opening {:04x}:{:04x}: {e}", info.vendor_id(), info.product_id()))?;
-        // A serial keeps the id stable across replugs; without one, the enumeration index is all
-        // there is, and `identity_stable` tells clients their layout may not follow the device.
-        let (id, stable) = match device.serial() {
-            Some(serial) => (DeviceId::from_serial(serial), true),
-            None => (DeviceId::from_topology(info.vendor_id(), info.product_id(), 0, n as u8), false),
-        };
-        let descriptor = devices.attach(id, Box::new(device), "usb", stable);
-        tracing::info!(
-            "attached {} ({:04x}:{:04x}) as {}",
-            descriptor.model.as_deref().unwrap_or("an unknown model"),
-            descriptor.vid,
-            descriptor.pid,
-            descriptor.id
-        );
-    }
-    Ok(())
+    Ok(HotPlug::spawn(scanner, devices.clone(), hotplug::RESCAN_INTERVAL))
 }
