@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import { effect } from "../src/core/signal.ts";
 import { clampPan, formatLevel, formatPan, formatSend, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
@@ -273,15 +274,24 @@ test("a device's mixes want reading only while connected and attached; they are 
   await store.readMixes("loopback-1");
   assert.equal(sent(client, "get_preamps_links").length, 1, "nothing read, so nothing to import");
 
+  // Followed as a page does, in an effect.
+  const seen: boolean[] = [];
+  const stop = effect(() => void seen.push(store.mixesToRead("loopback-1")));
   client.status = "reconnecting";
   client.emit("status", "reconnecting");
-  assert.equal(store.mixesToRead("loopback-1"), false, "not while the connection is down");
+  assert.equal(seen.at(-1), false, "not while the connection is down");
   client.status = "open";
   client.emit("status", "open");
-  assert.equal(store.mixesToRead("loopback-1"), true, "but once it is back");
+  assert.equal(seen.at(-1), true, "but once it is back");
+  await store.readMixes("loopback-1");
+  const studio = client.devices.get("loopback-1");
   client.devices.delete("loopback-1");
   client.emit("device_removed", "loopback-1");
-  assert.equal(store.mixesToRead("loopback-1"), false, "not while the device is gone");
+  assert.equal(seen.at(-1), false, "not while the device is gone");
+  if (studio !== undefined) client.devices.set("loopback-1", studio);
+  client.emit("device_added", studio as never);
+  assert.equal(seen.at(-1), true, "but once it is back");
+  stop();
 });
 
 test("mixers exist only for known models and within the topology", () => {

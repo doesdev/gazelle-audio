@@ -459,8 +459,10 @@ export class Store {
    * and some mix has not been read since it was last forgotten. Reading it is reactive.
    */
   mixesToRead(deviceId: string): boolean {
-    if (!this.connected.value || !this.#devices.value.some((d) => d.id === deviceId)) return false;
-    const count = this.topology(deviceId)?.mixers.count ?? 0;
+    if (!this.connected.value) return false;
+    // Read reactively, so a device coming back is noticed.
+    const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+    const count = family === undefined || family === null ? 0 : topologies[family].mixers.count;
     return Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).needsRead.value).some(Boolean);
   }
 
