@@ -261,6 +261,29 @@ test("a mix is read once and then reused, and read again after the connection dr
   assert.equal(late.needsRead.value, false);
 });
 
+test("a device's mixes want reading only while connected and attached; they are read together, then its linked pairs once (P80)", async () => {
+  const { client, store } = setup();
+  assert.equal(store.mixesToRead("loopback-1"), true);
+  assert.equal(store.mixesToRead("usb:1"), false, "an unknown model has no mixes");
+
+  await Promise.all([store.readMixes("loopback-1"), store.readMixes("loopback-1")]);
+  assert.deepEqual(sent(client, "get_mixer").map((c) => [c.deviceId, c.options?.["ext3"]]), [0, 1, 2, 3].map((mix) => ["loopback-1", mix]), "each mix once");
+  assert.equal(sent(client, "get_preamps_links").length, 1, "the device's own link flags after the read, once");
+  assert.equal(store.mixesToRead("loopback-1"), false);
+  await store.readMixes("loopback-1");
+  assert.equal(sent(client, "get_preamps_links").length, 1, "nothing read, so nothing to import");
+
+  client.status = "reconnecting";
+  client.emit("status", "reconnecting");
+  assert.equal(store.mixesToRead("loopback-1"), false, "not while the connection is down");
+  client.status = "open";
+  client.emit("status", "open");
+  assert.equal(store.mixesToRead("loopback-1"), true, "but once it is back");
+  client.devices.delete("loopback-1");
+  client.emit("device_removed", "loopback-1");
+  assert.equal(store.mixesToRead("loopback-1"), false, "not while the device is gone");
+});
+
 test("mixers exist only for known models and within the topology", () => {
   const { store } = setup();
   assert.equal(store.mixer("loopback-0", 0), store.mixer("loopback-0", 0), "one model per mixer");

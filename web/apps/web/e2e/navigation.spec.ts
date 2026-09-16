@@ -155,6 +155,7 @@ test("the Mixer reads every mix again when the connection to the server comes ba
   await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
   await expect(page.getByTestId("connection")).toHaveText("Connected", { timeout: 15_000 });
   await expect.poll(() => count("get_mixer"), "while the page is open").toBe(8);
+  await expect(page.getByText(/could not be read/), "and not tried while the connection was down").toHaveCount(0);
   await open(page, "inputs");
   await open(page, "mixer");
   await page.waitForTimeout(500);
@@ -243,6 +244,12 @@ test("a half-typed name is a draft: leaving the page keeps it without saving it,
   await open(page, "routing");
   await open(page, "mixer");
   await expect(groupName).toHaveValue("Perc");
+
+  // After following a link here, leaving a field from the keyboard still saves it.
+  const channelName = page.getByTestId("name-6");
+  await channelName.fill("Kick In");
+  await channelName.press("Tab");
+  await expect.poll(async () => ((await saved()).mixers["loopback-0"] as unknown as { channels: { name: string }[] }).channels[0]?.name).toBe("Kick In");
 });
 
 test("a page left and come back to finds its scroll, sections and selections as they were", async ({ page }) => {

@@ -454,6 +454,23 @@ export class Store {
     return model;
   }
 
+  /**
+   * Whether a device's mixes want reading now (P80): the connection is open, the device is attached,
+   * and some mix has not been read since it was last forgotten. Reading it is reactive.
+   */
+  mixesToRead(deviceId: string): boolean {
+    if (!this.connected.value || !this.#devices.value.some((d) => d.id === deviceId)) return false;
+    const count = this.topology(deviceId)?.mixers.count ?? 0;
+    return Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).needsRead.value).some(Boolean);
+  }
+
+  /** Reads each of a device's mixes that wants it; after a read, pairs linked on the device (by its own panel) become links. */
+  async readMixes(deviceId: string): Promise<void> {
+    const count = this.topology(deviceId)?.mixers.count ?? 0;
+    const read = await Promise.all(Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).readOnce()));
+    if (read.some(Boolean)) await this.links.importDevicePairs(deviceId);
+  }
+
   readonly #channels = new Map<string, ChannelsModel>();
 
   /** A device's user-built mixer channels, created on first use; throws for a device of unknown model. */
