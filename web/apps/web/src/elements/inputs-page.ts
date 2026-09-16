@@ -9,7 +9,6 @@ import { bindControl, type ControlOptions } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar, linkButton } from "./link-bar.ts";
 import { polarPlot, POLAR_PLOT_STYLES, stereoOrientation, type PlotHead } from "./polar-plot.ts";
-import { href } from "./router.ts";
 
 /** How long a first 48V click waits for its confirmation. */
 const ARM_MS = 3000;
@@ -129,12 +128,6 @@ export class GaInputs extends GaElement {
     void store.links.importDevicePairs(deviceId);
     const enabled = () => store.connected.peek();
 
-    const devices = h("select", {
-      "aria-label": "Device",
-      "on:change": (event) => {
-        location.hash = href({ page: "inputs", id: (event.target as HTMLSelectElement).value });
-      },
-    });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const note = h("p", { class: "note" });
 
@@ -158,7 +151,7 @@ export class GaInputs extends GaElement {
 
     const links = linkBar((fn) => this.watch(fn), deviceId);
     this.root.replaceChildren(
-      h("div", { class: "bar" }, devices, h("span", { class: "spacer" }), lastSent),
+      h("div", { class: "bar" }, h("span", { class: "spacer" }), lastSent),
       links,
       note,
       h("section", {}, h("h2", {}, "Preamps"), preamps),
@@ -166,12 +159,6 @@ export class GaInputs extends GaElement {
       ...(emulation === undefined ? [] : [emulation]),
     );
 
-    this.watch(() => {
-      const known = store.devices.value.filter((d) => d.family !== null);
-      devices.replaceChildren(...known.map((d) => h("option", { value: d.id, selected: d.id === deviceId }, d.model ?? d.id)));
-      devices.value = deviceId;
-      devices.disabled = !store.connected.value;
-    });
     this.watch(() => {
       note.textContent = inputs.preampCount > 0 && !inputs.preamp(0).value.known ? "The device has not reported its inputs yet, so controls start at defaults and send when changed." : "";
     });

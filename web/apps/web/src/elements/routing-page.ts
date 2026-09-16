@@ -8,7 +8,6 @@
 import { h } from "../core/dom.ts";
 import type { RouteSlot } from "../store/routing.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
-import { href } from "./router.ts";
 
 /** How far a pointer moves before a press on a chip is a drag. */
 const DRAG_PX = 4;
@@ -62,12 +61,6 @@ export class GaRouting extends GaElement {
       return `${base}${/\d$/.test(base) ? "·" : " "}${channel + 1}`;
     };
 
-    const devices = h("select", {
-      "aria-label": "Device",
-      "on:change": (event) => {
-        location.hash = href({ page: "routing", id: (event.target as HTMLSelectElement).value });
-      },
-    });
     const reload = h("button", { type: "button", "on:click": () => void routing.loadAll() }, "Read from device");
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
 
@@ -158,7 +151,7 @@ export class GaRouting extends GaElement {
     const sources = h("section", {}, h("h2", {}, "Sources"), h("div", { class: "table" }, sourceRows));
     const destinations = h("section", {}, h("h2", {}, "Destinations"), h("div", { class: "table" }, destinationRows));
     this.root.replaceChildren(
-      h("div", { class: "bar" }, devices, reload, h("span", { class: "spacer" }), lastSent),
+      h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
       h("p", { class: "note" }, "Pick sources (shift-click for a run) and click a destination cell, or drag them onto one; a run fills that cell and those after it. Delete mutes a cell. Mixer inputs are set on the Mixer page."),
       sources,
       destinations,
@@ -200,13 +193,7 @@ export class GaRouting extends GaElement {
     sources.addEventListener("pointercancel", (event) => endDrag(event, false));
 
     this.watch(() => {
-      const known = store.devices.value.filter((d) => d.family !== null);
-      devices.replaceChildren(...known.map((d) => h("option", { value: d.id, selected: d.id === deviceId }, d.model ?? d.id)));
-      devices.value = deviceId;
-    });
-    this.watch(() => {
       const connected = store.connected.value;
-      devices.disabled = !connected;
       // Mixer-input rows stay disabled: the Mixer page's channels set them.
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("button")) button.disabled = !connected || button.hasAttribute("data-readonly");
     });

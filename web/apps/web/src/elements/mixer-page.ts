@@ -14,7 +14,7 @@ import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
-import { href, replaceRoute } from "./router.ts";
+import { replaceRoute } from "./router.ts";
 import { keepOpen, keepScroll } from "./view-state.ts";
 
 export class GaMixer extends GaElement {
@@ -137,12 +137,6 @@ export class GaMixer extends GaElement {
     }
     const channels = store.channels(deviceId);
 
-    const devices = h("select", {
-      "aria-label": "Device",
-      "on:change": (event) => {
-        location.hash = href({ page: "mixer", id: (event.target as HTMLSelectElement).value });
-      },
-    });
     const metered = h("select", {
       "aria-label": "Metered mix",
       "data-testid": "metered-mix",
@@ -296,7 +290,7 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
     this.root.replaceChildren(
-      h("div", { class: "bar" }, devices, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
+      h("div", { class: "bar" }, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
@@ -451,10 +445,6 @@ export class GaMixer extends GaElement {
       metered.value = String(channels.meteredMix.value);
     });
     this.watch(() => {
-      const known = store.devices.value.filter((d) => d.family !== null);
-      devices.replaceChildren(...known.map((d) => h("option", { value: d.id, selected: d.id === deviceId }, d.model ?? d.id)));
-      devices.value = deviceId;
-      devices.disabled = !store.connected.value;
       add.toggleAttribute("data-offline", !store.connected.value);
     });
     this.watch(() => {

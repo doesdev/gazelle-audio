@@ -43,7 +43,7 @@ export interface SentCommand {
 }
 
 import { frameWriter, type FrameWriter, type RequestFrame } from "../core/frame.ts";
-import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
+import { batch, computed, effect, signal, untracked, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type ThemeSource } from "../themes/theme.ts";
 
 export const SAVE_DEBOUNCE_MS = 300;
@@ -98,6 +98,35 @@ export const CLOCK_SOURCES: Readonly<Record<"quadro" | "studio", readonly string
   quadro: ["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"],
   studio: ["Oven", "Word clock", "ADAT", "ADAT x2", "ADAT x4", "S/PDIF", "USB"],
 };
+
+/**
+ * How long a device card keeps showing a clip. A clip is a single report long, and reports arrive
+ * many times a second, so without a hold it would flash too briefly to notice.
+ */
+export const CLIP_HOLD_MS = 1500;
+
+/** The meter byte at or below which an input counts as carrying signal: -60 dBFS. */
+const SIGNAL_BELOW_FS = 60;
+
+/**
+ * The hardware inputs a device card watches for signal and clips, per model. Both report input
+ * peaks in fixed fields; the Studio+'s `peaks_meters` follow a selectable source, so they are not.
+ */
+const INPUT_PEAKS: Readonly<Record<"quadro" | "studio", readonly string[]>> = {
+  quadro: ["peaks_preamp", "peaks_spdif", "peaks_adat"],
+  studio: ["peaks_preamp", "peaks_line", "peaks_spdif", "peaks_adat"],
+};
+
+/** A device at a glance, for its card in the devices panel. */
+export interface DeviceCard {
+  /** Whether the device's status report has arrived yet. */
+  reporting: boolean;
+  power: boolean | undefined;
+  preset: number | undefined;
+  clock: ClockState | undefined;
+  /** The loudest of its hardware inputs: silent, carrying signal, or clipped (held a moment). */
+  input: "quiet" | "signal" | "clip";
+}
 
 /** What the device reports about its clock. */
 export interface ClockState {
@@ -733,6 +762,67 @@ export class Store {
       rate: Math.min(SAMPLE_RATES.length - 1, Math.max(0, byte("base_index"))),
     };
   }
+
+  /**
+   * A device at a glance: power, preset, clock and input level from its status report, or undefined
+   * for a model whose report cannot be read. Reading it is reactive. The report is only followed
+   * while something watches it, as the devices panel does for every device it lists.
+   */
+  deviceCard(deviceId: string): DeviceCard | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    const raw = (name: string) => this.field(deviceId, "0x73", name).value;
+    const reporting = raw("power_on") !== undefined;
+    const clock = reporting ? this.clockState(deviceId) : undefined;
+    return {
+      reporting,
+      power: reporting ? Number(raw("power_on")) === 1 : undefined,
+      preset: reporting && raw("current_preset") !== undefined ? Number(raw("current_preset")) : undefined,
+      clock,
+      input: this.#inputLevel(deviceId, family).value,
+    };
+  }
+
+  /**
+   * Whether any hardware input carries signal or has clipped. A clip latches for CLIP_HOLD_MS after
+   * the last report that carried it. Made on first use per device and kept, like the other
+   * per-device state here; it reads report fields only, so it costs nothing while nothing reports.
+   */
+  #inputLevel(deviceId: string, family: "quadro" | "studio"): ReadonlySignal<"quiet" | "signal" | "clip"> {
+    const existing = this.#inputLevels.get(deviceId);
+    if (existing !== undefined) return existing;
+    const level = signal<"quiet" | "signal" | "clip">("quiet");
+    const fields = INPUT_PEAKS[family].map((name) => this.field(deviceId, "0x73", name));
+    let hold: unknown;
+    let held = false;
+    // The loudest input in the latest report, so a hold that ends shows what is there now.
+    let latest = Number.POSITIVE_INFINITY;
+    const shown = () => (held ? "clip" : latest <= SIGNAL_BELOW_FS ? "signal" : "quiet");
+    // Made on first read, which is often inside a watch: untracked, so it stands on its own rather
+    // than being taken for part of whatever effect happened to be running.
+    untracked(() => effect(() => {
+      latest = Number.POSITIVE_INFINITY;
+      for (const field of fields) {
+        const bytes = field.value;
+        if (!(bytes instanceof Uint8Array || Array.isArray(bytes))) continue;
+        const list = bytes as ArrayLike<number>;
+        for (let i = 0; i < list.length; i++) latest = Math.min(latest, Number(list[i]));
+      }
+      if (latest === 0) {
+        held = true;
+        this.#timers.clearTimeout(hold);
+        hold = this.#timers.setTimeout(() => {
+          held = false;
+          level.value = shown();
+        }, CLIP_HOLD_MS);
+      }
+      level.value = shown();
+    }));
+    this.#inputLevels.set(deviceId, level);
+    return level;
+  }
+
+  readonly #inputLevels = new Map<string, ReadonlySignal<"quiet" | "signal" | "clip">>();
 
   /** Sets the sample rate by index into [`SAMPLE_RATES`]. */
   setSampleRate(deviceId: string, index: number): boolean {

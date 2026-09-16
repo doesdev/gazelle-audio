@@ -6,7 +6,6 @@ import { h } from "../core/dom.ts";
 import { formatVolume, TRIM_LABELS, VOLUME_MAX, type OutputInfo, type OutputsModel, type TrimInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
-import { href } from "./router.ts";
 
 /** The vendor panels' starting volume, which a reset returns to. */
 const VOLUME_RESET = 30;
@@ -79,12 +78,6 @@ export class GaOutputs extends GaElement {
     this.onDisconnect(outputs.activate());
     const enabled = () => store.connected.peek();
 
-    const devices = h("select", {
-      "aria-label": "Device",
-      "on:change": (event) => {
-        location.hash = href({ page: "outputs", id: (event.target as HTMLSelectElement).value });
-      },
-    });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     // The Quadro's one switch over all four outputs; the vendor panel throws it while it restores a
     // session, and it is the same thing to reach for before changing monitors.
@@ -105,7 +98,7 @@ export class GaOutputs extends GaElement {
     const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
     const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
     this.root.replaceChildren(
-      h("div", { class: "bar" }, devices, ...(hardMute === undefined ? [] : [hardMute]), h("span", { class: "spacer" }), lastSent),
+      h("div", { class: "bar" }, ...(hardMute === undefined ? [] : [hardMute]), h("span", { class: "spacer" }), lastSent),
       note,
       rows,
       trims,
@@ -119,12 +112,6 @@ export class GaOutputs extends GaElement {
       });
     }
 
-    this.watch(() => {
-      const known = store.devices.value.filter((d) => d.family !== null);
-      devices.replaceChildren(...known.map((d) => h("option", { value: d.id, selected: d.id === deviceId }, d.model ?? d.id)));
-      devices.value = deviceId;
-      devices.disabled = !store.connected.value;
-    });
     this.watch(() => {
       note.textContent = outputs.outputs.length > 0 && !outputs.state(0).value.known ? "The device has not reported its output levels yet, so controls start at defaults and send when changed." : "";
     });

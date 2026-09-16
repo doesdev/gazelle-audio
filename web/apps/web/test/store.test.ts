@@ -6,7 +6,7 @@ import { GazelleError } from "gazelle-audio-client";
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
-import { displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { CLIP_HOLD_MS, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -449,4 +449,63 @@ test("oscillator: both models, two tones with a shared level, sent as one comman
   assert.throws(() => store.setOscillator("loopback-0", { left: 2 }), RangeError);
   assert.equal(store.setOscillator("usb:1", { onLeft: true }), false);
   listen();
+});
+
+test("a device card sums up the status report: power, preset, clock, and whether any input has signal or clipped", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"), device("usb:1", null, null));
+  const frames: (() => void)[] = [];
+  const timers = new ManualTimers();
+  const store = new Store(client, { timers, storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = [store.watchReport("loopback-0", "0x73"), store.watchReport("loopback-1", "0x73")];
+  const report = (id: string, fields: Record<string, unknown>) => {
+    client.cyclic.get(`${id}|0x73`)?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  const quiet = (n: number) => new Uint8Array(n).fill(96);
+
+  assert.equal(store.deviceCard("usb:1"), undefined, "an unknown model's report cannot be read");
+  assert.deepEqual(store.deviceCard("loopback-0"), { reporting: false, power: undefined, preset: undefined, clock: undefined, input: "quiet" });
+
+  report("loopback-0", {
+    power_on: 1,
+    current_preset: 2,
+    sync_freq_hi: 1,
+    sync_freq_mid: 119,
+    sync_freq_low: 0,
+    locked: 1,
+    base_index: 4,
+    sync_source: 0,
+    peaks_preamp: quiet(4),
+    peaks_spdif: quiet(2),
+    peaks_adat: quiet(8),
+  });
+  assert.deepEqual(store.deviceCard("loopback-0"), { reporting: true, power: true, preset: 2, clock: { source: 0, hz: 96000, locked: true, rate: 4 }, input: "quiet" });
+
+  // A meter byte is dB below full scale: anything above -60 dBFS is signal, and 0 is a clip.
+  const preamps = quiet(4);
+  preamps[2] = 18;
+  report("loopback-0", { peaks_preamp: preamps, peaks_spdif: quiet(2), peaks_adat: quiet(8) });
+  assert.equal(store.deviceCard("loopback-0")?.input, "signal");
+
+  const adat = quiet(8);
+  adat[5] = 0;
+  report("loopback-0", { peaks_preamp: quiet(4), peaks_spdif: quiet(2), peaks_adat: adat });
+  assert.equal(store.deviceCard("loopback-0")?.input, "clip");
+
+  // A clip is one report long, so it holds long enough to be seen, then lets go.
+  report("loopback-0", { peaks_preamp: quiet(4), peaks_spdif: quiet(2), peaks_adat: quiet(8) });
+  assert.equal(store.deviceCard("loopback-0")?.input, "clip", "a clip holds past the report that carried it");
+  timers.advance(CLIP_HOLD_MS);
+  assert.equal(store.deviceCard("loopback-0")?.input, "quiet");
+
+  // The Studio+ reports its lock as `locked_wc`, and has line inputs to meter as well.
+  const lines = quiet(8);
+  lines[0] = 0;
+  report("loopback-1", { power_on: 0, locked_wc: 0, peaks_preamp: quiet(12), peaks_line: lines, peaks_spdif: quiet(2), peaks_adat: quiet(16) });
+  const studio = store.deviceCard("loopback-1");
+  assert.equal(studio?.power, false);
+  assert.equal(studio?.clock?.locked, false);
+  assert.equal(studio?.input, "clip");
+  for (const stop of listen) stop();
 });

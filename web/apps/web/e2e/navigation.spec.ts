@@ -25,14 +25,14 @@ const open = (page: Page, name: "devices" | "workspace" | "inputs" | "outputs" |
 
 test("the device last opened follows you to every page, and across a reload", async ({ page }) => {
   await page.goto(`${server.url}/#/inputs/loopback-1`);
-  await expect(page.locator("ga-inputs").getByLabel("Device")).toHaveValue("loopback-1");
+  await expect(page.locator("ga-inputs")).toHaveAttribute("device-id", "loopback-1");
 
   await open(page, "outputs");
-  await expect(page.locator("ga-outputs").getByLabel("Device")).toHaveValue("loopback-1");
+  await expect(page.locator("ga-outputs")).toHaveAttribute("device-id", "loopback-1");
   await open(page, "mixer");
-  await expect(page.locator("ga-mixer").getByLabel("Device", { exact: true })).toHaveValue("loopback-1");
+  await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-1");
   await open(page, "routing");
-  await expect(page.locator("ga-routing").getByLabel("Device")).toHaveValue("loopback-1");
+  await expect(page.locator("ga-routing")).toHaveAttribute("device-id", "loopback-1");
   await open(page, "devices");
   await expect(page.locator("ga-device-status")).toHaveAttribute("device-id", "loopback-1");
   await expect(page.locator('ga-device-list a[data-device-id="loopback-1"]')).toHaveAttribute("aria-current", "page");
@@ -40,23 +40,23 @@ test("the device last opened follows you to every page, and across a reload", as
   await open(page, "workspace");
   await expect(page.locator("ga-monitor")).toHaveAttribute("device-id", "loopback-1");
 
-  // A device picked on a page's own picker is the new one.
+  // A device picked in the devices panel is the new one.
   await open(page, "outputs");
-  await page.locator("ga-outputs").getByLabel("Device").selectOption("loopback-0");
+  await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
   await open(page, "inputs");
-  await expect(page.locator("ga-inputs").getByLabel("Device")).toHaveValue("loopback-0");
+  await expect(page.locator("ga-inputs")).toHaveAttribute("device-id", "loopback-0");
 
   // An old link to a device that is not connected does not replace it.
   await page.goto(`${server.url}/#/inputs/usb-gone`);
   await expect(page.locator("ga-inputs")).toContainText("not connected");
   await page.goto(`${server.url}/#/routing`);
-  await expect(page.locator("ga-routing").getByLabel("Device")).toHaveValue("loopback-0");
+  await expect(page.locator("ga-routing")).toHaveAttribute("device-id", "loopback-0");
 
   await page.getByLabel("Pages").locator('a[data-page="devices"]').click();
   await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
   await page.reload();
   await open(page, "outputs");
-  await expect(page.locator("ga-outputs").getByLabel("Device")).toHaveValue("loopback-1");
+  await expect(page.locator("ga-outputs")).toHaveAttribute("device-id", "loopback-1");
 });
 
 test("each device keeps its selected mix: the address names it, and a page without one uses the last", async ({ page }) => {
@@ -71,20 +71,20 @@ test("each device keeps its selected mix: the address names it, and a page witho
   await expect(page).toHaveURL(/#\/mixer\/loopback-0\/1$/);
   expect(await page.locator("ga-mixer").evaluate((el) => (el as unknown as { __kept?: boolean }).__kept)).toBe(true);
 
-  await page.locator("ga-mixer").getByLabel("Device", { exact: true }).selectOption("loopback-1");
+  await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
   await expect(metered).toHaveValue("0");
   await metered.selectOption("3");
 
   await open(page, "inputs");
   await open(page, "mixer");
-  await expect(page.locator("ga-mixer").getByLabel("Device", { exact: true })).toHaveValue("loopback-1");
+  await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-1");
   await expect(metered).toHaveValue("3");
-  await page.locator("ga-mixer").getByLabel("Device", { exact: true }).selectOption("loopback-0");
+  await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
   await expect(metered).toHaveValue("1");
 
   await page.goto(`${server.url}/#/mixer`);
   await page.reload();
-  await expect(page.locator("ga-mixer").getByLabel("Device", { exact: true })).toHaveValue("loopback-0");
+  await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-0");
   await expect(metered).toHaveValue("1");
 });
 
@@ -219,7 +219,7 @@ test("a half-typed name is a draft: leaving the page keeps it without saving it,
 
   // Mixer: a mix name kept over a visit elsewhere, then saved with Enter.
   await open(page, "mixer");
-  await page.locator("ga-mixer").getByLabel("Device", { exact: true }).selectOption("loopback-0");
+  await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
   const mixName = page.getByTestId("mix-name-0");
   await mixName.fill("Control Ro");
   await open(page, "outputs");

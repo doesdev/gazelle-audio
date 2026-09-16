@@ -108,7 +108,7 @@ test("a link can join inputs on two devices, in relative mode, and the 48V confi
   const gains = recordGains(page);
   await page.goto(`${server.url}/#/inputs/loopback-0`);
   await page.getByTestId("pre-link-0").click();
-  await page.locator('ga-inputs select[aria-label="Device"]').selectOption("loopback-1");
+  await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
   await expect(page).toHaveURL(/inputs\/loopback-1$/);
   await expect(page.getByTestId("link-bar")).toContainText("Zen Quadro");
   await page.getByTestId("pre-link-1").click();
