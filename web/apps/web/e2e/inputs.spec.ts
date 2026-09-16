@@ -385,3 +385,44 @@ test("what the device's licence does not cover is listed greyed, and an emulatio
   await expect(duo.locator("option:enabled")).toHaveText(["Edge Duo", "Berlin 47 FT", "Berlin 67"]);
   await expect(duo.locator("option").nth(2)).toHaveText("Berlin 87 (not licensed)");
 });
+
+test("an Edge Quadro's row keeps room for every value: a line each when narrow, one row when wide (P80)", async ({ page }) => {
+  const selects = ["mic-target-0", "mic-model-0-bottom", "mic-pattern-0-bottom", "mic-model-0-top", "mic-pattern-0-top", "mic-preset-0"];
+  const box = async (testId: string) => (await page.getByTestId(testId).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+  const middle = async (testId: string) => ((b) => b.y + b.height / 2)(await box(testId));
+  // The room a select has beside the text of its value, in its own font; its padding, border and arrow take about 42px.
+  const room = (testId: string) =>
+    page.getByTestId(testId).evaluate((select: HTMLSelectElement) => {
+      const text = document.createElement("span");
+      text.style.cssText = `position: absolute; white-space: pre; font: ${getComputedStyle(select).font}`;
+      text.textContent = select.selectedOptions[0]?.textContent ?? "";
+      document.body.append(text);
+      const width = text.getBoundingClientRect().width;
+      text.remove();
+      return select.getBoundingClientRect().width - width;
+    });
+  // Narrow: the microphone beside Swap, each head, and the technique beside its plot, a line each.
+  // Wide: one row, the heads stacked between the microphone and the technique.
+  for (const [width, lines] of [[390, 4], [1400, 3]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    await page.getByTestId("mic-target-0").selectOption("4");
+    await page.getByTestId("mic-model-0-top").selectOption("3");
+    await page.getByTestId("mic-model-0-bottom").selectOption("3");
+    await page.getByTestId("mic-preset-0").selectOption("2");
+    const row = await box("mic-row-0");
+    for (const testId of selects) expect(await room(testId), `${testId} shows its value at ${width}px`).toBeGreaterThanOrEqual(44);
+    for (const testId of [...selects, "mic-plot-0", "mic-swap-0"]) {
+      const control = await box(testId);
+      expect(control.x + control.width, `${testId} inside the row at ${width}px`).toBeLessThanOrEqual(row.x + row.width);
+    }
+    const middles = await Promise.all(selects.map(middle));
+    expect(middles.filter((m, i) => middles.findIndex((n) => Math.abs(n - m) < 4) === i).length, `lines of selects at ${width}px`).toBe(lines);
+    expect(Math.abs((await middle("mic-swap-0")) - (await middle("mic-target-0"))), `Swap beside the microphone at ${width}px`).toBeLessThan(4);
+    if (width < 560) {
+      const plot = await box("mic-plot-0");
+      const pattern = await box("mic-pattern-0-top");
+      expect(Math.abs(plot.x + plot.width - (pattern.x + pattern.width)), "the technique's plot ends where the heads do").toBeLessThanOrEqual(2);
+    }
+  }
+});

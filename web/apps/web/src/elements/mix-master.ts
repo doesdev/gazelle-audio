@@ -46,7 +46,7 @@ export class GaMixMaster extends GaElement {
     const outputs = channels.mixOutputs(mix);
 
     const name = h("input", { type: "text", "aria-label": `Mix ${mix + 1} name`, placeholder: `Mix ${mix + 1}`, "data-testid": `mix-name-${mix}` });
-    commitOnEnter(name, (value) => channels.renameMix(mix, value.trim()), () => channels.layout.peek().mixes[mix]?.name ?? "");
+    const showName = commitOnEnter(name, (value) => channels.renameMix(mix, value.trim()), () => channels.layout.peek().mixes[mix]?.name ?? "", store.view<string | undefined>(`draft:mixer:${deviceId}:mix:${mix}:name`, undefined));
     const chips = h("div", { class: "chips", "data-testid": `mix-outputs-${mix}` });
     const add = h("select", {
       "aria-label": `Add an output for mix ${mix + 1}`,
@@ -72,7 +72,7 @@ export class GaMixMaster extends GaElement {
 
     this.watch(() => {
       const mixName = channels.mixName(mix);
-      if (this.root.activeElement !== name) name.value = channels.layout.value.mixes[mix]?.name ?? "";
+      showName(channels.layout.value.mixes[mix]?.name ?? "");
       const playing = outputs.value;
       chips.replaceChildren(
         ...(playing.length === 0

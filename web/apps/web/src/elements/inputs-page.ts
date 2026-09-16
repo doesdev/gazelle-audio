@@ -72,7 +72,8 @@ export class GaInputs extends GaElement {
       .gain .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .gain .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .gain[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
-      .mics { display: grid; gap: 6px; max-width: 640px; }
+      /* Rows follow the width they are given, not the window's (P80): side panels take from it too. */
+      .mics { display: grid; gap: 6px; max-width: 760px; container: mics / inline-size; }
       .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 2fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
       .mic select { min-width: 0; min-height: 24px; }
       .models { display: flex; min-width: 0; gap: 6px; }
@@ -95,9 +96,13 @@ export class GaInputs extends GaElement {
       .swap { font-size: 11px; font-weight: 700; }
       .swap[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .note-inline { margin: 6px 0 0; font-size: 11px; color: var(--ga-text-muted); }
-      @media (max-width: 560px) {
-        .mic { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
-        .mic .name { grid-column: 1 / -1; }
+      /* Narrow (a phone): a line each for the preamps, the microphone beside Swap, each head, and the
+         technique beside its plot, so every select keeps room for its value. */
+      @container mics (max-width: 639px) {
+        .mic { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+        .mic .name, .mic .models, .mic .stereo { grid-column: 1 / -1; }
+        .mic .swap { grid-row: 2; grid-column: 2; }
+        .mic .stereo select { flex: 1; }
       }
       .toggles { display: flex; gap: 4px; }
       .toggles button { flex: 1; min-width: 0; font-size: 11px; font-weight: 700; }

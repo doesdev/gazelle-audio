@@ -276,10 +276,17 @@ export class Store {
           this.#status.value = status;
           this.#server.value = client.server;
           refreshDevices();
+          // Mixes are read once and kept (P80). While the connection is down the server may restart
+          // or the device change, so they are read again once it is back.
+          if (status !== "open") for (const mixer of this.#mixers.values()) mixer.forget();
         }),
       ),
       client.on("device_added", refreshDevices),
-      client.on("device_removed", refreshDevices),
+      client.on("device_removed", (deviceId) => {
+        refreshDevices();
+        // Unplugged, or about to be re-attached: what comes back may not be as it was.
+        for (const mixer of this.#mixers.values()) if (mixer.deviceId === deviceId) mixer.forget();
+      }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
     );
   }
@@ -445,6 +452,25 @@ export class Store {
     });
     this.#mixers.set(key, model);
     return model;
+  }
+
+  /**
+   * Whether a device's mixes want reading now (P80): the connection is open, the device is attached,
+   * and some mix has not been read since it was last forgotten. Reading it is reactive.
+   */
+  mixesToRead(deviceId: string): boolean {
+    if (!this.connected.value) return false;
+    // Read reactively, so a device coming back is noticed.
+    const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+    const count = family === undefined || family === null ? 0 : topologies[family].mixers.count;
+    return Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).needsRead.value).some(Boolean);
+  }
+
+  /** Reads each of a device's mixes that wants it; after a read, pairs linked on the device (by its own panel) become links. */
+  async readMixes(deviceId: string): Promise<void> {
+    const count = this.topology(deviceId)?.mixers.count ?? 0;
+    const read = await Promise.all(Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).readOnce()));
+    if (read.some(Boolean)) await this.links.importDevicePairs(deviceId);
   }
 
   readonly #channels = new Map<string, ChannelsModel>();

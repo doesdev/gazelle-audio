@@ -6,6 +6,7 @@
 // command sent. The notes, the channels' scroll and a half-typed layout name are kept for the tab.
 
 import { h } from "../core/dom.ts";
+import { untracked } from "../core/signal.ts";
 import { meterDeflection } from "../store/mixer.ts";
 import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
@@ -152,10 +153,12 @@ export class GaMixer extends GaElement {
     });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
-    // Every mix's strips and links are read when the page opens (sends show other mixes' levels).
-    const loads = Array.from({ length: topology.mixers.count }, (_, mix) => store.mixer(deviceId, mix).load());
-    // Then pairs linked on the device (by its own panel) become links, unless already in one.
-    void Promise.all(loads).then(() => store.links.importDevicePairs(deviceId));
+    // Every mix's strips and links are read (sends show other mixes' levels), once: coming back to
+    // the page uses what the store has. They are read again once the connection or the device has
+    // come back (P80): at once while the page is open, else when it next opens.
+    this.watch(() => {
+      if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
+    });
     const levelsNote = h("li", {}, "The device's mixer levels have not been read (as in dry run), so controls start at defaults and send when changed.");
     this.watch(() => {
       levelsNote.hidden = mixer0.stateKnown.value;

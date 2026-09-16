@@ -51,7 +51,7 @@ export class GaWorkspace extends GaElement {
             "aria-label": `Name for ${device.id}`,
             disabled: !connected,
           });
-          commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "");
+          commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "", store.view<string | undefined>(`draft:workspace:${device.id}:name`, undefined));
           return h("tr", {}, h("td", {}, h("span", { class: "readout" }, device.id)), h("td", {}, input));
         }),
       );
