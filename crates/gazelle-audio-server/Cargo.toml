@@ -7,6 +7,10 @@ rust-version.workspace = true
 description = "Multi-device HTTP/WebSocket control server for Antelope Audio interfaces"
 
 [dependencies]
+# The devices are HID-class, so Windows claims them exclusively and raw USB cannot bind them
+# (reference/usb-access.md). `windows-native` is hidapi's Rust backend, so no C toolchain is
+# needed; macOS and Linux backends are selected per platform when those are built.
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 gazelle-audio-protocol = { path = "../gazelle-audio-protocol" }
 gazelle-audio-transport = { path = "../gazelle-audio-transport" }
 axum = { version = "0.8", features = ["ws"] }
