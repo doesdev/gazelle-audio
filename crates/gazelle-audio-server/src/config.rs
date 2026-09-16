@@ -29,6 +29,24 @@ pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))
 }
 
+/// The directory a server's log file goes in when `--log-dir` is not given, or `None` when the
+/// environment names nowhere for it (the server then writes no log file).
+///
+/// Logs are state, not configuration, so they do not follow `GAZELLE_CONFIG_DIR`: they go where
+/// each platform keeps such things, in a `gazelle` folder as the configuration does —
+/// `$XDG_STATE_HOME/gazelle/logs`, else `%LOCALAPPDATA%\gazelle\logs` (always set on Windows,
+/// including for a login entry, which has no `HOME`), else `$HOME/.local/state/gazelle/logs`.
+/// Never the working directory: a server started at login runs in a directory of the system's
+/// choosing.
+pub fn default_log_dir(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let var = |name: &str| var(name).filter(|v| !v.is_empty());
+    let base = var("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| var("LOCALAPPDATA").map(PathBuf::from))
+        .or_else(|| var("HOME").map(|home| PathBuf::from(home).join(".local").join("state")))?;
+    Some(base.join("gazelle").join("logs"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +101,21 @@ mod tests {
         assert_eq!(default_themes_dir(env(&[("HOME", "/home/u")])), PathBuf::from("/home/u/.config/gazelle/themes"));
         assert_eq!(default_themes_dir(env(&[])), PathBuf::from("themes"));
         assert_eq!(config_dir(env(&[])), None);
+    }
+
+    #[test]
+    fn logs_go_in_the_platform_state_folder_never_the_working_directory() {
+        let all = [("XDG_STATE_HOME", "/state"), ("LOCALAPPDATA", r"C:\Users\u\AppData\Local"), ("HOME", "/home/u")];
+        assert_eq!(default_log_dir(env(&all)), Some(PathBuf::from("/state/gazelle/logs")));
+        assert_eq!(default_log_dir(env(&all[1..])), Some(PathBuf::from(r"C:\Users\u\AppData\Local").join("gazelle").join("logs")));
+        assert_eq!(default_log_dir(env(&all[2..])), Some(PathBuf::from("/home/u/.local/state/gazelle/logs")));
+        assert_eq!(default_log_dir(env(&[])), None);
+    }
+
+    #[test]
+    fn empty_variables_do_not_name_a_log_folder_and_the_config_dir_is_not_one() {
+        let p = default_log_dir(env(&[("XDG_STATE_HOME", ""), ("LOCALAPPDATA", ""), ("HOME", "/home/u")]));
+        assert_eq!(p, Some(PathBuf::from("/home/u/.local/state/gazelle/logs")));
+        assert_eq!(default_log_dir(env(&[("GAZELLE_CONFIG_DIR", "/srv/gazelle")])), None);
     }
 }

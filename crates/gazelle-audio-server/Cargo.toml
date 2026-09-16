@@ -4,6 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+# `gazelle-audio-serverw` is the same server without a console window (src/bin); `cargo run`
+# means this one.
+default-run = "gazelle-audio-server"
 description = "Multi-device HTTP/WebSocket control server for Antelope Audio interfaces"
 
 [dependencies]

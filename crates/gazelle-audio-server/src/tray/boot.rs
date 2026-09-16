@@ -22,7 +22,7 @@ pub trait RunKey {
 ///
 /// Carried: what decides what the server serves and how safely — `--bind`, `--backend`,
 /// `--dry-run`, `--workspace`, `--themes-dir`, `--no-web-ui`, and for the loopback backend its
-/// models and cyclic interval. Not carried: `--no-persist`, which is for throwaway runs (a server
+/// models and cyclic interval — and where it keeps its record, `--log-dir`. Not carried: `--no-persist`, which is for throwaway runs (a server
 /// that starts at every login and forgets the user's layouts at every logoff is not what anyone
 /// is asking for), and `--no-tray`, which cannot be set on a server that has a tray to click.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub struct BootArgs {
     pub dry_run: bool,
     pub workspace: Option<PathBuf>,
     pub themes_dir: Option<PathBuf>,
+    pub log_dir: Option<PathBuf>,
     pub loopback_models: Vec<String>,
     pub loopback_cyclic_ms: Option<u64>,
     pub no_web_ui: bool,
@@ -44,7 +45,12 @@ impl BootArgs {
     /// would silently point somewhere else.
     pub fn absolute(self, cwd: &Path) -> Self {
         let resolve = |p: Option<PathBuf>| p.map(|p| if p.is_absolute() { p } else { cwd.join(p) });
-        Self { workspace: resolve(self.workspace), themes_dir: resolve(self.themes_dir), ..self }
+        Self {
+            workspace: resolve(self.workspace),
+            themes_dir: resolve(self.themes_dir),
+            log_dir: resolve(self.log_dir),
+            ..self
+        }
     }
 
     /// The argument list, in a fixed order.
@@ -58,6 +64,9 @@ impl BootArgs {
         }
         if let Some(path) = &self.themes_dir {
             args.extend(["--themes-dir".into(), path.display().to_string()]);
+        }
+        if let Some(path) = &self.log_dir {
+            args.extend(["--log-dir".into(), path.display().to_string()]);
         }
         if self.no_web_ui {
             args.push("--no-web-ui".into());
@@ -121,6 +130,32 @@ pub fn program_of(command: &str) -> Option<&str> {
     };
     (!program.is_empty()).then_some(program)
 }
+
+/// The program a login entry runs: the windowless build beside `exe` when there is one, so a
+/// server started at login opens no console window; else `exe` itself.
+///
+/// The windowless build is the same server with a `w` after the name, as `pythonw` and `javaw`
+/// are: `gazelle-audio-server.exe` → `gazelle-audio-serverw.exe`. `exists` is a parameter so the
+/// rule is tested without files.
+pub fn boot_program(exe: &Path, exists: impl Fn(&Path) -> bool) -> PathBuf {
+    let Some(stem) = exe.file_stem().and_then(|s| s.to_str()) else { return exe.to_path_buf() };
+    if stem.ends_with(WINDOWLESS_SUFFIX) {
+        return exe.to_path_buf();
+    }
+    let mut name = format!("{stem}{WINDOWLESS_SUFFIX}");
+    if let Some(ext) = exe.extension().and_then(|e| e.to_str()) {
+        name = format!("{name}.{ext}");
+    }
+    let windowless = exe.with_file_name(name);
+    if exists(&windowless) {
+        windowless
+    } else {
+        exe.to_path_buf()
+    }
+}
+
+/// What the windowless build adds to the server's name.
+pub const WINDOWLESS_SUFFIX: &str = "w";
 
 /// The start-on-boot setting for one binary with one argument list.
 pub struct StartOnBoot {
@@ -204,6 +239,7 @@ mod tests {
             dry_run: false,
             workspace: None,
             themes_dir: None,
+            log_dir: None,
             loopback_models: vec!["quadro".into(), "studio".into()],
             loopback_cyclic_ms: None,
             no_web_ui: false,
@@ -223,6 +259,7 @@ mod tests {
             dry_run: true,
             workspace: Some(PathBuf::from("/w/workspace.json")),
             themes_dir: Some(PathBuf::from("/w/themes")),
+            log_dir: Some(PathBuf::from("/w/logs")),
             no_web_ui: true,
             ..args()
         };
@@ -230,7 +267,7 @@ mod tests {
             a.arguments(),
             [
                 "--backend", "usb", "--bind", "127.0.0.1:8420", "--dry-run", "--workspace", "/w/workspace.json",
-                "--themes-dir", "/w/themes", "--no-web-ui",
+                "--themes-dir", "/w/themes", "--log-dir", "/w/logs", "--no-web-ui",
             ]
         );
     }
@@ -250,9 +287,15 @@ mod tests {
     fn relative_paths_are_resolved_against_the_working_directory() {
         let cwd = std::env::current_dir().unwrap();
         let absolute = cwd.join("elsewhere").join("themes");
-        let a = BootArgs { workspace: Some("state/workspace.json".into()), themes_dir: Some(absolute.clone()), ..args() }
-            .absolute(&cwd);
+        let a = BootArgs {
+            workspace: Some("state/workspace.json".into()),
+            themes_dir: Some(absolute.clone()),
+            log_dir: Some("logs".into()),
+            ..args()
+        }
+        .absolute(&cwd);
         assert_eq!(a.workspace, Some(cwd.join("state/workspace.json")));
+        assert_eq!(a.log_dir, Some(cwd.join("logs")));
         assert_eq!(a.themes_dir, Some(absolute), "an absolute path is left alone");
         assert_eq!(BootArgs { ..args() }.absolute(&cwd), args(), "no paths, nothing to resolve");
     }
@@ -281,6 +324,16 @@ mod tests {
         assert_eq!(program_of(r"C:\tools\g.exe"), Some(r"C:\tools\g.exe"));
         assert_eq!(program_of(r#""C:\unterminated"#), None);
         assert_eq!(program_of(""), None);
+    }
+
+    #[test]
+    fn a_login_entry_runs_the_windowless_build_when_it_is_there() {
+        let windowless = r"C:\Program Files\Gazelle\gazelle-audio-serverw.exe";
+        let only = |present: &'static str| move |p: &Path| p == Path::new(present);
+        assert_eq!(boot_program(Path::new(EXE), only(windowless)), PathBuf::from(windowless));
+        assert_eq!(boot_program(Path::new(EXE), |_| false), PathBuf::from(EXE), "no windowless build: the console one");
+        assert_eq!(boot_program(Path::new(windowless), |_| true), PathBuf::from(windowless), "already windowless, no second w");
+        assert_eq!(boot_program(Path::new("/opt/gazelle/gazelle-audio-server"), |_| true), PathBuf::from("/opt/gazelle/gazelle-audio-serverw"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! The server's tray icon: open the UI, see what the server is doing, start it on boot, quit.
+//! The server's tray icon: open the UI, see what the server is doing, start it on boot, open its
+//! log folder, quit.
 //!
 //! What the menu holds is decided here, as plain data, so it is tested without a desktop. The
 //! Windows module only draws it. The menu is rebuilt each time it opens, so the status lines
@@ -36,6 +37,8 @@ pub struct Context {
     /// This binary, for the boot entry.
     pub exe: PathBuf,
     pub boot_args: BootArgs,
+    /// The folder the log file is written to, when there is one.
+    pub log_dir: Option<PathBuf>,
     /// Asks the server to stop. The tray removes itself straight after.
     pub quit: Box<dyn Fn()>,
 }
@@ -87,6 +90,7 @@ pub enum Command {
     Open,
     StartOnBoot,
     Quit,
+    OpenLogFolder,
 }
 
 impl Command {
@@ -96,11 +100,12 @@ impl Command {
             Command::Open => 1,
             Command::StartOnBoot => 2,
             Command::Quit => 3,
+            Command::OpenLogFolder => 4,
         }
     }
 
     pub fn from_id(id: usize) -> Option<Command> {
-        [Command::Open, Command::StartOnBoot, Command::Quit].into_iter().find(|c| c.id() == id)
+        [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder].into_iter().find(|c| c.id() == id)
     }
 }
 
@@ -125,6 +130,8 @@ pub struct Status {
     pub devices: Vec<String>,
     pub antelope_service_running: bool,
     pub start_on_boot: bool,
+    /// Whether a log file is being written, so there is a folder to open.
+    pub log_file: bool,
 }
 
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
@@ -177,6 +184,13 @@ pub fn menu(status: &Status) -> Vec<Item> {
             checked: Some(status.start_on_boot),
             default: false,
         },
+        Item::Action {
+            command: Command::OpenLogFolder,
+            label: if status.log_file { "Open log folder".into() } else { "Open log folder (no log file)".into() },
+            enabled: status.log_file,
+            checked: None,
+            default: false,
+        },
         Item::Separator,
         Item::Action { command: Command::Quit, label: "Quit".into(), enabled: true, checked: None, default: false },
     ]);
@@ -197,6 +211,7 @@ mod tests {
             devices: vec!["Zen Quadro".into(), "Zen Studio+".into()],
             antelope_service_running: false,
             start_on_boot: false,
+            log_file: true,
         }
     }
 
@@ -237,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_opens_then_reports_then_offers_boot_and_quit() {
+    fn the_menu_opens_then_reports_then_offers_boot_the_log_and_quit() {
         let items = menu(&status());
         assert_eq!(
             items.first(),
@@ -249,7 +264,7 @@ mod tests {
         );
         let commands: Vec<Command> =
             items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
-        assert_eq!(commands, [Command::Open, Command::StartOnBoot, Command::Quit]);
+        assert_eq!(commands, [Command::Open, Command::StartOnBoot, Command::OpenLogFolder, Command::Quit]);
         assert_eq!(items.last(), Some(action(&items, Command::Quit)));
         assert!(!items.iter().any(|i| matches!(i, Item::Action { default: true, command, .. } if *command != Command::Open)));
     }
@@ -282,8 +297,19 @@ mod tests {
     }
 
     #[test]
+    fn the_log_folder_opens_only_while_a_log_file_is_written() {
+        let items = menu(&status());
+        assert_eq!(
+            action(&items, Command::OpenLogFolder),
+            &Item::Action { command: Command::OpenLogFolder, label: "Open log folder".into(), enabled: true, checked: None, default: false }
+        );
+        let items = menu(&Status { log_file: false, ..status() });
+        assert!(matches!(action(&items, Command::OpenLogFolder), Item::Action { enabled: false, label, .. } if label == "Open log folder (no log file)"));
+    }
+
+    #[test]
     fn command_ids_round_trip_and_zero_is_no_command() {
-        for c in [Command::Open, Command::StartOnBoot, Command::Quit] {
+        for c in [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder] {
             assert_eq!(Command::from_id(c.id()), Some(c));
         }
         assert_eq!(Command::from_id(0), None);
