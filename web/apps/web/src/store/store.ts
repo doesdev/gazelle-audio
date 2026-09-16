@@ -509,6 +509,18 @@ export class Store {
     return true;
   }
 
+  /**
+   * Powers a device on or puts it in standby (`set_power`, which both models have and report back
+   * as `power_on`). Returns false for a device whose model is unknown, so nothing is sent blind.
+   * Each call is its own command: powering off is not something to coalesce with an earlier change.
+   */
+  setPower(deviceId: string, on: boolean): boolean {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return false;
+    void this.#invokeCommand(deviceId, "set_power", { power: on ? 1 : 0 }, {});
+    return true;
+  }
+
   /** Sets a device's alias; a blank name removes it. */
   renameDevice(deviceId: string, name: string): boolean {
     const alias = name.trim();

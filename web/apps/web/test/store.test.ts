@@ -187,3 +187,20 @@ test("value equality treats bytes, arrays and objects structurally", () => {
   assert.equal(sameValue([{ volume: 1 }], [{ volume: 2 }]), false);
   assert.equal(sameValue({ a: 1 }, { a: 1, b: 2 }), false);
 });
+
+test("device power: set_power carries 1 or 0, and only devices of known model have it", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("usb:1", null, null));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  assert.equal(store.setPower("loopback-0", false), true);
+  assert.equal(store.setPower("loopback-0", true), true);
+  await flush();
+  assert.deepEqual(
+    client.invocations.filter((c) => c.command === "set_power").map((c) => [c.deviceId, c.args]),
+    [["loopback-0", { power: 0 }], ["loopback-0", { power: 1 }]],
+  );
+  // Each power change is its own command, not coalesced with the previous one.
+  assert.deepEqual(client.invocations.filter((c) => c.command === "set_power").map((c) => c.options?.["coalesce"]), [undefined, undefined]);
+  assert.equal(store.setPower("usb:1", true), false, "a device of unknown model has no known commands");
+});

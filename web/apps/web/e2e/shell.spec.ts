@@ -94,3 +94,25 @@ test("controls are disabled and the header says so when the server stops", async
     await own.stop();
   }
 });
+
+test("the Devices page powers a device on, and to standby behind a confirm", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  const powers = () => frames.filter((f) => f.command === "set_power").map((f) => f.args?.["power"]);
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+
+  await page.getByTestId("device-power-on").click();
+  await expect.poll(powers).toEqual([1]);
+
+  // Standby stops the audio, so it takes a confirming second click.
+  const standby = page.getByTestId("device-standby");
+  await standby.click();
+  await expect(standby).toHaveText(/Confirm/);
+  await expect.poll(powers).toEqual([1]);
+  await standby.click();
+  await expect.poll(powers).toEqual([1, 0]);
+});

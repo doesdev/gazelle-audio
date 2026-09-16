@@ -7,6 +7,9 @@ import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
 const STATUS_REPORT = "0x73";
 
+/** How long a first Standby click waits for its confirmation, as 48V does. */
+const ARM_MS = 3000;
+
 const LIVE_FIELDS: readonly [field: string, label: string, format: (value: unknown) => string][] = [
   ["power_on", "Power", (value) => (value ? "On" : "Standby")],
   ["current_preset", "Preset", (value) => String(value)],
@@ -21,6 +24,9 @@ export class GaDeviceStatus extends GaElement {
       :host { display: block; max-width: 640px; }
       ga-section + ga-section { margin-top: 10px; }
       .name { width: 100%; max-width: 280px; }
+      .power { display: flex; gap: 6px; margin-top: 8px; }
+      .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
+      .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
   ];
 
@@ -58,6 +64,48 @@ export class GaDeviceStatus extends GaElement {
       }
     }
 
+    // Power: both models take `set_power` and report `power_on`. Standby stops the device's audio,
+    // so it takes a confirming second click, as 48V does. A device of unknown model gets neither.
+    let powerControls: HTMLElement | undefined;
+    if (device.family !== null) {
+      const powerOn = h("button", { type: "button", "data-testid": "device-power-on", "on:click": () => store.setPower(id, true) }, "Power on");
+      let armTimer: ReturnType<typeof setTimeout> | undefined;
+      const disarm = () => {
+        clearTimeout(armTimer);
+        armTimer = undefined;
+        standby.removeAttribute("data-armed");
+        standby.textContent = "Standby";
+      };
+      const standby = h(
+        "button",
+        {
+          type: "button",
+          class: "standby",
+          "data-testid": "device-standby",
+          title: "Put the device in standby: click twice",
+          "on:click": () => {
+            if (armTimer !== undefined) {
+              disarm();
+              store.setPower(id, false);
+              return;
+            }
+            standby.setAttribute("data-armed", "");
+            standby.textContent = "Confirm standby";
+            armTimer = setTimeout(disarm, ARM_MS);
+          },
+        },
+        "Standby",
+      );
+      this.onDisconnect(disarm);
+      powerControls = h("div", { class: "power", role: "group", "aria-label": "Device power" }, powerOn, standby);
+      this.watch(() => {
+        const connected = store.connected.value;
+        powerOn.disabled = !connected;
+        standby.disabled = !connected;
+        if (!connected) disarm();
+      });
+    }
+
     this.root.replaceChildren(
       h(
         "ga-section",
@@ -75,6 +123,7 @@ export class GaDeviceStatus extends GaElement {
         ),
       ),
       liveSection,
+      ...(powerControls === undefined ? [] : [powerControls]),
     );
 
     this.watch(() => {
