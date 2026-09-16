@@ -38,6 +38,15 @@ export function href(route: Route): string {
 
 export const route = signal<Route>({ page: "devices" }, (a, b) => a.page === b.page && a.id === b.id && a.sub === b.sub);
 
+/**
+ * Changes the address in place, without a history entry or a `hashchange`: for a choice made on the
+ * page that the address should carry (the Mixer page's mix), where the page itself stays as it is.
+ */
+export function replaceRoute(next: Route): void {
+  history.replaceState(history.state, "", href(next));
+  route.value = parseRoute(location.hash);
+}
+
 /** Keeps `route` in step with the address bar until the returned function is called. */
 export function followHash(): () => void {
   const update = () => {

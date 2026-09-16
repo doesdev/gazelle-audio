@@ -1,5 +1,6 @@
 // <ga-device-list>: every connected device, by the name the user gave it, with a colour swatch
-// from the theme's channel palette. Selecting one opens its status page.
+// from the theme's channel palette. Selecting one opens its status page; on the Devices page, the
+// device shown is marked.
 
 import { h } from "../core/dom.ts";
 import { displayName } from "../store/store.ts";
@@ -37,7 +38,7 @@ export class GaDeviceList extends GaElement {
       const workspace = store.workspace.value;
       const current = route.value;
       const colours = Math.max(1, store.theme.value.palette.length);
-      const selected = current.page === "devices" ? (current.id ?? devices[0]?.id) : undefined;
+      const selected = current.page === "devices" ? (current.id ?? store.deviceInView(false)) : undefined;
       list.replaceChildren(
         ...(devices.length === 0
           ? [h("li", { class: "empty" }, "No devices")]

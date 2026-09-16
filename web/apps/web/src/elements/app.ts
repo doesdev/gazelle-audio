@@ -2,12 +2,18 @@
 // page in the centre, and a right zone for meters and the Control Room monitor panel;
 // a lower zone is reserved for the mixer (phase 4). It applies the chosen theme to the document
 // and marks itself disconnected when the server goes away.
+//
+// A page is built for each change of what is shown: page and device (decision P71). The device
+// an address names is remembered as the selected one; an address that names none shows the one
+// last selected. Leaving a page disposes of it, so a page that is not shown follows nothing; its
+// scroll position and other view state are kept in the store and put back when it is built again.
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
 import { cssProperties } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
-import { followHash, PAGES, route, type Route } from "./router.ts";
+import { followHash, PAGES, route, type Page } from "./router.ts";
+import { keepScroll } from "./view-state.ts";
 
 export class GaApp extends GaElement {
   static override styles = [
@@ -61,6 +67,7 @@ export class GaApp extends GaElement {
     const title = h("h1", { class: "page-title" });
     const banner = h("p", { class: "disconnected", role: "alert", hidden: true }, "The server is not connected. Controls are disabled until it reconnects.");
     const page = h("div", { class: "page" });
+    const main = h("main", {}, banner, title, page);
     const leftToggle = h("button", { class: "collapse", type: "button", "data-testid": "collapse-left", "on:click": () => store.togglePanel("left") });
     const rightToggle = h("button", { class: "collapse", type: "button", "data-testid": "collapse-right", "on:click": () => store.togglePanel("right") });
     this.root.replaceChildren(
@@ -69,7 +76,7 @@ export class GaApp extends GaElement {
         "div",
         { class: "zones" },
         h("aside", { class: "zone left", "aria-label": "Devices" }, h("div", { class: "rail" }, leftToggle), h("div", { class: "content" }, h("ga-device-list"))),
-        h("main", {}, banner, title, page),
+        main,
         h(
           "aside",
           { class: "zone right", "aria-label": "Meters and control room" },
@@ -108,43 +115,56 @@ export class GaApp extends GaElement {
       banner.hidden = connected;
       this.toggleAttribute("disconnected", !connected);
     });
+    let built: string | undefined;
+    let scroll: (() => void) | undefined;
+    this.onDisconnect(() => scroll?.());
     this.watch(() => {
       const current = route.value;
-      // Without a device in the address, a page shows the first device it can (for the mixer, the first of known model).
-      const first = current.id === undefined && (current.page === "devices" || current.page === "inputs" || current.page === "outputs" || current.page === "mixer" || current.page === "routing") ? store.devices.value.find((d) => current.page === "devices" || d.family !== null)?.id : undefined;
       title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
-      // A page element renders as it is appended, and whatever it reads there would otherwise
-      // become a dependency of this effect: the page would be torn down and rebuilt on every
-      // report, losing anything half-done in it. Only the address decides what is built here.
-      untracked(() => page.replaceChildren(pageFor(current, first)));
+      // Every page but the Devices page needs a device of known model.
+      const known = current.page !== "devices";
+      let deviceId: string | undefined;
+      if (current.page !== "workspace") {
+        const named = current.id === undefined ? undefined : store.devices.value.find((d) => d.id === current.id);
+        deviceId = current.id ?? store.deviceInView(known);
+        // A device the address names is the selected one from here on, when this page can show it.
+        // That includes one reached by a link rather than a picker: it is still the device on screen.
+        if (named !== undefined && (!known || named.family !== null)) untracked(() => store.selectDevice(named.id));
+        if (current.page === "mixer" && deviceId !== undefined && current.sub !== undefined) {
+          const mix = Number(current.sub);
+          untracked(() => store.selectMix(deviceId as string, mix));
+        }
+      }
+      // Only a different page or device is built anew; a new mix is the store's selection, which the
+      // Mixer page follows. A page element renders as it is appended, and whatever it reads there
+      // would otherwise become a dependency of this effect: the page would be rebuilt on every
+      // report, losing anything half-done in it.
+      const key = `${current.page}/${deviceId ?? ""}`;
+      if (key === built) return;
+      built = key;
+      untracked(() => {
+        scroll?.();
+        page.replaceChildren(pageFor(current.page, deviceId));
+        scroll = keepScroll(main, store.view(`scroll:${key}`, 0));
+      });
     });
   }
 }
 
-function pageFor(current: Route, firstDeviceId: string | undefined): HTMLElement {
-  switch (current.page) {
-    case "devices": {
-      const id = current.id ?? firstDeviceId;
+function pageFor(page: Page, id: string | undefined): HTMLElement {
+  switch (page) {
+    case "devices":
       return id === undefined ? h("p", { class: "placeholder" }, "No devices are connected.") : h("ga-device-status", { "device-id": id });
-    }
     case "workspace":
       return h("ga-workspace");
-    case "inputs": {
-      const id = current.id ?? firstDeviceId;
+    case "inputs":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-inputs", { "device-id": id });
-    }
-    case "outputs": {
-      const id = current.id ?? firstDeviceId;
+    case "outputs":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-outputs", { "device-id": id });
-    }
-    case "mixer": {
-      const id = current.id ?? firstDeviceId;
-      return id === undefined ? h("p", { class: "placeholder" }, "No device with a known mixer is connected.") : h("ga-mixer", { "device-id": id, mixer: current.sub ?? "0" });
-    }
-    case "routing": {
-      const id = current.id ?? firstDeviceId;
+    case "mixer":
+      return id === undefined ? h("p", { class: "placeholder" }, "No device with a known mixer is connected.") : h("ga-mixer", { "device-id": id });
+    case "routing":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-routing", { "device-id": id });
-    }
   }
 }
 

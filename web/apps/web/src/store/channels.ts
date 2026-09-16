@@ -36,6 +36,8 @@ export interface ChannelsContext {
   editSaved(update: (layouts: SavedLayout[]) => SavedLayout[]): boolean;
   /** One of the device's mixes, for mono. */
   mixer(mix: number): Pick<MixerModel, "strip" | "sendPan">;
+  /** Where the metered mix is kept: the store remembers it per device. A signal of its own without. */
+  meteredMix?: { get(): ReadonlySignal<number>; set(mix: number): void };
 }
 
 export const emptyLayout = (): DeviceMixer => ({ mixes: [], groups: [], channels: [] });
@@ -57,8 +59,8 @@ export class ChannelsModel {
   readonly firstSlot: number;
   readonly mixCount: number;
   readonly layout: ReadonlySignal<DeviceMixer>;
-  /** The mix the device's meters show; it meters one mix at a time. Per page view, not saved. */
-  readonly meteredMix: Signal<number> = signal(0);
+  /** The mix the device's meters show; it meters one mix at a time. It is the Mixer page's selected mix. */
+  readonly meteredMix: Signal<number>;
   readonly #context: ChannelsContext;
   /** Each mix's MIX IN destination position in the topology. */
   readonly #mixInputs: readonly number[];
@@ -69,6 +71,19 @@ export class ChannelsModel {
 
   constructor(context: ChannelsContext) {
     this.#context = context;
+    const kept = context.meteredMix;
+    this.meteredMix =
+      kept === undefined
+        ? signal(0)
+        : {
+            get value() {
+              return kept.get().value;
+            },
+            set value(mix: number) {
+              kept.set(mix);
+            },
+            peek: () => kept.get().peek(),
+          };
     this.deviceId = context.deviceId;
     this.firstSlot = context.family === "quadro" ? QUADRO_EFFECT_SLOTS : 0;
     this.mixCount = context.topology.mixers.count;

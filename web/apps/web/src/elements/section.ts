@@ -1,5 +1,6 @@
 // <ga-section heading="Devices" [collapsed]>: a titled bar with a disclosure arrow that shows or
-// hides its content. Controls for the section go in slot="actions" at the bar's right end.
+// hides its content. Controls for the section go in slot="actions" at the bar's right end. It fires
+// `toggle` when the person opens or closes it.
 
 import { h } from "../core/dom.ts";
 import { GaElement, sheet } from "./element.ts";
@@ -62,7 +63,15 @@ export class GaSection extends GaElement {
     this.#title = h("span", { class: "title" }, this.getAttribute("heading") ?? "");
     this.#toggle = h(
       "button",
-      { class: "toggle", type: "button", "aria-expanded": String(!this.collapsed), "on:click": () => (this.collapsed = !this.collapsed) },
+      {
+        class: "toggle",
+        type: "button",
+        "aria-expanded": String(!this.collapsed),
+        "on:click": () => {
+          this.collapsed = !this.collapsed;
+          this.dispatchEvent(new Event("toggle"));
+        },
+      },
       h("span", { class: "disclosure", "aria-hidden": "true" }),
       this.#title,
     );

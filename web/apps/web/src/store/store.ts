@@ -10,6 +10,10 @@
 //   re-renders only when its own value changes, at most once per frame.
 // - Themes: built-in and community sources from the app, user themes from the server; the pick
 //   is remembered per browser.
+// - Selection: the device last opened on a page and each device's last mix are remembered per
+//   browser, so a page whose address names neither lands where the user last was. Other view
+//   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
+//   pages are rebuilt on every change of address and read it back when they are.
 
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
@@ -19,11 +23,13 @@ import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
-import { clampStripWidth, parseMixerWidth, parsePanels, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
+import { clampStripWidth, parseMixerWidth, parsePanels, parseSelectedDevice, parseSelectedMixes, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
 
 export type { MixerWidth, PanelState };
 export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
 export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
+export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
+export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
@@ -225,6 +231,10 @@ export class Store {
   readonly theme: ReadonlySignal<ResolvedTheme>;
   readonly #mixerWidth: Signal<MixerWidth>;
   readonly #panels: Signal<PanelState>;
+  readonly #selectedDevice: Signal<string | undefined>;
+  readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
+  readonly #selectedMix = new Map<string, ReadonlySignal<number>>();
+  readonly #views = new Map<string, Signal<unknown>>();
 
   constructor(client: Client, dependencies: StoreDependencies = {}) {
     this.#client = client;
@@ -246,6 +256,8 @@ export class Store {
     this.#themeId = signal(stored ?? BASE_THEME);
     this.#mixerWidth = persisted(this.#storage, MIXER_WIDTH_STORAGE_KEY, { auto: true, px: STRIP_WIDTH_DEFAULT }, parseMixerWidth);
     this.#panels = persisted(this.#storage, PANELS_STORAGE_KEY, { leftCollapsed: false, rightCollapsed: false }, parsePanels);
+    this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
+    this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -321,6 +333,71 @@ export class Store {
     this.#panels.value = side === "left" ? { ...current, leftCollapsed: !current.leftCollapsed } : { ...current, rightCollapsed: !current.rightCollapsed };
   }
 
+  /** The device last opened on a page that names one; remembered per browser. */
+  get selectedDevice(): ReadonlySignal<string | undefined> {
+    return this.#selectedDevice;
+  }
+
+  /**
+   * Remembers the device a page is open on. Only a connected device is remembered: an address
+   * naming one that is gone (an old bookmark) shows a placeholder, and should not replace the
+   * device the user was last working with. Returns whether it was remembered.
+   */
+  selectDevice(deviceId: string): boolean {
+    if (!this.#devices.peek().some((d) => d.id === deviceId)) return false;
+    this.#selectedDevice.value = deviceId;
+    return true;
+  }
+
+  /**
+   * The device a page whose address names none shows: the one last selected while it is connected
+   * (and of known model, for `known`), else the first such device. Reading it is reactive.
+   */
+  deviceInView(known: boolean): string | undefined {
+    const candidates = this.#devices.value.filter((d) => !known || d.family !== null);
+    const selected = this.#selectedDevice.value;
+    return (candidates.find((d) => d.id === selected) ?? candidates[0])?.id;
+  }
+
+  /** The mix last chosen on a device, within its mixes: 0 until one is, or for an unknown model. */
+  selectedMix(deviceId: string): ReadonlySignal<number> {
+    let mix = this.#selectedMix.get(deviceId);
+    if (mix === undefined) {
+      // One computed per device, so choosing a mix on one device does not wake watchers of the
+      // other's (the Mixer page re-points the device's meters whenever its mix changes).
+      mix = computed(() => {
+        const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+        const stored = this.#selectedMixes.value[deviceId] ?? 0;
+        return family === undefined || family === null ? 0 : Math.min(topologies[family].mixers.count - 1, stored);
+      });
+      this.#selectedMix.set(deviceId, mix);
+    }
+    return mix;
+  }
+
+  /** Remembers a device's mix. Returns false for a mix the device does not have. */
+  selectMix(deviceId: string, mix: number): boolean {
+    const count = this.topology(deviceId)?.mixers.count ?? 0;
+    if (!Number.isInteger(mix) || mix < 0 || mix >= count) return false;
+    const mixes = this.#selectedMixes.peek();
+    if (mixes[deviceId] !== mix) this.#selectedMixes.value = { ...mixes, [deviceId]: mix };
+    return true;
+  }
+
+  /**
+   * View state for the tab, by key: a page's scroll position, an open section, a selection in
+   * progress. Pages are rebuilt whenever the address changes and read theirs back from here, so
+   * leaving a page and coming back finds it as it was. Not saved: a reload starts afresh.
+   */
+  view<T>(key: string, initial: T): Signal<T> {
+    let state = this.#views.get(key);
+    if (state === undefined) {
+      state = signal<unknown>(initial);
+      this.#views.set(key, state);
+    }
+    return state as Signal<T>;
+  }
+
   /** The last mixer command sent and the bytes the server reported (shown in dry run). */
   get lastSent(): ReadonlySignal<SentCommand | undefined> {
     return this.#lastSent;
@@ -389,6 +466,10 @@ export class Store {
       saved: computed(() => this.#workspace.value?.layouts ?? []),
       editSaved: (update) => this.editWorkspace((workspace) => ({ ...workspace, layouts: update([...(workspace.layouts ?? [])]) })),
       mixer: (mix) => this.mixer(deviceId, mix),
+      meteredMix: {
+        get: () => this.selectedMix(deviceId),
+        set: (mix) => this.selectMix(deviceId, mix),
+      },
     });
     this.#channels.set(deviceId, model);
     return model;
