@@ -280,6 +280,21 @@ test("polar patterns per head, and the stereo techniques an Edge Quadro's heads 
   await page.getByTestId("mic-target-0").selectOption("3");
   await expect(page.getByTestId("mic-pattern-0")).toHaveCount(0);
   await expect(page.getByTestId("mic-preset-0")).toBeHidden();
+  await expect(page.getByTestId("mic-plot-0")).toHaveCount(0);
+
+  // An Edge Duo has one head, and a plot beside its pattern that follows the pick; a figure-8's
+  // rear lobe is out of phase and drawn apart from the front.
+  await page.getByTestId("mic-target-0").selectOption("1");
+  await page.getByTestId("mic-model-0").selectOption({ label: "Berlin 67" });
+  const plot = page.getByTestId("mic-plot-0");
+  await page.getByTestId("mic-pattern-0").selectOption({ label: "Cardioid" });
+  await expect(plot).toHaveAttribute("aria-label", "Polar pattern: Cardioid");
+  await expect(plot.locator(".lobe")).toHaveCount(1);
+  const cardioid = await plot.locator(".lobe").first().getAttribute("d");
+  await page.getByTestId("mic-pattern-0").selectOption({ label: "Figure-8" });
+  await expect(plot).toHaveAttribute("aria-label", "Polar pattern: Figure-8");
+  await expect(plot.locator(".lobe.negative")).toHaveCount(1);
+  await expect(plot.locator(".lobe:not(.negative)")).not.toHaveAttribute("d", cardioid ?? "");
 
   // An Edge Quadro has one per head, and a stereo technique over both.
   await page.getByTestId("mic-target-0").selectOption("4");
@@ -295,6 +310,14 @@ test("polar patterns per head, and the stereo techniques an Edge Quadro's heads 
   // Blumlein is both capsules at figure-8, which on this model is the last of its three positions.
   await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").slice(-4).map((f) => f.args?.["pattern"])).toEqual([2, 2, 2, 2]);
   await expect(top).toHaveValue("2");
+  // Both heads are in the one plot beside the technique, drawn turned as it wants them.
+  const overlay = page.getByTestId("mic-plot-0");
+  await expect(overlay).toHaveAttribute("aria-label", "Polar patterns: Bottom Figure-8, Top Figure-8, drawn turned as Blumlein wants the heads, not as they sit");
+  await expect(overlay.locator(".lobe.negative")).toHaveCount(2);
+  await expect(page.getByTestId("mic-row-0").locator(".polar-plot")).toHaveCount(1);
+  await preset.selectOption("1");
+  await expect(overlay).toHaveAttribute("aria-label", /^Polar patterns: Bottom Cardioid, Top Cardioid, drawn turned as XY/);
+  await expect(overlay.locator(".lobe.negative")).toHaveCount(0);
 
   // Oxford 4038 is fixed at figure-8, so XY is not on offer once a head carries it.
   await page.getByTestId("mic-model-0-top").selectOption("6");
