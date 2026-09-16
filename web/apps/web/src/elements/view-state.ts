@@ -19,10 +19,8 @@ export function keepScroll(element: HTMLElement, state: Signal<number>, axis: "t
   const offset = axis === "top" ? "scrollTop" : "scrollLeft";
   const wanted = state.peek();
   const started = performance.now();
-  let restoring = true;
   let frame = 0;
   const stopRestoring = () => {
-    restoring = false;
     cancelAnimationFrame(frame);
   };
   const restore = () => {
@@ -30,9 +28,8 @@ export function keepScroll(element: HTMLElement, state: Signal<number>, axis: "t
     if (Math.abs(element[offset] - wanted) <= 1 || performance.now() - started > RESTORE_MS) stopRestoring();
     else frame = requestAnimationFrame(restore);
   };
-  // While restoring, offsets come from the retries (or from the content being too short), not the person.
   const record = () => {
-    if (!restoring) state.value = element[offset];
+    state.value = element[offset];
   };
   const inputs = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
   element.addEventListener("scroll", record, { passive: true });
