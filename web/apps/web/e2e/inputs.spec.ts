@@ -324,3 +324,64 @@ test("polar patterns per head, and the stereo techniques an Edge Quadro's heads 
   await expect(page.getByTestId("mic-preset-0").locator("option").nth(1)).toBeDisabled();
   await expect(page.getByTestId("mic-pattern-0-top")).toBeDisabled();
 });
+
+test("with the licence unread, as in a dry run, every microphone and emulation is offered", async ({ page }) => {
+  const frames: { command?: string }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string });
+    }),
+  );
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  // The page asks for the licence on its own; a dry run answers nothing, which must hide nothing.
+  await expect.poll(() => frames.some((f) => f.command === "get_feature_mask")).toBe(true);
+  const target = page.getByTestId("mic-target-0");
+  await expect(target.locator("option")).toHaveText(["None", "Edge Duo", "Verge", "Edge Solo", "Edge Quadro", "Accord", "Edge Note"]);
+  await expect(target.locator("option:disabled")).toHaveCount(0);
+  await target.selectOption("1");
+  const model = page.getByTestId("mic-model-0");
+  await expect(model.locator("option")).toHaveCount(19);
+  await expect(model.locator("option:disabled")).toHaveCount(0);
+  await expect(page.getByText("not licensed")).toHaveCount(0);
+});
+
+test("what the device's licence does not cover is listed greyed, and an emulation already in use still shows", async ({ page }) => {
+  // Stands in for a device with a licence: the server's dry run answers no read, so these two
+  // replies come from here and everything else goes to the server as usual.
+  const mask = new Uint8Array(290);
+  // Edge Duo (408) with Berlin 47 FT (410) and Berlin 67 (412), and an Edge Solo (499) alone.
+  for (const bit of [0, 408, 410, 412, 499]) mask[1 + (bit >> 3)] = (mask[1 + (bit >> 3)] as number) | (1 << (bit & 7));
+  const replies: Record<string, unknown> = {
+    get_feature_mask: { payload: [...mask].map((b) => b.toString(16).padStart(2, "0")).join("") },
+    // The device is on a Verge, which is not licensed, and an Edge Solo on its Tokyo 800T, which is not either.
+    get_mic_emulations: { entries: [{ target: 2, emu_model: 5, ch_swap: 0, pattern: 0 }, { target: 3, emu_model: 1, ch_swap: 0, pattern: 0 }] },
+  };
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const upstream = socket.connectToServer();
+    socket.onMessage((message) => {
+      const frame = typeof message === "string" ? (JSON.parse(message) as { id?: number; device_id?: string; command?: string }) : {};
+      const response = frame.command === undefined ? undefined : replies[frame.command];
+      if (response === undefined || frame.device_id !== "loopback-0") return upstream.send(message);
+      socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response, response_error: null } }));
+    });
+  });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+
+  const target = page.getByTestId("mic-target-0");
+  await expect(target).toHaveValue("2");
+  await expect(target.locator("option")).toHaveText(["None", "Edge Duo", "Verge (not licensed)", "Edge Solo", "Edge Quadro (not licensed)", "Accord (not licensed)", "Edge Note (not licensed)"]);
+  await expect(target.locator("option:disabled")).toHaveCount(4);
+  await expect(target).toBeEnabled();
+
+  const solo = page.getByTestId("mic-model-1");
+  await expect(solo).toHaveValue("1");
+  await expect(solo.locator("option:checked")).toHaveText("Tokyo 800T (not licensed)");
+  await expect(solo.locator("option").first()).toBeEnabled();
+  await expect(solo.locator("option:disabled")).toHaveCount(18);
+
+  // A licensed microphone offers its licensed emulations, and lists the rest greyed.
+  await target.selectOption("1");
+  const duo = page.getByTestId("mic-model-0");
+  await expect(duo.locator("option:enabled")).toHaveText(["Edge Duo", "Berlin 47 FT", "Berlin 67"]);
+  await expect(duo.locator("option").nth(2)).toHaveText("Berlin 87 (not licensed)");
+});

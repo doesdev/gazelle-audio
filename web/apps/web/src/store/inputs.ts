@@ -10,7 +10,7 @@
 // report still carrying the old value does not undo a change that is on its way.
 
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import { MIC_EMULATIONS, MIC_PATTERNS, MIC_TARGETS, type PatternRange } from "./mic-emulations.ts";
+import { MIC_EMULATIONS, MIC_LICENCE_BITS, MIC_PATTERNS, MIC_TARGETS, type PatternRange } from "./mic-emulations.ts";
 import type { Topology } from "gazelle-audio-client";
 
 export type PreampType = 0 | 1 | 2;
@@ -60,6 +60,15 @@ export interface MicEmulationState {
 
 /** The microphones a preamp can have on it, in `MicTarget` order. */
 const MIC_TARGET_NAMES: readonly string[] = ["None", "Edge Duo", "Verge", "Edge Solo", "Edge Quadro", "Accord", "Edge Note"];
+
+/**
+ * `get_feature_mask`'s licence bits start at its reply's second byte: the panel's
+ * `parse_feature_mask` drops the first before reading `_feature_mask_format` from bit 0.
+ */
+const LICENCE_MASK_OFFSET = 1;
+
+/** The last licence bit any microphone has, so a reply too short to carry it is no licence at all. */
+const LICENCE_LAST_BIT = Math.max(...Object.values(MIC_LICENCE_BITS).flat());
 
 /** The stereo techniques two heads can be set to, in `MicPatternPreset` order. */
 const PATTERN_PRESET_NAMES: readonly string[] = ["None", "XY", "M/S", "Blumlein"];
@@ -174,6 +183,8 @@ export class InputsModel {
   /** Quadro only: its panel is the one with the mic emulation feature. */
   readonly hasMicEmulation: boolean;
   readonly #emulations: Signal<MicEmulationState>[];
+  /** The licence bits of `get_feature_mask`, or null while they are unknown. */
+  readonly #licence = signal<Uint8Array | null>(null);
   readonly #digitalLinks = new Map<DigitalKind, Signal<boolean>[]>();
   readonly #context: InputsContext;
   readonly #preamps: ReadonlySignal<PreampState>[];
@@ -261,13 +272,43 @@ export class InputsModel {
   /**
    * The microphones a preamp can have on it. Quadro only: the Studio+ panel has no mic emulation.
    */
-  get micTargets(): readonly { value: number; name: string }[] {
-    return MIC_TARGET_NAMES.map((name, value) => ({ value, name }));
+  get micTargets(): readonly { value: number; name: string; licensed: boolean }[] {
+    return MIC_TARGET_NAMES.map((name, value) => ({ value, name, licensed: this.emulationLicensed(value, 0) }));
   }
 
-  /** What a target can be made to sound like; empty when no microphone is on the preamp. */
+  /**
+   * What a target can be made to sound like; empty when no microphone is on the preamp. Every
+   * emulation is listed, licensed or not, since the index is the device's (`emulationLicensed`).
+   */
   emulationModels(target: number): readonly string[] {
     return MIC_EMULATIONS[target] ?? [];
+  }
+
+  /**
+   * Whether the device's licence covers an emulation; model 0, the microphone itself, stands for
+   * the microphone. True while the licence is unknown — a read that failed must not hide what the
+   * device may well have — and for "None", which needs nothing. Follows `loadLicence`.
+   */
+  emulationLicensed(target: number, model: number): boolean {
+    const mask = this.#licence.value;
+    if (mask === null) return true;
+    // "None" has no licence bit, and needs none.
+    const bit = MIC_LICENCE_BITS[target]?.[model];
+    if (bit === undefined) return true;
+    return (((mask[bit >> 3] ?? 0) >> (bit & 7)) & 1) === 1;
+  }
+
+  /**
+   * Reads which microphones and emulations the device is licensed for (`get_feature_mask`, the
+   * bitmap the device reports). Resolves false when nothing usable
+   * was read, and then everything stays offered. The Inputs page reads it on its own, so quietly.
+   */
+  async loadLicence(): Promise<boolean> {
+    if (!this.hasMicEmulation) return false;
+    const payload = (await this.#context.read("get_feature_mask", undefined, true)).response?.["payload"];
+    const usable = payload instanceof Uint8Array && payload.length > LICENCE_MASK_OFFSET + (LICENCE_LAST_BIT >> 3);
+    this.#licence.value = usable ? payload.slice(LICENCE_MASK_OFFSET) : null;
+    return usable;
   }
 
   /** A preamp's emulation, as last read or set. Read once with `loadEmulations`. */
@@ -343,6 +384,8 @@ export class InputsModel {
    */
   setEmulationTarget(index: number, target: number): void {
     if (!Number.isInteger(target) || target < 0 || target >= MIC_TARGET_NAMES.length) throw new RangeError(`no microphone ${target}: 0..${MIC_TARGET_NAMES.length - 1}`);
+    // One the device already reports stays as it is; the licence only stops picking it.
+    if (!this.emulationLicensed(target, 0)) throw new Error(`the ${MIC_TARGET_NAMES[target]} is not licensed on this device`);
     const previous = this.#group(index);
     const channels = this.emulationChannels(index, target);
     // The microphone that was there is gone from every preamp it was on, so the new one replaces it
@@ -361,6 +404,7 @@ export class InputsModel {
     const current = this.#emulation(index).peek();
     const models = this.emulationModels(current.target);
     if (!Number.isInteger(model) || model < 0 || model >= models.length) throw new RangeError(`no emulation ${model} for this microphone: 0..${models.length - 1}`);
+    if (!this.emulationLicensed(current.target, model)) throw new Error(`${models[model]} is not licensed on this device`);
     this.#apply(this.#head(index), { model });
   }
 

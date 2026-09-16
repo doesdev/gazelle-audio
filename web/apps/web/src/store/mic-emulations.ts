@@ -223,3 +223,134 @@ export const MIC_PATTERNS: Readonly<Record<number, Readonly<Record<number, Patte
     18: { min: 0, max: 100, initial: 50, minAngle: 1, maxAngle: -1 },
   },
 };
+
+/**
+ * Where each emulation's licence sits in `get_feature_mask`, by target and then `emu_model`: a bit
+ * counted from the reply's second byte, least significant bit first (the panel's
+ * `parse_feature_mask`). Index 0, the microphone itself, is the microphone's own feature, which the
+ * panel also uses to grey the microphone out of its list; each emulation has a feature of its own.
+ */
+export const MIC_LICENCE_BITS: Readonly<Record<number, readonly number[]>> = {
+  // MicTarget.EDGE_DUO
+  1: [
+    408, // mic_emu_edge
+    410, // mic_emu_model_edge_berlin47fet
+    411, // mic_emu_model_edge_berlin87
+    412, // mic_emu_model_edge_berlin67
+    413, // mic_emu_model_edge_berlinm103
+    414, // mic_emu_model_edge_tokyo800t
+    448, // mic_emu_model_edge_oxford4038
+    449, // mic_emu_model_edge_berlin49t
+    450, // mic_emu_model_edge_berlin57
+    451, // mic_emu_model_edge_vienna12
+    452, // mic_emu_model_edge_sacramento121r
+    453, // mic_emu_model_edge_vienna414
+    554, // mic_emu_model_edge_berlinv563
+    555, // mic_emu_model_edge_minnesota20
+    556, // mic_emu_model_edge_illinois7b
+    557, // mic_emu_model_edge_berlink86
+    558, // mic_emu_model_edge_berlinm25
+    559, // mic_emu_model_edge_berlin47tu
+    560, // mic_emu_model_edge_berlinm251
+  ],
+  // MicTarget.VERGE
+  2: [
+    409, // mic_emu_verge
+    415, // mic_emu_model_verge_berlin184
+    416, // mic_emu_model_verge_perth55
+    417, // mic_emu_model_verge_freiburg6
+    418, // mic_emu_model_verge_aalborg4006
+    419, // mic_emu_model_verge_hamburg40
+    546, // mic_emu_model_verge_berlink86
+    547, // mic_emu_model_verge_berlink53
+    548, // mic_emu_model_verge_berlink54
+    549, // mic_emu_model_verge_illinois57
+    550, // mic_emu_model_verge_illinois7b
+    551, // mic_emu_model_verge_hamburg211
+    552, // mic_emu_model_verge_hamburg441
+    553, // mic_emu_model_verge_vienna112
+  ],
+  // MicTarget.EDGE_SOLO
+  3: [
+    499, // mic_emu_edge_solo
+    500, // mic_emu_model_edge_solo_tokyo800t
+    501, // mic_emu_model_edge_solo_berlin47fet
+    502, // mic_emu_model_edge_solo_berlin67
+    503, // mic_emu_model_edge_solo_berlin87
+    504, // mic_emu_model_edge_solo_berlinm103
+    505, // mic_emu_model_edge_solo_berlin49t
+    506, // mic_emu_model_edge_solo_berlin57
+    507, // mic_emu_model_edge_solo_vienna12
+    508, // mic_emu_model_edge_solo_vienna414
+    509, // mic_emu_model_edge_solo_berlinv563
+    510, // mic_emu_model_edge_solo_illinois57
+    511, // mic_emu_model_edge_solo_illinois7b
+    512, // mic_emu_model_edge_solo_minnesota20
+    513, // mic_emu_model_edge_solo_vienna112
+    514, // mic_emu_model_edge_solo_berlink86
+    515, // mic_emu_model_edge_solo_berlin47tu
+    516, // mic_emu_model_edge_solo_berlinm251
+    517, // mic_emu_model_edge_solo_hamburg441
+  ],
+  // MicTarget.EDGE_QUADRO
+  4: [
+    527, // mic_emu_edge_quadro
+    528, // mic_emu_model_edge_quadro_berlin47fet
+    529, // mic_emu_model_edge_quadro_berlin87
+    530, // mic_emu_model_edge_quadro_berlin67
+    531, // mic_emu_model_edge_quadro_berlinm103
+    532, // mic_emu_model_edge_quadro_tokyo800t
+    533, // mic_emu_model_edge_quadro_oxford4038
+    534, // mic_emu_model_edge_quadro_berlin49t
+    535, // mic_emu_model_edge_quadro_berlin57
+    536, // mic_emu_model_edge_quadro_vienna12
+    537, // mic_emu_model_edge_quadro_sacramento121r
+    538, // mic_emu_model_edge_quadro_vienna414
+    539, // mic_emu_model_edge_quadro_berlink86
+    540, // mic_emu_model_edge_quadro_berlin47tu
+    541, // mic_emu_model_edge_quadro_berlinv563
+    542, // mic_emu_model_edge_quadro_berlinm25
+    543, // mic_emu_model_edge_quadro_berlinm251
+    544, // mic_emu_model_edge_quadro_minnesota20
+    545, // mic_emu_model_edge_quadro_illinois7b
+  ],
+  // MicTarget.ACCORD
+  5: [
+    805, // mic_emu_accord
+    806, // mic_emu_model_accord_tokyo800t
+    807, // mic_emu_model_accord_berlin47fet
+    808, // mic_emu_model_accord_berlin67
+    809, // mic_emu_model_accord_berlin87
+    810, // mic_emu_model_accord_berlinm103
+    811, // mic_emu_model_accord_berlin49t
+    812, // mic_emu_model_accord_berlin57
+    813, // mic_emu_model_accord_vienna12
+    814, // mic_emu_model_accord_vienna414
+    815, // mic_emu_model_accord_berlinv563
+    888, // mic_emu_model_accord_illinois57
+    889, // mic_emu_model_accord_illinois7b
+    890, // mic_emu_model_accord_minnesota20
+    891, // mic_emu_model_accord_vienna112
+    892, // mic_emu_model_accord_berlink86
+    893, // mic_emu_model_accord_berlin47tu
+    894, // mic_emu_model_accord_berlinm251
+    895, // mic_emu_model_accord_hamburg441
+  ],
+  // MicTarget.EDGE_NOTE
+  6: [
+    996, // mic_emu_edge_note
+    997, // mic_emu_model_edge_note_berlin184
+    998, // mic_emu_model_edge_note_perth55
+    999, // mic_emu_model_edge_note_freiburg6
+    1000, // mic_emu_model_edge_note_aalborg4006
+    1001, // mic_emu_model_edge_note_hamburg40
+    1002, // mic_emu_model_edge_note_berlink86
+    1003, // mic_emu_model_edge_note_berlink53
+    1004, // mic_emu_model_edge_note_berlink54
+    1005, // mic_emu_model_edge_note_illinois57
+    1006, // mic_emu_model_edge_note_illinois7b
+    1007, // mic_emu_model_edge_note_hamburg211
+    1008, // mic_emu_model_edge_note_hamburg441
+    1009, // mic_emu_model_edge_note_vienna112
+  ],
+};
