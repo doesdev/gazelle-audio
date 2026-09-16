@@ -167,3 +167,70 @@ test("inputs exist only for devices of known model", () => {
   assert.throws(() => store.inputs("usb:1"), /no known model/);
   assert.equal(store.inputs("loopback-0"), store.inputs("loopback-0"), "one model per device");
 });
+
+test("mic emulation: a target and one of its models per preamp, Quadro only, read with get_mic_emulations", async () => {
+  const { client, store, sent } = setup();
+  const quadro = store.inputs("loopback-0");
+  const studio = store.inputs("loopback-1");
+  assert.equal(quadro.hasMicEmulation, true);
+  assert.equal(studio.hasMicEmulation, false, "only the Quadro panel has the mic emulation feature");
+  assert.throws(() => studio.setEmulationTarget(0, 3), /no mic emulation/);
+
+  // The targets are the Antelope microphones a preamp can have on it; "None" is MicTarget.ANY.
+  assert.deepEqual(quadro.micTargets.map((t) => [t.value, t.name]), [
+    [0, "None"],
+    [1, "Edge Duo"],
+    [2, "Verge"],
+    [3, "Edge Solo"],
+    [4, "Edge Quadro"],
+    [5, "Accord"],
+    [6, "Edge Note"],
+  ]);
+  // Each target has its own catalogue, and the same microphone sits at a different index in each.
+  assert.equal(quadro.emulationModels(0).length, 0, "with no microphone there is nothing to emulate");
+  assert.equal(quadro.emulationModels(3)[0], "Edge Solo", "index 0 is the microphone itself");
+  assert.equal(quadro.emulationModels(3)[2], "Berlin 47 FT");
+  assert.equal(quadro.emulationModels(1)[1], "Berlin 47 FT");
+
+  // Every microphone has a catalogue, so a regenerated table that dropped one would be caught.
+  for (const { value, name } of quadro.micTargets.slice(1)) {
+    const models = quadro.emulationModels(value);
+    assert.ok(models.length > 1, `${name} has a catalogue`);
+    assert.equal(models[0], name, `${name}'s index 0 is the microphone itself`);
+  }
+
+  assert.deepEqual(quadro.emulation(0).value, { target: 0, model: 0, swap: false, pattern: 0 });
+  client.respond = async (call) => ({
+    device_id: call.deviceId,
+    command: call.command,
+    sent_hex: "74",
+    sent_len: 16,
+    dry_run: false,
+    response: call.command === "get_mic_emulations" ? { entries: [{ target: 3, emu_model: 2, ch_swap: 0, pattern: 0 }, { target: 1, emu_model: 4, ch_swap: 1, pattern: 2 }] } : null,
+    response_error: null,
+  });
+  assert.equal(await quadro.loadEmulations(), true);
+  assert.deepEqual(quadro.emulation(0).value, { target: 3, model: 2, swap: false, pattern: 0 });
+  assert.deepEqual(quadro.emulation(1).value, { target: 1, model: 4, swap: true, pattern: 2 });
+  assert.equal(await studio.loadEmulations(), false, "nothing is read from a model without it");
+
+  // Every change carries all five fields, and the pattern is passed back as read: the stereo
+  // pattern presets are a pair-wide feature this does not yet drive.
+  quadro.setEmulationModel(1, 6);
+  quadro.setEmulationSwap(1, false);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation"), [
+    { preamp_ch: 1, target: 1, emu_model: 6, ch_swap: 1, pattern: 2 },
+    { preamp_ch: 1, target: 1, emu_model: 6, ch_swap: 0, pattern: 2 },
+  ]);
+
+  // A microphone's catalogue is its own, so changing the target cannot keep the old model.
+  quadro.setEmulationTarget(0, 6);
+  await flush();
+  assert.deepEqual(sent("set_mic_emulation").at(-1), { preamp_ch: 0, target: 6, emu_model: 0, ch_swap: 0, pattern: 0 });
+  assert.deepEqual(quadro.emulation(0).value, { target: 6, model: 0, swap: false, pattern: 0 });
+
+  assert.throws(() => quadro.setEmulationTarget(0, 7), RangeError);
+  assert.throws(() => quadro.setEmulationModel(0, 14), RangeError, "the Edge Note has fourteen, 0..13");
+  assert.throws(() => quadro.setEmulationModel(4, 0), RangeError, "the Quadro has four preamps");
+});

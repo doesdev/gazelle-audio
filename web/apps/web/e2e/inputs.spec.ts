@@ -212,3 +212,28 @@ test("Inputs is in the header and opens the first device of known model", async 
   await expect(page).toHaveURL(/#\/inputs$/);
   await expect(page.getByTestId("preamp-0")).toBeVisible();
 });
+
+test("mic emulation: a microphone per preamp and one of its emulations; the Studio+ has none", async ({ page }) => {
+  const frames: { command?: string; args?: Record<string, number> }[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
+    }),
+  );
+  await page.goto(`${server.url}/#/inputs/loopback-1`);
+  await expect(page.getByTestId("mic-target-0")).toHaveCount(0);
+
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  const target = page.getByTestId("mic-target-0");
+  await expect(target.locator("option")).toHaveText(["None", "Edge Duo", "Verge", "Edge Solo", "Edge Quadro", "Accord", "Edge Note"]);
+  // With no microphone there is nothing to emulate, so the catalogue is empty until one is named.
+  await expect(page.getByTestId("mic-model-0")).toBeDisabled();
+
+  await target.selectOption("3");
+  await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").at(-1)?.args).toEqual({ preamp_ch: 0, target: 3, emu_model: 0, ch_swap: 0, pattern: 0 });
+  const model = page.getByTestId("mic-model-0");
+  await expect(model).toBeEnabled();
+  await expect(model.locator("option").nth(2)).toHaveText("Berlin 47 FT");
+  await model.selectOption("2");
+  await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").at(-1)?.args).toEqual({ preamp_ch: 0, target: 3, emu_model: 2, ch_swap: 0, pattern: 0 });
+});

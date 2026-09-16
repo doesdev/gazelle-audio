@@ -10,6 +10,7 @@
 // report still carrying the old value does not undo a change that is on its way.
 
 import { batch, computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
+import { MIC_EMULATIONS } from "./mic-emulations.ts";
 import type { Topology } from "gazelle-audio-client";
 
 export type PreampType = 0 | 1 | 2;
@@ -42,6 +43,23 @@ export interface PreampState {
   phaseInvert: boolean;
   hpf: boolean;
 }
+
+/**
+ * A preamp's mic emulation: which Antelope microphone is on it and which microphone it is made to
+ * sound like. `pattern` is the stereo pattern preset, which this does not set — a pair-wide feature
+ * of the dual-capsule microphones — but which every change must carry back unchanged.
+ */
+export interface MicEmulationState {
+  /** A value of `MIC_TARGETS`; 0 is no Antelope microphone. */
+  target: number;
+  /** An index into that target's `emulationModels`. */
+  model: number;
+  swap: boolean;
+  pattern: number;
+}
+
+/** The microphones a preamp can have on it, in `MicTarget` order. */
+const MIC_TARGET_NAMES: readonly string[] = ["None", "Edge Duo", "Verge", "Edge Solo", "Edge Quadro", "Accord", "Edge Note"];
 
 export type DigitalKind = "line" | "adat" | "spdif";
 
@@ -97,6 +115,9 @@ export class InputsModel {
   /** Preamp stereo pairs: pair k is preamps 2k and 2k+1. */
   readonly pairCount: number;
   readonly #links: Signal<boolean>[];
+  /** Quadro only: its panel is the one with the mic emulation feature. */
+  readonly hasMicEmulation: boolean;
+  readonly #emulations: Signal<MicEmulationState>[];
   readonly #digitalLinks = new Map<DigitalKind, Signal<boolean>[]>();
   readonly #context: InputsContext;
   readonly #preamps: ReadonlySignal<PreampState>[];
@@ -112,6 +133,8 @@ export class InputsModel {
     this.hizCount = Math.min(HIZ_PREAMPS[context.family], this.preampCount);
     this.pairCount = Math.floor(this.preampCount / 2);
     this.#links = Array.from({ length: this.pairCount }, () => signal(false));
+    this.hasMicEmulation = context.family === "quadro";
+    this.#emulations = this.hasMicEmulation ? Array.from({ length: this.preampCount }, () => signal<MicEmulationState>({ target: 0, model: 0, swap: false, pattern: 0 })) : [];
     // Only the Studio+ panel sets digital gains and links digital pairs; the Quadro's only shows its gains.
     const editable = context.family === "studio";
     const group = (kind: DigitalKind, label: string, type: string): DigitalGroup => {
@@ -177,6 +200,80 @@ export class InputsModel {
       });
     }
     return read;
+  }
+
+  /**
+   * The microphones a preamp can have on it. Quadro only: the Studio+ panel has no mic emulation.
+   */
+  get micTargets(): readonly { value: number; name: string }[] {
+    return MIC_TARGET_NAMES.map((name, value) => ({ value, name }));
+  }
+
+  /** What a target can be made to sound like; empty when no microphone is on the preamp. */
+  emulationModels(target: number): readonly string[] {
+    return MIC_EMULATIONS[target] ?? [];
+  }
+
+  /** A preamp's emulation, as last read or set. Read once with `loadEmulations`. */
+  emulation(index: number): ReadonlySignal<MicEmulationState> {
+    return this.#emulation(index);
+  }
+
+  /**
+   * Reads every preamp's emulation (`get_mic_emulations`). Resolves false when nothing was read,
+   * which includes a model without the feature. The schema declares the reply as two entries; the
+   * panel reads one per preamp, so this takes as many as it is given, up to the preamp count.
+   */
+  async loadEmulations(): Promise<boolean> {
+    if (!this.hasMicEmulation) return false;
+    const entries = (await this.#context.read("get_mic_emulations", undefined)).response?.["entries"];
+    if (!Array.isArray(entries)) return false;
+    batch(() => {
+      entries.slice(0, this.preampCount).forEach((entry, index) => {
+        const fields = entry as Record<string, unknown>;
+        this.#emulation(index).value = {
+          target: Number(fields["target"] ?? 0),
+          model: Number(fields["emu_model"] ?? 0),
+          swap: Number(fields["ch_swap"] ?? 0) === 1,
+          pattern: Number(fields["pattern"] ?? 0),
+        };
+      });
+    });
+    return true;
+  }
+
+  /** Says which Antelope microphone is on a preamp. Its catalogue is its own, so the model resets. */
+  setEmulationTarget(index: number, target: number): void {
+    if (!Number.isInteger(target) || target < 0 || target >= MIC_TARGET_NAMES.length) throw new RangeError(`no microphone ${target}: 0..${MIC_TARGET_NAMES.length - 1}`);
+    this.#setEmulation(index, { target, model: 0 });
+  }
+
+  /** Picks what the microphone is made to sound like, by index into its target's catalogue. */
+  setEmulationModel(index: number, model: number): void {
+    const current = this.#emulation(index).peek();
+    const models = this.emulationModels(current.target);
+    if (!Number.isInteger(model) || model < 0 || model >= models.length) throw new RangeError(`no emulation ${model} for this microphone: 0..${models.length - 1}`);
+    this.#setEmulation(index, { model });
+  }
+
+  /** Swaps a dual-capsule microphone's two sides. */
+  setEmulationSwap(index: number, on: boolean): void {
+    this.#setEmulation(index, { swap: on });
+  }
+
+  #setEmulation(index: number, change: Partial<MicEmulationState>): void {
+    const held = this.#emulation(index);
+    const next = { ...held.peek(), ...change };
+    held.value = next;
+    // All five travel together, and `pattern` goes back as it was read: this does not set it.
+    this.#send("set_mic_emulation", { preamp_ch: index, target: next.target, emu_model: next.model, ch_swap: next.swap ? 1 : 0, pattern: next.pattern }, `mic_emu:${index}`);
+  }
+
+  #emulation(index: number): Signal<MicEmulationState> {
+    if (!this.hasMicEmulation) throw new Error(`the ${this.family === "quadro" ? "Quadro" : "Studio+"} has no mic emulation`);
+    const held = this.#emulations[index];
+    if (held === undefined) throw new RangeError(`preamp ${index} is outside 0..${this.preampCount - 1}`);
+    return held;
   }
 
   /** Whether a digital input pair is stereo-linked (as last read or set). */

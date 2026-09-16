@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Generate the mic emulation catalogue from the Quadro panel's own model classes.
+
+Why
+---
+``set_mic_emulation(preamp_ch, target, emu_model, ch_swap, pattern)`` carries the emulation as two
+small integers, and nothing in the schema says what they mean. The panel keeps one class per
+emulation, named after the microphone and carrying its ``emu_idx``, grouped in a module per mic
+(``edge_solo_models.py`` and friends). The indexes are *per target*: Berlin 47 FET is 2 on the Edge
+Solo and 1 on the Edge Duo, so a single flat list would be wrong.
+
+The displayed name comes from the panel's own rule (``utils.deduce_module_name_from_feature``):
+lowercase the model name, split off the city it starts with, and join the city capitalised with the
+rest upper-cased — with two spellings the panel special-cases. "Berlin 47 FT" really is what it
+shows for the 47 FET.
+
+Usage
+-----
+    mic_emulations.py <dir with the extracted PYZ> [--out FILE]
+
+The directory is an extracted ``PYZ-00.pyz`` (see ``extract_pyz.py``). Writing the table by hand
+would be 100 lines of transcription, which is exactly the kind of thing to get quietly wrong.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+# MicTarget in antelope/components/preamps/models/mic_emulation/utils.py, with the module holding
+# that target's models. MicTarget.ANY (0) has no models: no Antelope mic is on the preamp.
+# MicIdentity also has EDGE_GO = 370, which MicTarget has no member for — the Edge Go is a USB
+# microphone, not one on a preamp, so no `target` byte can name it.
+TARGETS = [
+    (1, "EDGE_DUO", "Edge Duo", "edge_duo"),
+    (2, "VERGE", "Verge", "verge"),
+    (3, "EDGE_SOLO", "Edge Solo", "edge_solo"),
+    (4, "EDGE_QUADRO", "Edge Quadro", "edge_quadro"),
+    (5, "ACCORD", "Accord", "accord"),
+    (6, "EDGE_NOTE", "Edge Note", "edge_note"),
+]
+
+# utils._first_parts_of_a_name and utils._second_parts_of_a_name_edge_cases.
+CITIES = ["berlin", "tokyo", "oxford", "vienna", "sacramento", "minnesota", "illinois", "perth", "freiburg", "aalborg", "hamburg"]
+EDGE_CASES = {"47fet": " 47 FT", "m25": "/Halske M25"}
+
+SUFFIXES = ["_Solo", "_Duo", "_Go", "_Quadro", "_EdgeNote", "_Verge", "_Accord"]
+
+
+def label_for(name: str) -> str | None:
+    """The panel's displayed name for a model class, or None when it is not a mic's name."""
+    feature = name.lower()
+    for city in CITIES:
+        if not feature.startswith(city):
+            continue
+        second = feature[len(city) :]
+        return city.capitalize() + EDGE_CASES.get(second, f" {second.upper()}")
+    return None
+
+
+def models_in(blob: Path) -> list[tuple[int, str]]:
+    """Every `MicModel…` class in the module with its `emu_idx`, in the module's own order."""
+    dump = subprocess.run([sys.executable, str(HERE / "pyc_inspect.py"), "consts", str(blob)], capture_output=True, text=True, check=True).stdout
+    found: dict[str, int] = {}
+    order: list[str] = []
+    for line in dump.splitlines():
+        match = re.match(r"^(MicModel\w+): (\d+)$", line)
+        if match is None:
+            continue
+        name, value = match.group(1), int(match.group(2))
+        # The first integer in a class body is its emu_idx; a dual-capsule model carries its
+        # supported polar patterns after it, which this pass does not use.
+        if name in found or "Base" in name:
+            continue
+        found[name] = value
+        order.append(name)
+    return [(found[name], name) for name in order]
+
+
+def strip_suffix(name: str) -> str:
+    stem = name[len("MicModel") :]
+    for suffix in SUFFIXES:
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("extracted", type=Path)
+    parser.add_argument("--out", type=Path)
+    args = parser.parse_args()
+
+    blocks = []
+    for value, member, display, module in TARGETS:
+        blob = args.extracted / f"antelope_components_preamps_models_mic_emulation_{module}_models.pyc"
+        entries = []
+        for index, name in models_in(blob):
+            stem = strip_suffix(name)
+            label = label_for(stem)
+            # Index 0 is the microphone itself, unemulated; the panel falls back to its own name.
+            entries.append((index, display if label is None else label))
+        entries.sort()
+        lines = ",\n".join(f'    "{label}"' for _, label in entries)
+        expected = list(range(len(entries)))
+        if [index for index, _ in entries] != expected:
+            raise SystemExit(f"{member}: emu_idx values are not 0..{len(entries) - 1}: {[i for i, _ in entries]}")
+        blocks.append(f"  // MicTarget.{member}\n  {value}: [\n{lines},\n  ],")
+
+    body = "\n".join(blocks)
+    text = f"""// Generated by refs/tools/scripts/mic_emulations.py from the Quadro panel's own model classes.
+// Do not edit by hand: re-run the script against an extracted PYZ instead.
+//
+// Each Antelope microphone has its own catalogue, and the indexes are per target — Berlin 47 FT is
+// 2 on the Edge Solo and 1 on the Edge Duo. Index 0 is the microphone itself, unemulated.
+
+/** `target` in `set_mic_emulation`: which Antelope microphone is on the preamp. */
+export const MIC_TARGETS = {{
+  ANY: 0,
+  EDGE_DUO: 1,
+  VERGE: 2,
+  EDGE_SOLO: 3,
+  EDGE_QUADRO: 4,
+  ACCORD: 5,
+  EDGE_NOTE: 6,
+}} as const;
+
+/** `emu_model` by target: the microphones each one can be made to sound like. */
+export const MIC_EMULATIONS: Readonly<Record<number, readonly string[]>> = {{
+{body}
+}};
+"""
+    if args.out is None:
+        sys.stdout.write(text)
+    else:
+        args.out.write_text(text, encoding="utf-8", newline="\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
