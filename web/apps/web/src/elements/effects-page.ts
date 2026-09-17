@@ -1,7 +1,11 @@
 // <ga-effects device-id="…">: a device's effect chains and its reverb (EffectsModel; spec
 // 2026-09-17-effects-and-reverb). Each chain is a card: what routing feeds it, its effects in order by
 // name and instance, and per effect a Process / Bypass pair that shows neither until the effect's
-// parameters are read or this app sets one. Links are shown, not changed. The reverb has on/off and
+// parameters are read or this app sets one. Each card also has an "Add effect" menu of the types this
+// model has, those with no free instance left greyed rather than left out, and each effect can be moved
+// earlier or later or removed: every one of those writes the whole chain with set_afx_order, packed from
+// the first slot, and reads it back. Reordering has never been tried on a device, which its buttons say.
+// Links are shown, not changed. The reverb has on/off and
 // level as controls and its other parameters as the panel displays them; the Quadro adds its reverb
 // returns into mixes 1-2 and sends from mix 1's channels. Everything is read once when the page opens
 // (P80); Read from device reads again.
@@ -48,7 +52,10 @@ export class GaEffects extends GaElement {
       .source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ga-text-secondary); }
       .link { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-accent-text); background: var(--ga-accent); }
       .slots { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 26px; padding: 0 4px; border-radius: 2px; background: var(--ga-surface-inset); }
+      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; min-height: 26px; padding: 2px 4px; border-radius: 2px; background: var(--ga-surface-inset); }
+      .slot-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
+      .slot-tools button { min-width: 22px; min-height: 20px; padding: 0 4px; font-size: 11px; line-height: 1; }
+      .add { max-width: 100%; min-width: 0; font-size: 11px; }
       .slot .position { font-size: 10px; color: var(--ga-text-muted); text-align: right; }
       .slot .effect { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .slot .instance { color: var(--ga-text-muted); font-size: 11px; }
@@ -152,10 +159,10 @@ export class GaEffects extends GaElement {
 
     // The chosen effect's editor, rebuilt when the chains are read again or another effect is chosen.
     const editor = h("div", { class: "editor-slot" });
-    let shown: { chain: number; position: number } | undefined;
+    let shown: { chain: number; type: number; inst: number } | undefined;
     this.watch(() => {
       const chosen = this.#chosen.value;
-      const slot = chosen === undefined ? undefined : effects.chains.value?.[chosen.chain]?.slots.find((s) => s.position === chosen.position);
+      const slot = chosen === undefined ? undefined : effects.chains.value?.[chosen.chain]?.slots.find((s) => s.type === chosen.type && s.inst === chosen.inst);
       if (chosen === undefined || slot === undefined) {
         editor.replaceChildren();
         shown = undefined;
@@ -176,7 +183,7 @@ export class GaEffects extends GaElement {
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
       note,
-      h("section", {}, h("h2", {}, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX IN channel and returns on AFX OUT. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, moving and removing effects are not in this version."), chains),
+      h("section", {}, h("h2", {}, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX IN channel and returns on AFX OUT. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, removing and moving an effect writes the whole chain and reads it back; the device switches an effect on as it is added and off as it goes. Inserting and removing one effect have been checked on a Quadro; moving one, several effects in a chain and the Studio+ have not."), chains),
       editor,
       reverb,
       ...returnsAndSends,
@@ -206,10 +213,13 @@ export class GaEffects extends GaElement {
     });
   }
 
-  /** The effect whose editor is open, by chain and slot position. */
-  readonly #chosen = signal<{ chain: number; position: number } | undefined>(undefined);
+  /**
+   * The effect whose editor is open: its chain and which instance it is rather than its slot, so that the
+   * editor follows it when the chain is reordered and closes when it is removed.
+   */
+  readonly #chosen = signal<{ chain: number; type: number; inst: number } | undefined>(undefined);
 
-  #chain(effects: EffectsModel, index: number, chain: EffectChain | undefined, deviceId: string, destination: number, disposers: (() => void)[], chosen: { chain: number; position: number } | undefined): HTMLElement {
+  #chain(effects: EffectsModel, index: number, chain: EffectChain | undefined, deviceId: string, destination: number, disposers: (() => void)[], chosen: { chain: number; type: number; inst: number } | undefined): HTMLElement {
     const store = useStore();
     const topology = store.topology(deviceId);
     const name = chain?.name ?? `AFX IN ${index + 1}`;
@@ -232,6 +242,11 @@ export class GaEffects extends GaElement {
 
     const rows = chain.slots.map((slot) => {
       const bypass = effects.bypass(slot.type, slot.inst);
+      const move = (by: number, where: string, arrow: string, testId: string) =>
+        h("button", { type: "button", class: "move", "data-testid": `${testId}-${index}-${slot.position}`, "aria-label": `Move ${slot.name} ${slot.inst + 1} ${where} in ${name}`, title: `Move ${where}. Reordering a chain has never been tried on a device.`, "on:click": () => effects.moveEffect(index, slot.position, by) }, arrow);
+      const up = move(-1, "earlier", "\u2191", "move-up");
+      const down = move(1, "later", "\u2193", "move-down");
+      const remove = h("button", { type: "button", class: "remove", "data-testid": `remove-${index}-${slot.position}`, "aria-label": `Remove ${slot.name} ${slot.inst + 1} from ${name}`, title: `Remove ${slot.name} ${slot.inst + 1} from the chain. The device switches the effect off as it goes.`, "on:click": () => effects.removeEffect(index, slot.position) }, "\u2715");
       const process = h("button", { type: "button", class: "process", "data-testid": `active-${index}-${slot.position}`, "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, false) }, "On");
       const off = h("button", { type: "button", class: "bypass", "data-testid": `bypass-${index}-${slot.position}`, "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, true) }, "Bypass");
       disposers.push(
@@ -239,7 +254,10 @@ export class GaEffects extends GaElement {
           const state = bypass.value;
           process.setAttribute("aria-pressed", String(state === false));
           off.setAttribute("aria-pressed", String(state === true));
-          process.disabled = off.disabled = !store.connected.value;
+          const on = store.connected.value;
+          process.disabled = off.disabled = remove.disabled = !on;
+          up.disabled = !on || slot.position === 0;
+          down.disabled = !on || slot.position >= chain.slots.length - 1;
         }),
       );
       return h(
@@ -252,18 +270,18 @@ export class GaEffects extends GaElement {
             type: "button",
             class: "effect",
             "data-testid": `edit-${index}-${slot.position}`,
-            "aria-expanded": String(chosen?.chain === index && chosen.position === slot.position),
+            "aria-expanded": String(chosen?.chain === index && chosen.type === slot.type && chosen.inst === slot.inst),
             title: `Settings of ${slot.name} ${slot.inst + 1} (effect type ${slot.type})`,
             "on:click": () => {
               const open = this.#chosen.peek();
-              this.#chosen.value = open?.chain === index && open.position === slot.position ? undefined : { chain: index, position: slot.position };
+              this.#chosen.value = open?.chain === index && open.type === slot.type && open.inst === slot.inst ? undefined : { chain: index, type: slot.type, inst: slot.inst };
             },
           },
           slot.name,
           " ",
           h("span", { class: "instance" }, `#${slot.inst + 1}`),
         ),
-        h("span", { class: "pair", role: "group", "aria-label": `${slot.name} bypass` }, process, off),
+        h("span", { class: "slot-tools" }, h("span", { class: "pair", role: "group", "aria-label": `${slot.name} bypass` }, process, off), up, down, remove),
       );
     });
     const empty = chain.slots.length === 0;
@@ -274,8 +292,54 @@ export class GaEffects extends GaElement {
       { class: "chain", "data-testid": `chain-${index}` },
       head,
       empty ? h("span", { class: "empty" }, "No effects") : h("ol", { class: "slots" }, rows),
+      this.#add(effects, index, name, disposers),
       h("div", { class: "chain-tools" }, all(true, "Bypass all", "chain-bypass-all"), all(false, "Process all", "chain-enable-all")),
     );
+  }
+
+  /**
+   * A chain's "Add effect" menu: every effect type this model has, the ones with no free instance left
+   * greyed rather than left out, so it is plain that the device has them and none is free. Choosing one
+   * puts it after what is already in the chain, on the lowest free instance.
+   */
+  #add(effects: EffectsModel, index: number, name: string, disposers: (() => void)[]): HTMLElement {
+    const store = useStore();
+    const select = h("select", {
+      class: "add",
+      "data-testid": `chain-add-${index}`,
+      "aria-label": `Add an effect to ${name}`,
+      // The wheel steps a select and sends (P73); this menu acts on being chosen, not on being scrolled past.
+      "data-no-wheel": true,
+      "on:change": (event: Event) => {
+        const menu = event.target as HTMLSelectElement;
+        const type = Number(menu.value);
+        menu.value = "";
+        if (Number.isInteger(type) && type > 0) effects.addEffect(index, type);
+      },
+    });
+    disposers.push(
+      this.#effect(() => {
+        const offers = effects.offers(index);
+        const connected = store.connected.value;
+        select.replaceChildren(
+          h("option", { value: "" }, "Add effect\u2026"),
+          ...offers.map((offer) =>
+            h(
+              "option",
+              {
+                value: String(offer.type),
+                disabled: offer.unavailable !== undefined,
+                title: offer.unavailable ?? (offer.counted ? `${offer.free} free` : `${offer.free} free, worked out from the chains this app has read rather than counted by the device`),
+              },
+              offer.name,
+            ),
+          ),
+        );
+        select.value = "";
+        select.disabled = !connected || offers.every((offer) => offer.unavailable !== undefined);
+      }),
+    );
+    return select;
   }
 
   /** The editor for the effect in one slot: its bypass, and a control per parameter once read. */

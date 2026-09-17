@@ -23,8 +23,20 @@ test.afterAll(async () => {
 
 const slots = (...effects: [number, number][]) => Array.from({ length: 8 }, (_, i) => ({ type: effects[i]?.[0] ?? 0, inst: effects[i]?.[1] ?? 0 }));
 const QUADRO_CHAINS: Record<number, [number, number][]> = { 0: [[39, 2], [1, 0]], 1: [[39, 3], [1, 1]], 4: [[9, 0]] };
+/** Free instances the Quadro reports per effect type; FET-A76 (9) has none left, PowerFFC (2) is uncounted. */
+const QUADRO_FREE: Record<number, number> = { 39: 14, 1: 15, 9: 0, 3: 4 };
 
-type Frame = { id?: number; device_id?: string; command?: string; ext3?: number; args?: Record<string, number> };
+type Frame = { id?: number; device_id?: string; command?: string; ext3?: number; args?: Record<string, number | string> };
+
+/** The slots of a written chain, from the sixteen bytes the client sends as hex. */
+function slotsOf(hex: string): [number, number][] {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i + 3 < hex.length; i += 4) {
+    const type = Number.parseInt(hex.slice(i, i + 2), 16);
+    if (type !== 0) pairs.push([type, Number.parseInt(hex.slice(i + 2, i + 4), 16)]);
+  }
+  return pairs;
+}
 
 /**
  * Answers the effects reads of loopback-0 (Quadro) and loopback-1 (Studio+) as a device would, and
@@ -32,13 +44,18 @@ type Frame = { id?: number; device_id?: string; command?: string; ext3?: number;
  */
 async function answerReads(page: Page): Promise<Frame[]> {
   const sent: Frame[] = [];
+  // A chain written with set_afx_order is what the device then reports, as a device would.
+  const chains: Record<number, [number, number][]> = { ...QUADRO_CHAINS };
+  const studio: Record<number, [number, number][]> = { 3: [[2, 5]] };
   const replies: Record<string, (frame: Frame) => unknown> = {
-    "loopback-0|get_afx_strip_order": (frame) => ({ entries: [{ slots: slots(...(QUADRO_CHAINS[frame.ext3 ?? -1] ?? [])) }] }),
+    "loopback-0|get_afx_strip_order": (frame) => ({ entries: [{ slots: slots(...(chains[frame.ext3 ?? -1] ?? [])) }] }),
+    "loopback-0|get_afx_available_instances": () => ({ entries: Object.entries(QUADRO_FREE).map(([type_id, inst_count]) => ({ type_id: Number(type_id), inst_count })) }),
+    "loopback-0|get_afx_remaining_featured_instances": () => ({ entries: Object.entries(QUADRO_FREE).map(([type_id]) => ({ type_id: Number(type_id), inst_count: 16 })) }),
     "loopback-0|get_afx_links": () => ({ entries: [1, 0, 0, 0, 0, 0, 0].map((linked) => ({ linked })) }),
     "loopback-0|get_reverb_config": () => ({ mixer_id: 0, room_size: 40, color: 10, predelay: 20, density: 100, early_ref_gain: 30, late_ref_delay: 50, richness: 60, reverb_time: 70, reverb_level: 25, on: 1 }),
     "loopback-0|get_reverb_returns": () => ({ entries: [{ level: 12, mute: 0 }, { level: 90, mute: 1 }, { level: 0, mute: 0 }, { level: 0, mute: 0 }] }),
     "loopback-0|get_reverb_sends": () => ({ entries: Array.from({ length: 33 }, (_, i) => ({ level: i === 2 ? 40 : 96, pan: 32, mute: 0, solo: 0 })) }),
-    "loopback-1|get_afx_order": () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: i === 3 ? slots([2, 5]) : slots() })) }),
+    "loopback-1|get_afx_order": () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: slots(...(studio[i] ?? [])) })) }),
     "loopback-1|get_afx_links": () => ({ entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }),
     "loopback-1|get_reverb_config": () => ({ mixer_id: 0, room_size: 0, color: 0, predelay: 0, density: 100, early_ref_gain: 0, late_ref_delay: 0, richness: 0, reverb_time: 0, reverb_level: 50, on: 0 }),
   };
@@ -47,6 +64,10 @@ async function answerReads(page: Page): Promise<Frame[]> {
     socket.onMessage((message) => {
       const frame: Frame = typeof message === "string" ? (JSON.parse(message) as Frame) : {};
       sent.push(frame);
+      if (frame.command === "set_afx_order" && typeof frame.args?.["slots"] === "string") {
+        const written = frame.device_id === "loopback-1" ? studio : chains;
+        written[Number(frame.args["ch_id"])] = slotsOf(frame.args["slots"]);
+      }
       const reply = replies[`${frame.device_id}|${frame.command}`];
       if (reply === undefined) return upstream.send(message);
       socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response: reply(frame), response_error: null } }));
@@ -191,4 +212,97 @@ test("on the loopback, not in dry run, chains read back empty and the reverb fol
   } finally {
     await live.stop();
   }
+});
+
+// Editing a chain (P114): add, remove and reorder, each one set_afx_order carrying the whole chain.
+// The device's replies follow what the page writes, so the read after a change shows what it did.
+
+test("an effect is added to a chain: the whole chain goes out, packed from slot 1, on the lowest free instance", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await expect(page.getByTestId("chain-2")).toContainText("No effects");
+
+  await page.getByTestId("chain-add-2").selectOption("39");
+  await expect(page.getByTestId("slot-2-0")).toContainText("PowerGate");
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_afx_order", { ch_id: 2, slots: "27000000000000000000000000000000" }));
+  await expect.poll(() => sent.filter((f) => f.command === "set_afx_order").map((f) => f.args)).toEqual([{ ch_id: 2, slots: "27000000000000000000000000000000" }]);
+  // Instances 2 and 3 are in chains 1 and 2, so the lowest free is 0, and the counts are read again.
+  await expect.poll(() => sent.filter((f) => f.command === "get_afx_available_instances").length).toBe(2);
+  await expect(page.getByTestId("chain-add-2")).toHaveValue("");
+});
+
+test("the Add menu offers what the model has and refuses a type with no free instance left", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  const add = page.getByTestId("chain-add-2");
+  await expect(add.locator('option[value="39"]')).toBeEnabled();
+  await expect(add.locator('option[value="9"]')).toBeDisabled();
+  await expect(add.locator('option[value="9"]')).toContainText("FET-A76");
+  await expect(add.locator("option")).not.toHaveCount(0);
+  // The wheel steps other selects and sends; adding an effect by scrolling past would be a surprise.
+  await add.hover();
+  await page.mouse.wheel(0, 120);
+  await expect(add).toHaveValue("");
+  expect(sent.filter((f) => f.command === "set_afx_order")).toHaveLength(0);
+});
+
+test("adding to a linked chain gives its partner the same effect on its own instance", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await page.getByTestId("chain-add-0").selectOption("2");
+  // AFX IN 1 and 2 are linked: each gets its own instance, the two lowest free, in the order sent.
+  await expect.poll(() => sent.filter((f) => f.command === "set_afx_order").map((f) => f.args)).toEqual([
+    { ch_id: 0, slots: "27020100020000000000000000000000" },
+    { ch_id: 1, slots: "27030101020100000000000000000000" },
+  ]);
+  await expect(page.getByTestId("slot-1-2")).toContainText("PowerFFC");
+});
+
+test("an effect is removed from a chain, and its editor closes with it", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await page.getByTestId("edit-4-0").click();
+  await expect(page.getByTestId("effect-editor")).toContainText("FET-A76");
+
+  await page.getByTestId("remove-4-0").click();
+  await expect(page.getByTestId("chain-4")).toContainText("No effects");
+  await expect(page.getByTestId("effect-editor")).toHaveCount(0);
+  await expect.poll(() => sent.filter((f) => f.command === "set_afx_order").map((f) => f.args)).toEqual([{ ch_id: 4, slots: "00000000000000000000000000000000" }]);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_afx_order", { ch_id: 4, slots: "00000000000000000000000000000000" }));
+  await expect(sent.filter((f) => f.command === "set_afx_bypass")).toEqual([]);
+});
+
+test("an effect moves earlier and later in its chain, the linked partner too, and the buttons say it is untried", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await expect(page.getByTestId("move-up-0-0")).toBeDisabled();
+  await expect(page.getByTestId("move-up-0-1")).toHaveAttribute("title", /never been tried on a device/);
+
+  await page.getByTestId("move-up-0-1").click();
+  await expect(page.getByTestId("slot-0-0")).toContainText("ClearQ");
+  await expect(page.getByTestId("slot-1-0")).toContainText("ClearQ");
+  await expect.poll(() => sent.filter((f) => f.command === "set_afx_order").map((f) => f.args)).toEqual([
+    { ch_id: 0, slots: "01002702000000000000000000000000" },
+    { ch_id: 1, slots: "01012703000000000000000000000000" },
+  ]);
+
+  await page.getByTestId("move-down-0-0").click();
+  await expect(page.getByTestId("slot-0-0")).toContainText("PowerGate");
+  await expect(lastSent(page)).toContainText("set_afx_order");
+});
+
+test("the chosen effect's editor follows it when the chain is reordered", async ({ page }) => {
+  await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await page.getByTestId("edit-0-1").click();
+  await expect(page.getByTestId("effect-editor")).toContainText("ClearQ");
+  await page.getByTestId("move-up-0-1").click();
+  await expect(page.getByTestId("effect-editor")).toContainText("ClearQ");
+  await expect(page.getByTestId("effect-editor")).toContainText("slot 1");
+});
+
+test("with nothing read, a chain offers nothing to add", async ({ page }) => {
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await expect(page.getByTestId("chain-0")).toContainText("Not read");
+  await expect(page.getByTestId("chain-add-0")).toHaveCount(0);
 });
