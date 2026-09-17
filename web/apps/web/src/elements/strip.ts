@@ -1,4 +1,4 @@
-// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel]>: one
+// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel] [compact]>: one
 // mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+), pan,
 // mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
 // readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
@@ -6,6 +6,8 @@
 // input or main mix); `meter="off"` blanks its meter (a channel not in the selected mix). The meter
 // shows the channel's input, named by `input-group` and `input-channel`: the signal arriving, before
 // the fader, since the Quadro's mixer meters cannot be moved off Mix 1 (hardware, 2026-09-16).
+// `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level
+// and name, without pan, send, link or the peak readout.
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
@@ -117,6 +119,17 @@ export class GaStrip extends GaElement {
         .level-area { grid-template-columns: 20px 1fr 1fr; }
         :host([strip="master"]) .level-area { grid-template-columns: 20px 1fr; }
       }
+      /* Compact (the mixer dock): no pan, send or link, one readout, and the scale as bare ticks
+         beside the fader, drawn on the cap's travel like the numbered one. */
+      :host([compact]) .strip { gap: 3px; padding: 3px 2px 0; }
+      :host([compact]) .level-area { grid-template-columns: 4px 1fr 6px; gap: 2px; min-height: 60px; }
+      :host([compact][strip="master"]) .level-area { grid-template-columns: 14px 1fr; }
+      :host([compact]:not([strip="master"])) .scale { display: block; }
+      :host([compact]:not([strip="master"])) .scale span { left: 0; width: 4px; height: 1px; font-size: 0; background: var(--ga-text-muted); }
+      :host([compact][strip="master"]) .scale { font-size: 7px; }
+      :host([compact]) .toggle { min-height: 16px; font-size: 9px; }
+      :host([compact]) .readout { padding: 1px 0; font-size: 9px; }
+      :host([compact]) .name { margin: 0 -2px; padding: 2px 1px; font-size: 10px; }
     `),
   ];
 
@@ -130,6 +143,7 @@ export class GaStrip extends GaElement {
     const label = name !== "" ? name : id === "master" ? "Master" : `Strip ${id + 1}`;
     const testId = id === "master" ? "master" : String(id);
     const inactive = this.hasAttribute("inactive");
+    const compact = this.hasAttribute("compact");
     const metered = this.getAttribute("meter") !== "off";
     const inputGroup = this.getAttribute("input-group");
     const inputMeter =
@@ -152,18 +166,34 @@ export class GaStrip extends GaElement {
 
     if (id !== "master") {
       const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "on:click": () => mixer.toggleSolo(id) }, "S");
-      // Channel links are the workspace's (P51); the badge opens the link bar on the Mixer page.
-      const link = linkButton((fn) => this.watch(fn), "mixer", deviceId, id, `mixer-link-${id}`, "toggle link");
-      buttons.push(solo, link);
+      buttons.push(solo);
+      this.watch(() => {
+        solo.setAttribute("aria-pressed", String(state.value.solo));
+      });
+      if (!compact) {
+        // Channel links are the workspace's (P51); the badge opens the link bar on the Mixer page.
+        buttons.push(linkButton((fn) => this.watch(fn), "mixer", deviceId, id, `mixer-link-${id}`, "toggle link"));
 
-      const panFill = h("div", { class: "fill" });
-      const panValue = h("span", { class: "value" });
-      const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
-      // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
-      bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
-      top.push(pan);
+        const panFill = h("div", { class: "fill" });
+        const panValue = h("span", { class: "value" });
+        const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
+        // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
+        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
+        top.push(pan);
+        this.watch(() => {
+          const monoPan = mixer.monoPan(id);
+          const shownPan = monoPan ?? state.value.pan;
+          const position = ((shownPan - PAN_MIN) / (PAN_MAX - PAN_MIN)) * 100;
+          panFill.style.cssText = position >= 50 ? `left: 50%; width: ${position - 50}%` : `left: ${position}%; width: ${50 - position}%`;
+          panValue.textContent = formatPan(shownPan);
+          pan.setAttribute("aria-valuenow", String(shownPan - PAN_CENTRE));
+          pan.setAttribute("aria-valuetext", formatPan(shownPan));
+          pan.toggleAttribute("data-mono", monoPan !== undefined);
+          pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
+        });
+      }
 
-      if (mixer.hasSend) {
+      if (mixer.hasSend && !compact) {
         const sendFill = h("div", { class: "fill" });
         const sendValue = h("span", { class: "value" });
         // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.
@@ -192,21 +222,9 @@ export class GaStrip extends GaElement {
       );
       const peakReadout = h("span", { class: "readout muted", title: "Peak, dB below full scale" });
       levelArea.append(h("div", { class: "meter-column" }, clip, meter));
-      readouts.append(peakReadout);
+      // Compact strips keep the level readout only; the meter's held peak marker still shows.
+      if (!compact) readouts.append(peakReadout);
 
-      this.watch(() => {
-        const s = state.value;
-        solo.setAttribute("aria-pressed", String(s.solo));
-        const monoPan = mixer.monoPan(id);
-        const shownPan = monoPan ?? s.pan;
-        const position = ((shownPan - PAN_MIN) / (PAN_MAX - PAN_MIN)) * 100;
-        panFill.style.cssText = position >= 50 ? `left: 50%; width: ${position - 50}%` : `left: ${position}%; width: ${50 - position}%`;
-        panValue.textContent = formatPan(shownPan);
-        pan.setAttribute("aria-valuenow", String(shownPan - PAN_CENTRE));
-        pan.setAttribute("aria-valuetext", formatPan(shownPan));
-        pan.toggleAttribute("data-mono", monoPan !== undefined);
-        pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
-      });
       if (metered && inputMeter !== undefined) {
         // Smoothed as a plasma meter: quick to rise, falling back steadily, with a held peak.
         this.onDisconnect(

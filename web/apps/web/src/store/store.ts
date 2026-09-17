@@ -31,6 +31,7 @@ export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
 export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
+export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
@@ -318,6 +319,7 @@ export class Store {
   readonly #selectedDevice: Signal<string | undefined>;
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
   readonly #clipAutoClear: Signal<number | null>;
+  readonly #mixerDockCollapsed: Signal<boolean>;
   readonly #clipLights = new Set<ClipLight>();
   readonly #selectedMix = new Map<string, ReadonlySignal<number>>();
   readonly #views = new Map<string, Signal<unknown>>();
@@ -345,6 +347,7 @@ export class Store {
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
+    this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -932,6 +935,15 @@ export class Store {
   }
 
   readonly #outputMeters = new Map<string, readonly OutputMeter[]>();
+
+  /** Whether the compact mixer dock under the pages is collapsed; remembered per browser. */
+  get mixerDockCollapsed(): ReadonlySignal<boolean> {
+    return this.#mixerDockCollapsed;
+  }
+
+  setMixerDockCollapsed(collapsed: boolean): void {
+    if (this.#mixerDockCollapsed.peek() !== collapsed) this.#mixerDockCollapsed.value = collapsed;
+  }
 
   /** How long clip lights stay lit once a clip ends, in ms, or null to hold them until cleared. Remembered. */
   get clipAutoClear(): ReadonlySignal<number | null> {

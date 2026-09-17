@@ -89,7 +89,8 @@ export class GaApp extends GaElement {
           ),
         ),
       ),
-      h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Open the Mixer page for channel strips, faders and meters. A compact mixer here comes later."))),
+      // The dock styles its own zone, so on the Mixer page, where it hides, the footer takes no room.
+      h("footer", { "aria-label": "Mixer" }, h("ga-mixer-dock")),
       h("ga-notices"),
     );
 
