@@ -155,3 +155,19 @@ test("the dock is hidden on the Mixer page, and stays collapsed across a reload 
   await dock(page).getByRole("button", { name: "Mixer", exact: true }).click();
   await expect.poll(() => slots(page)).toEqual(["8", "6"]);
 });
+
+test("a mix wider than the window scrolls inside the dock, not the page (the user, 2026-09-16)", async ({ page }) => {
+  // 26 channels at 46 px a strip: wider than a 900 px window.
+  const many = Array.from({ length: 26 }, (_, i) => channel(`n${i}`, `Ch ${i}`, 6 + i, 0, [], i % 4));
+  await putWorkspace(server, { mixers: { "loopback-0": { channels: many } } });
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await expect(dock(page).locator('ga-strip:not([strip="master"])')).toHaveCount(26);
+  const page_ = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+  expect(page_.scroll, "the page does not grow sideways").toBeLessThanOrEqual(page_.client);
+  const app = await page.locator("ga-app").evaluate((el) => el.getBoundingClientRect().width);
+  expect(app, "nor does the shell").toBeLessThanOrEqual(900);
+  const strips = await dock(page).locator(".strips").evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+  expect(strips.scroll, "the dock's strips overflow their own row").toBeGreaterThan(strips.client);
+  await expect(dock(page).locator('ga-strip[strip="master"]')).toBeInViewport();
+});

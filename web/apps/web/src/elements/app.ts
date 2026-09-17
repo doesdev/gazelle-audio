@@ -21,6 +21,8 @@ export class GaApp extends GaElement {
       :host {
         display: grid;
         grid-template-rows: auto 1fr auto;
+        /* One column no wider than the window, so wide content (the mixer dock's strips) scrolls in its own box. */
+        grid-template-columns: minmax(0, 1fr);
         height: 100vh;
         background: var(--ga-surface-background);
       }
