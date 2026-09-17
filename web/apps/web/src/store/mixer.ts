@@ -32,22 +32,36 @@ export function levelDb(level: number): number {
 }
 
 /**
- * The fader's taper (the user, 2026-09-16): an audio taper rather than a linear one, so most of the
- * travel sits near 0 dB where mixing happens. Height from the bottom is (1 - attenuation / 90)^2:
- * -10 dB is about a fifth of the way down, halfway is about -26 dB, and -60 dB is near the floor.
+ * The fader's taper (the user, 2026-09-16): an audio taper, so most of the travel sits near 0 dB
+ * where mixing happens. A power curve spaced the scale's 10 dB marks almost evenly, which read as
+ * linear; the fader now follows the meters' own scale (`meterDeflection`, Antelope's) down to -60 dB
+ * in the top nine tenths of its travel, so each 10 dB down takes less room than the one above
+ * (22, 22, 18, 13, 9 and 4 per cent), and -60 to -90 dB shares the last tenth.
  */
-const FADER_TAPER = 2;
+const FADER_TAIL = 0.1;
+const METER_RANGE = 60;
 
 /** Where a level sits on the fader, as a fraction of its travel from the top (0 dB) to the bottom. */
 export function faderPosition(level: number): number {
   const clamped = Math.min(LEVEL_MAX, Math.max(0, level));
-  return 1 - (1 - clamped / LEVEL_MAX) ** FADER_TAPER;
+  const height = clamped <= METER_RANGE ? FADER_TAIL + ((1 - FADER_TAIL) * meterDeflection(clamped)) / 100 : (FADER_TAIL * (LEVEL_MAX - clamped)) / (LEVEL_MAX - METER_RANGE);
+  return 1 - height;
 }
 
 /** The level at a fraction of the fader's travel from the top: `faderPosition`'s inverse. */
 export function levelAtFaderPosition(position: number): number {
-  const clamped = Math.min(1, Math.max(0, position));
-  return LEVEL_MAX * (1 - (1 - clamped) ** (1 / FADER_TAPER));
+  const height = 1 - Math.min(1, Math.max(0, position));
+  if (height < FADER_TAIL) return LEVEL_MAX - (height / FADER_TAIL) * (LEVEL_MAX - METER_RANGE);
+  return meterLevelAt(((height - FADER_TAIL) / (1 - FADER_TAIL)) * 100);
+}
+
+/** `meterDeflection`'s inverse: the level (dB below full scale) a bar reaching `deflection` (0..100) shows. */
+function meterLevelAt(deflection: number): number {
+  if (deflection >= 50) return 20 - (deflection - 50) / 2.5;
+  if (deflection >= 30) return 30 - (deflection - 30) / 2;
+  if (deflection >= 15) return 40 - (deflection - 15) / 1.5;
+  if (deflection >= 5) return 50 - (deflection - 5);
+  return 60 - deflection * 2;
 }
 
 export function levelFromDb(db: number): number {

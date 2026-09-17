@@ -26,13 +26,17 @@ test("levels, pans and meters use the panels' scales", () => {
   assert.deepEqual([96, 60, 50, 40, 30, 20, 10, 0].map(meterDeflection), [0, 0, 5, 15, 30, 50, 75, 100], "Antelope's piecewise meter anchors");
 });
 
-test("the fader has an audio taper: most of its travel near the top, and position and level convert both ways (the user, 2026-09-16)", () => {
+test("the fader has an audio taper on the meters' scale: each 10 dB down takes less travel, and position and level convert both ways (the user, 2026-09-16)", () => {
   // Positions are measured from the top of the fader, as a pointer finds them.
   assert.equal(faderPosition(0), 0, "0 dB at the top");
   assert.equal(faderPosition(LEVEL_MAX), 1, "-90 dB at the bottom");
-  assert.ok(faderPosition(10) < 0.25, `-10 dB within the top quarter (${faderPosition(10)})`);
-  assert.ok(Math.abs(levelAtFaderPosition(0.5) - 26.4) < 0.1, `halfway down is about -26 dB, not -45 (${levelAtFaderPosition(0.5)})`);
-  assert.ok(faderPosition(60) > 0.85, `-60 dB is in the bottom seventh (${faderPosition(60)})`);
+  // Down to -60 dB it follows Antelope's meter scale, in the top nine tenths; -60 to -90 is the last tenth.
+  const expected: [number, number][] = [[10, 0.225], [20, 0.45], [30, 0.63], [40, 0.765], [50, 0.855], [60, 0.9]];
+  for (const [level, at] of expected) assert.ok(Math.abs(faderPosition(level) - at) < 1e-9, `-${level} dB at ${at} (${faderPosition(level)})`);
+  const travel = [10, 20, 30, 40, 50, 60].map((level) => faderPosition(level) - faderPosition(level - 10));
+  travel.reduce((above, step) => (assert.ok(step <= above + 1e-9, `each 10 dB down takes no more travel than the one above (${travel})`), step));
+  assert.ok(faderPosition(60) - faderPosition(50) < faderPosition(10) / 4, "the 10 dB above -60 takes a small part of what the top 10 dB does");
+  assert.ok(Math.abs(levelAtFaderPosition(0.5) - 22.78) < 0.01, `halfway down is about -23 dB (${levelAtFaderPosition(0.5)})`);
   let previous = -1;
   for (let level = 0; level <= LEVEL_MAX; level++) {
     const at = faderPosition(level);
