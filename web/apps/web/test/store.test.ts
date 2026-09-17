@@ -858,8 +858,9 @@ test("an AFX OUT strip on an empty chain meters the source routed into the chain
   // An empty chain passes its input straight through (the user, on the hardware, 2026-09-18), so
   // the strip carries audio and meters whatever routing feeds AFX IN k.
   const routes: RouteTable = {
-    // AFX IN 2 takes PREAMP 2, AFX IN 3 another chain's output, AFX IN 4 a mixer output, AFX IN 5 MUTE.
-    "loopback-0": { 7: [[10, 0], [0, 1], [5, 0], [6, 0]] },
+    // AFX IN 1 takes PREAMP 1 (its chain holds an effect), AFX IN 2 PREAMP 2, AFX IN 3 another
+    // chain's output, AFX IN 4 a mixer output, AFX IN 5 MUTE.
+    "loopback-0": { 7: [[0, 0], [0, 1], [5, 0], [6, 0]] },
   };
   const client = withChains({ "loopback-0": [[[3, 0]]], "loopback-1": [] }, routes);
   const { store, frames } = setup(client);
@@ -875,7 +876,7 @@ test("an AFX OUT strip on an empty chain meters the source routed into the chain
 
   const loaded = afxOut(0);
   assert.ok(loaded);
-  assert.equal(loaded.level.value, 12, "a chain with an effect is still metered by its last effect");
+  assert.equal(loaded.level.value, 12, "a chain with an effect is metered by its last effect, not by what feeds it (PREAMP 1, at 90)");
   assert.match(loaded.note.value, /last effect/);
 
   const through = afxOut(1);
