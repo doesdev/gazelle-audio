@@ -224,6 +224,8 @@ test("the panel's mono switch acts on the device's selected mix and says which m
 test("before the Mixer page has read the mixes, the panel's mono reads them before keeping the pans", async ({ page }) => {
   const frames = recordFrames(page);
   await putWorkspace(server, { mixers: { "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
+  // The mixer dock reads the mixes when it is open; collapsed, it reads nothing, leaving the panel on its own.
+  await page.addInitScript(() => localStorage.setItem("gazelle.layout.mixerDock", "true"));
   await page.goto(`${server.url}/#/inputs/loopback-0`);
   await expect(panel(page).getByTestId("cr-mono-mix")).toHaveText("Mix 1");
   await page.waitForTimeout(300);
