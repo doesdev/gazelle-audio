@@ -1,6 +1,7 @@
 //! Owns every connected device and routes work to the right worker.
 
 use gazelle_audio_protocol::field::Field;
+use gazelle_audio_protocol::registry::Registry;
 use gazelle_audio_transport::{Device, LoopbackDevice};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -9,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::device::cyclic_loopback::CyclicLoopback;
 use crate::device::mixer_loopback::MixerLoopback;
+use crate::device::read_loopback::ReadLoopback;
 use crate::device::routing_loopback::RoutingLoopback;
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::handle::DeviceHandle;
@@ -30,6 +32,12 @@ pub const ANTELOPE_USB_VID: u16 = 9189;
 ///
 /// Also mis-annotated as `0x1D57` in the earlier notes; 7499 is `0x1D4B`.
 pub const ANTELOPE_TB_VID: u16 = 7499;
+
+/// Wrap an emulating loopback in the layers that make it answer like a device: reads, routing,
+/// mixer and links. The loopback backend and the tests build their devices with this.
+pub fn loopback_stack(dev: Box<dyn Device + Send>, registry: Option<&Registry>) -> Box<dyn Device + Send> {
+    MixerLoopback::wrap(RoutingLoopback::wrap(ReadLoopback::wrap(dev, registry), registry), registry)
+}
 
 struct Entry {
     descriptor: DeviceDescriptor,
@@ -146,8 +154,7 @@ impl DeviceManager {
             // request/response path is exercised rather than only framing.
             let dev = LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size);
             let registry = self.registries.for_pid(*pid).map(|m| m.registry.as_ref());
-            let dev = MixerLoopback::wrap(RoutingLoopback::wrap(Box::new(dev), registry), registry);
-            self.attach(DeviceId::loopback(n), dev, "loopback", true);
+            self.attach(DeviceId::loopback(n), loopback_stack(Box::new(dev), registry), "loopback", true);
         }
     }
 
@@ -169,8 +176,7 @@ impl DeviceManager {
                 .unwrap_or_default();
             let dev = CyclicLoopback::new(LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size), reports, interval);
             let registry = self.registries.for_pid(*pid).map(|m| m.registry.as_ref());
-            let dev = MixerLoopback::wrap(RoutingLoopback::wrap(Box::new(dev), registry), registry);
-            self.attach(DeviceId::loopback(n), dev, "loopback", true);
+            self.attach(DeviceId::loopback(n), loopback_stack(Box::new(dev), registry), "loopback", true);
         }
     }
 
@@ -404,6 +410,67 @@ pub(crate) mod tests {
         let result = devices.handle(&id).unwrap().request("get_adats_links", PayloadValues::default(), None, false).await;
         assert!(matches!(result, Err(ServerError::DeviceGone(_))), "got {result:?}");
         assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
+    }
+
+    /// An answering loopback whose replies, while `refusing` is set, come back as the device's
+    /// refusal: the reply id and `ext2` with the top bit set, `ext3` and the contents zeroed, as
+    /// hardware session 2 captured.
+    struct Refusing {
+        inner: LoopbackDevice,
+        refusing: Arc<AtomicBool>,
+    }
+
+    impl Device for Refusing {
+        fn send(&mut self, report: &Report) -> Result<bool, WireError> {
+            self.inner.send(report)
+        }
+        fn on_received_data(&mut self, packet: RawPacket) {
+            self.inner.on_received_data(packet)
+        }
+        fn max_packet_size(&self) -> usize {
+            self.inner.max_packet_size()
+        }
+        fn vid(&self) -> u16 {
+            self.inner.vid()
+        }
+        fn pid(&self) -> u16 {
+            self.inner.pid()
+        }
+        fn poll_reports(&mut self) -> Vec<Report> {
+            let refusing = self.refusing.load(Ordering::SeqCst);
+            let mut reports = self.inner.poll_reports();
+            for report in reports.iter_mut().filter(|r| refusing && r.cmd() == 0x75) {
+                let h = report.header;
+                report.header = gazelle_audio_protocol::wire::Header::new(h.cmd | 0x8000_0000, h.seq, h.ext2 | 0x8000_0000, 0);
+                report.contents.fill(0);
+            }
+            reports
+        }
+    }
+
+    #[tokio::test]
+    async fn a_read_the_device_refuses_fails_as_refused_at_once_and_the_device_carries_on() {
+        let devices = manager();
+        let refusing = Arc::new(AtomicBool::new(true));
+        let device = Refusing { inner: LoopbackDevice::emulating(ANTELOPE_USB_VID, PID_QUADRO, 64), refusing: refusing.clone() };
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        let handle = devices.handle(&id).unwrap();
+
+        let started = Instant::now();
+        let result = handle.request("get_adats_links", PayloadValues::default(), None, false).await;
+        match &result {
+            Err(e @ ServerError::Refused { command, .. }) => {
+                assert_eq!(command, "get_adats_links");
+                assert_eq!(e.code(), "refused");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
+
+        refusing.store(false, Ordering::SeqCst);
+        handle.request("get_adats_links", PayloadValues::default(), None, false).await.expect("the next read is answered");
+        assert!(!devices.is_empty(), "a refusal does not detach the device");
     }
 
     #[test]

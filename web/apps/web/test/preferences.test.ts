@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { persisted, STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../src/store/preferences.ts";
-import { MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, SIDEBAR_STORAGE_KEY, Store } from "../src/store/store.ts";
+import { MIXER_DOCK_STORAGE_KEY, MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, SIDEBAR_STORAGE_KEY, Store } from "../src/store/store.ts";
 import { effect } from "../src/core/signal.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -99,6 +99,22 @@ test("the two side panels' collapse, from before the single sidebar, carries ove
 
   const readOnly = { getItem: (key: string) => (key === PANELS_STORAGE_KEY ? JSON.stringify({ leftCollapsed: false, rightCollapsed: true }) : null), setItem: () => { throw new Error("blocked"); } };
   assert.deepEqual(new Store(new FakeClient(), { storage: readOnly, timers: new ManualTimers(), themeSources: builtInThemes }).sidebar.value.sections, { devices: false, meter: true, controlRoom: true }, "storage that cannot be written still carries it over for the page");
+});
+
+test("whether the mixer dock is collapsed is remembered per browser; it starts open", () => {
+  const storage = new MemoryStorage();
+  const first = store(storage);
+  assert.equal(first.mixerDockCollapsed.value, false);
+  first.setMixerDockCollapsed(true);
+  assert.equal(first.mixerDockCollapsed.value, true);
+  assert.equal(store(storage).mixerDockCollapsed.value, true, "a later load sees it collapsed");
+  first.setMixerDockCollapsed(false);
+  assert.equal(store(storage).mixerDockCollapsed.value, false);
+
+  storage.items.set(MIXER_DOCK_STORAGE_KEY, JSON.stringify("yes"));
+  assert.equal(store(storage).mixerDockCollapsed.value, false, "an invalid stored value falls back to open");
+  storage.items.set(MIXER_DOCK_STORAGE_KEY, JSON.stringify(true));
+  assert.equal(store(storage).mixerDockCollapsed.value, true);
 });
 
 test("the device last selected is remembered per browser, and shown where a page names none", () => {

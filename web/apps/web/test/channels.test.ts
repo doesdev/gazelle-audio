@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import type { MixerChannel } from "gazelle-audio-client";
+import { channelColor } from "../src/store/channels.ts";
 import { PROFILES } from "../src/store/profiles.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
@@ -318,4 +320,98 @@ test("a channel with no name of its own is called by its input's name, and a typ
   // Clearing the typed name hands the channel back to its input's name.
   channels.rename(id, "");
   assert.equal(name(), channels.sourceLabel({ group: USB1, channel: 5 }));
+});
+
+test("a mix's strips are the channels set up in it, main or send, in the Mixer page's order, each with its name, colour and input", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const [a, b, c, d, e] = [channels.add(), channels.add(), channels.add(), channels.add(), channels.add()] as string[];
+  await channels.setSource(a as string, { group: PREAMP, channel: 0 });
+  await channels.setMainMix(a as string, 0);
+  await channels.setSource(b as string, { group: PREAMP, channel: 1 });
+  await channels.setMainMix(b as string, 1);
+  await channels.setSend(b as string, 0, true);
+  await channels.setSource(c as string, { group: USB1, channel: 0 });
+  await channels.setMainMix(c as string, 1);
+  // d has an input but no main mix, and e a main mix but no input: neither feeds anything.
+  await channels.setSource(d as string, { group: USB1, channel: 1 });
+  await channels.setMainMix(e as string, 0);
+  channels.move(b as string, 0);
+  channels.rename(a as string, "Vox");
+  const drums = channels.addGroup("Drums") as string;
+  channels.setGroupColor(drums, "#b5473a");
+  channels.setGroup(c as string, drums);
+
+  const ids = (mix: number) => channels.inMix(mix).map((x) => x.id);
+  assert.deepEqual(ids(0), [b, a], "a send counts, in layout order rather than slot order");
+  assert.deepEqual(ids(1), [b, c]);
+  assert.deepEqual(ids(2), []);
+  assert.throws(() => channels.inMix(4), RangeError);
+
+  const inputColour = (group: number) => store.topology(Q)?.inputs[group]?.color;
+  const strip = (id: string, mix: number) => channels.strip(channels.channel(id) as NonNullable<ReturnType<typeof channels.channel>>, mix);
+  assert.deepEqual(strip(a as string, 0), { label: "Vox", color: inputColour(PREAMP), source: { group: PREAMP, channel: 0 }, inMix: true });
+  assert.deepEqual(strip(a as string, 1), { label: "Vox", color: inputColour(PREAMP), source: { group: PREAMP, channel: 0 }, inMix: false });
+  assert.deepEqual(strip(b as string, 0), { label: channels.sourceLabel({ group: PREAMP, channel: 1 }), color: inputColour(PREAMP), source: { group: PREAMP, channel: 1 }, inMix: true }, "a send is in the mix");
+  assert.deepEqual(strip(c as string, 1), { label: channels.sourceLabel({ group: USB1, channel: 0 }), color: "#b5473a", source: { group: USB1, channel: 0 }, inMix: true }, "a group's colour");
+  assert.deepEqual(strip(d as string, 0), { label: channels.sourceLabel({ group: USB1, channel: 1 }), color: inputColour(USB1), source: { group: USB1, channel: 1 }, inMix: false }, "an inactive channel is in no mix");
+  assert.equal(strip(e as string, 0).inMix, false, "not even its main mix, until it has an input");
+});
+
+test("a channel's own colour is set and cleared, and saved in the workspace; an unset colour is omitted", async () => {
+  const { client, store, timers } = await setup();
+  const channels = store.channels(Q);
+  const a = channels.add() as string;
+  const b = channels.add() as string;
+
+  assert.equal(channels.setChannelColor(a, "#3fae6a"), true);
+  assert.equal(channels.channel(a)?.color, "#3fae6a");
+  assert.equal("color" in (channels.channel(b) ?? {}), false, "other channels keep no colour");
+  timers.advance(1000);
+  await flush();
+  assert.equal(client.stored.mixers[Q]?.channels.find((c) => c.id === a)?.color, "#3fae6a");
+
+  assert.equal(channels.setChannelColor(a, undefined), true);
+  assert.equal("color" in (channels.channel(a) ?? {}), false, "a cleared colour is omitted, as the server omits it");
+  timers.advance(1000);
+  await flush();
+  assert.equal("color" in (client.stored.mixers[Q]?.channels.find((c) => c.id === a) ?? {}), false);
+
+  for (const bad of ["red", "#3fae6", "3fae6a0", "#3fae6g", "#3fae6a0", " #3fae6a"]) assert.throws(() => channels.setChannelColor(a, bad), RangeError, bad);
+  assert.throws(() => channels.setChannelColor("nope", "#3fae6a"), RangeError);
+});
+
+test("a strip's colour is its group's, else the channel's own, else its input's routing colour, else the theme palette's", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const topology = store.topology(Q);
+  assert.ok(topology !== undefined);
+  const palette = store.theme.value.palette;
+  const id = channels.add() as string; // slot 6
+  const colour = () => channelColor(channels.channel(id) as MixerChannel, { groups: channels.layout.value.groups, inputs: topology.inputs, palette });
+
+  // No input: the palette, by mixer input pair, as strips always were.
+  assert.deepEqual(colour(), { color: palette[3 % palette.length], from: "palette" });
+  await channels.setSource(id, { group: USB1, channel: 0 });
+  const input = topology.inputs[USB1]?.color;
+  assert.ok(input !== undefined && input !== palette[3 % palette.length], "the test needs an input colour unlike the palette's");
+  assert.deepEqual(colour(), { color: input, from: "input" });
+
+  channels.setChannelColor(id, "#123456");
+  assert.deepEqual(colour(), { color: "#123456", from: "custom" });
+
+  const drums = channels.addGroup("Drums", [id]) as string;
+  assert.deepEqual(colour(), { color: "#123456", from: "custom" }, "a group without a colour leaves the channel's own");
+  channels.setGroupColor(drums, "#b5473a");
+  assert.deepEqual(colour(), { color: "#b5473a", from: "group" });
+  channels.setChannelColor(id, undefined);
+  assert.deepEqual(colour(), { color: "#b5473a", from: "group" });
+  channels.setGroup(id, undefined);
+  assert.deepEqual(colour(), { color: input, from: "input" }, "out of the group, with no colour of its own, it takes its input's again");
+
+  // A source the topology does not have falls through to the palette; an empty palette gives no colour.
+  const stray = { ...(channels.channel(id) as MixerChannel), source: { group: 99, channel: 0 } };
+  assert.deepEqual(channelColor(stray, { groups: [], inputs: topology.inputs, palette }), { color: palette[3 % palette.length], from: "palette" });
+  assert.deepEqual(channelColor({ ...stray, slot: 9 }, { groups: [], inputs: topology.inputs, palette: ["#000001", "#000002", "#000003"] }), { color: "#000002", from: "palette" }, "slots 8 and 9 are the fifth pair, and the palette wraps");
+  assert.deepEqual(channelColor(stray, { groups: [], inputs: topology.inputs, palette: [] }), { color: undefined, from: "palette" });
 });

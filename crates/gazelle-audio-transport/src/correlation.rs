@@ -42,6 +42,24 @@
 //! * **Exactly one report is consumed per request.** The device takes the next item off
 //!   the queue and validates it; it does not keep reading until something matches. A
 //!   non-matching report therefore *fails* the request rather than being skipped.
+//!
+//! # Refusals: from traffic, not bytecode
+//!
+//! `_sanitize_response` only says a reply with the top bit of `cmd` set is not valid. What
+//! such a reply looks like comes from hardware session 2, where a Studio+ panel start-up got
+//! one among 67 replies (fixture `tests/fixtures/studio-live-replies.hex`):
+//!
+//! ```text
+//! cmd 0x80000075   seq 0x10   ext2 0x80000011   ext3 0   contents all zero
+//! ```
+//!
+//! That is the reply header a `get_*` with `ext2` 17 would get, with the top bit set in `cmd`
+//! **and** in `ext2`, `ext3` not echoed and nothing in the contents. So a refusal is tied to the
+//! outstanding request by the same two fields as an answer, each flagged: `cmd` is the request's
+//! `report_id + 1 | 0x80000000` and `ext2` is its `ext2 | 0x80000000`. That completes the request
+//! at once as [`Correlation::Refused`] rather than leaving it to time out. The rule is kept to
+//! the one form seen: a flagged `255`, or a flagged `cmd` with a plain `ext2`, stays unmatched,
+//! so a request can only ever be failed by a refusal naming it, never by one it merely resembles.
 
 use crate::Report;
 use std::time::{Duration, Instant};
@@ -52,7 +70,7 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 /// `cmd` value the device accepts as a generic acknowledgement, whatever was asked.
 pub const ACK_CMD: u32 = 255;
 
-/// A response whose `cmd` has this bit set is never valid.
+/// A response whose `cmd` has this bit set is never valid. A refusal sets it in `ext2` too.
 const CMD_INVALID_MASK: u32 = 0x8000_0000;
 
 /// A request awaiting its response.
@@ -72,6 +90,9 @@ pub struct PendingRequest {
 pub enum Correlation {
     /// The report satisfies the outstanding request.
     Matched { report: Report },
+    /// The device refused the outstanding request; see [`ResponseCorrelator::is_refusal`].
+    /// The request is no longer outstanding.
+    Refused { report: Report },
     /// The report is not a valid response: cyclic traffic, noise, or a reply to something
     /// else. The request it was checked against remains outstanding.
     Unmatched { report: Report },
@@ -133,6 +154,13 @@ impl ResponseCorrelator {
         cmd_ok && report.ext2() == req.ext2
     }
 
+    /// Whether a report is the device refusing `req`: the reply `cmd` and the request's `ext2`,
+    /// each with the top bit set. See "Refusals" in the module docs.
+    pub fn is_refusal(report: &Report, req: &PendingRequest) -> bool {
+        report.cmd() == req.report_id.wrapping_add(1) | CMD_INVALID_MASK
+            && report.ext2() == req.ext2 | CMD_INVALID_MASK
+    }
+
     /// Check a received report against the outstanding request.
     ///
     /// Note the original consumes exactly one report per request: a report that fails
@@ -145,6 +173,9 @@ impl ResponseCorrelator {
         if Self::is_valid_response(&report, req, self.sanitize) {
             self.pending = None;
             Correlation::Matched { report }
+        } else if Self::is_refusal(&report, req) {
+            self.pending = None;
+            Correlation::Refused { report }
         } else {
             Correlation::Unmatched { report }
         }
@@ -218,6 +249,36 @@ mod tests {
             c.correlate(report(0x8000_0000 | 0x75, 4)),
             Correlation::Unmatched { .. }
         ));
+    }
+
+    #[test]
+    fn a_refusal_of_the_outstanding_request_completes_it_as_refused() {
+        let mut c = ResponseCorrelator::new();
+        c.record_request(0x74, 0x11, "get_feature_mask");
+        // As captured in hardware session 2: the reply id and the request's ext2, both with the top bit set.
+        assert!(matches!(c.correlate(report(0x8000_0075, 0x8000_0011)), Correlation::Refused { .. }));
+        assert!(!c.has_pending(), "a refused request is no longer outstanding");
+    }
+
+    #[test]
+    fn a_refusal_of_something_else_is_not_taken_for_this_request() {
+        let mut c = ResponseCorrelator::new();
+        c.record_request(0x74, 0x11, "get_feature_mask");
+        for (cmd, ext2) in [
+            (0x8000_0075, 0x8000_0004), // another selector refused
+            (0x8000_0071, 0x8000_0011), // another command's reply id refused
+            (0x8000_0075, 0x11),        // ext2 without the top bit: not the captured form
+            (0x8000_00FF, 0x8000_0011), // a refused acknowledgement has never been seen
+        ] {
+            assert!(matches!(c.correlate(report(cmd, ext2)), Correlation::Unmatched { .. }), "cmd {cmd:#X} ext2 {ext2:#X}");
+        }
+        assert!(c.has_pending());
+    }
+
+    #[test]
+    fn a_refusal_with_no_request_outstanding_is_unsolicited() {
+        let mut c = ResponseCorrelator::new();
+        assert!(matches!(c.correlate(report(0x8000_0075, 0x8000_0011)), Correlation::Unsolicited { .. }));
     }
 
     #[test]

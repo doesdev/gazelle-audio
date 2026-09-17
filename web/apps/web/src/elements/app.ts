@@ -1,6 +1,6 @@
 // <ga-app>: the shell. A header across the top; below it the routed page and one sidebar holding
-// the device cards, the meter and the Control Room monitor panel; a lower zone is reserved for the
-// mixer dock. It applies the chosen theme to the document and marks itself disconnected when the
+// the device cards, the meter and the Control Room monitor panel; the mixer dock sits in a lower zone.
+// It applies the chosen theme to the document and marks itself disconnected when the
 // server goes away.
 //
 // The sidebar docks to the right unless moved, and folds to its rail; its side, whether it is
@@ -31,7 +31,7 @@ export class GaApp extends GaElement {
       :host {
         display: grid;
         grid-template-rows: auto 1fr auto;
-        /* One column no wider than the window, whatever the content's own minimum width. */
+        /* One column no wider than the window, so wide content (the page, the mixer dock's strips) scrolls in its own box. */
         grid-template-columns: minmax(0, 1fr);
         height: 100vh;
         height: 100dvh;
@@ -64,7 +64,6 @@ export class GaApp extends GaElement {
       :host([sidebar-collapsed]) .sidebar .content, :host([sidebar-collapsed]) .rail .spacer { display: none; }
       :host([sidebar-collapsed]) .rail { flex-direction: column; }
       .menu, .backdrop { display: none; }
-      .lower { border-top: 1px solid var(--ga-surface-background); padding: 6px 8px; }
       .page-title { margin: 0 0 12px; }
       .disconnected {
         margin: 0 0 12px;
@@ -152,8 +151,8 @@ export class GaApp extends GaElement {
     this.root.replaceChildren(
       h("ga-header", {}, menu),
       h("div", { class: "zones" }, main, sidebar, backdrop),
-      // The mixer dock's zone.
-      h("footer", { class: "zone lower", "aria-label": "Mixer" }, h("ga-section", { heading: "Mixer", collapsed: true }, h("p", { class: "placeholder" }, "Open the Mixer page for channel strips, faders and meters. A compact mixer here comes later."))),
+      // The dock styles its own zone, so on the Mixer page, where it hides, the footer takes no room.
+      h("footer", { "aria-label": "Mixer" }, h("ga-mixer-dock")),
       h("ga-notices"),
     );
 

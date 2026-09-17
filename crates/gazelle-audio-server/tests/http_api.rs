@@ -187,7 +187,7 @@ async fn mixer_layouts_round_trip_and_are_validated() {
         "mixes": [{"name": "Cue A"}, {}],
         "groups": [{"id": "drums", "name": "Drums", "color": "#b5473a"}],
         "channels": [
-            {"id": "c1", "name": "Kick", "group": "drums", "slot": 6, "source": {"group": 0, "channel": 0}, "main_mix": 0, "sends": [1, 2]},
+            {"id": "c1", "name": "Kick", "group": "drums", "color": "#3FAE6a", "slot": 6, "source": {"group": 0, "channel": 0}, "main_mix": 0, "sends": [1, 2]},
             {"id": "c2", "name": "", "slot": 7}
         ]
     });
@@ -200,6 +200,8 @@ async fn mixer_layouts_round_trip_and_are_validated() {
     assert_eq!(stored["channels"][0]["source"], json!({"group": 0, "channel": 0}));
     assert_eq!(stored["mixes"][0]["name"], "Cue A");
     assert!(stored["channels"][1].get("source").is_none() && stored["channels"][1].get("main_mix").is_none(), "unset fields are omitted: {body}");
+    assert_eq!(stored["channels"][0]["color"], "#3FAE6a", "a channel's own colour is kept");
+    assert!(stored["channels"][1].get("color").is_none(), "a channel without a colour has none: {body}");
 
     let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
     assert_eq!(plain["mixers"], json!({}), "a new workspace has no layouts");
@@ -213,6 +215,10 @@ async fn mixer_layouts_round_trip_and_are_validated() {
         ("repeated send", json!({"channels": [{"id": "a", "slot": 1, "sends": [2, 2]}]})),
         ("unknown group", json!({"channels": [{"id": "a", "slot": 1, "group": "nope"}]})),
         ("bad colour", json!({"groups": [{"id": "g", "name": "G", "color": "blue"}]})),
+        ("bad channel colour", json!({"channels": [{"id": "a", "slot": 1, "color": "blue"}]})),
+        ("short channel colour", json!({"channels": [{"id": "a", "slot": 1, "color": "#3fae6"}]})),
+        ("channel colour without #", json!({"channels": [{"id": "a", "slot": 1, "color": "33fae6a"}]})),
+        ("channel colour not hex", json!({"channels": [{"id": "a", "slot": 1, "color": "#3fae6g"}]})),
         ("more than four mixes", json!({"mixes": [{}, {}, {}, {}, {}]})),
     ];
     for (why, mixer) in broken {
@@ -419,7 +425,7 @@ async fn quadro_only_command_is_absent_on_studio() {
 /// The loopback keeps routing state like a device, so the web UI's read-before-write and import
 /// can be exercised without hardware: `set_routing` replaces one destination group's 32 slots,
 /// `get_routing` with that group in `ext3` reads them back, and other groups are untouched.
-/// Unset slots start on the family's MUTE source (Quadro source group 10).
+/// Slots past a group's default routing are on the family's MUTE source (Quadro source group 10).
 #[tokio::test]
 async fn loopback_routing_reads_back_what_was_set() {
     let app = app();
@@ -446,7 +452,8 @@ async fn loopback_routing_reads_back_what_was_set() {
     let after = read(11).await;
     assert_eq!(after["bank_configs"][7], json!({"in_periph_id": 0, "in_chann": 2}));
     assert_eq!(after["bank_configs"][8], json!({"in_periph_id": 10, "in_chann": 0}));
-    assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 10, "in_chann": 0}), "other groups are untouched");
+    // MIX CH3's default routing has PREAMP channel 2 in slot 7 (loopback_reads.rs has the table).
+    assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 0, "in_chann": 1}), "other groups are untouched");
 }
 
 /// The loopback keeps mixer strips and stereo links like a device, so the web UI can read a mixer's

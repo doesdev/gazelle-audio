@@ -354,6 +354,23 @@ test("a device that will not answer get_panning_law leaves the choice unknown, w
   assert.deepEqual(store.notices.value, []);
 });
 
+test("a read the device refuses is quiet like any other failure a page's own read meets, and loud when asked for", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  // The device's own no (hardware session 2 saw one) is not a reason to post a notice nobody asked for.
+  client.respond = async (call) => {
+    throw new GazelleError("refused", `device loopback-0 refused '${call.command}'`);
+  };
+  assert.equal(await store.loadPanningLaw("loopback-0"), false);
+  assert.equal(await store.inputs("loopback-0").loadEmulations(), false);
+  assert.equal(store.notices.value.length, 0);
+
+  await store.inputs("loopback-0").loadLinks();
+  assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["error", "get_preamps_links could not be read: device loopback-0 refused 'get_preamps_links'"]]);
+});
+
 test("a read the user asked for still says so when it fails", async () => {
   const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
   const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
@@ -625,4 +642,64 @@ test("clip lights latch, clear when clicked or all at once, and auto-clear after
   assert.equal(preamp.clipped.value, false);
   assert.throws(() => store.setClipAutoClear(1234), RangeError);
   stop();
+});
+
+test("an imported workspace replaces the server's whole, as given, and sends nothing to devices", async () => {
+  const { client, timers, store } = setup();
+  await store.start();
+  const imported = { version: 1, groups: [], links: [], aliases: { "loopback-0": "Imported" }, mixers: {}, future: { kept: true } };
+
+  // An edit still waiting for its save is superseded: the person chose to replace everything.
+  store.renameDevice("loopback-1", "Pending");
+  assert.equal(await store.replaceWorkspace(imported as never), undefined);
+  assert.deepEqual(client.puts, [imported], "sent unchanged, unknown fields included");
+  assert.deepEqual(store.workspace.value, imported, "the page shows what the server accepted");
+  timers.advance(SAVE_DEBOUNCE_MS);
+  await flush();
+  assert.equal(client.puts.length, 1, "the superseded edit is not saved over the import");
+  assert.deepEqual(client.invocations, [], "a workspace is layout only: no device is touched");
+  assert.deepEqual(store.notices.value, []);
+});
+
+test("a refused import leaves the workspace as it was and says why", async () => {
+  const { client, timers, store } = setup();
+  await store.start();
+  store.renameDevice("loopback-0", "Desk");
+  timers.advance(SAVE_DEBOUNCE_MS);
+  await flush();
+  const before = structuredClone(store.workspace.value);
+  const empty = () => ({ version: 1, groups: [], links: [], aliases: {}, mixers: {} });
+
+  client.failPuts = new GazelleError("bad_value", "bad value: link 'l': a link needs at least two channels");
+  assert.equal(await store.replaceWorkspace(empty()), "The server refused it: bad value: link 'l': a link needs at least two channels");
+  assert.deepEqual(store.workspace.value, before);
+
+  // The server answers a document it cannot deserialise with plain text, which the client reports by status only.
+  client.failPuts = new GazelleError("http_422", "PUT http://x/api/v1/workspace returned HTTP 422");
+  assert.equal(await store.replaceWorkspace(empty()), "The server could not read it as a workspace: a part of it is missing or has the wrong type.");
+  assert.deepEqual(store.workspace.value, before);
+  assert.deepEqual(store.notices.value, [], "the page that asked shows the reason; no notice as well");
+
+  // An edit waiting for its save is still saved when the import is refused.
+  client.failPuts = new GazelleError("storage_error", "disk full");
+  store.renameDevice("loopback-1", "Rack");
+  assert.equal(await store.replaceWorkspace(empty()), "The server refused it: disk full");
+  client.failPuts = undefined;
+  timers.advance(SAVE_DEBOUNCE_MS);
+  await flush();
+  assert.deepEqual(client.stored.aliases, { "loopback-0": "Desk", "loopback-1": "Rack" });
+
+  // A save on its way could land after the import and undo it, so the import waits its turn.
+  store.renameDevice("loopback-1", "Shelf");
+  timers.advance(SAVE_DEBOUNCE_MS);
+  assert.equal(store.saving.value, true);
+  const puts = client.puts.length;
+  assert.equal(await store.replaceWorkspace(empty()), "A change is still being saved; try again in a moment.");
+  await flush();
+  assert.equal(client.puts.length, puts);
+  assert.equal(client.stored.aliases["loopback-1"], "Shelf");
+
+  client.emit("status", "reconnecting");
+  assert.equal(await store.replaceWorkspace(empty()), "Not connected to the server.");
+  assert.equal(client.puts.length, puts);
 });

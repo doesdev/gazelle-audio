@@ -42,10 +42,11 @@ fn live_inbound_packets_arrive_whole_and_the_state_reports_parse() {
 }
 
 /// Replies from a live panel start-up (hardware session 2): each arrives whole, including the one
-/// the device refused by setting the top bit of the reply id. That refusal is also the case the
-/// correlator does not match today, so a request answered this way waits for its timeout.
+/// the device refused. A refusal keeps the header of the reply it stands for with the top bit set
+/// in both `cmd` and `ext2` (`ext3` and the contents are zero), so it completes the one request
+/// with that `cmd` and `ext2` as refused, and nothing else.
 #[test]
-fn live_replies_arrive_whole_and_a_refusal_is_not_correlated() {
+fn live_replies_arrive_whole_and_a_refusal_fails_its_request() {
     let text = include_str!("fixtures/studio-live-replies.hex");
     let packets: Vec<Vec<u8>> = text
         .lines()
@@ -69,12 +70,16 @@ fn live_replies_arrive_whole_and_a_refusal_is_not_correlated() {
 
     // The device answers `get_*` (0x74) with 0x75; the refusal is that id with the top bit set.
     let refusal = refusal.expect("the fixture carries the refused reply");
+    assert_eq!((refusal.ext2(), refusal.header.ext3), (0x8000_0011, 0), "ext2 is flagged too, and ext3 is not echoed");
+    assert!(refusal.contents.iter().all(|&b| b == 0), "a refusal carries nothing");
+
+    // ext2 17 is the licence group (`get_feature_mask` and the assignment reads on the Quadro).
     let mut correlator = ResponseCorrelator::new();
-    correlator.record_request(0x74, refusal.ext2(), "the refused read");
-    assert!(
-        !matches!(correlator.correlate(refusal), Correlation::Matched { .. }),
-        "a refusal does not answer its request today: the USB backend will have to handle it",
-    );
+    correlator.record_request(0x74, 4, "get_mixer");
+    assert!(matches!(correlator.correlate(refusal.clone()), Correlation::Unmatched { .. }), "not another selector's refusal");
+    correlator.record_request(0x74, 0x11, "the refused read");
+    assert!(matches!(correlator.correlate(refusal), Correlation::Refused { .. }));
+    assert!(!correlator.has_pending(), "the refused request does not wait for its timeout");
 }
 
 /// Live HID traffic from a Quadro (hardware session 2): the device wraps a report in an 8053

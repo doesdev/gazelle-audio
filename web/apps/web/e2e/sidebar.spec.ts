@@ -104,9 +104,9 @@ test.describe("on a desktop", () => {
   test("the lower zone is left for the mixer dock", async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 860 });
     await page.goto(`${server.url}/#/devices/loopback-0`);
-    const lower = page.locator("ga-app footer.lower");
+    const lower = page.locator("ga-app footer ga-mixer-dock");
     await expect(lower).toBeVisible();
-    const [footer, viewport] = [await box(page, "ga-app footer.lower"), page.viewportSize()];
+    const [footer, viewport] = [await box(page, "ga-app footer"), page.viewportSize()];
     expect(footer.y + footer.height).toBeLessThanOrEqual((viewport?.height ?? 0) + 1);
   });
 });
