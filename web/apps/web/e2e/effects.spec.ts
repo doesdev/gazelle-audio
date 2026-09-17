@@ -24,10 +24,14 @@ test.afterAll(async () => {
 const slots = (...effects: [number, number][]) => Array.from({ length: 8 }, (_, i) => ({ type: effects[i]?.[0] ?? 0, inst: effects[i]?.[1] ?? 0 }));
 const QUADRO_CHAINS: Record<number, [number, number][]> = { 0: [[39, 2], [1, 0]], 1: [[39, 3], [1, 1]], 4: [[9, 0]] };
 
-type Frame = { id?: number; device_id?: string; command?: string; ext3?: number };
+type Frame = { id?: number; device_id?: string; command?: string; ext3?: number; args?: Record<string, number> };
 
-/** Answers the effects reads of loopback-0 (Quadro) and loopback-1 (Studio+) as a device would. */
-async function answerReads(page: Page): Promise<void> {
+/**
+ * Answers the effects reads of loopback-0 (Quadro) and loopback-1 (Studio+) as a device would, and
+ * returns every frame the page sends, in the order sent.
+ */
+async function answerReads(page: Page): Promise<Frame[]> {
+  const sent: Frame[] = [];
   const replies: Record<string, (frame: Frame) => unknown> = {
     "loopback-0|get_afx_strip_order": (frame) => ({ entries: [{ slots: slots(...(QUADRO_CHAINS[frame.ext3 ?? -1] ?? [])) }] }),
     "loopback-0|get_afx_links": () => ({ entries: [1, 0, 0, 0, 0, 0, 0].map((linked) => ({ linked })) }),
@@ -42,11 +46,13 @@ async function answerReads(page: Page): Promise<void> {
     const upstream = socket.connectToServer();
     socket.onMessage((message) => {
       const frame: Frame = typeof message === "string" ? (JSON.parse(message) as Frame) : {};
+      sent.push(frame);
       const reply = replies[`${frame.device_id}|${frame.command}`];
       if (reply === undefined) return upstream.send(message);
       socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response: reply(frame), response_error: null } }));
     });
   });
+  return sent;
 }
 
 /** What the server says it would send for a command, to compare with the page's last send. */
@@ -81,7 +87,8 @@ test("Quadro chains show what the device reports: effects by name and instance, 
 });
 
 test("bypass sends set_afx_bypass per instance, enabled 0, and the linked partner follows; bypass all sends each", async ({ page }) => {
-  await answerReads(page);
+  const sent = await answerReads(page);
+  const bypasses = () => sent.filter((f) => f.command === "set_afx_bypass").map((f) => f.args);
   await page.goto(`${server.url}/#/effects/loopback-0`);
   const bypass = page.getByTestId("bypass-0-0");
   await expect(bypass).toHaveAttribute("aria-pressed", "false");
@@ -90,8 +97,15 @@ test("bypass sends set_afx_bypass per instance, enabled 0, and the linked partne
   await bypass.click();
   await expect(bypass).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("bypass-1-0")).toHaveAttribute("aria-pressed", "true");
-  // The partner's instance is sent last.
-  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_afx_bypass", { periph_id: 3, periph_type: 39, enabled: 0 }));
+  // The clicked instance, then the linked partner's. Their dry-run replies can come back in either
+  // order, so the order is checked on the frames sent and the bytes on whichever reply came last.
+  await expect.poll(bypasses).toEqual([
+    { periph_id: 2, periph_type: 39, enabled: 0 },
+    { periph_id: 3, periph_type: 39, enabled: 0 },
+  ]);
+  const either = [await wouldSend("loopback-0", "set_afx_bypass", { periph_id: 2, periph_type: 39, enabled: 0 }), await wouldSend("loopback-0", "set_afx_bypass", { periph_id: 3, periph_type: 39, enabled: 0 })];
+  // Letters, digits, spaces, commas and colons only: nothing to escape.
+  await expect(lastSent(page)).toHaveText(new RegExp(`^(${either.join("|")})$`));
 
   await page.getByTestId("active-4-0").click();
   await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_afx_bypass", { periph_id: 0, periph_type: 9, enabled: 1 }));
