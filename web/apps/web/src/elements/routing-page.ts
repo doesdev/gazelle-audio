@@ -6,6 +6,7 @@
 // belong to the Mixer page's channels, so their rows are shown but not edited here.
 
 import { h } from "../core/dom.ts";
+import { untracked } from "../core/signal.ts";
 import type { RouteSlot } from "../store/routing.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 
@@ -50,7 +51,11 @@ export class GaRouting extends GaElement {
       return;
     }
     const routing = store.routing(deviceId);
-    void routing.loadAll();
+    // Each group is read once (what the Mixer page read is not read again), and again once the
+    // connection or the device has come back; "Read from device" reads everything now.
+    this.watch(() => {
+      if (store.routesToRead(deviceId)) untracked(() => void store.readRoutes(deviceId));
+    });
 
     const shortLabel = (group: number, channel: number) => {
       const source = topology.inputs[group];

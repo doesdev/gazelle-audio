@@ -363,9 +363,12 @@ export class Store {
           this.#status.value = status;
           this.#server.value = client.server;
           refreshDevices();
-          // Mixes are read once and kept (P80). While the connection is down the server may restart
-          // or the device change, so they are read again once it is back.
-          if (status !== "open") for (const mixer of this.#mixers.values()) mixer.forget();
+          // Mixes and routing are read once and kept (P80). While the connection is down the server
+          // may restart or the device change, so they are read again once it is back.
+          if (status !== "open") {
+            for (const mixer of this.#mixers.values()) mixer.forget();
+            for (const routing of this.#routings.values()) routing.forget();
+          }
         }),
       ),
       client.on("device_added", refreshDevices),
@@ -373,6 +376,7 @@ export class Store {
         refreshDevices();
         // Unplugged, or about to be re-attached: what comes back may not be as it was.
         for (const mixer of this.#mixers.values()) if (mixer.deviceId === deviceId) mixer.forget();
+        this.#routings.get(deviceId)?.forget();
       }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
     );
@@ -558,6 +562,28 @@ export class Store {
     const count = this.topology(deviceId)?.mixers.count ?? 0;
     const read = await Promise.all(Array.from({ length: count }, (_, mix) => this.mixer(deviceId, mix).readOnce()));
     if (read.some(Boolean)) await this.links.importDevicePairs(deviceId);
+  }
+
+  /**
+   * Whether some of a device's destination groups (all of them unless named) want reading now, as
+   * `mixesToRead` does for mixes: the connection is open, the device is attached, and a group has
+   * not been read since it was last forgotten. Reading it is reactive.
+   */
+  routesToRead(deviceId: string, destinations?: readonly number[]): boolean {
+    if (!this.connected.value) return false;
+    // Read reactively, so a device coming back is noticed.
+    const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return false;
+    const routing = this.routing(deviceId);
+    return (destinations ?? topologies[family].outputs.map((_, i) => i)).some((destination) => routing.needsRead(destination).value);
+  }
+
+  /** Reads each of a device's destination groups (all of them unless named) that wants it. */
+  async readRoutes(deviceId: string, destinations?: readonly number[]): Promise<void> {
+    const topology = this.topology(deviceId);
+    if (topology === undefined) return;
+    const routing = this.routing(deviceId);
+    await Promise.all((destinations ?? topology.outputs.map((_, i) => i)).map((destination) => routing.readOnce(destination)));
   }
 
   readonly #channels = new Map<string, ChannelsModel>();

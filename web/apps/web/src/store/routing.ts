@@ -10,8 +10,13 @@
 //
 // In dry run nothing is sent, so a read has no reply: the write then builds on what is already
 // known (or MUTE), which shows the bytes without risking anything on a device.
+//
+// Pages call `readOnce`: a group read is kept and reused, as the mixes are (P80), since this app's
+// own changes keep it current, until `forget()` says the device may have changed without it (the
+// connection dropped, or the device went away). A change that fails leaves its group to be read
+// again, since it may have reached the device. `load` always reads.
 
-import { signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
+import { batch, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { Topology } from "gazelle-audio-client";
 
 /** Slots in one `set_routing` group, in both families. */
@@ -49,6 +54,11 @@ export class RoutingModel {
   readonly #context: RoutingContext;
   readonly #groups: Signal<readonly RouteSlot[] | undefined>[];
   readonly #queues = new Map<number, Promise<unknown>>();
+  readonly #needsRead: Signal<boolean>[];
+  /** Bumped by `forget()`, so a read begun before it neither counts nor holds back the next. */
+  #generation = 0;
+  /** Per group, the generation a `readOnce` is under way for. */
+  readonly #reading: (number | undefined)[] = [];
 
   constructor(context: RoutingContext) {
     this.#context = context;
@@ -57,6 +67,7 @@ export class RoutingModel {
     if (mute < 0) throw new Error(`${context.topology.family} topology has no MUTE source`);
     this.mute = mute;
     this.#groups = context.topology.outputs.map(() => signal<readonly RouteSlot[] | undefined>(undefined));
+    this.#needsRead = context.topology.outputs.map(() => signal(true));
   }
 
   /** A destination group's slots (one per channel), or undefined until read. */
@@ -66,10 +77,54 @@ export class RoutingModel {
 
   /** Reads one destination group from the device. Resolves false when it could not be read. */
   load(index: number): Promise<boolean> {
+    return this.#load(index, this.#generation);
+  }
+
+  /** Reads one group; a reply, or a dry run's lack of one, counts as read unless `forget()` came meanwhile. */
+  #load(index: number, generation: number): Promise<boolean> {
     return this.#serially(index, async () => {
       const read = await this.#read(index);
       if (read?.slots !== undefined) this.#group(index).value = read.slots;
+      this.#counted(index, read, generation);
       return read?.slots !== undefined;
+    });
+  }
+
+  #counted(index: number, read: RoutingRead | undefined, generation: number): void {
+    if (read !== undefined && (read.slots !== undefined || read.dryRun) && generation === this.#generation) this.#needsReadOf(index).value = false;
+  }
+
+  #needsReadOf(index: number): Signal<boolean> {
+    this.#group(index);
+    return this.#needsRead[index] as Signal<boolean>;
+  }
+
+  /** True until the group has been read (or found to have nothing to read, in dry run), and again after `forget()` or a change that failed. */
+  needsRead(index: number): ReadonlySignal<boolean> {
+    return this.#needsReadOf(index);
+  }
+
+  /**
+   * Reads one group unless it has been read since the last `forget()`, or a read of it is under
+   * way. Resolves true when this call read. A read that fails leaves it to be tried next time.
+   */
+  async readOnce(index: number): Promise<boolean> {
+    const generation = this.#generation;
+    if (!this.needsRead(index).peek() || this.#reading[index] === generation) return false;
+    this.#reading[index] = generation;
+    try {
+      await this.#load(index, generation);
+    } finally {
+      if (this.#reading[index] === generation) this.#reading[index] = undefined;
+    }
+    return true;
+  }
+
+  /** The device may have changed without this app (it reconnected or was re-attached): read every group again next time. */
+  forget(): void {
+    this.#generation += 1;
+    batch(() => {
+      for (const needsRead of this.#needsRead) needsRead.value = true;
     });
   }
 
@@ -104,7 +159,9 @@ export class RoutingModel {
 
     return this.#serially(destination, async () => {
       const signal = this.#group(destination);
+      const generation = this.#generation;
       const read = await this.#read(destination);
+      this.#counted(destination, read, generation);
       if (read === undefined) return false;
       if (read.slots === undefined && !read.dryRun) {
         this.#context.notify(`Routing to ${group.name} was not changed: the device did not report its current routing.`);
@@ -119,7 +176,11 @@ export class RoutingModel {
       for (const { channel, slot } of slots) next[channel] = slot;
       signal.value = next.slice(0, group.channels);
       const sent = await this.#context.write(destination, next);
-      if (!sent) signal.value = known;
+      if (!sent) {
+        signal.value = known;
+        // Not sent, or sent with no answer: the device may hold either, so the group is read again.
+        this.#needsReadOf(destination).value = true;
+      }
       return sent;
     });
   }

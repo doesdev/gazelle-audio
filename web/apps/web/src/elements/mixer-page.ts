@@ -317,8 +317,12 @@ export class GaMixer extends GaElement {
       if (tallest > 0) masters.style.setProperty("--channel-head", `${tallest}px`);
     });
     this.onDisconnect(() => heads.disconnect());
-    // Where each mix plays is read from the device once the page opens.
-    void channels.loadOutputs();
+    // Where each mix plays is read once, as the mixes are, and again once the connection or the
+    // device has come back.
+    const outputGroups = [...new Set(channels.outputPairs().map((pair) => pair.destination))];
+    this.watch(() => {
+      if (store.routesToRead(deviceId, outputGroups)) untracked(() => void store.readRoutes(deviceId, outputGroups));
+    });
 
     // Drag to move: a channel's grip starts it; where it is dropped among the other channels sets its
     // place and group (ChannelsModel.place: between two members of a group it joins, elsewhere none).
