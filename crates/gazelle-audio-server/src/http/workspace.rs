@@ -4,10 +4,12 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::Json;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Workspace, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, WORKSPACE_VERSION};
+use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::topology;
 use crate::AppState;
 
 pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspace>, ServerError> {
@@ -34,8 +36,81 @@ pub async fn put_workspace(
         check_mixer(mixer).map_err(|m| ServerError::BadValue(format!("mixer for {device}: {m}")))?;
     }
     check_layouts(&workspace.layouts)?;
+    for (device, colour) in &workspace.device_colors {
+        if !valid_colour(colour) {
+            return Err(ServerError::BadValue(format!("device {device}: color must be #rrggbb, got {colour:?}")));
+        }
+    }
+    // Indexes are checked against the models of the devices attached now; a device the server does
+    // not know keeps what it names, to be drawn "not connected".
+    let families: HashMap<DeviceId, String> = state.devices.descriptors().into_iter().filter_map(|d| Some((d.id, d.family?))).collect();
+    check_surfaces(&workspace.surfaces, &families)?;
     state.store.save(&workspace)?;
     Ok(Json(workspace))
+}
+
+/// Surfaces need unique ids and a name, mixes the devices have, and strips whose parts fit their
+/// kind and, for an attached device, its model.
+fn check_surfaces(surfaces: &[Surface], families: &HashMap<DeviceId, String>) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    for surface in surfaces {
+        let bad = |message: String| ServerError::BadValue(format!("surface '{}': {message}", surface.id));
+        if !ids.insert(surface.id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        if surface.name.trim().is_empty() {
+            return Err(bad("it needs a name".into()));
+        }
+        if let Some((device, _)) = surface.mixes.iter().find(|(_, &mix)| mix >= MIXER_COUNT) {
+            return Err(bad(format!("the mix for {device} is outside 0..{}", MIXER_COUNT - 1)));
+        }
+        let mut strips = HashSet::new();
+        for strip in &surface.strips {
+            let bad_strip = |message: String| bad(format!("strip '{}': {message}", strip.id));
+            if !strips.insert(strip.id.as_str()) {
+                return Err(bad_strip("the id is used twice".into()));
+            }
+            check_strip(strip, families).map_err(bad_strip)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_strip(strip: &SurfaceStrip, families: &HashMap<DeviceId, String>) -> Result<(), String> {
+    let kind = strip.kind.as_str();
+    if !STRIP_KINDS.contains(&kind) {
+        return Err(format!("kind must be one of {}, not {kind:?}", STRIP_KINDS.join(", ")));
+    }
+    if kind == "label" {
+        return if strip.text.is_some() { Ok(()) } else { Err("a label strip needs text".into()) };
+    }
+    let device = strip.device_id.as_ref().ok_or_else(|| format!("a {kind} strip needs a device_id"))?;
+    let family = families.get(device).map(String::as_str);
+    if let Some(mix) = strip.mix.filter(|&mix| mix >= MIXER_COUNT) {
+        return Err(format!("mix {mix} is outside 0..{}", MIXER_COUNT - 1));
+    }
+    match kind {
+        "channel" if strip.channel.as_deref().is_none_or(str::is_empty) => Err("a channel strip needs a channel id".into()),
+        "input" => {
+            let input = strip.input.as_ref().ok_or("an input strip needs an input")?;
+            let Some(kind) = topology::input_type(&input.kind) else {
+                return Err(format!("input kind must be one of {}, not {:?}", INPUT_KINDS.join(", "), input.kind));
+            };
+            match family.and_then(|f| Some((f, topology::input_channels(f, kind)?))) {
+                Some((family, 0)) => Err(format!("the {family} has no {} inputs", input.kind)),
+                Some((family, count)) if input.channel >= count => Err(format!("the {family} has {} inputs 0..{}, not {}", input.kind, count - 1, input.channel)),
+                _ => Ok(()),
+            }
+        }
+        "output" => {
+            let output = strip.output.ok_or("an output strip needs an output")?;
+            match family.and_then(|f| Some((f, topology::output_ids(f)?))) {
+                Some((family, count)) if output >= count => Err(format!("the {family} has outputs 0..{}, not {output}", count - 1)),
+                _ => Ok(()),
+            }
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Saved layouts need a unique id, a name, a known model and a mixer the hardware can hold.

@@ -1,6 +1,6 @@
-// <ga-workspace>: layout state shared by everyone using the server — device names, and groups with
-// their colour and collapsed state. Edits save automatically; controls are disabled while
-// disconnected.
+// <ga-workspace>: layout state shared by everyone using the server — device names and badge colours,
+// cross-device surfaces, and groups with their colour and collapsed state. Edits save automatically;
+// controls are disabled while disconnected.
 //
 // Backup: Export downloads the workspace as a dated JSON file. Import reads a chosen file, checks
 // its shape, says what it holds and asks before replacing; the server's own validation then
@@ -8,9 +8,10 @@
 // A workspace is layout only, so importing one sends nothing to a device.
 
 import { h } from "../core/dom.ts";
-import type { Group } from "../store/store.ts";
+import { displayName, type Group } from "../store/store.ts";
 import { readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import { href } from "./router.ts";
 
 /** "2 device names, 1 group and 1 link": the parts a file holds, the empty ones left out. */
 export function describeSummary(summary: WorkspaceSummary): string {
@@ -21,6 +22,7 @@ export function describeSummary(summary: WorkspaceSummary): string {
     count(summary.links, "link", "links"),
     count(summary.mixers, "mixer layout", "mixer layouts"),
     count(summary.layouts, "saved layout", "saved layouts"),
+    count(summary.surfaces, "surface", "surfaces"),
   ].filter((part) => part !== undefined);
   if (parts.length === 0) return "nothing: an empty workspace";
   return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
@@ -50,6 +52,14 @@ export class GaWorkspace extends GaElement {
       .confirm p { margin: 0; }
       .problem { margin: 0; color: var(--ga-notice-error, var(--ga-text-primary)); }
       .done { margin: 0; color: var(--ga-text-secondary); }
+      .colour-cell { display: flex; align-items: center; gap: 6px; }
+      .colour { width: 32px; min-width: 32px; height: 22px; padding: 0 2px; }
+      .surfaces { display: grid; gap: 4px; }
+      .surface { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 0; border-top: 1px solid var(--ga-border-subtle); }
+      .surface:first-child { border-top: 0; }
+      .surface-name { flex: 0 1 200px; min-width: 120px; }
+      .summary { flex: 1; min-width: 0; font-size: 11px; }
+      .open { color: var(--ga-accent); }
     `),
   ];
 
@@ -59,7 +69,8 @@ export class GaWorkspace extends GaElement {
     const names = h("tbody");
     const groups = h("div");
     this.root.replaceChildren(
-      h("ga-section", { heading: "Device names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"))), names)),
+      h("ga-section", { heading: "Device names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"), h("th", {}, "Colour"))), names)),
+      h("ga-section", { heading: "Surfaces" }, this.#surfaces()),
       h("ga-section", { heading: "Groups" }, groups),
       h("ga-section", { heading: "Backup" }, this.#backup()),
     );
@@ -81,7 +92,20 @@ export class GaWorkspace extends GaElement {
             disabled: !connected,
           });
           commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "", store.view<string | undefined>(`draft:workspace:${device.id}:name`, undefined));
-          return h("tr", {}, h("td", {}, h("span", { class: "readout" }, device.id)), h("td", {}, input));
+          // The badge colour a surface's strips carry for this device (Q15): chosen, or the palette's until then.
+          const chosen = workspace?.device_colors?.[device.id];
+          const colour = h("input", {
+            type: "color",
+            class: "colour",
+            value: store.surfaces.deviceColor(device.id) ?? "#808080",
+            "aria-label": `Colour for ${device.id}`,
+            "data-testid": `device-colour-${device.id}`,
+            disabled: !connected,
+            // On change, not input: the row is rebuilt as the workspace changes, which would close the picker.
+            "on:change": () => store.surfaces.setDeviceColor(device.id, colour.value),
+          });
+          const clear = h("button", { type: "button", class: "clear", "aria-label": `Clear the colour for ${device.id}`, title: "Back to the theme's colour", "data-testid": `device-colour-clear-${device.id}`, disabled: !connected || chosen === undefined, "on:click": () => store.surfaces.setDeviceColor(device.id, undefined) }, "Clear");
+          return h("tr", {}, h("td", {}, h("span", { class: "readout" }, device.id)), h("td", {}, input), h("td", { class: "colour-cell" }, colour, clear));
         }),
       );
     });
@@ -131,6 +155,95 @@ export class GaWorkspace extends GaElement {
         );
       groups.replaceChildren(render(workspace.groups));
     });
+  }
+
+  /**
+   * Cross-device mix surfaces: each with how many strips and which devices it shows, a link to open
+   * it, its name to edit in place, and Delete behind a second click (the devices keep everything; a
+   * surface is only what to show). A name and "+ New surface" make one.
+   */
+  #surfaces(): HTMLElement {
+    const store = useStore();
+    const list = h("div", { class: "surfaces", "data-testid": "surfaces" });
+    const name = h("input", { type: "text", placeholder: "Surface name", "aria-label": "New surface name", "data-testid": "surface-new-name" });
+    const create = h("button", { type: "button", "data-testid": "surface-create" }, "+ New surface");
+    const make = () => {
+      if (name.value.trim() === "") {
+        name.focus();
+        return;
+      }
+      if (store.surfaces.create(name.value) !== undefined) name.value = "";
+    };
+    create.addEventListener("click", make);
+    name.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") make();
+    });
+
+    let rendered = "";
+    this.watch(() => {
+      const surfaces = store.surfaces.list.value;
+      const connected = store.connected.value;
+      const devices = store.devices.value;
+      const workspace = store.workspace.value;
+      create.disabled = name.disabled = !connected || workspace === undefined;
+      const rows = surfaces.map((surface) => ({
+        id: surface.id,
+        name: surface.name,
+        strips: surface.strips.length,
+        devices: store.surfaces.devicesOf(surface.id).map((id) => {
+          const device = devices.find((d) => d.id === id);
+          return device === undefined ? `${id} (not connected)` : displayName(device, workspace);
+        }),
+      }));
+      const key = JSON.stringify([rows, connected]);
+      if (key === rendered) return;
+      rendered = key;
+      if (rows.length === 0) {
+        list.replaceChildren(h("p", { class: "placeholder" }, "No surfaces yet. A surface puts strips from any device side by side: drum preamps on one interface next to the cue mix on another."));
+        return;
+      }
+      list.replaceChildren(
+        ...rows.map((row) => {
+          const field = h("input", { type: "text", class: "surface-name", value: row.name, "aria-label": `Name of ${row.name}`, "data-testid": `surface-rename-${row.id}`, disabled: !connected });
+          commitOnEnter(field, (value) => {
+            try {
+              store.surfaces.rename(row.id, value);
+            } catch {
+              field.value = store.surfaces.surface(row.id)?.name ?? row.name;
+            }
+          }, () => store.surfaces.list.peek().find((s) => s.id === row.id)?.name ?? "");
+          let armed: ReturnType<typeof setTimeout> | undefined;
+          const remove = h("button", {
+            type: "button",
+            "data-testid": `surface-delete-${row.id}`,
+            title: "Delete this surface (click twice); nothing changes on the devices",
+            disabled: !connected,
+            "on:click": () => {
+              if (armed !== undefined) {
+                clearTimeout(armed);
+                store.surfaces.remove(row.id);
+                return;
+              }
+              remove.textContent = "Confirm";
+              armed = setTimeout(() => {
+                armed = undefined;
+                remove.textContent = "Delete";
+              }, 3000);
+            },
+          }, "Delete");
+          const summary = `${row.strips} ${row.strips === 1 ? "strip" : "strips"}${row.devices.length === 0 ? "" : ` · ${row.devices.join(", ")}`}`;
+          return h(
+            "div",
+            { class: "surface", "data-testid": `surface-row-${row.id}` },
+            field,
+            h("span", { class: "muted summary" }, summary),
+            h("a", { class: "open", href: href({ page: "surface", id: row.id }), "data-testid": `surface-open-${row.id}` }, "Open"),
+            remove,
+          );
+        }),
+      );
+    });
+    return h("div", { class: "backup" }, list, h("div", { class: "actions" }, name, create));
   }
 
   /** Export and import. The chosen file and its confirmation live only as long as the page. */

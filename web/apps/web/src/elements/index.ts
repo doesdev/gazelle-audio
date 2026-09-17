@@ -15,6 +15,8 @@ import { GaOutputMeters } from "./output-meters.ts";
 import { GaMixer } from "./mixer-page.ts";
 import { GaMixerDock } from "./mixer-dock.ts";
 import { GaStrip } from "./strip.ts";
+import { GaSurface } from "./surface-page.ts";
+import { GaSurfaceStrip } from "./surface-strip.ts";
 import { GaNotices } from "./notices.ts";
 import { GaSection } from "./section.ts";
 import { GaWorkspace } from "./workspace.ts";
@@ -41,6 +43,8 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-routing", GaRouting],
   ["ga-mixer", GaMixer],
   ["ga-mixer-dock", GaMixerDock],
+  ["ga-surface-strip", GaSurfaceStrip],
+  ["ga-surface", GaSurface],
   ["ga-notices", GaNotices],
   ["ga-app", GaApp],
 ];

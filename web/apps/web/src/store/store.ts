@@ -15,7 +15,7 @@
 //   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
 //   pages are rebuilt on every change of address and read it back when they are.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
@@ -23,6 +23,7 @@ import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
+import { SurfacesModel } from "./surfaces.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -37,7 +38,8 @@ export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
+export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
+export type { NewStrip } from "./surfaces.ts";
 
 /** The most recent command the mixer sent, with the bytes the server reported. */
 export interface SentCommand {
@@ -640,6 +642,20 @@ export class Store {
     mixers: (deviceId) => {
       const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
       return family === undefined || family === null ? undefined : Array.from({ length: topologies[family].mixers.count }, (_, m) => this.mixer(deviceId, m));
+    },
+  });
+
+  /** Cross-device mix surfaces and each device's badge colour (workspace spec §4). */
+  readonly surfaces: SurfacesModel = new SurfacesModel({
+    surfaces: computed(() => this.#workspace.value?.surfaces ?? []),
+    edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, surfaces: update([...(workspace.surfaces ?? [])]) })),
+    colors: computed(() => this.#workspace.value?.device_colors ?? {}),
+    editColors: (update) => this.editWorkspace((workspace) => ({ ...workspace, device_colors: update({ ...(workspace.device_colors ?? {}) }) })),
+    deviceIds: computed(() => this.#devices.value.map((d) => d.id)),
+    palette: computed(() => this.theme.value.palette),
+    model: (deviceId) => {
+      const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+      return family === undefined || family === null ? undefined : { family, topology: topologies[family], outputs: family === "quadro" ? 4 : 5 };
     },
   });
 

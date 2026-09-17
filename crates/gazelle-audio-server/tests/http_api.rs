@@ -676,6 +676,87 @@ async fn workspace_versions_are_checked() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// Each device can have a badge colour for the strips a surface shows (workspace spec Q15).
+#[tokio::test]
+async fn device_colours_round_trip_and_are_validated() {
+    let app = app();
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "device_colors": {"loopback-0": "#3fae6a", "usb:gone": "#B5473A"}})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["device_colors"], json!({"loopback-0": "#3fae6a", "usb:gone": "#B5473A"}));
+
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["device_colors"], json!({}), "a new workspace has no device colours");
+    assert_eq!(plain["surfaces"], json!([]), "and no surfaces");
+
+    for bad in ["blue", "#3fae6", "3fae6a0", "#3fae6g"] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "device_colors": {"loopback-1": bad}})).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: device loopback-1: color must be #rrggbb, got {bad:?}"));
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["device_colors"]["loopback-0"], "#3fae6a", "rejected saves change nothing");
+}
+
+/// A surface (workspace spec §4.8) is a named row of strips from any device, each naming its device,
+/// with one selected mix per device. Indexes are checked against the device's model when the device
+/// is attached; strips for a device the server has never seen are kept as they are.
+#[tokio::test]
+async fn surfaces_round_trip_and_are_validated() {
+    let app = app();
+    let surface = |strips: Value| json!({"version": 1, "surfaces": [{"id": "s1", "name": "Drum tracking", "mixes": {"loopback-0": 1, "loopback-1": 0}, "strips": strips}]});
+    let good = json!([
+        {"id": "a", "kind": "input", "device_id": "loopback-1", "input": {"kind": "preamp", "channel": 11}},
+        {"id": "b", "kind": "input", "device_id": "loopback-1", "input": {"kind": "line", "channel": 7}},
+        {"id": "c", "kind": "input", "device_id": "loopback-0", "input": {"kind": "adat", "channel": 7}},
+        {"id": "d", "kind": "channel", "device_id": "loopback-0", "channel": "ch-kick"},
+        {"id": "e", "kind": "channel", "device_id": "loopback-0", "channel": "ch-vox", "mix": 3},
+        {"id": "f", "kind": "master", "device_id": "loopback-0", "mix": 3},
+        {"id": "g", "kind": "master", "device_id": "loopback-1"},
+        {"id": "h", "kind": "output", "device_id": "loopback-1", "output": 4},
+        {"id": "i", "kind": "output", "device_id": "usb:gone", "output": 9},
+        {"id": "j", "kind": "input", "device_id": "usb:gone", "input": {"kind": "line", "channel": 40}},
+        {"id": "k", "kind": "label", "text": "Drums"}
+    ]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(good.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["surfaces"][0]["name"], "Drum tracking");
+    assert_eq!(body["surfaces"][0]["mixes"], json!({"loopback-0": 1, "loopback-1": 0}));
+    assert_eq!(body["surfaces"][0]["strips"], good, "strips come back as sent, unset parts omitted");
+
+    let two = |a: Value, b: Value| json!({"version": 1, "surfaces": [a, b]});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", two(json!({"id": "x", "name": "A"}), json!({"id": "x", "name": "B"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["message"], "bad value: surface 'x': the id is used twice");
+
+    let broken = [
+        ("blank name", json!({"version": 1, "surfaces": [{"id": "s1", "name": " "}]}), "surface 's1': it needs a name"),
+        ("mix outside 0..3", json!({"version": 1, "surfaces": [{"id": "s1", "name": "A", "mixes": {"loopback-0": 4}}]}), "surface 's1': the mix for loopback-0 is outside 0..3"),
+        ("repeated strip id", surface(json!([{"id": "a", "kind": "label", "text": ""}, {"id": "a", "kind": "label", "text": ""}])), "surface 's1': strip 'a': the id is used twice"),
+        ("unknown kind", surface(json!([{"id": "a", "kind": "fader", "device_id": "loopback-0"}])), "surface 's1': strip 'a': kind must be one of channel, master, input, output, label, not \"fader\""),
+        ("no device", surface(json!([{"id": "a", "kind": "master"}])), "surface 's1': strip 'a': a master strip needs a device_id"),
+        ("channel without a channel", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0"}])), "surface 's1': strip 'a': a channel strip needs a channel id"),
+        ("pinned mix outside 0..3", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0", "channel": "c", "mix": 4}])), "surface 's1': strip 'a': mix 4 is outside 0..3"),
+        ("master mix outside 0..3", surface(json!([{"id": "a", "kind": "master", "device_id": "loopback-0", "mix": 9}])), "surface 's1': strip 'a': mix 9 is outside 0..3"),
+        ("input without an input", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0"}])), "surface 's1': strip 'a': an input strip needs an input"),
+        ("unknown input kind", surface(json!([{"id": "a", "kind": "input", "device_id": "usb:gone", "input": {"kind": "usb", "channel": 0}}])), "surface 's1': strip 'a': input kind must be one of preamp, line, adat, spdif, not \"usb\""),
+        ("Quadro has no line inputs", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0", "input": {"kind": "line", "channel": 0}}])), "surface 's1': strip 'a': the quadro has no line inputs"),
+        ("preamp past the Quadro's four", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0", "input": {"kind": "preamp", "channel": 4}}])), "surface 's1': strip 'a': the quadro has preamp inputs 0..3, not 4"),
+        ("ADAT past the Studio+'s sixteen", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-1", "input": {"kind": "adat", "channel": 16}}])), "surface 's1': strip 'a': the studio has adat inputs 0..15, not 16"),
+        ("output without an output", surface(json!([{"id": "a", "kind": "output", "device_id": "loopback-0"}])), "surface 's1': strip 'a': an output strip needs an output"),
+        ("Quadro has no Reamp", surface(json!([{"id": "a", "kind": "output", "device_id": "loopback-0", "output": 4}])), "surface 's1': strip 'a': the quadro has outputs 0..3, not 4"),
+        ("label without text", surface(json!([{"id": "a", "kind": "label"}])), "surface 's1': strip 'a': a label strip needs text"),
+    ];
+    for (why, document, message) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"), "{why}");
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["surfaces"][0]["strips"].as_array().map(Vec::len), Some(11), "rejected saves change nothing");
+}
+
 #[tokio::test]
 async fn all_commands_lists_every_model() {
     let (status, body) = get(app(), "/api/v1/commands").await;

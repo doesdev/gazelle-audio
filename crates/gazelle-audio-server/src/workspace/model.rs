@@ -34,6 +34,12 @@ pub struct Workspace {
     /// Mixer layouts the user saved, per device model (decision P56). Additive like `mixers`.
     #[serde(default)]
     pub layouts: Vec<SavedLayout>,
+    /// Per-device badge colours, `#rrggbb`, for the strips a surface shows (workspace spec Q15).
+    #[serde(default)]
+    pub device_colors: BTreeMap<DeviceId, String>,
+    /// Cross-device mix surfaces (workspace spec §4). Additive like `mixers`.
+    #[serde(default)]
+    pub surfaces: Vec<Surface>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
     /// so an export always imports back whole (workspace spec, Q7).
     #[serde(flatten)]
@@ -62,10 +68,65 @@ impl Default for Workspace {
             aliases: BTreeMap::new(),
             mixers: BTreeMap::new(),
             layouts: Vec::new(),
+            device_colors: BTreeMap::new(),
+            surfaces: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
 }
+
+/// A user-built row of strips drawn from any attached device (workspace spec §4). It holds only
+/// what to show: every control sends what the device's own page would, and nothing is shared
+/// between devices.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Surface {
+    pub id: String,
+    pub name: String,
+    /// The mix each device's channel strips show, by device (0 until chosen).
+    #[serde(default)]
+    pub mixes: BTreeMap<DeviceId, u32>,
+    /// In display order.
+    #[serde(default)]
+    pub strips: Vec<SurfaceStrip>,
+}
+
+/// One strip on a surface. `kind` says which of the optional parts it has: a `channel` names a
+/// mixer channel of the device's layout (and may pin a `mix`), a `master` a mix (the device's
+/// selected mix without one), an `input` a hardware input, an `output` an output id, and a `label`
+/// only `text`. A strip naming a channel that no longer exists is kept, so removing a channel does
+/// not rearrange a surface.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SurfaceStrip {
+    /// Unique within its surface.
+    pub id: String,
+    /// One of [`STRIP_KINDS`].
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<DeviceId>,
+    /// A [`MixerChannel`] id, for a `channel` strip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mix: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputRef>,
+    /// Output id as `set_volume` numbers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+pub const STRIP_KINDS: &[&str] = &["channel", "master", "input", "output", "label"];
+
+/// A hardware input: one of [`INPUT_KINDS`] and a channel within it, from 0.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InputRef {
+    pub kind: String,
+    pub channel: u32,
+}
+
+pub const INPUT_KINDS: &[&str] = &["preamp", "line", "adat", "spdif"];
 
 /// Mixers per device and mixer input slots per mix, in both supported families.
 pub const MIXER_COUNT: u32 = 4;

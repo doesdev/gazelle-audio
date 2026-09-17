@@ -22,8 +22,8 @@ use crate::registry_set::{PID_QUADRO, PID_STUDIO};
 /// Slots per destination group in `set_routing` (`bank_configs` count in both schemas).
 const SLOTS: usize = 32;
 
-const QUADRO_TOPOLOGY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/quadro_topology.json"));
-const STUDIO_TOPOLOGY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/studio_topology.json"));
+pub(crate) const QUADRO_TOPOLOGY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/quadro_topology.json"));
+pub(crate) const STUDIO_TOPOLOGY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/studio_topology.json"));
 
 /// A run of source channels: source group id, first channel, channel count.
 type Span = (&'static str, u8, u8);
