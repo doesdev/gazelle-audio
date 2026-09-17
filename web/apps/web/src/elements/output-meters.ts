@@ -1,4 +1,4 @@
-// <ga-output-meters>: the right zone's Meter panel. It meters the outputs of the device on the
+// <ga-output-meters>: the sidebar's Meter section. It meters the outputs of the device on the
 // current page, or the one last selected (P71): a left/right pair of bars per output, on the same
 // scale as the mixer's meters. The Quadro reports Monitor, HP1, HP2 and Line out in fixed fields,
 // which were checked against what the user heard (hardware, 2026-09-16). The Studio+ reports its

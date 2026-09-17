@@ -94,12 +94,10 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-linking.png` });
     await page.getByTestId("link-cancel").click();
     await page.goto(`${server.url}/#/mixer/loopback-1`);
-    // Both side panels collapsed, at a width where auto strips stretch past the floor.
-    await page.getByRole("button", { name: "Collapse the devices panel" }).click();
-    await page.getByRole("button", { name: "Collapse the meters panel" }).click();
+    // The sidebar collapsed, at a width where auto strips stretch past the floor.
+    await page.getByRole("button", { name: "Collapse the sidebar" }).click();
     await page.setViewportSize({ width: 2200, height: 1000 });
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-collapsed.png` });
-    await page.getByRole("button", { name: "Expand the devices panel" }).click();
-    await page.getByRole("button", { name: "Expand the meters panel" }).click();
+    await page.getByRole("button", { name: "Expand the sidebar" }).click();
   });
 }

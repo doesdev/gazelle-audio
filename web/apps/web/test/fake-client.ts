@@ -108,6 +108,9 @@ export class MemoryStorage implements KeyValueStorage {
   setItem(key: string, value: string): void {
     this.items.set(key, value);
   }
+  removeItem(key: string): void {
+    this.items.delete(key);
+  }
 }
 
 const THEMES = new URL("../themes/", import.meta.url);

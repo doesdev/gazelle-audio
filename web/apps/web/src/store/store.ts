@@ -23,11 +23,14 @@ import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
-import { clampStripWidth, parseMixerWidth, parsePanels, parseSelectedDevice, parseSelectedMixes, persisted, STRIP_WIDTH_DEFAULT, type MixerWidth, type PanelState } from "./preferences.ts";
+import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
-export type { MixerWidth, PanelState };
+export type { MixerWidth, SidebarSection, SidebarState };
+export { SIDEBAR_SECTIONS } from "./preferences.ts";
 export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
+/** The two side panels' collapse, from before the single sidebar; carried over and dropped on load. */
 export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
+export const SIDEBAR_STORAGE_KEY = "gazelle.layout.sidebar";
 export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
 export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
@@ -314,7 +317,7 @@ export class Store {
   readonly themeCatalog: ReadonlySignal<ThemeCatalog>;
   readonly theme: ReadonlySignal<ResolvedTheme>;
   readonly #mixerWidth: Signal<MixerWidth>;
-  readonly #panels: Signal<PanelState>;
+  readonly #sidebar: Signal<SidebarState>;
   readonly #selectedDevice: Signal<string | undefined>;
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
   readonly #clipAutoClear: Signal<number | null>;
@@ -341,7 +344,8 @@ export class Store {
     }
     this.#themeId = signal(stored ?? BASE_THEME);
     this.#mixerWidth = persisted(this.#storage, MIXER_WIDTH_STORAGE_KEY, { auto: true, px: STRIP_WIDTH_DEFAULT }, parseMixerWidth);
-    this.#panels = persisted(this.#storage, PANELS_STORAGE_KEY, { leftCollapsed: false, rightCollapsed: false }, parsePanels);
+    const carried = migratePanels(this.#storage, PANELS_STORAGE_KEY, SIDEBAR_STORAGE_KEY);
+    this.#sidebar = persisted(this.#storage, SIDEBAR_STORAGE_KEY, carried ?? SIDEBAR_DEFAULT, parseSidebar);
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
@@ -417,14 +421,25 @@ export class Store {
     if (next.auto !== current.auto || next.px !== current.px) this.#mixerWidth.value = next;
   }
 
-  /** Which side panels are collapsed; remembered per browser. */
-  get panels(): ReadonlySignal<PanelState> {
-    return this.#panels;
+  /** Which side the sidebar docks to, whether it is collapsed, and its sections' collapse; remembered per browser. */
+  get sidebar(): ReadonlySignal<SidebarState> {
+    return this.#sidebar;
   }
 
-  togglePanel(side: "left" | "right"): void {
-    const current = this.#panels.peek();
-    this.#panels.value = side === "left" ? { ...current, leftCollapsed: !current.leftCollapsed } : { ...current, rightCollapsed: !current.rightCollapsed };
+  toggleSidebar(): void {
+    const current = this.#sidebar.peek();
+    this.#sidebar.value = { ...current, collapsed: !current.collapsed };
+  }
+
+  /** Moves the sidebar to the other side of the page. */
+  moveSidebar(): void {
+    const current = this.#sidebar.peek();
+    this.#sidebar.value = { ...current, side: current.side === "right" ? "left" : "right" };
+  }
+
+  setSidebarSection(section: SidebarSection, collapsed: boolean): void {
+    const current = this.#sidebar.peek();
+    if (current.sections[section] !== collapsed) this.#sidebar.value = { ...current, sections: { ...current.sections, [section]: collapsed } };
   }
 
   /** The device last opened on a page that names one; remembered per browser. */

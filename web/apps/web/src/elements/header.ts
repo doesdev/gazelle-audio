@@ -1,6 +1,9 @@
 // <ga-header>: brand, page tabs, and the hardware-safety badges the spec requires to be always
 // visible (§6.3): which backend is driving devices, dry-run, and the connection state. The theme
-// picker sits at the end.
+// picker sits at the end, then slot="menu", where the app puts its sidebar button for phones.
+//
+// Narrower than a laptop, the bar takes two lines: the brand and badges above, the page tabs and
+// theme picker below, where the tabs scroll sideways within their line when they do not fit.
 
 import { h } from "../core/dom.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -12,9 +15,10 @@ export class GaHeader extends GaElement {
   static override styles = [
     sheet(`
       :host { display: block; background: var(--ga-surface-panel); border-bottom: 1px solid var(--ga-surface-background); }
-      .bar { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 12px; }
+      .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 0 12px; }
       .brand { font-size: 20px; letter-spacing: 0.06em; }
       nav { display: flex; gap: 2px; }
+      nav a { flex: none; white-space: nowrap; }
       nav a {
         padding: 4px 10px;
         border-radius: 3px;
@@ -41,6 +45,20 @@ export class GaHeader extends GaElement {
       .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ga-connection-closed); }
       .status[data-state="open"]::before { background: var(--ga-connection-open); }
       .status[data-state="reconnecting"]::before { background: var(--ga-connection-reconnecting); }
+      @media (max-width: 959px) {
+        .bar { gap: 2px 8px; padding: 4px 8px; }
+        /* A zero-height line break, ordered between the two lines. */
+        .bar::after { content: ""; order: 1; flex: 0 0 100%; }
+        nav { order: 2; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+        .theme { order: 3; max-width: 120px; }
+      }
+      @media (max-width: 480px) {
+        .brand { font-size: 17px; }
+        nav a { padding: 4px 8px; }
+        .theme { max-width: 96px; }
+        /* The dot's colour carries the state; the words stay for screen readers and the tooltip. */
+        .status-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      }
     `),
   ];
 
@@ -49,10 +67,11 @@ export class GaHeader extends GaElement {
     const links = PAGES.map((page) => h("a", { href: href({ page: page.page }), "data-page": page.page }, page.label));
     const backend = h("span", { class: "badge backend", "data-testid": "backend" });
     const dryRun = h("span", { class: "badge dry-run", "data-testid": "dry-run", title: "Commands report the bytes they would send; nothing is written to a device." }, "Dry run");
-    const status = h("span", { class: "status", role: "status", "data-testid": "connection" });
+    const statusText = h("span", { class: "status-text" });
+    const status = h("span", { class: "status", role: "status", "data-testid": "connection" }, statusText);
     const picker = h("select", { class: "theme", "aria-label": "Theme", "on:change": (event) => store.selectTheme((event.target as HTMLSelectElement).value) });
 
-    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, picker));
+    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, picker, h("slot", { name: "menu" })));
 
     this.watch(() => {
       const current = route.value.page;
@@ -68,7 +87,8 @@ export class GaHeader extends GaElement {
     this.watch(() => {
       const state = store.status.value;
       status.dataset["state"] = state;
-      status.textContent = STATUS_TEXT[state];
+      statusText.textContent = STATUS_TEXT[state];
+      status.title = STATUS_TEXT[state];
     });
     this.watch(() => {
       const { themes } = store.themeCatalog.value;

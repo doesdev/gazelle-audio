@@ -7,7 +7,7 @@ import { GaElement, sheet, useStore } from "./element.ts";
 export class GaNotices extends GaElement {
   static override styles = [
     sheet(`
-      :host { position: fixed; right: 12px; bottom: 12px; display: grid; gap: 6px; max-width: 360px; z-index: 10; }
+      :host { position: fixed; right: 12px; bottom: 12px; display: grid; gap: 6px; max-width: min(360px, calc(100vw - 24px)); z-index: 10; }
       .notice {
         display: flex;
         align-items: flex-start;

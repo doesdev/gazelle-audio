@@ -1,4 +1,4 @@
-// The devices panel on the left (the user's observations, 2026-09-16): a card per device with its
+// The devices panel, now the sidebar's Devices section (the user's observations, 2026-09-16): a card per device with its
 // state at a glance, and picking one switches the page you are on to that device rather than
 // taking you to its Devices page. That makes each page's own device dropdown redundant, so they
 // are gone.

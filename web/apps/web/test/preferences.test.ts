@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { persisted, STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../src/store/preferences.ts";
-import { MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, Store } from "../src/store/store.ts";
+import { MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, SIDEBAR_STORAGE_KEY, Store } from "../src/store/store.ts";
 import { effect } from "../src/core/signal.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -32,29 +32,73 @@ test("a persisted preference saves writes and validates what it loads", () => {
   assert.equal(unsaved.value, 7, "works without storage, for the page only");
 });
 
-test("mixer width and collapsed panels are remembered per browser", () => {
+test("mixer width is remembered per browser", () => {
   const storage = new MemoryStorage();
   const first = store(storage);
   assert.deepEqual(first.mixerWidth.value, { auto: true, px: 64 });
-  assert.deepEqual(first.panels.value, { leftCollapsed: false, rightCollapsed: false });
 
   first.setMixerWidth({ auto: false, px: 999 });
   assert.deepEqual(first.mixerWidth.value, { auto: false, px: STRIP_WIDTH_MAX }, "the width is clamped");
   first.setMixerWidth({ px: 1 });
   assert.equal(first.mixerWidth.value.px, STRIP_WIDTH_MIN, "and never narrower than the floor");
   first.setMixerWidth({ px: 72 });
-  first.togglePanel("left");
-  first.togglePanel("right");
-  first.togglePanel("right");
 
   const later = store(storage);
   assert.deepEqual(later.mixerWidth.value, { auto: false, px: 72 });
-  assert.deepEqual(later.panels.value, { leftCollapsed: true, rightCollapsed: false });
 
   storage.items.set(MIXER_WIDTH_STORAGE_KEY, JSON.stringify({ auto: "yes", px: 72 }));
-  storage.items.set(PANELS_STORAGE_KEY, JSON.stringify({ leftCollapsed: 1 }));
-  const reset = store(storage);
-  assert.deepEqual([reset.mixerWidth.value, reset.panels.value], [{ auto: true, px: 64 }, { leftCollapsed: false, rightCollapsed: false }], "invalid stored preferences fall back to defaults");
+  assert.deepEqual(store(storage).mixerWidth.value, { auto: true, px: 64 }, "an invalid stored preference falls back to its default");
+});
+
+test("the sidebar's side, whether it is collapsed and each of its sections are remembered per browser", () => {
+  const storage = new MemoryStorage();
+  const first = store(storage);
+  assert.deepEqual(first.sidebar.value, { side: "right", collapsed: false, sections: {} }, "on the right and open by default");
+
+  first.moveSidebar();
+  first.toggleSidebar();
+  first.setSidebarSection("meter", true);
+  first.setSidebarSection("devices", true);
+  first.setSidebarSection("devices", false);
+  assert.deepEqual(first.sidebar.value, { side: "left", collapsed: true, sections: { meter: true, devices: false } });
+
+  const later = store(storage);
+  assert.deepEqual(later.sidebar.value, { side: "left", collapsed: true, sections: { meter: true, devices: false } }, "remembered across a reload");
+  later.moveSidebar();
+  later.toggleSidebar();
+  assert.deepEqual([later.sidebar.value.side, later.sidebar.value.collapsed], ["right", false], "moving and collapsing again go back");
+
+  storage.items.set(SIDEBAR_STORAGE_KEY, JSON.stringify({ side: "top", collapsed: 1, sections: { meter: true, devices: "no" } }));
+  assert.deepEqual(store(storage).sidebar.value, { side: "right", collapsed: false, sections: { meter: true } }, "invalid parts of a stored sidebar fall back, one by one");
+  storage.items.set(SIDEBAR_STORAGE_KEY, "[1, 2]");
+  assert.deepEqual(store(storage).sidebar.value, { side: "right", collapsed: false, sections: {} });
+});
+
+test("the two side panels' collapse, from before the single sidebar, carries over once and is then dropped", () => {
+  const panels = (value: string) => {
+    const storage = new MemoryStorage();
+    storage.items.set(PANELS_STORAGE_KEY, value);
+    return storage;
+  };
+  // The left panel held the devices, the right the meter and Control Room.
+  const left = panels(JSON.stringify({ leftCollapsed: true, rightCollapsed: false }));
+  assert.deepEqual(store(left).sidebar.value, { side: "right", collapsed: false, sections: { devices: true, meter: false, controlRoom: false } });
+  assert.equal(left.items.has(PANELS_STORAGE_KEY), false, "the old preference is removed");
+  assert.deepEqual(JSON.parse(left.items.get(SIDEBAR_STORAGE_KEY) ?? "null"), { side: "right", collapsed: false, sections: { devices: true, meter: false, controlRoom: false } });
+
+  const both = panels(JSON.stringify({ leftCollapsed: true, rightCollapsed: true }));
+  assert.equal(store(both).sidebar.value.collapsed, true, "with both panels collapsed, so is the sidebar");
+
+  const corrupt = panels("{not json");
+  assert.deepEqual(store(corrupt).sidebar.value, { side: "right", collapsed: false, sections: {} }, "a corrupt old preference is ignored");
+  assert.equal(corrupt.items.has(PANELS_STORAGE_KEY), false);
+
+  const newer = panels(JSON.stringify({ leftCollapsed: true, rightCollapsed: true }));
+  newer.items.set(SIDEBAR_STORAGE_KEY, JSON.stringify({ side: "left", collapsed: false, sections: {} }));
+  assert.deepEqual(store(newer).sidebar.value, { side: "left", collapsed: false, sections: {} }, "a sidebar already stored wins");
+
+  const readOnly = { getItem: (key: string) => (key === PANELS_STORAGE_KEY ? JSON.stringify({ leftCollapsed: false, rightCollapsed: true }) : null), setItem: () => { throw new Error("blocked"); } };
+  assert.deepEqual(new Store(new FakeClient(), { storage: readOnly, timers: new ManualTimers(), themeSources: builtInThemes }).sidebar.value.sections, { devices: false, meter: true, controlRoom: true }, "storage that cannot be written still carries it over for the page");
 });
 
 test("the device last selected is remembered per browser, and shown where a page names none", () => {

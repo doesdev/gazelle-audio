@@ -7,6 +7,8 @@ import { signal, type Signal } from "../core/signal.ts";
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  /** Optional, so that a store without it can still keep preferences; a dropped key then stays. */
+  removeItem?(key: string): void;
 }
 
 /** A signal that saves each new value under `key` and starts from the stored one when `parse` accepts it. */
@@ -64,14 +66,71 @@ export function parseMixerWidth(stored: unknown): MixerWidth | undefined {
   return { auto: stored["auto"], px: clampStripWidth(stored["px"]) };
 }
 
-export interface PanelState {
-  leftCollapsed: boolean;
-  rightCollapsed: boolean;
+/** The sidebar's sections, top to bottom. */
+export const SIDEBAR_SECTIONS = ["devices", "meter", "controlRoom"] as const;
+export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
+
+export interface SidebarState {
+  /** The side of the page it docks to. */
+  side: "left" | "right";
+  /** Folded to its rail. */
+  collapsed: boolean;
+  /** Each section's collapse, once the person has toggled it; a section not here is open. */
+  sections: Partial<Record<SidebarSection, boolean>>;
 }
 
-export function parsePanels(stored: unknown): PanelState | undefined {
+export const SIDEBAR_DEFAULT: SidebarState = { side: "right", collapsed: false, sections: {} };
+
+/** Each part of a stored sidebar is checked on its own, so one bad part does not lose the rest. */
+export function parseSidebar(stored: unknown): SidebarState | undefined {
+  if (!isRecord(stored)) return undefined;
+  const side = stored["side"] === "left" || stored["side"] === "right" ? stored["side"] : SIDEBAR_DEFAULT.side;
+  const collapsed = typeof stored["collapsed"] === "boolean" ? stored["collapsed"] : SIDEBAR_DEFAULT.collapsed;
+  const given = isRecord(stored["sections"]) ? stored["sections"] : {};
+  const sections: Partial<Record<SidebarSection, boolean>> = {};
+  for (const id of SIDEBAR_SECTIONS) {
+    const value = given[id];
+    if (typeof value === "boolean") sections[id] = value;
+  }
+  return { side, collapsed, sections };
+}
+
+/**
+ * Before the single sidebar there were two side panels, the devices on the left and the meter and
+ * Control Room on the right, each collapsed on its own (`{ leftCollapsed, rightCollapsed }`). Their
+ * collapse becomes the sections' collapse, and the sidebar's when both were. Returns undefined when
+ * there is nothing valid to carry over.
+ */
+export function sidebarFromPanels(stored: unknown): SidebarState | undefined {
   if (!isRecord(stored) || typeof stored["leftCollapsed"] !== "boolean" || typeof stored["rightCollapsed"] !== "boolean") return undefined;
-  return { leftCollapsed: stored["leftCollapsed"], rightCollapsed: stored["rightCollapsed"] };
+  const left = stored["leftCollapsed"];
+  const right = stored["rightCollapsed"];
+  return { side: "right", collapsed: left && right, sections: { devices: left, meter: right, controlRoom: right } };
+}
+
+/**
+ * Carries the two panels' preference under `fromKey` over to the sidebar's under `toKey`, unless a
+ * sidebar is already stored, then drops the old one. Returns the carried-over state, which holds
+ * for this page even where storage cannot be written.
+ */
+export function migratePanels(storage: KeyValueStorage | undefined, fromKey: string, toKey: string): SidebarState | undefined {
+  let carried: SidebarState | undefined;
+  try {
+    const old = storage?.getItem(fromKey);
+    if (old === null || old === undefined) return undefined;
+    if (storage?.getItem(toKey) === null) {
+      try {
+        carried = sidebarFromPanels(JSON.parse(old));
+      } catch {
+        // Corrupt: nothing to carry over.
+      }
+      if (carried !== undefined) storage?.setItem(toKey, JSON.stringify(carried));
+    }
+    storage?.removeItem?.(fromKey);
+  } catch {
+    // Storage unavailable: whatever was carried over lasts for this page.
+  }
+  return carried;
 }
 
 /** A remembered device id, from a page that named it. */

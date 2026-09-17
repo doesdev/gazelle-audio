@@ -71,7 +71,7 @@ export class GaInputs extends GaElement {
       .gain .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .gain .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .gain[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
-      /* Rows follow the width they are given, not the window's (P80): side panels take from it too. */
+      /* Rows follow the width they are given, not the window's (P80): the sidebar takes from it too. */
       .mics { display: grid; gap: 6px; max-width: 760px; container: mics / inline-size; }
       .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 2fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
       .mic select { min-width: 0; min-height: 24px; }

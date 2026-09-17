@@ -56,7 +56,7 @@ export class GaDeviceList extends GaElement {
   protected override render(): void {
     const store = useStore();
     const list = h("ul", { "aria-label": "Devices" });
-    this.root.replaceChildren(h("ga-section", { heading: "Devices" }, list));
+    this.root.replaceChildren(list);
 
     // The cards are rebuilt when the devices, their names or the palette change. Each card's status
     // follows its own report, in effects that go with the cards they fill.
