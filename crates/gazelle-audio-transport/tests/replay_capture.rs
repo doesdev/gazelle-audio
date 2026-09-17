@@ -117,3 +117,33 @@ fn live_quadro_segments_reassemble_into_whole_reports() {
     assert_eq!(counts, BTreeMap::from([(0x73, 60), (0x83, 60)]));
     assert_eq!(segmented_len, Some(4), "the Quadro wraps a 20-byte message: a header and four bytes");
 }
+
+/// The live Quadro's effect-meter report decodes, rather than being dropped. Its 0x83 arrives
+/// wrapped in an 8053 segment whose `ext2` gives the true length, and with no effects loaded that
+/// is four bytes: the mic emulation meters, idle at 96 dB below full scale. Before the schema
+/// marked `afx_meters` as a variable tail, every one of these (about 125 a second) was discarded.
+#[test]
+fn the_live_quadro_effect_meter_report_decodes() {
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(gazelle_audio_protocol::QUADRO_COMMANDS_PATH).unwrap()).unwrap();
+    let registry = from_json_doc(&doc).unwrap();
+    let meters = registry.cyclic(0x83).expect("the Quadro schema declares its effect-meter report");
+
+    let text = include_str!("fixtures/quadro-live-segments.hex");
+    let mut host = HostReceiver::new();
+    let mut decoded = 0;
+    for line in text.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+        let packet: Vec<u8> = (0..line.len()).step_by(2).map(|i| u8::from_str_radix(&line[i..i + 2], 16).unwrap()).collect();
+        let report = host.push(&packet).expect("every packet completes a report");
+        if report.cmd() != 0x83 {
+            continue;
+        }
+        let fields = meters.parse_contents(&report.contents).expect("the effect-meter report decodes");
+        let Some(gazelle_audio_protocol::payload::Value::List(items)) = fields.get("afx_meters") else { panic!("no afx_meters") };
+        let [gazelle_audio_protocol::payload::Value::Struct(one)] = items.as_slice() else { panic!("afx_meters is not one struct") };
+        let Some(gazelle_audio_protocol::payload::Value::Bytes(data)) = one.get("data") else { panic!("no data") };
+        assert_eq!(data.as_slice(), &[96, 96, 96, 96], "no effects loaded, so only the four idle mic emulation meters");
+        decoded += 1;
+    }
+    assert_eq!(decoded, 60, "every effect-meter report in the capture decodes");
+}

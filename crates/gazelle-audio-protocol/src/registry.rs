@@ -45,7 +45,8 @@ pub fn from_json_doc(doc: &Value) -> Result<Registry, WireError> {
                 parse_id(&Value::String(rid.clone()))
             })?;
             let fields = parse_fields(entry.get("fields"))?;
-            cyclic.insert(report_id, CyclicReport { report_id, fields });
+            let variable_tail = entry.get("variable_tail").and_then(Value::as_bool).unwrap_or(false);
+            cyclic.insert(report_id, CyclicReport { report_id, fields, variable_tail });
         }
     }
 
@@ -70,6 +71,14 @@ pub struct CyclicReport {
     /// The report id (the `cmd` header word), e.g. `0x73`.
     pub report_id: u32,
     pub fields: Vec<crate::field::Field>,
+    /// Whether this report's **last** field is as long as the packet rather than as long as the
+    /// format declares (the schema's `variable_tail`).
+    ///
+    /// Only the Quadro's 0x83 carries it: its `afx_meters` is declared `ubyte * 304`, a buffer,
+    /// while the device sends two bytes per loaded effect, chain by chain, then the mic emulation
+    /// meters — four bytes in all when nothing is loaded. Every field before the last is still
+    /// decoded strictly, and a report with no marker is refused when it is short, as before.
+    pub variable_tail: bool,
 }
 
 impl CyclicReport {
@@ -78,7 +87,47 @@ impl CyclicReport {
         &self,
         contents: &[u8],
     ) -> Result<HashMap<String, crate::payload::Value>, WireError> {
-        Command::parse_field_list(&self.fields, contents)
+        if !self.variable_tail {
+            return Command::parse_field_list(&self.fields, contents);
+        }
+        let Some((last, rest)) = self.fields.split_last() else {
+            return Command::parse_field_list(&self.fields, contents);
+        };
+        // Everything before the trailing field keeps its declared size and is decoded strictly.
+        let head: usize = rest.iter().map(crate::field::Field::size).sum();
+        if contents.len() < head {
+            return Err(WireError::TruncatedPayload);
+        }
+        let mut out = Command::parse_field_list(rest, &contents[..head])?;
+        out.extend(variable_tail(last, &contents[head..])?);
+        Ok(out)
+    }
+}
+
+/// Decode a trailing field from whatever bytes are left.
+///
+/// Handles the two byte-array shapes a variable tail can take: a bare `ubyte * N` array, and the
+/// one-element struct wrapper the Quadro's format puts around it
+/// (`{"fields": [["data", "ubyte * 304"]]}`). Anything else falls back to a strict decode, so a
+/// layout that grows a shape this does not understand fails loudly rather than decoding wrongly.
+fn variable_tail(
+    field: &crate::field::Field,
+    rest: &[u8],
+) -> Result<HashMap<String, crate::payload::Value>, WireError> {
+    use crate::field::Field;
+    use crate::payload::Value;
+    match field {
+        Field::Array { name, elem: crate::field::Scalar::U8, .. } => {
+            Ok(HashMap::from([(name.clone(), Value::Bytes(rest.to_vec()))]))
+        }
+        Field::StructArray { name, fields, count: 1 } => match fields.as_slice() {
+            [Field::Array { name: inner, elem: crate::field::Scalar::U8, .. }] => {
+                let one = HashMap::from([(inner.clone(), Value::Bytes(rest.to_vec()))]);
+                Ok(HashMap::from([(name.clone(), Value::List(vec![Value::Struct(one)]))]))
+            }
+            _ => Command::parse_field_list(std::slice::from_ref(field), rest),
+        },
+        _ => Command::parse_field_list(std::slice::from_ref(field), rest),
     }
 }
 

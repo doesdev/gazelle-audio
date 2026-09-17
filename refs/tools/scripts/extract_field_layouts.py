@@ -445,6 +445,19 @@ def apply_afx_get(entry, request, effect):
     if entry["name"] in UNRESOLVED_REPLY_COUNTS:
         UNRESOLVED_REPLY_COUNTS.remove(entry["name"])
 
+# Cyclic fields whose declared length is a buffer rather than the packet's size, so a report of
+# that layout must be decoded at whatever length arrived. Only the LAST field of a report may be
+# marked; everything before it stays fixed.
+#
+# The Quadro's 0x83 declares `afx_meters` as `ubyte * 304`, but the panel walks that buffer effect
+# by effect: each loaded effect takes `get_amount_of_meters()` bytes -- two for every effect type
+# -- chain by chain, then the mic emulation meters and the surround meters follow
+# (`antelope/ui/afx/platform/afx_model_controller.on_cyclic_report` and `afx_meters_model`). With
+# nothing loaded the Quadro sends four bytes, one per mic emulation channel; live traffic confirms
+# it (an 8053 segment of 20 bytes carrying `60606060`).
+VARIABLE_TAIL_FIELDS = {"afx_meters"}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Extract a device's in-scope command layouts.")
     ap.add_argument("report_format")
@@ -488,10 +501,11 @@ def main():
     cyclic = {}
     for rid, spec_ in (rf.get("cyclic_reports") or {}).items():
         fields = spec_.get("fields", []) if isinstance(spec_, dict) else spec_
-        cyclic[str(rid)] = {
-            "report_id": str(rid),
-            "fields": norm_fields(fields),
-        }
+        norm = norm_fields(fields)
+        entry = {"report_id": str(rid), "fields": norm}
+        if norm and norm[-1].get("name") in VARIABLE_TAIL_FIELDS:
+            entry["variable_tail"] = True
+        cyclic[str(rid)] = entry
 
     doc = {
         "source": os.path.basename(path),

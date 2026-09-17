@@ -246,3 +246,43 @@ fn registries_declare_their_cyclic_reports() {
         "0x73 should declare the full state field set"
     );
 }
+
+/// The Quadro's effect-meter report is variable length. Its format declares `afx_meters` as a
+/// 304-byte buffer, but the device sends two bytes per **loaded** effect, chain by chain, then the
+/// mic-emulation meters (panel `antelope/ui/afx/platform/afx_model_controller.on_cyclic_report`
+/// and `afx_meters_model`). With no effects loaded that is four bytes, which live traffic confirms
+/// (`quadro-live-segments.hex`: an 8053 segment of 20 bytes carrying `60606060`). The layout must
+/// therefore read its trailing field at whatever length arrived, not refuse the report.
+#[test]
+fn the_quadro_effect_meter_report_decodes_at_whatever_length_arrives() {
+    let reg = load_registry();
+    let layout = reg.cyclic(0x83).expect("the Quadro declares an effect-meter layout");
+    assert!(layout.variable_tail, "0x83's trailing field is as long as the packet, not its declared 304");
+
+    // Nothing loaded: only the four mic-emulation meters, all idle at 96 dB below full scale.
+    let idle = layout.parse_contents(&[96, 96, 96, 96]).expect("a four-byte report decodes");
+    assert_eq!(bytes_of(&idle, "afx_meters", "data"), vec![96, 96, 96, 96]);
+
+    // Two effects loaded: two bytes each (peak, gain reduction) before the mic-emulation meters.
+    let two = layout.parse_contents(&[12, 3, 40, 0, 96, 96, 96, 96]).expect("an eight-byte report decodes");
+    assert_eq!(bytes_of(&two, "afx_meters", "data"), vec![12, 3, 40, 0, 96, 96, 96, 96]);
+
+    // A report that is empty decodes to no meters rather than failing.
+    let none = layout.parse_contents(&[]).expect("an empty report decodes");
+    assert_eq!(bytes_of(&none, "afx_meters", "data"), Vec::<u8>::new());
+
+    // The Studio+ reports the same meters in fixed per-chain fields, so its layout is strict.
+    let studio = load_registry_at(gazelle_audio_protocol::STUDIO_COMMANDS_PATH);
+    let studio_layout = studio.cyclic(0x83).expect("the Studio+ declares an effect-meter layout");
+    assert!(!studio_layout.variable_tail, "the Studio+'s 0x83 is fixed at 16 chains by 8 slots, twice over");
+    assert!(studio_layout.parse_contents(&[96, 96, 96, 96]).is_err(), "a short Studio+ report is still refused");
+}
+
+/// The bytes of a `Bytes` field nested inside a one-element struct array.
+fn bytes_of(fields: &std::collections::HashMap<String, gazelle_audio_protocol::payload::Value>, outer: &str, inner: &str) -> Vec<u8> {
+    use gazelle_audio_protocol::payload::Value;
+    let Some(Value::List(items)) = fields.get(outer) else { panic!("{outer} is not a struct array: {fields:?}") };
+    let [Value::Struct(one)] = items.as_slice() else { panic!("{outer} holds {} elements", items.len()) };
+    let Some(Value::Bytes(b)) = one.get(inner) else { panic!("{outer}.{inner} is not bytes: {one:?}") };
+    b.clone()
+}

@@ -306,7 +306,8 @@
           "type": "{\"fields\": [[\"data\", \"ubyte * 304\"]]}",
           "size": 304
         }
-      ]
+      ],
+      "variable_tail": true
     }
   },
   "unresolved_constants": [],
