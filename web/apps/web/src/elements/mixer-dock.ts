@@ -114,7 +114,8 @@ export class GaMixerDock extends GaElement {
           // Untracked: a strip renders as it is appended, and what it reads must not rebuild the row.
           untracked(() => {
             if (shownStrips.length === 0) {
-              showMessage(`No channel is set up in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }) }, "Set channels up on the Mixer page."));
+              // Short enough for one line on a phone.
+              showMessage(`No channels in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }) }, "Open the Mixer page"));
               return;
             }
             const master = h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label: mixName, compact: "" }));
@@ -134,7 +135,8 @@ export class GaMixerDock extends GaElement {
       const known = store.devices.value.filter((d) => d.family !== null);
       const id = known.find((d) => d.id === current.id)?.id ?? store.deviceInView(true);
       this.hidden = onMixer;
-      actions.hidden = id === undefined;
+      // Collapsed, the Mix menu is not filled in, so its bar shows no empty menu.
+      actions.hidden = id === undefined || collapsed;
       const key = onMixer || collapsed ? "" : `device:${id ?? ""}`;
       if (key === shown) return;
       shown = key;

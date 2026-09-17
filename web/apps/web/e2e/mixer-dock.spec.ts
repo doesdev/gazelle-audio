@@ -159,9 +159,9 @@ test("the dock is hidden on the Mixer page, and stays collapsed across a reload 
 test("a mix with no channel set up is one short line, without the master, and the strips come back with a mix that has some", async ({ page }) => {
   await putWorkspace(server, { mixers: { "loopback-0": { mixes: [{ name: "Monitors" }, { name: "Cue" }], channels: [channel("c", "Click", 7, 1, [], 2)] } } });
   await page.goto(`${server.url}/#/inputs/loopback-0`);
-  const empty = dock(page).getByText("No channel is set up in Monitors.");
+  const empty = dock(page).getByText("No channels in Monitors.");
   await expect(empty).toBeVisible();
-  await expect(dock(page).getByRole("link", { name: "Set channels up on the Mixer page." })).toHaveAttribute("href", "#/mixer/loopback-0");
+  await expect(dock(page).getByRole("link", { name: "Open the Mixer page" })).toHaveAttribute("href", "#/mixer/loopback-0");
   await expect(dock(page).locator("ga-strip"), "no master for a mix with nothing in it").toHaveCount(0);
   const row = await dock(page).getByTestId("dock-strips").boundingBox();
   expect(row?.height, "the empty row is one line").toBeLessThanOrEqual(32);
@@ -200,13 +200,23 @@ test.describe("on a phone", () => {
     const toggle = dock(page).getByRole("button", { name: "Mixer", exact: true });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(dock(page).locator("ga-strip"), "nothing is built for it collapsed").toHaveCount(0);
+    await expect(dock(page).getByTestId("dock-mix-select"), "nor an empty Mix menu in its bar").toBeHidden();
     expect((await dock(page).boundingBox())?.height).toBeLessThanOrEqual(48);
 
     await toggle.tap();
     await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+    await expect(dock(page).getByTestId("dock-mix-select")).toHaveValue("0");
     await page.reload();
     await expect(page.locator("ga-inputs")).toBeVisible();
     await expect(toggle, "a choice kept wins over the phone's default").toHaveAttribute("aria-expanded", "true");
     await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+  });
+
+  test("a mix with no channel set up still fits one line", async ({ page }) => {
+    await putWorkspace(server, { mixers: { "loopback-0": { mixes: [{ name: "Monitors" }], channels: [] } } });
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    await dock(page).getByRole("button", { name: "Mixer", exact: true }).tap();
+    await expect(dock(page).getByRole("link", { name: "Open the Mixer page" })).toBeVisible();
+    expect((await dock(page).getByTestId("dock-strips").boundingBox())?.height, "one line at 375 px").toBeLessThanOrEqual(32);
   });
 });
