@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{Cable, ChannelLink, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::model::{Cable, ChannelLink, ControlRoom, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
 use crate::workspace::topology;
 use crate::AppState;
 
@@ -46,8 +46,27 @@ pub async fn put_workspace(
     let families: HashMap<DeviceId, String> = state.devices.descriptors().into_iter().filter_map(|d| Some((d.id, d.family?))).collect();
     check_surfaces(&workspace.surfaces, &families)?;
     check_cables(&workspace.cables, &families)?;
+    for (device, control_room) in &workspace.control_room {
+        check_control_room(control_room, families.get(device).map(String::as_str)).map_err(|m| ServerError::BadValue(format!("control room for {device}: {m}")))?;
+    }
     state.store.save(&workspace)?;
     Ok(Json(workspace))
+}
+
+/// A Control Room lists each output once, and only outputs the device's model has (when attached).
+fn check_control_room(control_room: &ControlRoom, family: Option<&str>) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for &output in &control_room.outputs {
+        if !seen.insert(output) {
+            return Err(format!("output {output} is listed twice"));
+        }
+        if let Some((family, count)) = family.and_then(|f| Some((f, topology::output_ids(f)?))) {
+            if output >= count {
+                return Err(format!("the {family} has outputs 0..{}, not {output}", count - 1));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Surfaces need unique ids and a name, mixes the devices have, and strips whose parts fit their

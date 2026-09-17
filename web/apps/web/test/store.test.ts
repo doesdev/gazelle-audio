@@ -644,6 +644,47 @@ test("clip lights latch, clear when clicked or all at once, and auto-clear after
   stop();
 });
 
+test("each device's Control Room outputs: Monitor, HP1 and HP2 until chosen, kept in the workspace in the device's order", async () => {
+  const client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"));
+  client.stored = { version: 1, groups: [], links: [], aliases: {}, mixers: {}, control_room: { "loopback-1": { outputs: [4, 0] } } };
+  const { timers, store } = setup(client);
+  assert.deepEqual(store.controlRoomOutputs("loopback-0").value, [0, 1, 2], "before the workspace loads, the default");
+  await store.start();
+  const quadro = store.controlRoomOutputs("loopback-0");
+  const studio = store.controlRoomOutputs("loopback-1");
+  assert.deepEqual(quadro.value, [0, 1, 2], "a device without a choice has the default");
+  assert.deepEqual(studio.value, [0, 4], "a stored choice, in the device's order whatever the stored order");
+
+  let runs = 0;
+  const stop = effect(() => {
+    void quadro.value;
+    runs += 1;
+  });
+  assert.equal(store.setInControlRoom("loopback-0", 3, true), true);
+  assert.deepEqual(quadro.value, [0, 1, 2, 3], "Line out added after the default three");
+  assert.equal(runs, 2, "the choice is reactive");
+  store.setInControlRoom("loopback-0", 1, false);
+  store.setInControlRoom("loopback-0", 3, true);
+  assert.deepEqual(quadro.value, [0, 2, 3], "HP1 removed; adding one already shown changes nothing");
+  stop();
+  timers.advance(SAVE_DEBOUNCE_MS);
+  await flush();
+  assert.deepEqual(client.stored.control_room, { "loopback-1": { outputs: [4, 0] }, "loopback-0": { outputs: [0, 2, 3] } }, "saved per device; the other device's choice is untouched");
+
+  for (const id of [0, 4]) store.setInControlRoom("loopback-1", id, false);
+  assert.deepEqual(studio.value, [], "every output removed leaves none, not the default");
+  assert.equal(store.setInControlRoom("loopback-1", 4, true), true);
+  assert.deepEqual(studio.value, [4], "the Studio+ Reamp");
+  assert.throws(() => store.setInControlRoom("loopback-0", 4, true), /the Quadro has outputs 0\.\.3, not 4/);
+  assert.throws(() => store.setInControlRoom("loopback-1", 5, true), /the Studio\+ has outputs 0\.\.4, not 5/);
+  assert.throws(() => store.setInControlRoom("loopback-1", 1.5, true), RangeError);
+  assert.throws(() => store.setInControlRoom("usb:gone", 0, true), /no known model/);
+
+  client.emit("status", "reconnecting");
+  assert.equal(store.setInControlRoom("loopback-1", 0, true), false, "nothing is edited without a connection");
+  assert.deepEqual(studio.value, [4]);
+});
+
 test("an imported workspace replaces the server's whole, as given, and sends nothing to devices", async () => {
   const { client, timers, store } = setup();
   await store.start();

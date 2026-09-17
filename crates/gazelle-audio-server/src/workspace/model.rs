@@ -43,6 +43,10 @@ pub struct Workspace {
     /// Digital connections between devices, as the user declares them (workspace spec §4.5).
     #[serde(default)]
     pub cables: Vec<Cable>,
+    /// Per device, what its Control Room panel shows. A device without an entry shows the client's
+    /// default (Monitor, HP1 and HP2). Additive like `mixers`.
+    #[serde(default)]
+    pub control_room: BTreeMap<DeviceId, ControlRoom>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
     /// so an export always imports back whole (workspace spec, Q7).
     #[serde(flatten)]
@@ -74,9 +78,19 @@ impl Default for Workspace {
             device_colors: BTreeMap::new(),
             surfaces: Vec::new(),
             cables: Vec::new(),
+            control_room: BTreeMap::new(),
             extra: BTreeMap::new(),
         }
     }
+}
+
+/// What one device's Control Room panel shows.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ControlRoom {
+    /// Output ids as `set_volume` numbers them. The panel shows them in the device's own order, so
+    /// the order here means nothing.
+    #[serde(default)]
+    pub outputs: Vec<u32>,
 }
 
 /// A user-built row of strips drawn from any attached device (workspace spec §4). It holds only

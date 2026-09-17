@@ -21,6 +21,9 @@ import { ECHO_HOLD_MS } from "./inputs.ts";
 
 export const VOLUME_MAX = 96;
 
+/** The outputs a Control Room panel shows until the user chooses (P92): Monitor, HP1 and HP2, the same ids on both models. */
+export const CONTROL_ROOM_DEFAULT: readonly number[] = [0, 1, 2];
+
 /** The panels' trim steps, by index. */
 export const TRIM_LABELS = ["20 dBu", "19 dBu", "18 dBu", "17 dBu", "16 dBu", "15 dBu", "14 dBu"] as const;
 

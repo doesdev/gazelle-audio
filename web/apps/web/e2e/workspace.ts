@@ -14,6 +14,7 @@ export interface WorkspaceParts {
   device_colors?: Record<string, string>;
   surfaces?: unknown[];
   cables?: unknown[];
+  control_room?: Record<string, { outputs: number[] }>;
 }
 
 /** Replaces the server's workspace with these parts; anything not given is empty. */

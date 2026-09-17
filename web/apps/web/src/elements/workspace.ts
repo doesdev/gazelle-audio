@@ -26,6 +26,7 @@ export function describeSummary(summary: WorkspaceSummary): string {
     count(summary.layouts, "saved layout", "saved layouts"),
     count(summary.surfaces, "surface", "surfaces"),
     count(summary.cables, "cable", "cables"),
+    count(summary.controlRooms, "Control Room choice", "Control Room choices"),
   ].filter((part) => part !== undefined);
   if (parts.length === 0) return "nothing: an empty workspace";
   return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;

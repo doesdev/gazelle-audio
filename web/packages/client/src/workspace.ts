@@ -95,6 +95,14 @@ export interface Workspace {
   surfaces?: Surface[];
   /** Digital connections between devices, as declared; older servers omit it. */
   cables?: Cable[];
+  /** Device id → what its Control Room panel shows; a device without one shows Monitor, HP1 and HP2. Older servers omit it. */
+  control_room?: Record<string, ControlRoom>;
+}
+
+/** What one device's Control Room panel shows. */
+export interface ControlRoom {
+  /** Output ids as `set_volume` numbers them; the panel shows them in the device's order. */
+  outputs: number[];
 }
 
 /** A device's digital port, by its topology type. */

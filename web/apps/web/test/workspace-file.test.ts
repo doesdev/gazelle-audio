@@ -46,6 +46,7 @@ test("a file that is not a workspace is refused with a reason, before anything i
   assert.equal(problem('{"version": 1, "layouts": {}}'), "has layouts that are not a list");
   assert.equal(problem('{"version": 1, "aliases": []}'), "has aliases that are not a map of devices");
   assert.equal(problem('{"version": 1, "mixers": null}'), "has mixers that are not a map of devices");
+  assert.equal(problem('{"version": 1, "control_room": [0, 1]}'), "has control_room that are not a map of devices");
   const bare = readWorkspaceFile('{"version": 1}', 1);
   assert.deepEqual(bare.ok ? bare.workspace : undefined, { version: 1 }, "missing parts are the server's to default");
 });
@@ -62,10 +63,11 @@ test("a read file is summarised for the confirmation, with every device it names
       device_colors: { "serial-5": "#000000" },
       surfaces: [{ id: "s", name: "S", mixes: { "loopback-0": 1 }, strips: [{ id: "x", kind: "master", device_id: "serial-3" }, { id: "y", kind: "label", text: "" }] }],
       cables: [{ id: "c", from: { device_id: "serial-1", port: "ADAT_OUT", first: 0 }, to: { device_id: "loopback-0", port: "ADAT_IN", first: 0 }, channels: 8 }],
+      control_room: { "serial-11": { outputs: [3] }, "loopback-0": { outputs: [] } },
     }),
     1,
   );
   assert.equal(read.ok, true);
   if (!read.ok) return;
-  assert.deepEqual(read.summary, { names: 2, groups: 2, links: 1, mixers: 1, layouts: 1, surfaces: 1, cables: 1, devices: ["loopback-0", "loopback-1", "serial-1", "serial-3", "serial-5", "serial-7", "serial-9"] });
+  assert.deepEqual(read.summary, { names: 2, groups: 2, links: 1, mixers: 1, layouts: 1, surfaces: 1, cables: 1, controlRooms: 2, devices: ["loopback-0", "loopback-1", "serial-1", "serial-11", "serial-3", "serial-5", "serial-7", "serial-9"] });
 });

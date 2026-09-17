@@ -676,6 +676,40 @@ async fn workspace_versions_are_checked() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// Each device keeps which of its outputs the Control Room panel shows, by the ids `set_volume`
+/// takes. A device without an entry shows Monitor, HP1 and HP2 (the client's default, so nothing is
+/// stored for it). Ids are checked against the model of an attached device; a device the server does
+/// not know keeps its list as it is.
+#[tokio::test]
+async fn control_room_outputs_round_trip_and_are_validated() {
+    let app = app();
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["control_room"], json!({}), "a new workspace chooses no outputs, so each device has the default");
+
+    let chosen = json!({"loopback-0": {"outputs": [0, 1, 3]}, "loopback-1": {"outputs": [4]}, "usb:gone": {"outputs": [9]}, "loopback-2": {"outputs": []}});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "control_room": chosen})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["control_room"], chosen);
+
+    let broken = [
+        (json!({"loopback-0": {"outputs": [0, 4]}}), "control room for loopback-0: the quadro has outputs 0..3, not 4"),
+        (json!({"loopback-1": {"outputs": [5]}}), "control room for loopback-1: the studio has outputs 0..4, not 5"),
+        (json!({"loopback-1": {"outputs": [1, 2, 1]}}), "control room for loopback-1: output 1 is listed twice"),
+        (json!({"usb:gone": {"outputs": [3, 3]}}), "control room for usb:gone: output 3 is listed twice"),
+    ];
+    for (control_room, message) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "control_room": control_room})).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{message}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"));
+    }
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "control_room": {"loopback-0": {"outputs": [-1]}}})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body["error"]["message"].as_str().unwrap().contains("control_room"), "{body}");
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["control_room"], chosen, "rejected saves change nothing");
+}
+
 /// Each device can have a badge colour for the strips a surface shows (workspace spec Q15).
 #[tokio::test]
 async fn device_colours_round_trip_and_are_validated() {

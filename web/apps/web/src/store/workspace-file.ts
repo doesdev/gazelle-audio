@@ -22,6 +22,8 @@ export interface WorkspaceSummary {
   cables: number;
   /** Cross-device surfaces. */
   surfaces: number;
+  /** Devices with a choice of Control Room outputs. */
+  controlRooms: number;
   /** Every device id the file mentions, sorted. */
   devices: string[];
 }
@@ -59,7 +61,7 @@ export function readWorkspaceFile(text: string, readableVersion: number): Worksp
   for (const part of ["groups", "links", "layouts", "surfaces", "cables"]) {
     if (part in parsed && !Array.isArray(parsed[part])) return { ok: false, problem: `has ${part} that are not a list` };
   }
-  for (const part of ["aliases", "mixers", "device_colors"]) {
+  for (const part of ["aliases", "mixers", "device_colors", "control_room"]) {
     if (part in parsed && !isMap(parsed[part])) return { ok: false, problem: `has ${part} that are not a map of devices` };
   }
   return { ok: true, workspace: parsed as unknown as Workspace, summary: summarise(parsed) };
@@ -81,7 +83,8 @@ function summarise(document: Record<string, unknown>): WorkspaceSummary {
 
   const aliases = Object.keys(map("aliases"));
   const mixers = Object.keys(map("mixers"));
-  for (const id of [...aliases, ...mixers, ...Object.keys(map("device_colors"))]) devices.add(id);
+  const controlRooms = Object.keys(map("control_room"));
+  for (const id of [...aliases, ...mixers, ...Object.keys(map("device_colors")), ...controlRooms]) devices.add(id);
   const links = list("links");
   links.forEach(members);
   const surfaces = list("surfaces");
@@ -92,5 +95,5 @@ function summarise(document: Record<string, unknown>): WorkspaceSummary {
   }
   const cables = list("cables");
   for (const cable of cables) for (const end of isMap(cable) ? [cable["from"], cable["to"]] : []) if (isMap(end) && typeof end["device_id"] === "string") devices.add(end["device_id"]);
-  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, surfaces: surfaces.length, cables: cables.length, devices: [...devices].sort() };
+  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, surfaces: surfaces.length, cables: cables.length, controlRooms: controlRooms.length, devices: [...devices].sort() };
 }

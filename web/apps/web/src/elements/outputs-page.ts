@@ -65,6 +65,8 @@ export class GaOutputs extends GaElement {
       .destinations button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .note-inline { font-size: 11px; color: var(--ga-text-muted); }
       .hard-mute { font-size: 11px; font-weight: 700; }
+      .in-cr { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; cursor: pointer; }
+      .in-cr input { margin: 0; }
       .hard-mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
       @media (max-width: 480px) {
         .output { grid-template-columns: 1fr auto; }
@@ -99,7 +101,8 @@ export class GaOutputs extends GaElement {
           "on:click": () => outputs.setHardMute(!outputs.hardMute.peek()),
         }, "Hard mute");
     const note = h("p", { class: "note" });
-    const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => outputRow({ watch: (fn) => this.watch(fn), onDisconnect: (fn) => this.onDisconnect(fn) }, outputs, output, enabled)));
+    const host = { watch: (fn: () => void) => this.watch(fn), onDisconnect: (fn: () => void) => this.onDisconnect(fn) };
+    const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => outputRow(host, outputs, output, enabled, this.#inControlRoom(deviceId, output))));
 
     const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
     const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
@@ -134,6 +137,25 @@ export class GaOutputs extends GaElement {
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("button[data-control]")) button.disabled = !connected;
       for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!connected));
     });
+  }
+
+  /** Whether the output shows in the Control Room panel: the user's choice per device, kept in the workspace. */
+  #inControlRoom(deviceId: string, output: OutputInfo): HTMLElement {
+    const store = useStore();
+    const shown = store.controlRoomOutputs(deviceId);
+    const box = h("input", {
+      type: "checkbox",
+      "data-testid": `out-in-cr-${output.id}`,
+      "aria-label": `${output.name} in the Control Room`,
+      "on:change": () => {
+        if (!store.setInControlRoom(deviceId, output.id, box.checked)) box.checked = shown.peek().includes(output.id);
+      },
+    });
+    this.watch(() => {
+      box.checked = shown.value.includes(output.id);
+      box.disabled = !store.connected.value;
+    });
+    return h("label", { class: "in-cr", title: `Show ${output.name} in the Control Room panel` }, box, "In Control Room");
   }
 
   #trim(outputs: OutputsModel, trim: TrimInfo): HTMLElement {
@@ -187,8 +209,11 @@ export class GaOutputs extends GaElement {
   }
 }
 
-/** One output's row: its volume (dB of attenuation), mute, the Quadro's dim, and the mono the Quadro reports. */
-export function outputRow(host: ControlHost, outputs: OutputsModel, output: OutputInfo, enabled: () => boolean): HTMLElement {
+/**
+ * One output's row: its volume (dB of attenuation), mute, the Quadro's dim, and the mono the Quadro
+ * reports. `extra` goes after the buttons (the Outputs page's Control Room choice).
+ */
+export function outputRow(host: ControlHost, outputs: OutputsModel, output: OutputInfo, enabled: () => boolean, extra?: HTMLElement): HTMLElement {
   const state = outputs.state(output.id);
   const fill = h("div", { class: "fill" });
   const value = h("span", { class: "value" });
@@ -215,7 +240,7 @@ export function outputRow(host: ControlHost, outputs: OutputsModel, output: Outp
     mono.hidden = !s.mono;
   });
 
-  return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name-cell" }, h("span", { class: "name" }, output.name), mono), volume, h("div", { class: "toggles" }, mute, dim));
+  return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name-cell" }, h("span", { class: "name" }, output.name), mono), volume, h("div", { class: "toggles" }, mute, dim, extra));
 }
 
 declare global {

@@ -21,7 +21,7 @@ import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
-import { OutputsModel } from "./outputs.ts";
+import { CONTROL_ROOM_DEFAULT, OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
@@ -757,6 +757,37 @@ export class Store {
     });
     this.#outputs.set(deviceId, model);
     return model;
+  }
+
+  readonly #controlRooms = new Map<string, ReadonlySignal<readonly number[]>>();
+
+  /**
+   * The outputs a device's Control Room panel shows, by id, in the device's order: the workspace's
+   * choice for the device, else Monitor, HP1 and HP2. Reactive.
+   */
+  controlRoomOutputs(deviceId: string): ReadonlySignal<readonly number[]> {
+    let outputs = this.#controlRooms.get(deviceId);
+    if (outputs === undefined) {
+      outputs = computed(
+        () => [...(this.#workspace.value?.control_room?.[deviceId]?.outputs ?? CONTROL_ROOM_DEFAULT)].sort((a, b) => a - b),
+        (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
+      );
+      this.#controlRooms.set(deviceId, outputs);
+    }
+    return outputs;
+  }
+
+  /**
+   * Shows or hides an output in a device's Control Room panel, saved in the workspace. Throws for an
+   * output the model lacks or a device of unknown model; false when there is no connection.
+   */
+  setInControlRoom(deviceId: string, output: number, on: boolean): boolean {
+    const { outputs, family } = this.outputs(deviceId);
+    if (!Number.isInteger(output) || output < 0 || output >= outputs.length) throw new RangeError(`the ${family === "studio" ? "Studio+" : "Quadro"} has outputs 0..${outputs.length - 1}, not ${output}`);
+    const current = this.controlRoomOutputs(deviceId).peek();
+    if (current.includes(output) === on) return this.connected.peek() && this.#workspace.peek() !== undefined;
+    const next = on ? [...current, output].sort((a, b) => a - b) : current.filter((id) => id !== output);
+    return this.editWorkspace((workspace) => ({ ...workspace, control_room: { ...workspace.control_room, [deviceId]: { outputs: next } } }));
   }
 
   readonly #effects = new Map<string, EffectsModel>();

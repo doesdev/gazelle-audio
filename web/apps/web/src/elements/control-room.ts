@@ -1,7 +1,8 @@
 // <ga-control-room>: the right zone's Control Room panel (decisions P56, P57). It shows the device on
 // the current page, or the one last selected (P71), as a <ga-monitor device-id="…">, with what the
-// user chose for it (2026-09-16): Monitor, HP1 and HP2, each with volume, mute and (Quadro) dim and a
-// mono badge where the device reports one; on the Studio+, talkback: the hold-to-talk button, its
+// user chose for it (2026-09-16): the outputs chosen on the Outputs page (Monitor, HP1 and HP2 until
+// then; kept per device in the workspace), each with volume, mute and (Quadro) dim and a mono badge
+// where the device reports one; on the Studio+, talkback: the hold-to-talk button, its
 // level and where it goes; and a mono switch for the device's selected mix. Outputs and talkback use
 // the same OutputsModel as the Outputs page, and mono the same ChannelsModel as the mix masters, so
 // they all stay in step.
@@ -12,8 +13,6 @@ import { bindControl, bindMomentary } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { route } from "./router.ts";
 
-/** The outputs the panel shows, by id on both models: MONITOR 0, HP1 1, HP2 2 (not LINE OUT or REAMP). */
-const CONTROL_ROOM_OUTPUTS = [0, 1, 2] as const;
 /** The vendor panels' starting volume, which a reset returns to. */
 const VOLUME_RESET = 30;
 
@@ -23,12 +22,16 @@ export class GaControlRoom extends GaElement {
   protected override render(): void {
     const store = useStore();
     let shown: string | undefined;
+    let shownOutputs = "";
     this.watch(() => {
       const current = route.value;
       const known = store.devices.value.filter((d) => d.family !== null);
       const id = known.find((d) => d.id === current.id)?.id ?? store.deviceInView(true);
-      if (id === shown && this.root.childElementCount > 0) return;
+      // The outputs chosen on the Outputs page; a new choice builds the panel again.
+      const outputs = id === undefined ? "" : store.controlRoomOutputs(id).value.join(",");
+      if (id === shown && outputs === shownOutputs && this.root.childElementCount > 0) return;
       shown = id;
+      shownOutputs = outputs;
       this.root.replaceChildren(id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-monitor", { "device-id": id }));
     });
   }
@@ -88,7 +91,8 @@ export class GaMonitor extends GaElement {
       return { element, show };
     };
 
-    const rows = CONTROL_ROOM_OUTPUTS.flatMap((id) => {
+    // The outputs chosen on the Outputs page, in the device's order; the panel is built again when they change.
+    const rows = store.controlRoomOutputs(deviceId).peek().flatMap((id) => {
       const output = outputs.outputs[id];
       if (output === undefined) return [];
       const state = outputs.state(id);

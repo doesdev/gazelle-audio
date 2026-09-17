@@ -120,7 +120,7 @@ test("the panel sets volume, mute and dim for Monitor, HP1 and HP2 on the Quadro
     await expect(lastSent(page)).toContainText(quadro("set_dim", { 17: id, 18: 1 }));
     await expect(page.getByTestId(`out-dim-${id}`)).toHaveAttribute("aria-pressed", "true");
   }
-  // Line out is not a Control Room output.
+  // Line out is not a Control Room output until chosen.
   await expect(panel(page).getByTestId("cr-volume-3")).toHaveCount(0);
   // The Quadro has no talkback commands, so nothing of it shows.
   await expect(panel(page).getByTestId("cr-talk")).toHaveCount(0);
@@ -169,6 +169,83 @@ test("on the Studio+ the panel has Monitor, HP1 and HP2 without dim, and talkbac
   await expect(lastSent(page)).toContainText(studio("set_talk", { 17: 1 }));
   await talk.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
   await expect(lastSent(page)).toContainText(studio("set_talk", { 17: 0 }));
+});
+
+const controlRoomSaved = async (): Promise<unknown> => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { control_room?: unknown }).control_room;
+
+test("the Outputs page chooses which outputs the Quadro's Control Room shows, saved in the workspace, without sending anything", async ({ page }) => {
+  const quadro = (command: string, fields: Record<number, number>) => sentText("ground_truth.json", command, fields);
+  const frames = recordFrames(page);
+  await page.goto(`${server.url}/#/outputs/loopback-0`);
+  const shown = () => panel(page).locator('[data-testid^="cr-output-"]').evaluateAll((groups) => groups.map((g) => (g as HTMLElement).dataset["testid"]));
+  // Monitor, HP1 and HP2 until chosen.
+  for (const [id, on] of [[0, true], [1, true], [2, true], [3, false]] as const) {
+    await expect(page.getByTestId(`out-in-cr-${id}`)).toBeChecked({ checked: on });
+  }
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
+  await expect(page.getByTestId("output-3").getByLabel("Line out in the Control Room")).not.toBeChecked();
+  const before = frames.length;
+
+  // Line out joins, after HP2 in the device's order, with its volume, mute and dim.
+  await page.getByTestId("out-in-cr-3").check();
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2", "cr-output-3"]);
+  await expect(panel(page).getByTestId("cr-output-3")).toContainText("Line out");
+  await expect.poll(controlRoomSaved).toEqual({ "loopback-0": { outputs: [0, 1, 2, 3] } });
+  await page.getByTestId("out-in-cr-1").uncheck();
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-2", "cr-output-3"]);
+  await expect.poll(controlRoomSaved).toEqual({ "loopback-0": { outputs: [0, 2, 3] } });
+  await page.waitForTimeout(300);
+  expect(frames.slice(before).filter((f) => f.command !== undefined), "choosing sends nothing to the device").toEqual([]);
+
+  const volume = panel(page).getByTestId("cr-volume-3");
+  await volume.focus();
+  await volume.press("Home");
+  await expect(lastSent(page)).toContainText(quadro("set_volume", { 17: 3, 18: 96 }));
+  await expect(page.getByTestId("out-volume-3"), "the Outputs page follows the panel").toHaveAttribute("aria-valuetext", "-inf");
+  await panel(page).getByTestId("cr-mute-3").click();
+  await expect(lastSent(page)).toContainText(quadro("set_mute", { 17: 3, 18: 1 }));
+  await panel(page).getByTestId("cr-dim-3").click();
+  await expect(lastSent(page)).toContainText(quadro("set_dim", { 17: 3, 18: 1 }));
+
+  // Kept across a reload, and per device: the Studio+ still has the default.
+  await page.reload();
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-2", "cr-output-3"]);
+  await expect(page.getByTestId("out-in-cr-1")).not.toBeChecked();
+  await page.goto(`${server.url}/#/outputs/loopback-1`);
+  await expect(panel(page)).toContainText("Zen Studio+");
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
+});
+
+test("the Studio+ Control Room can show Reamp and Line out, without dim, and every output can be left out", async ({ page }) => {
+  const studio = (command: string, fields: Record<number, number>) => sentText("ground_truth_studio.json", command, fields);
+  await putWorkspace(server, { control_room: { "loopback-1": { outputs: [4, 0] } } });
+  await page.goto(`${server.url}/#/outputs/loopback-1`);
+  const shown = () => panel(page).locator('[data-testid^="cr-output-"]').evaluateAll((groups) => groups.map((g) => (g as HTMLElement).dataset["testid"]));
+  await expect.poll(shown, "in the device's order, not the stored one").toEqual(["cr-output-0", "cr-output-4"]);
+  await expect(page.getByTestId("out-in-cr-4")).toBeChecked();
+  await expect(panel(page).getByTestId("cr-output-4")).toContainText("Reamp");
+  await expect(panel(page).getByTestId("cr-dim-4")).toHaveCount(0);
+  const volume = panel(page).getByTestId("cr-volume-4");
+  await volume.focus();
+  await volume.press("End");
+  await expect(lastSent(page)).toContainText(studio("set_volume", { 17: 4, 18: 0 }));
+  await panel(page).getByTestId("cr-mute-4").click();
+  await expect(lastSent(page)).toContainText(studio("set_mute", { 17: 4, 18: 1 }));
+
+  await page.getByTestId("out-in-cr-3").check();
+  await expect.poll(shown).toEqual(["cr-output-0", "cr-output-3", "cr-output-4"]);
+  for (const id of [0, 3, 4]) await page.getByTestId(`out-in-cr-${id}`).uncheck();
+  await expect.poll(shown).toEqual([]);
+  await expect.poll(controlRoomSaved).toEqual({ "loopback-1": { outputs: [] } });
+  // Talkback is the Studio+'s whatever outputs are shown.
+  await expect(panel(page).getByTestId("cr-talk")).toBeVisible();
+});
+
+test("a surface's output strip has no Control Room choice", async ({ page }) => {
+  await putWorkspace(server, { surfaces: [{ id: "s", name: "Outs", mixes: {}, strips: [{ id: "o", kind: "output", device_id: "loopback-0", output: 3 }] }] });
+  await page.goto(`${server.url}/#/surface/s`);
+  await expect(page.locator("ga-surface").getByTestId("output-3")).toBeVisible();
+  await expect(page.locator("ga-surface").getByTestId("out-in-cr-3")).toHaveCount(0);
 });
 
 interface Frame {
