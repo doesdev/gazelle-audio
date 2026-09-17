@@ -419,7 +419,7 @@ async fn quadro_only_command_is_absent_on_studio() {
 /// The loopback keeps routing state like a device, so the web UI's read-before-write and import
 /// can be exercised without hardware: `set_routing` replaces one destination group's 32 slots,
 /// `get_routing` with that group in `ext3` reads them back, and other groups are untouched.
-/// Unset slots start on the family's MUTE source (Quadro source group 10).
+/// Slots past a group's default routing are on the family's MUTE source (Quadro source group 10).
 #[tokio::test]
 async fn loopback_routing_reads_back_what_was_set() {
     let app = app();
@@ -446,7 +446,8 @@ async fn loopback_routing_reads_back_what_was_set() {
     let after = read(11).await;
     assert_eq!(after["bank_configs"][7], json!({"in_periph_id": 0, "in_chann": 2}));
     assert_eq!(after["bank_configs"][8], json!({"in_periph_id": 10, "in_chann": 0}));
-    assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 10, "in_chann": 0}), "other groups are untouched");
+    // MIX CH3's default routing has PREAMP channel 2 in slot 7 (loopback_reads.rs has the table).
+    assert_eq!(read(10).await["bank_configs"][7], json!({"in_periph_id": 0, "in_chann": 1}), "other groups are untouched");
 }
 
 /// The loopback keeps mixer strips and stereo links like a device, so the web UI can read a mixer's

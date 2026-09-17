@@ -1,6 +1,7 @@
 //! Owns every connected device and routes work to the right worker.
 
 use gazelle_audio_protocol::field::Field;
+use gazelle_audio_protocol::registry::Registry;
 use gazelle_audio_transport::{Device, LoopbackDevice};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -9,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::device::cyclic_loopback::CyclicLoopback;
 use crate::device::mixer_loopback::MixerLoopback;
+use crate::device::read_loopback::ReadLoopback;
 use crate::device::routing_loopback::RoutingLoopback;
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::handle::DeviceHandle;
@@ -30,6 +32,12 @@ pub const ANTELOPE_USB_VID: u16 = 9189;
 ///
 /// Also mis-annotated as `0x1D57` in the earlier notes; 7499 is `0x1D4B`.
 pub const ANTELOPE_TB_VID: u16 = 7499;
+
+/// Wrap an emulating loopback in the layers that make it answer like a device: reads, routing,
+/// mixer and links. The loopback backend and the tests build their devices with this.
+pub fn loopback_stack(dev: Box<dyn Device + Send>, registry: Option<&Registry>) -> Box<dyn Device + Send> {
+    MixerLoopback::wrap(RoutingLoopback::wrap(ReadLoopback::wrap(dev, registry), registry), registry)
+}
 
 struct Entry {
     descriptor: DeviceDescriptor,
@@ -146,8 +154,7 @@ impl DeviceManager {
             // request/response path is exercised rather than only framing.
             let dev = LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size);
             let registry = self.registries.for_pid(*pid).map(|m| m.registry.as_ref());
-            let dev = MixerLoopback::wrap(RoutingLoopback::wrap(Box::new(dev), registry), registry);
-            self.attach(DeviceId::loopback(n), dev, "loopback", true);
+            self.attach(DeviceId::loopback(n), loopback_stack(Box::new(dev), registry), "loopback", true);
         }
     }
 
@@ -169,8 +176,7 @@ impl DeviceManager {
                 .unwrap_or_default();
             let dev = CyclicLoopback::new(LoopbackDevice::emulating(ANTELOPE_USB_VID, *pid, max_packet_size), reports, interval);
             let registry = self.registries.for_pid(*pid).map(|m| m.registry.as_ref());
-            let dev = MixerLoopback::wrap(RoutingLoopback::wrap(Box::new(dev), registry), registry);
-            self.attach(DeviceId::loopback(n), dev, "loopback", true);
+            self.attach(DeviceId::loopback(n), loopback_stack(Box::new(dev), registry), "loopback", true);
         }
     }
 
