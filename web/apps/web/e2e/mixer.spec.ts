@@ -327,6 +327,12 @@ test("a strip meters its channel's input; an input with no meter of its own show
   const preampMeter = page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask');
   const first = await preampMeter.evaluate((el) => (el as HTMLElement).style.height);
   await expect.poll(() => preampMeter.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+  // Plasma style (the user, 2026-09-16): a peak marker holds the loudest recent signal above the bar.
+  const peakMark = page.locator('ga-channel[data-channel-slot="0"] ga-strip .peak-mark');
+  await expect(peakMark).toBeVisible();
+  const barTop = async () => 100 - Number.parseFloat(await preampMeter.evaluate((el) => (el as HTMLElement).style.height));
+  const markAt = async () => Number.parseFloat(await peakMark.evaluate((el) => (el as HTMLElement).style.bottom));
+  await expect.poll(async () => (await markAt()) >= (await barTop()) - 0.001).toBe(true);
   const usbMeter = page.locator('ga-channel[data-channel-slot="1"] ga-strip');
   await expect(usbMeter.locator(".mask")).toHaveAttribute("style", /height: 100%/);
   await expect(usbMeter.locator('[data-testid="meter-1"]')).toHaveAttribute("title", /no meter/);

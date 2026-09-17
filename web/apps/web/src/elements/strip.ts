@@ -9,12 +9,16 @@
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
+import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 import { formatLevel, formatPan, formatSend, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
 
 const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+/** A peak in dB below full scale, as the readouts show it. */
+const peakText = (db: number) => (db >= METER_FLOOR ? "< -60" : db < 0.5 ? "0" : `-${Math.round(db)}`);
 
 export class GaStrip extends GaElement {
   static override styles = [
@@ -77,6 +81,10 @@ export class GaStrip extends GaElement {
       .meter { position: relative; flex: 1; overflow: hidden; border-radius: 2px; background: var(--ga-meter-background); }
       .meter .gradient { position: absolute; inset: 0; background: var(--mixer-meter-gradient, var(--ga-meter-gradient)); }
       .meter .mask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: var(--ga-meter-background); }
+      /* Plasma style: a soft glow along the bar's top edge, and a bright peak marker above it. */
+      .meter .mask::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--ga-text-primary); opacity: 0.35; filter: blur(1.5px); pointer-events: none; }
+      .meter .peak-mark { position: absolute; left: 0; right: 0; height: 2px; margin-bottom: -1px; background: var(--ga-text-primary); opacity: 0.85; box-shadow: 0 0 4px var(--ga-text-primary); pointer-events: none; }
+      .meter .peak-mark[hidden] { display: none; }
       .meter .tick { position: absolute; left: 0; right: 0; height: 1px; background: rgb(0 0 0 / 0.4); }
       .readouts { display: grid; gap: 2px; }
       .readout { min-width: 0; width: 100%; padding: 1px 2px; font-size: 10px; text-align: center; }
@@ -168,11 +176,13 @@ export class GaStrip extends GaElement {
 
       const clip = h("button", { class: "clip", type: "button", "aria-label": `${label} clip; select to clear`, "on:click": () => inputMeter?.clearClip() });
       const mask = h("div", { class: "mask" });
+      const peakMark = h("div", { class: "peak-mark", hidden: "" });
       const meter = h(
         "div",
         { class: "meter", "data-testid": `meter-${testId}` },
         h("div", { class: "gradient" }),
         mask,
+        peakMark,
         METER_MARKS.map((mark) => h("div", { class: "tick", style: `bottom: ${meterDeflection(mark)}%` })),
       );
       const peakReadout = h("span", { class: "readout muted", title: "Peak, dB below full scale" });
@@ -192,12 +202,20 @@ export class GaStrip extends GaElement {
         pan.toggleAttribute("data-mono", monoPan !== undefined);
         pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
       });
-      this.watch(() => {
-        const byte = metered ? inputMeter?.level.value : undefined;
-        const deflection = byte === undefined ? 0 : meterDeflection(byte);
-        mask.style.height = `${100 - deflection}%`;
-        peakReadout.textContent = byte === undefined ? "—" : byte > 60 ? "< -60" : byte === 0 ? "0" : `-${byte}`;
-      });
+      if (metered && inputMeter !== undefined) {
+        // Smoothed as a plasma meter: quick to rise, falling back steadily, with a held peak.
+        this.onDisconnect(
+          animateMeter(inputMeter.level, (motion) => {
+            mask.style.height = `${100 - meterDeflection(motion.level)}%`;
+            peakMark.hidden = motion.peak >= METER_FLOOR;
+            peakMark.style.bottom = `${meterDeflection(motion.peak)}%`;
+            peakReadout.textContent = peakText(motion.peak);
+          }),
+        );
+      } else {
+        mask.style.height = "100%";
+        peakReadout.textContent = "—";
+      }
       if (!metered) meter.title = "This channel is not in the selected mix";
       else if (inputMeter === undefined) meter.title = "This input reports no meter";
       else meter.title = "The input's level, before the fader";

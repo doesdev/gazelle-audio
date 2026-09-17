@@ -5,7 +5,8 @@
 // output levels only through a selectable meter bank, so it shows a note instead.
 
 import { h } from "../core/dom.ts";
-import { effect, untracked } from "../core/signal.ts";
+import { untracked } from "../core/signal.ts";
+import { animateMeter, METER_FLOOR, type MeterMotion } from "./meter-motion.ts";
 import { meterDeflection } from "../store/mixer.ts";
 import { displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
@@ -25,6 +26,10 @@ export class GaOutputMeters extends GaElement {
       .bar { position: relative; height: 5px; overflow: hidden; border-radius: 1px; background: var(--ga-meter-background); }
       .bar .gradient { position: absolute; inset: 0; background: var(--output-meter-gradient, var(--ga-accent)); }
       .bar .mask { position: absolute; top: 0; bottom: 0; right: 0; width: 100%; background: var(--ga-meter-background); }
+      /* Plasma style, as the mixer's meters: a glow at the bar's leading edge and a held peak marker. */
+      .bar .mask::after { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 2px; background: var(--ga-text-primary); opacity: 0.35; filter: blur(1.5px); }
+      .bar .peak-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ga-text-primary); opacity: 0.85; box-shadow: 0 0 4px var(--ga-text-primary); }
+      .bar .peak-mark[hidden] { display: none; }
       .peak { font-size: 10px; text-align: right; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; }
     `),
   ];
@@ -62,23 +67,23 @@ export class GaOutputMeters extends GaElement {
       untracked(() => this.root.replaceChildren(
         name,
         ...meters.map((meter) => {
+          const peak = h("span", { class: "peak" });
+          const peaks: Record<"left" | "right", number> = { left: METER_FLOOR, right: METER_FLOOR };
           const bar = (side: "left" | "right") => {
             const mask = h("div", { class: "mask" });
+            const peakMark = h("div", { class: "peak-mark", hidden: "" });
             held.push(
-              effect(() => {
-                const byte = meter[side].value;
-                mask.style.width = `${100 - (byte === undefined ? 0 : meterDeflection(byte))}%`;
+              animateMeter(meter[side], (motion: MeterMotion) => {
+                mask.style.width = `${100 - meterDeflection(motion.level)}%`;
+                peakMark.hidden = motion.peak >= METER_FLOOR;
+                peakMark.style.left = `${meterDeflection(motion.peak)}%`;
+                peaks[side] = motion.peak;
+                const loudest = Math.min(peaks.left, peaks.right);
+                peak.textContent = loudest >= METER_FLOOR ? "< -60" : loudest < 0.5 ? "0" : `-${Math.round(loudest)}`;
               }),
             );
-            return h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask);
+            return h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask, peakMark);
           };
-          const peak = h("span", { class: "peak" });
-          held.push(
-            effect(() => {
-              const loudest = Math.min(meter.left.value ?? 96, meter.right.value ?? 96);
-              peak.textContent = loudest > 60 ? "< -60" : loudest === 0 ? "0" : `-${loudest}`;
-            }),
-          );
           return h("div", { class: "output", "data-output": meter.name, title: `${meter.name}: peak, dB below full scale` }, h("span", { class: "output-name" }, meter.name), h("div", { class: "bars" }, bar("left"), bar("right")), peak);
         }),
       ));
