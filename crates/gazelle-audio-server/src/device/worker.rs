@@ -213,7 +213,18 @@ fn handle_request(
     // Wait for the correlated response, publishing any cyclic traffic seen meanwhile.
     let deadline = Instant::now() + REQUEST_TIMEOUT;
     while Instant::now() < deadline {
-        if let Some(matched) = pump(ctx, correlator) {
+        let matched = match pump(ctx, correlator) {
+            Some(Answer::Matched(report)) => Some(report),
+            // The device said no; nothing else is coming for this request.
+            Some(Answer::Refused) => {
+                return Err(ServerError::Refused {
+                    device: ctx.device_id.to_string(),
+                    command: name.to_string(),
+                })
+            }
+            None => None,
+        };
+        if let Some(matched) = matched {
             let (response, response_error) = if command.returns.is_empty() {
                 (None, None)
             } else {
@@ -242,24 +253,31 @@ fn handle_request(
     })
 }
 
-/// Drain inbound reports, returning the one that satisfied the outstanding request.
+/// How the device answered the outstanding request.
+enum Answer {
+    Matched(Report),
+    Refused,
+}
+
+/// Drain inbound reports, returning how the outstanding request was answered, if it was.
 ///
 /// Reports that are not valid responses are published as device-initiated events rather
 /// than discarded. Note this is slightly more forgiving than the original, which consumes
 /// exactly one queued report per request and fails if it does not validate; here a cyclic
 /// report arriving mid-request does not kill the request. That is a deliberate divergence,
 /// recorded in `.agent/reference/decompilation-fidelity.md`.
-fn pump(ctx: &mut WorkerContext, correlator: &mut ResponseCorrelator) -> Option<Report> {
-    let mut matched = None;
+fn pump(ctx: &mut WorkerContext, correlator: &mut ResponseCorrelator) -> Option<Answer> {
+    let mut answer = None;
     for report in ctx.device.poll_reports() {
         match correlator.correlate(report) {
-            Correlation::Matched { report } => matched = Some(report),
+            Correlation::Matched { report } => answer = Some(Answer::Matched(report)),
+            Correlation::Refused { .. } => answer = Some(Answer::Refused),
             Correlation::Unmatched { report } | Correlation::Unsolicited { report } => {
                 publish(ctx, report)
             }
         }
     }
-    matched
+    answer
 }
 
 fn drain_events(ctx: &mut WorkerContext, correlator: &mut ResponseCorrelator) {
@@ -267,6 +285,7 @@ fn drain_events(ctx: &mut WorkerContext, correlator: &mut ResponseCorrelator) {
         match correlator.correlate(report) {
             // With no request outstanding everything is device-initiated.
             Correlation::Matched { report }
+            | Correlation::Refused { report }
             | Correlation::Unmatched { report }
             | Correlation::Unsolicited { report } => publish(ctx, report),
         }

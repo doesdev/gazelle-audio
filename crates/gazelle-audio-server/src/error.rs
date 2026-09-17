@@ -17,6 +17,8 @@ pub enum ServerError {
     BadValue(String),
     /// The device did not answer within the request timeout.
     Timeout { device: String, command: String },
+    /// The device answered the command with a refusal (the reply id with its top bit set).
+    Refused { device: String, command: String },
     /// The device worker is gone (thread died or shut down).
     DeviceGone(String),
     /// Protocol-level failure building or parsing bytes.
@@ -36,6 +38,7 @@ impl ServerError {
             ServerError::UnknownCommand { .. } => "unknown_command",
             ServerError::BadValue(_) => "bad_value",
             ServerError::Timeout { .. } => "timeout",
+            ServerError::Refused { .. } => "refused",
             ServerError::DeviceGone(_) => "device_gone",
             ServerError::Protocol(_) => "protocol_error",
             ServerError::Storage(_) => "storage_error",
@@ -50,6 +53,9 @@ impl ServerError {
             }
             ServerError::BadValue(_) => StatusCode::BAD_REQUEST,
             ServerError::Timeout { .. } => StatusCode::GATEWAY_TIMEOUT,
+            // The device answered, and its answer was no: a gateway's upstream failing, as a
+            // timeout is, but not one worth waiting on.
+            ServerError::Refused { .. } => StatusCode::BAD_GATEWAY,
             ServerError::DeviceGone(_) => StatusCode::SERVICE_UNAVAILABLE,
             ServerError::Protocol(_) | ServerError::Storage(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -78,6 +84,9 @@ impl std::fmt::Display for ServerError {
             ServerError::Timeout { device, command } => {
                 write!(f, "device {device} timed out running '{command}'")
             }
+            ServerError::Refused { device, command } => {
+                write!(f, "device {device} refused '{command}'")
+            }
             ServerError::DeviceGone(d) => write!(f, "device {d} is no longer reachable"),
             ServerError::Protocol(m) => write!(f, "protocol error: {m}"),
             ServerError::Storage(m) => write!(f, "storage error: {m}"),
@@ -98,5 +107,20 @@ impl ServerError {
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
         (self.status(), axum::Json(self.to_json())).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_has_its_own_code_status_and_message() {
+        let e = ServerError::Refused { device: "usb:1".into(), command: "get_feature_mask".into() };
+        assert_eq!(e.code(), "refused");
+        assert_eq!(e.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(e.to_string(), "device usb:1 refused 'get_feature_mask'");
+        // The HTTP body and the WS `rpc_error` frame both carry this.
+        assert_eq!(e.to_json(), json!({"error": {"code": "refused", "message": "device usb:1 refused 'get_feature_mask'"}}));
     }
 }

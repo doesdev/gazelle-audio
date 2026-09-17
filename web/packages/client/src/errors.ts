@@ -8,6 +8,7 @@ export type ServerErrorCode =
   | "unknown_command"
   | "bad_value"
   | "timeout"
+  | "refused"
   | "device_gone"
   | "protocol_error"
   | "storage_error"

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { connect, GazelleError, type Client, type ConnectOptions, type DeviceDescriptor, type FetchLike, type Workspace } from "../src/index.ts";
+import { connect, GazelleError, type Client, type ConnectOptions, type DeviceDescriptor, type FetchLike, type ServerErrorCode, type Workspace } from "../src/index.ts";
 import { fakeNetwork, ManualTimers, outcome } from "./fakes.ts";
 
 const device = (id: string, family: DeviceDescriptor["family"], pid: number): DeviceDescriptor => ({
@@ -126,6 +126,13 @@ test("server errors pass through with their code and detail", async () => {
   const detailed = outcome(dev.invoke("set_volume", { id: 1, volume: 1 }));
   socket.receive({ type: "rpc_error", id: 2, error: { code: "device_gone", message: "gone", detail: { since: 3 } } });
   assert.deepEqual(errorOf(await detailed).detail, { since: 3 });
+
+  // A read the device refused fails at once with its own code, apart from a timeout.
+  const refusedCode: ServerErrorCode = "refused";
+  const read = outcome(dev.invoke("get_panning_law"));
+  socket.receive({ type: "rpc_error", id: 3, error: { code: refusedCode, message: "device usb:1 refused 'get_panning_law'" } });
+  const refused = errorOf(await read);
+  assert.deepEqual([refused.code, refused.message], ["refused", "device usb:1 refused 'get_panning_law'"]);
   await client.close();
 });
 

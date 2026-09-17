@@ -354,6 +354,23 @@ test("a device that will not answer get_panning_law leaves the choice unknown, w
   assert.deepEqual(store.notices.value, []);
 });
 
+test("a read the device refuses is quiet like any other failure a page's own read meets, and loud when asked for", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
+  await store.start();
+
+  // The device's own no (hardware session 2 saw one) is not a reason to post a notice nobody asked for.
+  client.respond = async (call) => {
+    throw new GazelleError("refused", `device loopback-0 refused '${call.command}'`);
+  };
+  assert.equal(await store.loadPanningLaw("loopback-0"), false);
+  assert.equal(await store.inputs("loopback-0").loadEmulations(), false);
+  assert.equal(store.notices.value.length, 0);
+
+  await store.inputs("loopback-0").loadLinks();
+  assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["error", "get_preamps_links could not be read: device loopback-0 refused 'get_preamps_links'"]]);
+});
+
 test("a read the user asked for still says so when it fails", async () => {
   const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
   const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), themeSources: builtIns });
