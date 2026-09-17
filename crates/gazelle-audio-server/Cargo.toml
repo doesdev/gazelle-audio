@@ -25,6 +25,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "~4.5.61", features = ["derive"] }
 futures-util = "0.3"
 rust-embed = { version = "=8.11.0", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
+# The in-app updater. A release source must be HTTPS, so unlike `drive` (decision A35's
+# plain-HTTP note) this binary compiles TLS in: rustls with the ring provider, A35's choice.
+# `ureq` rather than `reqwest`, which the capture crate uses: reqwest 0.13 drags hyper, icu and
+# encoding_rs, all of which declare 1.85 or 1.88 and would lift this crate off the 1.82 floor.
+# `~3.1` is a floor pin like `clap`: ureq 3.2 declares 1.85. Default features off leaves out
+# `platform-verifier` (1.85), so certificates verify against ureq's bundled webpki roots rather
+# than the OS store — see `update/mod.rs`.
+ureq = { version = "~3.1", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+# Signature checking only; no signing in the shipped binary. `xtask` does the signing.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
+semver = "1"
+# Not used directly: `curve25519-dalek` pulls it and 1.9 declares 1.85. Naming it here caps it in
+# a manifest, so `cargo update` cannot silently lift the floor the way it can with `clap_lex`.
+zeroize = { version = "~1.8", default-features = false }
 
 # The tray icon, on Win32 directly. `hidapi` already brings in this exact crate, so the tray adds
 # features, not packages, to what the Rust floor audit covers.

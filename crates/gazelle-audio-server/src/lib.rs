@@ -18,6 +18,7 @@ pub mod http;
 pub mod logging;
 pub mod registry_set;
 pub mod tray;
+pub mod update;
 pub mod value;
 #[cfg(feature = "web-ui")]
 pub mod web;
