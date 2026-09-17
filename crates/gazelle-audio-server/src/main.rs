@@ -202,6 +202,16 @@ async fn prepare(
         devices.len(),
         args.dry_run
     );
+    // A USB run that attached nothing while Antelope's service holds the devices is the one case
+    // that looks like a working app with nothing plugged in. The scanner's warning is general; this
+    // one names the reason, and the UI shows the same text (`notice`).
+    for notice in gazelle_audio_server::notice::current(
+        &format!("{:?}", args.backend).to_lowercase(),
+        devices.len(),
+        gazelle_audio_server::tray::antelope_service_running(),
+    ) {
+        tracing::warn!("{}", notice.message);
+    }
     if !args.bind.ip().is_loopback() {
         tracing::warn!(
             "bound to a non-loopback address ({}); this exposes device control to the network",

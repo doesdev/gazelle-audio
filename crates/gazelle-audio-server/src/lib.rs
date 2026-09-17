@@ -16,6 +16,7 @@ pub mod device;
 pub mod error;
 pub mod http;
 pub mod logging;
+pub mod notice;
 pub mod registry_set;
 pub mod tray;
 pub mod value;

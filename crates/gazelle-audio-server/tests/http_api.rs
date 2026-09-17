@@ -275,6 +275,8 @@ async fn health_reports_backend_and_device_count() {
     assert_eq!(body["status"], "ok");
     assert_eq!(body["backend"], "loopback");
     assert_eq!(body["devices"], 2);
+    // The loopback opens no hardware, so nothing can be holding it: the list is present and empty.
+    assert_eq!(body["notices"], serde_json::json!([]));
 }
 
 #[tokio::test]

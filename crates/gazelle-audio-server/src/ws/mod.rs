@@ -55,6 +55,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         "backend": state.backend,
         "dry_run": state.force_dry_run,
         "devices": state.devices.descriptors(),
+        // Read here rather than pushed, so a client that reconnects gets the current answer.
+        "notices": crate::notice::current(&state.backend, state.devices.len(), crate::tray::antelope_service_running()),
     });
     if sink.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;

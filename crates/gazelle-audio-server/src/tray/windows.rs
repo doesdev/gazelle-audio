@@ -316,7 +316,7 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
 
 /// Whether a Windows service is running. Only reads its status; anything that cannot be read
 /// (not installed, no access) counts as not running.
-fn service_running(name: &str) -> bool {
+pub(super) fn service_running(name: &str) -> bool {
     unsafe {
         let manager = OpenSCManagerW(null(), null(), SC_MANAGER_CONNECT);
         if manager.is_null() {

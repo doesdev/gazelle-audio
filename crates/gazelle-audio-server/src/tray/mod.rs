@@ -87,6 +87,20 @@ pub fn start(_context: Context) -> Result<Tray, String> {
     Err("the tray icon is only built for Windows so far".into())
 }
 
+/// Whether Antelope's Manager Service is running now. The one thing outside the tray that wants
+/// to know is [`crate::notice`]; anything that cannot be read counts as not running.
+///
+/// There is no such service off Windows, so nothing there can be holding the devices this way.
+#[cfg(windows)]
+pub fn antelope_service_running() -> bool {
+    windows::service_running(ANTELOPE_SERVICE)
+}
+
+#[cfg(not(windows))]
+pub fn antelope_service_running() -> bool {
+    false
+}
+
 /// A menu command.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Command {

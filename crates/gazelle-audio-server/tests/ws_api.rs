@@ -66,6 +66,9 @@ async fn connecting_yields_a_hello_with_the_device_list() {
     assert_eq!(hello["backend"], "loopback");
     let devices = hello["devices"].as_array().expect("devices array");
     assert_eq!(devices.len(), 2, "client should not need HTTP to bootstrap");
+    // The same notices the health endpoint carries, so a connected client hears them without
+    // polling. The loopback never has any.
+    assert_eq!(hello["notices"], json!([]));
 }
 
 #[tokio::test]
