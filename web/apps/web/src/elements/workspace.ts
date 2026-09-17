@@ -1,10 +1,30 @@
 // <ga-workspace>: layout state shared by everyone using the server — device names, and groups with
 // their colour and collapsed state. Edits save automatically; controls are disabled while
 // disconnected.
+//
+// Backup: Export downloads the workspace as a dated JSON file. Import reads a chosen file, checks
+// its shape, says what it holds and asks before replacing; the server's own validation then
+// decides, and its reason is shown if it refuses. The file's contents are passed on untouched.
+// A workspace is layout only, so importing one sends nothing to a device.
 
 import { h } from "../core/dom.ts";
 import type { Group } from "../store/store.ts";
+import { readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+
+/** "2 device names, 1 group and 1 link": the parts a file holds, the empty ones left out. */
+export function describeSummary(summary: WorkspaceSummary): string {
+  const count = (n: number, one: string, many: string) => (n === 0 ? undefined : `${n} ${n === 1 ? one : many}`);
+  const parts = [
+    count(summary.names, "device name", "device names"),
+    count(summary.groups, "group", "groups"),
+    count(summary.links, "link", "links"),
+    count(summary.mixers, "mixer layout", "mixer layouts"),
+    count(summary.layouts, "saved layout", "saved layouts"),
+  ].filter((part) => part !== undefined);
+  if (parts.length === 0) return "nothing: an empty workspace";
+  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
 
 export class GaWorkspace extends GaElement {
   static override styles = [
@@ -22,6 +42,14 @@ export class GaWorkspace extends GaElement {
       .chip[aria-pressed="true"] { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
       .none { background: var(--ga-surface-inset); }
       .group-name { min-width: 120px; }
+      .backup { padding: 8px 10px; display: grid; gap: 8px; }
+      .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
+      .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      .file { display: none; }
+      .confirm { display: grid; gap: 8px; padding: 8px 10px; border: 1px solid var(--ga-border-strong); border-radius: 4px; background: var(--ga-surface-inset); }
+      .confirm p { margin: 0; }
+      .problem { margin: 0; color: var(--ga-notice-error, var(--ga-text-primary)); }
+      .done { margin: 0; color: var(--ga-text-secondary); }
     `),
   ];
 
@@ -33,6 +61,7 @@ export class GaWorkspace extends GaElement {
     this.root.replaceChildren(
       h("ga-section", { heading: "Device names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"))), names)),
       h("ga-section", { heading: "Groups" }, groups),
+      h("ga-section", { heading: "Backup" }, this.#backup()),
     );
 
     this.watch(() => {
@@ -102,6 +131,79 @@ export class GaWorkspace extends GaElement {
         );
       groups.replaceChildren(render(workspace.groups));
     });
+  }
+
+  /** Export and import. The chosen file and its confirmation live only as long as the page. */
+  #backup(): HTMLElement {
+    const store = useStore();
+    const exportButton = h("button", { type: "button", "data-testid": "workspace-export" }, "Export");
+    const file = h("input", { type: "file", class: "file", accept: ".json,application/json", "data-testid": "workspace-import-file", "aria-label": "Workspace file to import" });
+    const importButton = h("button", { type: "button", "data-testid": "workspace-import" }, "Import…");
+    const outcome = h("div");
+    let busy = false;
+
+    const show = (...children: HTMLElement[]) => outcome.replaceChildren(...children);
+    const problem = (text: string) => show(h("p", { class: "problem", role: "alert", "data-testid": "workspace-import-problem" }, text));
+
+    exportButton.addEventListener("click", () => {
+      const workspace = store.workspace.peek();
+      if (workspace === undefined) return;
+      const url = URL.createObjectURL(new Blob([workspaceFileText(workspace)], { type: "application/json" }));
+      h("a", { href: url, download: workspaceFileName(new Date()) }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    });
+
+    importButton.addEventListener("click", () => file.click());
+    file.addEventListener("change", async () => {
+      const chosen = file.files?.[0];
+      // Cleared at once, so choosing the same file again (after fixing it, say) is a change too.
+      file.value = "";
+      if (chosen === undefined) return;
+      const read = readWorkspaceFile(await chosen.text(), store.workspace.peek()?.version ?? 1);
+      if (!read.ok) {
+        problem(`${chosen.name} was not imported: it ${read.problem}.`);
+        return;
+      }
+      const connectedIds = new Set(store.devices.peek().map((device) => device.id));
+      const absent = read.summary.devices.filter((id) => !connectedIds.has(id));
+      const replace = h("button", { type: "button", "data-testid": "workspace-import-replace" }, "Replace workspace");
+      const cancel = h("button", { type: "button", "data-testid": "workspace-import-cancel" }, "Cancel");
+      replace.addEventListener("click", async () => {
+        if (busy) return;
+        busy = true;
+        replace.disabled = cancel.disabled = true;
+        const refused = await store.replaceWorkspace(read.workspace);
+        busy = false;
+        if (refused === undefined) show(h("p", { class: "done", role: "status", "data-testid": "workspace-import-status" }, `Imported ${chosen.name}.`));
+        else problem(`${chosen.name} was not imported. ${refused}`);
+      });
+      cancel.addEventListener("click", () => show());
+      show(
+        h(
+          "div",
+          { class: "confirm", role: "group", "aria-label": "Confirm import", "data-testid": "workspace-import-confirm" },
+          h("p", {}, `Replace this workspace with ${chosen.name}? It holds ${describeSummary(read.summary)}.`),
+          absent.length === 0 ? null : h("p", { class: "note" }, `It also names devices that are not connected: ${absent.join(", ")}. Their names and layouts apply when a device with that id is attached.`),
+          h("p", { class: "note" }, "Everything in the current workspace is replaced, for everyone using this server. Export first to keep a copy."),
+          h("div", { class: "actions" }, replace, cancel),
+        ),
+      );
+    });
+
+    this.watch(() => {
+      const connected = store.connected.value;
+      const loaded = store.workspace.value !== undefined;
+      exportButton.disabled = !connected || !loaded;
+      importButton.disabled = file.disabled = !connected || !loaded;
+    });
+
+    return h(
+      "div",
+      { class: "backup" },
+      h("p", { class: "note" }, "Export saves the device names, groups, links, mixer layouts and saved layouts to a file. Import replaces them from one. Neither touches the devices: levels, routing and input settings stay as they are."),
+      h("div", { class: "actions" }, exportButton, importButton, file),
+      outcome,
+    );
   }
 }
 

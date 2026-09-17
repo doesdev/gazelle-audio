@@ -1201,6 +1201,34 @@ export class Store {
     return this.editWorkspace((workspace) => ({ ...workspace, groups: mapGroups(workspace.groups, groupId, (group) => ({ ...group, collapsed: !group.collapsed })) }));
   }
 
+  /**
+   * Replaces the whole workspace with an imported document, sent exactly as given, and resolves
+   * with why when the server refuses it (undefined when it is saved). Unlike an edit it is not
+   * applied before the server accepts it, so a refused file never shows. An edit still waiting for
+   * its save is superseded, or saved as usual if the import is refused. Nothing goes to a device.
+   */
+  async replaceWorkspace(workspace: Workspace): Promise<string | undefined> {
+    if (!this.connected.peek()) return "Not connected to the server.";
+    if (this.#saving.peek()) return "A change is still being saved; try again in a moment.";
+    const pending = this.#saveTimer !== undefined;
+    this.#timers.clearTimeout(this.#saveTimer);
+    this.#saveTimer = undefined;
+    this.#saving.value = true;
+    try {
+      const saved = await this.#client.workspace.put(workspace);
+      this.#confirmed = saved;
+      this.#workspace.value = saved;
+      return undefined;
+    } catch (error) {
+      if (pending) this.#saveTimer = this.#timers.setTimeout(() => void this.#save(), SAVE_DEBOUNCE_MS);
+      // The server answers a document it cannot deserialise in plain text, so the client knows only the status.
+      if (error instanceof GazelleError && /^http_4\d\d$/.test(error.code)) return "The server could not read it as a workspace: a part of it is missing or has the wrong type.";
+      return `The server refused it: ${message(error)}`;
+    } finally {
+      this.#saving.value = false;
+    }
+  }
+
   async #save(): Promise<void> {
     this.#saveTimer = undefined;
     const sending = this.#workspace.peek();
