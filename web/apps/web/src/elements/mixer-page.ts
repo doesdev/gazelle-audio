@@ -321,10 +321,9 @@ export class GaMixer extends GaElement {
     });
     this.onDisconnect(() => heads.disconnect());
     // Where each mix plays is read once, as the mixes are, and again once the connection or the
-    // device has come back. AFX IN goes with them: a strip on an empty chain is metered by whatever
-    // routing feeds that chain, since an empty chain passes its input through.
-    const afxIn = store.topology(deviceId)?.outputs.findIndex((group) => group.type === "AFX_IN") ?? -1;
-    const outputGroups = [...new Set([...channels.outputPairs().map((pair) => pair.destination), ...(afxIn < 0 ? [] : [afxIn])])];
+    // device has come back. The pairs are every destination but the mixer inputs, so AFX IN comes
+    // with them, which is what a strip on an empty chain needs: it meters whatever feeds that chain.
+    const outputGroups = [...new Set(channels.outputPairs().map((pair) => pair.destination))];
     this.watch(() => {
       if (store.routesToRead(deviceId, outputGroups)) untracked(() => void store.readRoutes(deviceId, outputGroups));
     });
