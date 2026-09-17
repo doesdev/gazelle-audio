@@ -416,3 +416,19 @@ test("the free instance counts failing does not fail the whole read", async () =
   assert.equal(effects.needsRead.value, false, "the chains and the reverb were read");
   assert.equal(effects.offers(2).find((o) => o.type === 39)?.counted, false, "with the counts unread, what the chains show is all that is known");
 });
+
+test("an added effect's settings are read again when it is opened, since the device may have changed them", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies(), get_powergate_conf: () => ({ entries: [{ enabled: 1, threshold: 20, range: 0, attack: 1, decay: 1, hold: 1, gain: 0 }] }) });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  const reads = () => sent("loopback-0", "get_powergate_conf").length;
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 1);
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 1, "read once until something changes");
+
+  assert.equal(effects.addEffect(4, 39), true);
+  await flush();
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 2, "the instance it was given is read again");
+});
