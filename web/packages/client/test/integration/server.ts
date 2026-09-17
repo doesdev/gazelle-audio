@@ -14,7 +14,10 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../../..");
-const BINARY = join(REPO_ROOT, "target", "debug", process.platform === "win32" ? "gazelle-audio-server.exe" : "gazelle-audio-server");
+// CARGO_TARGET_DIR is honoured as cargo honours it (relative to the repository root, where cargo runs),
+// so the tests can build into their own folder while a server someone is using holds target/debug.
+const TARGET = resolve(REPO_ROOT, process.env["CARGO_TARGET_DIR"] ?? "target");
+const BINARY = join(TARGET, "debug", process.platform === "win32" ? "gazelle-audio-server.exe" : "gazelle-audio-server");
 const START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 10_000;
 

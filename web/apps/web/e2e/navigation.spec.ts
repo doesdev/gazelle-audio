@@ -62,7 +62,7 @@ test("the device last opened follows you to every page, and across a reload", as
 test("each device keeps its selected mix: the address names it, and a page without one uses the last", async ({ page }) => {
   // A deep link still opens its mix.
   await page.goto(`${server.url}/#/mixer/loopback-0/2`);
-  const metered = page.getByTestId("metered-mix");
+  const metered = page.getByTestId("mix-select");
   await expect(metered).toHaveValue("2");
 
   // Choosing a mix puts it in the address without rebuilding the page.
@@ -107,7 +107,7 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
   await expect.poll(() => count("get_mixer")).toBe(4);
   await expect.poll(() => count("set_peak_source")).toBe(1);
 
-  await page.getByTestId("metered-mix").selectOption("2");
+  await page.getByTestId("mix-select").selectOption("2");
   await expect.poll(() => count("set_peak_source")).toBe(2);
   await page.waitForTimeout(500);
   expect(count("get_mixer"), "a new mix does not rebuild the page and read every mix again").toBe(4);

@@ -1,8 +1,8 @@
 // <ga-mixer device-id="…">: one device's mixer, built from the channels the user made (plan
-// 2026-09-16). Channels scroll horizontally, followed by a "+" to add one; the masters of the mixes
-// in use sit on the right. A device with no layout imports one from its routing when the page
-// opens. The device meters one mix at a time, chosen in the bar: that is the page's selected mix,
-// remembered per device and carried in the address. In dry run it shows the bytes of the last
+// 2026-09-16). Channels scroll horizontally, followed by a "+" to add one, and the selected mix's
+// master sits on the right. A device with no layout imports one from its routing when the page
+// opens. The Mix menu in the bar selects the mix every strip shows, moves and meters (the user,
+// 2026-09-16); it is remembered per device and carried in the address. In dry run it shows the bytes of the last
 // command sent. The notes, the channels' scroll and a half-typed layout name are kept for the tab.
 
 import { h } from "../core/dom.ts";
@@ -138,8 +138,8 @@ export class GaMixer extends GaElement {
     const channels = store.channels(deviceId);
 
     const metered = h("select", {
-      "aria-label": "Metered mix",
-      "data-testid": "metered-mix",
+      "aria-label": "Mix",
+      "data-testid": "mix-select",
       "on:change": () => {
         channels.meteredMix.value = Number(metered.value);
         replaceRoute({ page: "mixer", id: deviceId, sub: metered.value });
@@ -290,7 +290,7 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
     this.root.replaceChildren(
-      h("div", { class: "bar" }, h("label", { class: "width" }, h("span", { class: "caption" }, "Meters"), metered), h("span", { class: "spacer" }), width, lastSent),
+      h("div", { class: "bar" }, h("label", { class: "width" }, h("span", { class: "caption" }, "Mix"), metered), h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
@@ -413,11 +413,11 @@ export class GaMixer extends GaElement {
       }
       add.disabled = list.length >= 32 - channels.firstSlot;
 
-      const used = [...new Set(list.flatMap((c) => (channels.isActive(c) ? [c.main_mix as number, ...c.sends] : [])))].sort((a, b) => a - b);
-      const key = used.join("|");
+      // The strips are the selected mix, so its master is the one beside them.
+      const key = String(channels.meteredMix.value);
       if (key !== mastersKey) {
         mastersKey = key;
-        masters.replaceChildren(...used.map((mix) => h("ga-mix-master", { "device-id": deviceId, mix: String(mix) })));
+        masters.replaceChildren(h("ga-mix-master", { "device-id": deviceId, mix: key }));
       }
       // Masters' heads take the channel heads' height, so every fader starts level.
       heads.disconnect();

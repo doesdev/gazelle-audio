@@ -104,6 +104,8 @@ test("a Quadro channel routes its input to its main mix, then its fader sends se
   // MIX CH2 is destination 9; slot 6 takes PREAMP (0) channel 2.
   await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 9, { 6: [0, 1] })));
   await expect(channelIn(page, 6)).not.toHaveAttribute("inactive", "");
+  // The strip acts on the selected mix, so pick the channel's main mix to work it.
+  await page.getByTestId("mix-select").selectOption("1");
   await expect(page.locator('ga-mix-master[mix="1"]')).toBeVisible();
 
   const fader = page.getByTestId("fader-6");
@@ -132,23 +134,46 @@ test("a channel with no name goes by its input's name until one is typed (the us
   await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-label", "Vox level");
 });
 
-test("a Studio+ channel's send routes it into another mix, and the send level sets its level there", async ({ page }) => {
+test("the Mix menu picks the mix every strip controls; a channel not in it is greyed and can be added (the user, 2026-09-16)", async ({ page }) => {
   await layout({ "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 2, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const mix = page.getByTestId("mix-select");
   const fader = page.getByTestId("fader-0");
+  const inMix = page.getByTestId("in-mix-0");
+
+  // Mix 1 is selected, and Vox does not feed it: its strip is greyed, with a way to add it.
+  await expect(mix).toHaveValue("0");
+  await expect(fader).toHaveAttribute("aria-disabled", "true");
+  await expect(inMix).toHaveText("Add to Mix 1");
+
+  // In its main mix it is live, and its fader and mute act on that mix.
+  await mix.selectOption("2");
+  await expect(inMix).toHaveText("Main mix");
+  await expect(inMix).toBeDisabled();
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
   await fader.focus();
   await fader.press("PageDown");
   await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 2, channel: 1, level: 6 })));
+  // Only the selected mix's master shows.
+  await expect(page.locator("ga-mix-master")).toHaveCount(1);
+  await expect(page.locator('ga-mix-master[mix="2"]')).toBeVisible();
 
-  await expect(page.getByTestId("send-0-2")).toBeDisabled();
-  await page.getByTestId("send-0-1").click();
+  // Adding it to Mix 2 routes it there, and then its fader acts on Mix 2 and leaves Mix 3 alone.
+  await mix.selectOption("1");
+  await expect(fader).toHaveAttribute("aria-disabled", "true");
+  await inMix.click();
   // Studio+ MIX CH2 is destination 11.
   await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("studio", 11, { 0: [0, 0] })));
-  const send = page.getByTestId("send-level-0-1");
-  await expect(send).toHaveAttribute("aria-disabled", "false");
-  await send.focus();
-  await send.press("Home");
+  await expect(inMix).toHaveText("In Mix 2");
+  await expect(inMix).toHaveAttribute("aria-pressed", "true");
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
+  await fader.focus();
+  // A fader's End is its bottom, -90 dB.
+  await fader.press("End");
   await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 1, channel: 1, level: 90 })));
+  await expect(page.getByTestId("level-0")).toHaveText("-90 dB");
+  await mix.selectOption("2");
+  await expect(page.getByTestId("level-0")).toHaveText("-6 dB");
 });
 
 test("a channel on a preamp shows that preamp's controls, and they send its commands", async ({ page }) => {
@@ -304,8 +329,16 @@ test("meters show the metered mix and links send set_stereo_link", async ({ page
   await expect(page.locator('ga-channel[data-channel-slot="1"] ga-strip .mask')).toHaveAttribute("style", /height: 100%/);
   await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 0)).toBe(true);
 
-  await page.getByTestId("metered-mix").selectOption("1");
+  await page.getByTestId("mix-select").selectOption("1");
   await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 1)).toBe(true);
+  // Now the second channel is in the selected mix and the first is not: meters follow the mix.
+  await expect(page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask')).toHaveAttribute("style", /height: 100%/);
+
+  // A strip's controls, its link badge among them, work where the channel is in the selected mix:
+  // back in Mix 1, add the second channel there, then link the two.
+  await page.getByTestId("mix-select").selectOption("0");
+  await page.getByTestId("in-mix-1").click();
+  await expect(page.getByTestId("in-mix-1")).toHaveAttribute("aria-pressed", "true");
 
   // Linking channels uses the same badges and bar as the Inputs page; slots 1 and 2 are a device pair.
   await page.getByTestId("mixer-link-0").click();
