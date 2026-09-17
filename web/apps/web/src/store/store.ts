@@ -22,7 +22,7 @@ import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
 import { CONTROL_ROOM_DEFAULT, OutputsModel } from "./outputs.ts";
-import { MixerModel } from "./mixer.ts";
+import { LEVEL_MAX, MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
@@ -1150,10 +1150,68 @@ export class Store {
   readonly #chainMeters = new Map<string, EffectMeter>();
 
   /**
+   * Why a strip's audio reaches its mix twice, or undefined when it does not (the user, at the
+   * hardware, 2026-09-18: "if I add a preamp channel to a mix and an AFX Out channel that is routed
+   * to, my signal will be 6 dB higher"). Two channels of one mix carry the same audio when they
+   * share a source, or when one is an **empty** AFX OUT chain fed by the other's source -- an empty
+   * chain passes its input straight through, so the mix sums the same signal twice, about 6 dB
+   * louder and comb-filtered by whatever delay the chain adds.
+   *
+   * A chain **with** an effect is not counted: dry and wet in one mix is a parallel setup someone
+   * may well want. Neither is a channel that adds nothing to the mix, muted or with its fader at
+   * the floor. This is only what the app can see from the layout, routing and the chains; nothing
+   * is sent to a device, and the device is never asked.
+   */
+  doubledFeed(deviceId: string, mix: number, slot: number): ReadonlySignal<string | undefined> {
+    const key = `${deviceId}|${mix}|${slot}`;
+    const existing = this.#doubled.get(key);
+    if (existing !== undefined) return existing;
+    const warning = computed(() => this.#doubledFeeds(deviceId, mix).get(slot));
+    this.#doubled.set(key, warning);
+    return warning;
+  }
+
+  readonly #doubled = new Map<string, ReadonlySignal<string | undefined>>();
+
+  /** Every doubled strip of one mix, by slot, with what to say about it. Reading it is reactive. */
+  #doubledFeeds(deviceId: string, mix: number): ReadonlyMap<number, string> {
+    const warnings = new Map<number, string>();
+    const topology = this.topology(deviceId);
+    if (topology === undefined || mix >= topology.mixers.count) return warnings;
+    const channels = this.channels(deviceId);
+    const mixer = this.mixer(deviceId, mix);
+    // What each strip of the mix actually carries: its own source, or, through an empty chain, the
+    // source routed into that chain. A strip that adds nothing to the mix is left out.
+    const carried = channels.layout.value.channels.flatMap((channel) => {
+      if (!channels.strip(channel, mix).inMix || channel.source === undefined) return [];
+      const state = mixer.strip(channel.slot).value;
+      if (state.mute || state.level >= LEVEL_MAX) return [];
+      // Only an empty chain passes its input on: one with an effect makes a different signal, and
+      // dry plus wet in one mix is a parallel setup rather than a doubling.
+      const chain = topology.inputs[channel.source.group]?.type === AFX_OUT ? channel.source.channel : undefined;
+      const empty = chain !== undefined && this.effects(deviceId).chains.value?.[chain]?.slots.length === 0;
+      const through = empty ? this.#chainInput(deviceId, chain).source : undefined;
+      const source = through ?? channel.source;
+      return [{ slot: channel.slot, source, ...(through === undefined ? {} : { chain }) }];
+    });
+    const shared = new Map<string, typeof carried>();
+    for (const entry of carried) shared.set(`${entry.source.group}:${entry.source.channel}`, [...(shared.get(`${entry.source.group}:${entry.source.channel}`) ?? []), entry]);
+    for (const sharing of shared.values()) {
+      if (sharing.length < 2) continue;
+      const label = sourceLabel(topology, sharing[0]?.source as RouteSource);
+      const times = sharing.length === 2 ? "twice (about +6 dB)" : `${sharing.length} times`;
+      const chain = sharing.find((entry) => entry.chain !== undefined)?.chain;
+      const how = chain === undefined ? `${label} is in this mix twice` : `${label} also reaches this mix through AFX OUT ${chain + 1}`;
+      for (const entry of sharing) warnings.set(entry.slot, `${how}, so it is summed ${times}`);
+    }
+    return warnings;
+  }
+
+  /**
    * What an empty chain passes through: the meter of the input routing feeds AFX IN k, with what to
    * say about it in the strip's title. Reading it is reactive, so the strip follows a re-route.
    */
-  #chainInput(deviceId: string, chain: number): { note: string; meter?: InputMeter } {
+  #chainInput(deviceId: string, chain: number): { note: string; meter?: InputMeter; source?: RouteSource } {
     const topology = this.topology(deviceId);
     if (topology === undefined) return { note: "This device's model is not known, so nothing is metered" };
     if (this.effects(deviceId).chains.value?.[chain]?.known !== true) return { note: "This chain has not been read, so nothing is known to meter" };
@@ -1168,7 +1226,7 @@ export class Store {
     // An effect chain fed by another chain's output would recur, and neither is in the status
     // report anyway: both, and every other unmetered input, say so rather than showing a bar.
     const meter = topology.inputs[slot.source]?.type === AFX_OUT ? undefined : this.inputMeter(deviceId, source);
-    return meter === undefined ? { note: `Through an empty chain from ${label}, which the device reports no meter for` } : { note: `Through an empty chain from ${label}`, meter };
+    return meter === undefined ? { note: `Through an empty chain from ${label}, which the device reports no meter for`, source } : { note: `Through an empty chain from ${label}`, meter, source };
   }
 
   /**

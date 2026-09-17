@@ -750,3 +750,27 @@ test("a strip on an empty AFX OUT chain meters the source routed into the chain,
   await page.locator('ga-header a[data-page="mixer"]').click();
   await expect(page.getByTestId("meter-6")).toHaveAttribute("title", "Through an empty chain from PREAMP 1");
 });
+
+test("a mix that carries one signal twice says so on both strips, and stops when one is muted", async ({ page }) => {
+  await answerChains(page);
+  // PREAMP 1 on slot 5, the empty chain fed by it on slot 6, and a chain with an effect on slot 7.
+  await layout({
+    "loopback-0": {
+      channels: [
+        { id: "p", name: "Vox", slot: 5, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "a", name: "Through", slot: 6, source: { group: 5, channel: 2 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Chain", slot: 7, source: { group: 5, channel: 0 }, main_mix: 0, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const doubled = "PREAMP 1 also reaches this mix through AFX OUT 3, so it is summed twice (about +6 dB)";
+  await expect(page.getByTestId("doubled-5")).toHaveAttribute("title", doubled);
+  await expect(page.getByTestId("doubled-6")).toHaveAttribute("title", doubled);
+  // A chain with an effect in it is a parallel setup, not a doubling.
+  await expect(page.getByTestId("doubled-7")).toBeHidden();
+
+  await page.getByLabel("Through mute").click();
+  await expect(page.getByTestId("doubled-5")).toBeHidden();
+  await expect(page.getByTestId("doubled-6")).toBeHidden();
+});

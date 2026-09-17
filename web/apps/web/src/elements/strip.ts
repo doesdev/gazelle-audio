@@ -94,6 +94,17 @@ export class GaStrip extends GaElement {
       .meter .peak-mark { position: absolute; left: 0; right: 0; height: 2px; margin-bottom: -1px; background: var(--ga-text-primary); opacity: 0.85; box-shadow: 0 0 4px var(--ga-text-primary); pointer-events: none; }
       .meter .peak-mark[hidden] { display: none; }
       .meter .tick { position: absolute; left: 0; right: 0; height: 1px; background: rgb(0 0 0 / 0.4); }
+      /* One signal reaching the mix twice: small, in the warning colour, the reason in its title. */
+      .doubled {
+        align-self: center;
+        padding: 0 4px;
+        border-radius: 3px;
+        background: var(--ga-notice-warning);
+        color: var(--ga-surface-inset);
+        font-size: 10px;
+        font-weight: 600;
+        cursor: help;
+      }
       .readouts { display: grid; gap: 2px; }
       .readout { min-width: 0; width: 100%; padding: 1px 2px; font-size: 10px; text-align: center; }
       .name {
@@ -252,6 +263,17 @@ export class GaStrip extends GaElement {
       }
       this.watch(() => {
         clip.toggleAttribute("data-on", inputMeter?.clipped.value === true);
+      });
+      // The same audio can reach one mix twice: two channels on one input, or a channel whose empty
+      // effect chain passes the other's input through (the user, at the hardware, 2026-09-18).
+      const doubled = store.doubledFeed(deviceId, Number(this.getAttribute("mixer") ?? "0"), id);
+      const badge = h("div", { class: "doubled", "data-testid": `doubled-${testId}`, hidden: "" }, "\u00d72");
+      top.unshift(badge);
+      this.watch(() => {
+        const message = doubled.value;
+        badge.hidden = message === undefined;
+        badge.title = message ?? "";
+        badge.setAttribute("aria-label", message ?? "");
       });
       this.watch(() => {
         const colours = Math.max(1, store.theme.value.palette.length);

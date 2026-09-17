@@ -6,6 +6,7 @@ import { GazelleError } from "gazelle-audio-client";
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
+import { LEVEL_MAX } from "../src/store/mixer.ts";
 import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, type EffectMeter, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -979,4 +980,55 @@ test("a Studio+ AFX OUT strip on an empty chain meters its source, and clips wit
   assert.equal(meter.clipped.value, false);
   assert.equal((meter as EffectMeter).reduction.value, undefined, "no effect, so no gain reduction");
   stop();
+});
+
+/** A mixer channel as the workspace holds one. */
+const mixerChannel = (id: string, slot: number, group: number, channel: number) => ({ id, name: "", slot, source: { group, channel }, main_mix: 0, sends: [] });
+
+/**
+ * A Quadro with the given mixer channels, chains and AFX IN routing, started and read: the setup
+ * every double-feed test shares.
+ */
+async function doubling(channels: ReturnType<typeof mixerChannel>[], chains: ChainTable["x"], afxIn: (readonly [number, number])[]) {
+  const client = withChains({ "loopback-0": chains }, { "loopback-0": { 7: afxIn } });
+  client.stored = { version: 1, groups: [], links: [], aliases: {}, mixers: { "loopback-0": { mixes: [], groups: [], channels } } };
+  const { store } = setup(client);
+  await store.start();
+  await store.effects("loopback-0").readChainsOnce();
+  await store.readRoutes("loopback-0", [AFX_IN_DESTINATION.quadro]);
+  return store;
+}
+
+test("a mix carrying both a source and an AFX OUT strip whose empty chain takes it warns that it is summed twice", async () => {
+  // PREAMP 1 on slot 6, and AFX OUT 1 on slot 7 with an empty chain 1 fed by PREAMP 1.
+  const store = await doubling([mixerChannel("a", 6, 0, 0), mixerChannel("b", 7, AFX_OUT_SOURCE.quadro, 0)], [[]], [[0, 0]]);
+  const warning = "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)";
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning, "the preamp's own strip says so");
+  assert.equal(store.doubledFeed("loopback-0", 0, 7).value, warning, "and so does the strip carrying it through");
+  assert.equal(store.doubledFeed("loopback-0", 1, 6).value, undefined, "a mix neither channel is in is quiet");
+});
+
+test("an effect in the chain is a parallel setup, not a doubling, and neither is a chain fed from elsewhere", async () => {
+  const loaded = await doubling([mixerChannel("a", 6, 0, 0), mixerChannel("b", 7, AFX_OUT_SOURCE.quadro, 0)], [[[3, 0]]], [[0, 0]]);
+  assert.equal(loaded.doubledFeed("loopback-0", 0, 6).value, undefined, "dry plus wet is a legitimate parallel setup");
+  assert.equal(loaded.doubledFeed("loopback-0", 0, 7).value, undefined);
+
+  const elsewhere = await doubling([mixerChannel("a", 6, 0, 0), mixerChannel("b", 7, AFX_OUT_SOURCE.quadro, 0)], [[]], [[0, 1]]);
+  assert.equal(elsewhere.doubledFeed("loopback-0", 0, 6).value, undefined, "the chain takes PREAMP 2, so nothing is doubled");
+});
+
+test("two channels on the same input are the same doubling, and a muted or closed channel raises nothing", async () => {
+  const store = await doubling([mixerChannel("a", 6, 0, 1), mixerChannel("b", 7, 0, 1), mixerChannel("c", 8, 0, 2)], [[]], []);
+  const warning = "PREAMP 2 is in this mix twice, so it is summed twice (about +6 dB)";
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning);
+  assert.equal(store.doubledFeed("loopback-0", 0, 7).value, warning);
+  assert.equal(store.doubledFeed("loopback-0", 0, 8).value, undefined, "the only channel on PREAMP 3");
+
+  const mixer = store.mixer("loopback-0", 0);
+  mixer.toggleMute(7);
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, undefined, "a muted channel adds nothing to the mix");
+  mixer.toggleMute(7);
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning);
+  mixer.setLevel(7, LEVEL_MAX);
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, undefined, "nor does one at the bottom of its fader");
 });
