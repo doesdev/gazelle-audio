@@ -17,13 +17,19 @@ export interface ControlOptions {
    * scale is not linear, like a fader's audio taper. Linear from `min` to `max` when left out.
    */
   valueAt?(fraction: number): number;
+  /**
+   * Pixels at each end of the element outside the control's travel. A fader's cap is centred on its
+   * value, so its travel runs from half a cap below the top to half a cap above the bottom.
+   */
+  inset?: number;
 }
 
 /** Pointer drag, wheel, double-click reset and keyboard control of a value along one axis. */
 export function bindControl(element: HTMLElement, options: ControlOptions): void {
   const valueAt = (event: PointerEvent) => {
     const rect = element.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top) / rect.height : (event.clientX - rect.left) / rect.width));
+    const inset = options.inset ?? 0;
+    const fraction = Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top - inset) / (rect.height - 2 * inset) : (event.clientX - rect.left - inset) / (rect.width - 2 * inset)));
     return options.valueAt === undefined ? options.min + fraction * (options.max - options.min) : options.valueAt(fraction);
   };
   element.addEventListener("pointerdown", (event) => {

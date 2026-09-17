@@ -15,6 +15,9 @@ import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
 
+/** The fader cap's height; its centre line marks the level. */
+const FADER_CAP_PX = 24;
+
 /** Scale marks on the fader, closer together towards the floor as its audio taper draws them. */
 const FADER_MARKS = [0, 5, 10, 20, 30, 40, 60, 90];
 
@@ -66,8 +69,8 @@ export class GaStrip extends GaElement {
         position: absolute;
         left: 0;
         right: 0;
-        height: 24px;
-        top: calc((100% - 24px) * var(--position, 0));
+        height: ${FADER_CAP_PX}px;
+        top: calc((100% - ${FADER_CAP_PX}px) * var(--position, 0));
         border: 1px solid rgb(0 0 0 / 0.35);
         border-radius: 3px;
         background: linear-gradient(var(--ga-fader-cap-active), var(--ga-fader-cap));
@@ -136,8 +139,9 @@ export class GaStrip extends GaElement {
 
     const cap = h("div", { class: "cap" });
     const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}` }, h("div", { class: "groove" }), cap);
-    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: 0, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition });
-    const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: ${faderPosition(mark) * 100}%` }, mark === 0 ? "0" : `-${mark}`)));
+    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: 0, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, inset: FADER_CAP_PX / 2 });
+    // Marks share the cap's travel, so the cap's centre line sits on the mark for its level.
+    const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: calc(${FADER_CAP_PX / 2}px + (100% - ${FADER_CAP_PX}px) * ${faderPosition(mark)})` }, mark === 0 ? "0" : `-${mark}`)));
     const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}` });
     const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "on:click": () => mixer.toggleMute(id) }, "M");
 

@@ -206,11 +206,45 @@ test("the fader has an audio taper: clicking halfway down sets about -23 dB, and
   // The scale is drawn on the same taper, the meters' scale: marks crowd together towards the floor.
   const markAt = async (text: string) => {
     const mark = page.locator('ga-channel[data-channel-slot="6"] ga-strip .scale span', { hasText: new RegExp(`^${text}$`) });
-    return Number.parseFloat((await mark.getAttribute("style"))?.match(/top: ([\d.]+)%/)?.[1] ?? "-1");
+    // Drawn along the cap's travel: calc(half a cap + (100% - a cap) * position).
+    return 100 * Number.parseFloat((await mark.getAttribute("style"))?.match(/\* ([\d.]+)\)/)?.[1] ?? "-1");
   };
   expect(await markAt("-10")).toBeCloseTo(22.5, 1);
   expect(await markAt("-40")).toBeCloseTo(76.5, 1);
   expect(await markAt("-60")).toBeCloseTo(90, 1);
+});
+
+test("the fader cap's centre line sits on the scale mark for its level, and clicking a mark sets that level (the user, 2026-09-16)", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const fader = page.getByTestId("fader-6");
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
+  const strip = page.locator('ga-channel[data-channel-slot="6"] ga-strip');
+  const centre = async (locator: ReturnType<typeof page.locator>) => {
+    const box = await locator.boundingBox();
+    if (box === null) throw new Error("not laid out");
+    return box.y + box.height / 2;
+  };
+  const mark = (text: string) => strip.locator(".scale span", { hasText: new RegExp(`^${text}$`) });
+  const cap = strip.locator(".cap");
+  const level = page.getByTestId("level-6");
+
+  // Set by keyboard, so the check does not depend on the pointer mapping.
+  for (const [text, keys] of [["0", ["Home"]], ["-10", Array(10).fill("ArrowDown")], ["-30", Array(5).fill("PageDown")], ["-60", Array(10).fill("PageDown")], ["-90", ["End"]]] as const) {
+    await fader.focus();
+    await fader.press("Home");
+    for (const key of keys) await fader.press(key);
+    await expect(level).toHaveText(`${text === "0" ? "0" : text} dB`);
+    await expect.poll(async () => Math.abs((await centre(cap)) - (await centre(mark(text)))), `cap on the ${text} mark`).toBeLessThanOrEqual(1.5);
+  }
+
+  // And the other way: a click level with a mark sets that mark's level.
+  const box = await fader.boundingBox();
+  if (box === null) throw new Error("no fader");
+  for (const text of ["-5", "-20", "-40"]) {
+    await page.mouse.click(box.x + box.width / 2, await centre(mark(text)));
+    await expect(level).toHaveText(`${text} dB`);
+  }
 });
 
 test("channel heads are one height, so faders line up whatever the input and whether or not the channel is set up", async ({ page }) => {
