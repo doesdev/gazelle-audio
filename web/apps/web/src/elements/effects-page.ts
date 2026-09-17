@@ -54,9 +54,9 @@ export class GaEffects extends GaElement {
       .source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ga-text-secondary); }
       .link { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-accent-text); background: var(--ga-accent); }
       .slots { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) minmax(64px, 96px) auto; align-items: center; gap: 4px 6px; min-height: 26px; padding: 2px 4px; border-radius: 2px; background: var(--ga-surface-inset); }
-      /* The effect's own meter: its peak on the mixer's scale, then the gain reduction the device reports. */
-      .effect-meter { display: grid; grid-template-columns: minmax(0, 1fr) 6px; align-items: center; gap: 4px; }
+      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; min-height: 26px; padding: 2px 4px; border-radius: 2px; background: var(--ga-surface-inset); }
+      /* The effect's own meter, on its own row under the name so it never squeezes the name out. */
+      .effect-meter { grid-row: 2; grid-column: 2 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 6px auto; align-items: center; gap: 6px; }
       .effect-meter .bar { position: relative; height: 5px; overflow: hidden; border-radius: 1px; background: var(--ga-meter-background); }
       .effect-meter .bar .gradient { position: absolute; inset: 0; background: var(--effect-meter-gradient, var(--ga-accent)); }
       .effect-meter .bar .mask { position: absolute; top: 0; bottom: 0; right: 0; width: 100%; background: var(--ga-meter-background); }
@@ -65,11 +65,13 @@ export class GaEffects extends GaElement {
       .effect-meter .bar .peak-mark[hidden] { display: none; }
       .effect-meter .clip { width: 6px; height: 10px; padding: 0; border: 0; border-radius: 1px; background: var(--ga-meter-background); }
       .effect-meter .clip[data-on] { background: var(--ga-meter-clip); cursor: pointer; }
-      .effect-meter .reduction { grid-column: 1 / -1; font-size: 10px; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; }
+      .effect-meter .reduction { font-size: 10px; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
       .slot-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
       .slot-tools button { min-width: 22px; min-height: 20px; padding: 0 4px; font-size: 11px; line-height: 1; }
       .add { max-width: 100%; min-width: 0; font-size: 11px; }
-      .slot .position { font-size: 10px; color: var(--ga-text-muted); text-align: right; }
+      .slot .position { grid-row: 1; grid-column: 1; font-size: 10px; color: var(--ga-text-muted); text-align: right; }
+      .slot .effect { grid-row: 1; grid-column: 2; }
+      .slot .slot-tools { grid-row: 1; grid-column: 3; }
       .slot .effect { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .slot .instance { color: var(--ga-text-muted); font-size: 11px; }
       .empty { font-size: 11px; color: var(--ga-text-muted); }
