@@ -1,7 +1,7 @@
 // <ga-effects device-id="…">: a device's effect chains and its reverb (EffectsModel; spec
 // 2026-09-17-effects-and-reverb). Each chain is a card: what routing feeds it, its effects in order by
-// name and instance, and per effect a Process / Bypass pair that shows neither until this app has set
-// one, since no read in scope returns bypass. Links are shown, not changed. The reverb has on/off and
+// name and instance, and per effect a Process / Bypass pair that shows neither until the effect's
+// parameters are read or this app sets one. Links are shown, not changed. The reverb has on/off and
 // level as controls and its other parameters as the panel displays them; the Quadro adds its reverb
 // returns into mixes 1-2 and sends from mix 1's channels. Everything is read once when the page opens
 // (P80); Read from device reads again.

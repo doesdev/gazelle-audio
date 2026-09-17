@@ -4,9 +4,9 @@
 //   AfxType id (0 is empty), `inst` that type's instance. The Quadro has six user chains, read one at a
 //   time with get_afx_strip_order and the chain in ext3; the Studio+ sixteen, read with get_afx_order.
 //   Link byte k pairs chains 2k and 2k+1. Chains are shown, not changed: order writes wait (spec Q4).
-// - Bypass is per instance: set_afx_bypass(instance, type, enabled) with enabled 1 = processing. No read
-//   in scope returns it, so it is unknown until this app sets it. A linked chain's partner follows, as the
-//   panels mirror a link's changes onto the partner's own instances.
+// - Bypass is per instance: set_afx_bypass(instance, type, enabled) with enabled 1 = processing. Only an
+//   effect's own parameter read returns it, so it is unknown until that is read or this app sets it. A
+//   linked chain's partner follows, as the panels mirror a link's changes onto the partner's own instances.
 // - One reverb per device: set_reverb_config carries every field, mixer 0, and density always 100 (the
 //   panels never pass it). The Quadro adds returns into mixes 1-2 (0 full .. 90 lowest, no scale shown)
 //   and sends from mix 1's channels 1-16 (dB of attenuation, 96 = -inf, with a pan).
@@ -311,7 +311,7 @@ export class EffectsModel {
     };
   }
 
-  /** Whether an instance is bypassed, as far as this app knows: undefined until it has set it. */
+  /** Whether an instance is bypassed, as far as this app knows: undefined until its parameters are read or this app sets it. */
   bypass(type: number, inst: number): ReadonlySignal<boolean | undefined> {
     return this.#bypassOf(type, inst);
   }
