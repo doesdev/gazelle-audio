@@ -722,7 +722,7 @@ export class Store {
       family,
       topology: topologies[family],
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
-      read: (command, ext3, quiet) => this.#readCommand(deviceId, command, ext3, quiet),
+      read: (command, ext3, quiet, args) => this.#readCommand(deviceId, command, ext3, quiet, args),
     });
     this.#effects.set(deviceId, model);
     return model;
@@ -764,12 +764,12 @@ export class Store {
    * response, except under `quiet`, which is for reads a page makes on its own: there a refusal
    * leaves the value unknown and is not the user's problem.
    */
-  async #readCommand(deviceId: string, command: string, ext3: number | undefined, quiet = false): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }> {
+  async #readCommand(deviceId: string, command: string, ext3: number | undefined, quiet = false, args?: Record<string, unknown>): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }> {
     try {
       const device = this.#client.device(deviceId);
       if (device.family === null) throw new Error(`${deviceId} has no known model`);
-      const invoke = device.invoke as unknown as (name: string, args: undefined, options: { ext3?: number }) => Promise<{ dry_run: boolean; response: Record<string, unknown> | null; response_error: string | null }>;
-      const result = await invoke(command, undefined, ext3 === undefined ? {} : { ext3 });
+      const invoke = device.invoke as unknown as (name: string, args: Record<string, unknown> | undefined, options: { ext3?: number }) => Promise<{ dry_run: boolean; response: Record<string, unknown> | null; response_error: string | null }>;
+      const result = await invoke(command, args, ext3 === undefined ? {} : { ext3 });
       if (result.response_error !== null) throw new Error(result.response_error);
       return { response: result.response, dryRun: result.dry_run };
     } catch (error) {
