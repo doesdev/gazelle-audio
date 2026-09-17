@@ -89,7 +89,9 @@ test("controls are disabled and the header says so when the server stops", async
     await own.stop();
     await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
     await expect(name).toBeDisabled();
-    await expect(page.getByRole("alert")).toContainText("not connected");
+    // The mixer dock reads the device's mixes as the page opens, so a read cut off by the stop can
+    // add an error notice of its own beside the banner.
+    await expect(page.getByRole("alert").filter({ hasText: "not connected" })).toBeVisible();
   } finally {
     await own.stop();
   }

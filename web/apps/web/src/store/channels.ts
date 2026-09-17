@@ -51,6 +51,17 @@ export interface OutputPair {
   label: string;
 }
 
+/** What a channel's strip shows in one mix (`ChannelsModel.strip`). */
+export interface ChannelStrip {
+  label: string;
+  /** The group's colour, or undefined for the theme palette's. */
+  color: string | undefined;
+  /** The input the strip meters. */
+  source: RouteSource | undefined;
+  /** Set up in the mix, as its main mix or a send: otherwise the strip is greyed and unmetered. */
+  inMix: boolean;
+}
+
 let nextId = 0;
 
 export class ChannelsModel {
@@ -185,6 +196,22 @@ export class ChannelsModel {
     const group = this.#context.topology.inputs[source.group];
     if (group === undefined) return `Source ${source.group}:${source.channel + 1}`;
     return group.channels > 1 ? `${group.name} ${source.channel + 1}` : group.name;
+  }
+
+  /**
+   * A channel's strip in a mix, as the Mixer page and the mixer dock both show it: its name, its
+   * colour (its group's, if any), the input its meter shows, and whether it is set up in that mix,
+   * as its main mix or a send. Reading it is reactive.
+   */
+  strip(channel: MixerChannel, mix: number): ChannelStrip {
+    const color = channel.group === undefined ? undefined : this.layout.value.groups.find((g) => g.id === channel.group)?.color;
+    return { label: this.displayName(channel), color, source: channel.source, inMix: this.isActive(channel) && (channel.main_mix === mix || channel.sends.includes(mix)) };
+  }
+
+  /** The channels set up in a mix, in the Mixer page's order: the strips the mixer dock shows. Reading it is reactive. */
+  inMix(mix: number): readonly MixerChannel[] {
+    this.#checkMix(mix);
+    return this.layout.value.channels.filter((c) => this.strip(c, mix).inMix);
   }
 
   /** Adds an inactive channel on the lowest free slot; undefined (with a notice) when none is free. */

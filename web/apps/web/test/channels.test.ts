@@ -319,3 +319,38 @@ test("a channel with no name of its own is called by its input's name, and a typ
   channels.rename(id, "");
   assert.equal(name(), channels.sourceLabel({ group: USB1, channel: 5 }));
 });
+
+test("a mix's strips are the channels set up in it, main or send, in the Mixer page's order, each with its name, colour and input", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  const [a, b, c, d, e] = [channels.add(), channels.add(), channels.add(), channels.add(), channels.add()] as string[];
+  await channels.setSource(a as string, { group: PREAMP, channel: 0 });
+  await channels.setMainMix(a as string, 0);
+  await channels.setSource(b as string, { group: PREAMP, channel: 1 });
+  await channels.setMainMix(b as string, 1);
+  await channels.setSend(b as string, 0, true);
+  await channels.setSource(c as string, { group: USB1, channel: 0 });
+  await channels.setMainMix(c as string, 1);
+  // d has an input but no main mix, and e a main mix but no input: neither feeds anything.
+  await channels.setSource(d as string, { group: USB1, channel: 1 });
+  await channels.setMainMix(e as string, 0);
+  channels.move(b as string, 0);
+  channels.rename(a as string, "Vox");
+  const drums = channels.addGroup("Drums") as string;
+  channels.setGroupColor(drums, "#b5473a");
+  channels.setGroup(c as string, drums);
+
+  const ids = (mix: number) => channels.inMix(mix).map((x) => x.id);
+  assert.deepEqual(ids(0), [b, a], "a send counts, in layout order rather than slot order");
+  assert.deepEqual(ids(1), [b, c]);
+  assert.deepEqual(ids(2), []);
+  assert.throws(() => channels.inMix(4), RangeError);
+
+  const strip = (id: string, mix: number) => channels.strip(channels.channel(id) as NonNullable<ReturnType<typeof channels.channel>>, mix);
+  assert.deepEqual(strip(a as string, 0), { label: "Vox", color: undefined, source: { group: PREAMP, channel: 0 }, inMix: true });
+  assert.deepEqual(strip(a as string, 1), { label: "Vox", color: undefined, source: { group: PREAMP, channel: 0 }, inMix: false });
+  assert.deepEqual(strip(b as string, 0), { label: channels.sourceLabel({ group: PREAMP, channel: 1 }), color: undefined, source: { group: PREAMP, channel: 1 }, inMix: true }, "a send is in the mix");
+  assert.deepEqual(strip(c as string, 1), { label: channels.sourceLabel({ group: USB1, channel: 0 }), color: "#b5473a", source: { group: USB1, channel: 0 }, inMix: true }, "a group's colour");
+  assert.deepEqual(strip(d as string, 0), { label: channels.sourceLabel({ group: USB1, channel: 1 }), color: undefined, source: { group: USB1, channel: 1 }, inMix: false }, "an inactive channel is in no mix");
+  assert.equal(strip(e as string, 0).inMix, false, "not even its main mix, until it has an input");
+});
