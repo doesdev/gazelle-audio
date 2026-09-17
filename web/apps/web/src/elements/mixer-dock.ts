@@ -9,7 +9,8 @@
 // On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full.
 // While hidden or collapsed it follows nothing: the report watch, the mix reads and the strips are
 // released, as they are when another device comes into view. Whether it is collapsed is kept per
-// browser.
+// browser; until someone chooses, it starts collapsed at phone width, where open it would take a
+// quarter of the screen.
 
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";

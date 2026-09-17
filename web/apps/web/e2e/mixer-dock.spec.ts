@@ -189,3 +189,24 @@ test("a mix wider than the window scrolls inside the dock, not the page (the use
   expect(strips.scroll, "the dock's strips overflow their own row").toBeGreaterThan(strips.client);
   await expect(dock(page).locator('ga-strip[strip="master"]')).toBeInViewport();
 });
+
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+
+  test("the dock starts collapsed, since open it takes a quarter of the screen, and stays open once opened", async ({ page }) => {
+    await putWorkspace(server, { mixers: MIXERS });
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    await expect(page.locator("ga-inputs")).toBeVisible();
+    const toggle = dock(page).getByRole("button", { name: "Mixer", exact: true });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(dock(page).locator("ga-strip"), "nothing is built for it collapsed").toHaveCount(0);
+    expect((await dock(page).boundingBox())?.height).toBeLessThanOrEqual(48);
+
+    await toggle.tap();
+    await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+    await page.reload();
+    await expect(page.locator("ga-inputs")).toBeVisible();
+    await expect(toggle, "a choice kept wins over the phone's default").toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+  });
+});

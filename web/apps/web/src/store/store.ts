@@ -214,6 +214,8 @@ export interface StoreDependencies {
   requestFrame?: RequestFrame;
   /** Built-in and community themes; gazelle-dark must be among them. */
   themeSources?: readonly ThemeSource[];
+  /** Whether the window was phone width as the app opened: the mixer dock then starts collapsed unless a choice is kept. */
+  narrow?: boolean;
 }
 
 export interface Notice {
@@ -351,7 +353,7 @@ export class Store {
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
-    this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
+    this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -977,7 +979,7 @@ export class Store {
 
   readonly #outputMeters = new Map<string, readonly OutputMeter[]>();
 
-  /** Whether the compact mixer dock under the pages is collapsed; remembered per browser. */
+  /** Whether the compact mixer dock under the pages is collapsed; remembered per browser. Until it is, it starts collapsed at phone width. */
   get mixerDockCollapsed(): ReadonlySignal<boolean> {
     return this.#mixerDockCollapsed;
   }
