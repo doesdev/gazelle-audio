@@ -612,24 +612,31 @@ test("the wheel over a pan moves it a step at a time, up for right, and keeps th
   await expect(pan).toHaveAttribute("aria-valuetext", "C");
   await page.evaluate(() => window.addEventListener("wheel", (event) => ((window as unknown as { wheelKept: boolean }).wheelKept = event.defaultPrevented)));
   await pan.hover();
-  // Out of the centre detent (27..38) in one step, back into it, and out the other side.
+  // One step (3%) a notch, through centre: the drag detent does not apply to the wheel.
   await page.mouse.wheel(0, -100);
-  await expect(pan).toHaveAttribute("aria-valuetext", "R 23%");
+  await expect(pan).toHaveAttribute("aria-valuetext", "R 3%");
   await page.mouse.wheel(0, 100);
   await expect(pan).toHaveAttribute("aria-valuetext", "C");
   await page.mouse.wheel(0, 100);
-  await expect(pan).toHaveAttribute("aria-valuetext", "L 20%");
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 3%");
   await page.mouse.wheel(0, 100);
-  await expect(pan).toHaveAttribute("aria-valuetext", "L 23%");
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 7%");
   expect(await page.evaluate(() => (window as unknown as { wheelKept?: boolean }).wheelKept), "the page did not scroll").toBe(true);
   const panSent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 7).map((f) => f.args?.["pan"]);
-  await expect.poll(() => panSent().at(-1)).toBe(25);
-  // The keys walk through the detent the same way: L 20%, into it (C), and out the other side.
+  await expect.poll(() => panSent().at(-1)).toBe(30);
+  // The keys step one at a time the same way.
   await pan.focus();
   await pan.press("ArrowRight");
-  await expect(pan).toHaveAttribute("aria-valuetext", "L 20%");
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 3%");
   await pan.press("ArrowRight");
   await expect(pan).toHaveAttribute("aria-valuetext", "C");
   await pan.press("ArrowRight");
-  await expect(pan).toHaveAttribute("aria-valuetext", "R 23%");
+  await expect(pan).toHaveAttribute("aria-valuetext", "R 3%");
+  // A click near centre still lands on it, as the panel's knob does: 35 is inside the detent.
+  const box = await pan.boundingBox();
+  if (box === null) throw new Error("no pan");
+  await page.mouse.click(box.x + box.width * ((35 - 2) / 60), box.y + box.height / 2);
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await page.mouse.click(box.x + box.width * ((41.4 - 2) / 60), box.y + box.height / 2);
+  await expect(pan).toHaveAttribute("aria-valuetext", "R 30%");
 });

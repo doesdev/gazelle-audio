@@ -210,9 +210,9 @@ test("Quadro returns (mixes 1-2) and sends (mix 1 channels 1-16) are read and se
     { mixer_id: 0, level: REVERB_RETURN_MAX, mute: 0 },
   ]);
   assert.deepEqual(sent("loopback-0", "set_reverb_send").map((c) => c.args), [
-    { mixer_id: 0, channel: 3, level: 93, pan: 32, mute: 0, solo: 0 },
+    { mixer_id: 0, channel: 3, level: 93, pan: 29, mute: 0, solo: 0 },
     { mixer_id: 0, channel: 16, level: REVERB_SEND_MAX, pan: 32, mute: 0, solo: 0 },
-  ], "pan snaps to the centre as the mixer's does; level and pan travel together");
+  ], "pan is held to its range but not snapped (only a drag snaps, P102); level and pan travel together");
   assert.throws(() => effects.setReturn(2, { level: 0 }), RangeError, "returns 2-3 are never driven");
   assert.throws(() => effects.setSend(0, { level: 0 }), RangeError, "channel 0 is not a send");
   assert.throws(() => store.effects("loopback-1").setSend(1, { level: 0 }), /no reverb sends/);

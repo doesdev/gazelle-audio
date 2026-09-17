@@ -76,8 +76,18 @@ export function formatSend(send: number): string {
   return send >= SEND_MAX ? "-inf" : send === 0 ? "0 dB" : `-${send} dB`;
 }
 
+/** A pan held to the byte's range, every step of it: the wheel and keys move one step (3%) at a time. */
 export function clampPan(value: number): number {
-  const pan = Math.min(PAN_MAX, Math.max(PAN_MIN, Math.round(value)));
+  return Math.min(PAN_MAX, Math.max(PAN_MIN, Math.round(value)));
+}
+
+/**
+ * The pan at a fraction of a pan bar's width, for a pointer. Dragging keeps the panel knob's centre
+ * detent, 27..38 landing on centre, so centre is easy to find by hand; the wheel and keys skip it
+ * and step through every value (the user, 2026-09-17).
+ */
+export function panAtPosition(fraction: number): number {
+  const pan = clampPan(PAN_MIN + fraction * (PAN_MAX - PAN_MIN));
   return pan >= PAN_SNAP[0] && pan <= PAN_SNAP[1] ? PAN_CENTRE : pan;
 }
 
@@ -85,16 +95,6 @@ export function clampPan(value: number): number {
  * A pan as a side and how far towards it (the user, 2026-09-17): "L 100%", "C", "R 27%". The byte's
  * steps either side of centre are a share of full left or right, so signed numbers read as dB.
  */
-/**
- * A wheel or key step of `steps` from `pan`. Dragging snaps to centre inside the detent (27..38), as
- * the panel's knob does, but a step would land back on centre and never leave: from centre a step goes
- * just past the detent instead (the user, 2026-09-17). Steps into the detent still land on centre.
- */
-export function stepPan(pan: number, steps: number): number {
-  if (pan === PAN_CENTRE && steps !== 0) return steps > 0 ? PAN_SNAP[1] + 1 : PAN_SNAP[0] - 1;
-  return clampPan(pan + steps);
-}
-
 export function formatPan(pan: number): string {
   const offset = pan - PAN_CENTRE;
   if (offset === 0) return "C";

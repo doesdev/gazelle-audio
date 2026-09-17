@@ -12,7 +12,7 @@
 
 import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
-import { faderPosition, formatLevel, formatPan, stepPan, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
+import { faderPosition, formatLevel, formatPan, panAtPosition, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
@@ -180,7 +180,7 @@ export class GaStrip extends GaElement {
         const panValue = h("span", { class: "value" });
         const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
         // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
-        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, stepFrom: stepPan, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
+        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, valueAt: panAtPosition, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
         top.push(pan);
         this.watch(() => {
           const monoPan = mixer.monoPan(id);
