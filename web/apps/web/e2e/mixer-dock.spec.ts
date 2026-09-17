@@ -156,6 +156,24 @@ test("the dock is hidden on the Mixer page, and stays collapsed across a reload 
   await expect.poll(() => slots(page)).toEqual(["8", "6"]);
 });
 
+test("a mix with no channel set up is one short line, without the master, and the strips come back with a mix that has some", async ({ page }) => {
+  await putWorkspace(server, { mixers: { "loopback-0": { mixes: [{ name: "Monitors" }, { name: "Cue" }], channels: [channel("c", "Click", 7, 1, [], 2)] } } });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  const empty = dock(page).getByText("No channel is set up in Monitors.");
+  await expect(empty).toBeVisible();
+  await expect(dock(page).getByRole("link", { name: "Set channels up on the Mixer page." })).toHaveAttribute("href", "#/mixer/loopback-0");
+  await expect(dock(page).locator("ga-strip"), "no master for a mix with nothing in it").toHaveCount(0);
+  const row = await dock(page).getByTestId("dock-strips").boundingBox();
+  expect(row?.height, "the empty row is one line").toBeLessThanOrEqual(32);
+  expect((await dock(page).boundingBox())?.height, "the whole dock stays short").toBeLessThanOrEqual(80);
+
+  await dock(page).getByTestId("dock-mix-select").selectOption("1");
+  await expect.poll(() => slots(page)).toEqual(["7"]);
+  await expect(dock(page).locator('ga-strip[strip="master"]')).toHaveAttribute("label", "Cue");
+  await expect(empty).toHaveCount(0);
+  expect((await dock(page).getByTestId("dock-strips").boundingBox())?.height).toBeGreaterThanOrEqual(150);
+});
+
 test("a mix wider than the window scrolls inside the dock, not the page (the user, 2026-09-16)", async ({ page }) => {
   // 26 channels at 46 px a strip: wider than a 900 px window.
   const many = Array.from({ length: 26 }, (_, i) => channel(`n${i}`, `Ch ${i}`, 6 + i, 0, [], i % 4));

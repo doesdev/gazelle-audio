@@ -3,7 +3,8 @@
 // known mixer, else the one last selected) in its selected mix, the same per-device mix the Mixer
 // page's Mix menu sets, which its own small Mix menu sets too: a slim strip per channel set up in
 // that mix, in the Mixer page's order, then the mix's master. Strips scroll sideways; the master
-// stays at the right.
+// stays at the right. A mix with no channel set up is one short line pointing to the Mixer page,
+// without its master: there is nothing in it to ride, and a fader needs the full row's height.
 //
 // On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full.
 // While hidden or collapsed it follows nothing: the report watch, the mix reads and the strips are
@@ -43,7 +44,9 @@ export class GaMixerDock extends GaElement {
       .strips ga-strip { flex: 0 0 44px; }
       .master { position: sticky; right: 0; display: flex; margin-left: auto; padding: 0 4px 0 6px; background: var(--ga-surface-inset); box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5); }
       .master ga-strip { flex: 0 0 48px; }
-      .empty { align-self: center; flex: 1; font-size: 11px; }
+      /* Nothing to show is one line, not a row of strip height. */
+      .strips.empty { height: auto; padding: 0; }
+      .empty .placeholder { flex: 1; padding: 4px 8px; font-size: 11px; }
       .empty a { color: var(--ga-accent); }
     `),
   ];
@@ -65,6 +68,11 @@ export class GaMixerDock extends GaElement {
     const release = () => {
       for (const dispose of held.splice(0)) dispose();
       strips.replaceChildren();
+    };
+    /** Only a message in the row: it takes one line. */
+    const showMessage = (...message: (Node | string)[]) => {
+      strips.classList.add("empty");
+      strips.replaceChildren(h("p", { class: "placeholder" }, ...message));
     };
     this.onDisconnect(release);
     const follow = (deviceId: string): (() => void)[] => {
@@ -104,10 +112,13 @@ export class GaMixerDock extends GaElement {
           rendered = key;
           // Untracked: a strip renders as it is appended, and what it reads must not rebuild the row.
           untracked(() => {
+            if (shownStrips.length === 0) {
+              showMessage(`No channel is set up in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }) }, "Set channels up on the Mixer page."));
+              return;
+            }
             const master = h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label: mixName, compact: "" }));
-            const empty =
-              shownStrips.length > 0 ? [] : [h("p", { class: "placeholder empty" }, `No channel is set up in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }) }, "Set channels up on the Mixer page."))];
-            strips.replaceChildren(...empty, ...shownStrips.map((attributes) => h("ga-strip", attributes)), master);
+            strips.classList.remove("empty");
+            strips.replaceChildren(...shownStrips.map((attributes) => h("ga-strip", attributes)), master);
           });
         }),
       );
@@ -131,7 +142,7 @@ export class GaMixerDock extends GaElement {
         section.collapsed = collapsed;
         if (key === "") return;
         if (id === undefined) {
-          strips.replaceChildren(h("p", { class: "placeholder empty" }, "No device with a known mixer is connected."));
+          showMessage("No device with a known mixer is connected.");
           return;
         }
         held = follow(id);
