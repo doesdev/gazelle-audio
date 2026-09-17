@@ -134,6 +134,35 @@ test("a channel with no name goes by its input's name until one is typed (the us
   await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-label", "Vox level");
 });
 
+test("a Studio+ strip's reverb send shows on Mix 1 only, as the vendor panel's does, and sends set_mixer_cfg's send byte", async ({ page }) => {
+  await layout({
+    "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [1, 2, 3] }] },
+    "loopback-0": { channels: [{ id: "q", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const send = channelIn(page, 0).getByRole("slider", { name: "Vox send" });
+  await expect(send).toBeVisible();
+  await expect(channelIn(page, 0).locator("ga-strip").getByText("Send", { exact: true })).toBeVisible();
+  await send.focus();
+  await send.press("End");
+  await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 0, channel: 1, level: 0, send: 0 })));
+  await expect(send).toHaveAttribute("aria-valuetext", "0 dB");
+
+  for (const mix of ["1", "2", "3"]) {
+    await page.getByTestId("mix-select").selectOption(mix);
+    await expect(page.getByTestId("mix-select")).toHaveValue(mix);
+    await expect(channelIn(page, 0).getByTestId("fader-0")).toHaveAttribute("aria-disabled", "false");
+    await expect(channelIn(page, 0).getByRole("slider", { name: "Vox send" }), `no send on Mix ${Number(mix) + 1}`).toHaveCount(0);
+    await expect(channelIn(page, 0).locator("ga-strip").getByText("Send", { exact: true })).toHaveCount(0);
+  }
+  await page.getByTestId("mix-select").selectOption("0");
+  await expect(channelIn(page, 0).getByRole("slider", { name: "Vox send" })).toHaveAttribute("aria-valuetext", "0 dB");
+
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(channelIn(page, 6).getByTestId("fader-6")).toBeVisible();
+  await expect(page.getByRole("slider", { name: /send$/ }), "the Quadro's strips have none").toHaveCount(0);
+});
+
 test("the Mix menu picks the mix every strip controls; a channel not in it is greyed and can be added (the user, 2026-09-16)", async ({ page }) => {
   await layout({ "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 2, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-1`);

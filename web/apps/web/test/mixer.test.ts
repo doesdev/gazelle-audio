@@ -56,6 +56,7 @@ test("Quadro strips send set_mixer with the whole strip, coalesced per strip, ma
   const { client, store } = setup();
   const mixer = store.mixer("loopback-0", 1);
   assert.equal(mixer.hasSend, false);
+  assert.equal(store.mixer("loopback-0", 0).hasReverbSend, false, "the Quadro's reverb sends are the Effects page's");
   assert.equal(mixer.stateKnown.value, false, "until loaded, values are defaults");
 
   mixer.setLevel(3, 20);
@@ -80,6 +81,8 @@ test("Studio+ strips send set_mixer_cfg including send", async () => {
   const { client, store } = setup();
   const mixer = store.mixer("loopback-1", 3);
   assert.equal(mixer.hasSend, true);
+  // The send byte is the reverb send, which the vendor panel shows on Mix 1 only (effects spec Q8, the user's answer).
+  assert.deepEqual([0, 1, 2, 3].map((mix) => store.mixer("loopback-1", mix).hasReverbSend), [true, false, false, false]);
   mixer.setSend(0, 300);
   mixer.toggleSolo(0);
   await flush();

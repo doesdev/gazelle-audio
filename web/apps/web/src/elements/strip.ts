@@ -1,5 +1,5 @@
 // <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel] [compact]>: one
-// mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+), pan,
+// mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+ Mix 1), pan,
 // mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
 // readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
 // panels' own scales). `label` names the strip; `inactive` disables its controls (a channel with no
@@ -196,7 +196,7 @@ export class GaStrip extends GaElement {
         });
       }
 
-      if (mixer.hasSend && !compact) {
+      if (mixer.hasReverbSend && !compact) {
         const sendFill = h("div", { class: "fill" });
         const sendValue = h("span", { class: "value" });
         // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.

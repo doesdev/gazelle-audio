@@ -152,8 +152,13 @@ export class MixerModel {
   readonly deviceId: string;
   readonly index: number;
   readonly channels: number;
-  /** Studio+ strips have a send; Quadro's do not. */
+  /** Studio+ strips carry a send byte in every mix; Quadro's do not. */
   readonly hasSend: boolean;
+  /**
+   * Whether strips show the send: the Studio+'s send byte is its reverb send, which the vendor panel
+   * shows on Mix 1 only (effects spec Q8, the user's answer). Every mix still sends the byte it holds.
+   */
+  readonly hasReverbSend: boolean;
   readonly #known = signal(false);
   readonly #needsRead = signal(true);
   /** Bumped by `forget()`, so a read begun before it neither counts nor holds back the next. */
@@ -169,6 +174,7 @@ export class MixerModel {
     this.index = context.index;
     this.channels = context.topology.mixers.channels;
     this.hasSend = context.topology.mixers.command === "set_mixer_cfg";
+    this.hasReverbSend = this.hasSend && this.index === 0;
     this.#strips = Array.from({ length: this.channels }, () => signal(DEFAULT_STRIP));
   }
 
