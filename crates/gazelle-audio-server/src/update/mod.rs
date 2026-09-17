@@ -281,13 +281,10 @@ impl Updater {
     fn targets(&self) -> Vec<(PathBuf, String)> {
         let stem = self.stem().to_string();
         let mut targets = vec![(self.exe.clone(), binary_asset_name(&stem, &self.target))];
-        let (Some(dir), Some(extension)) = (self.exe.parent(), self.exe.extension()) else {
-            return targets;
-        };
-        for sibling in BINARIES.iter().filter(|s| **s != stem) {
-            let path = dir.join(sibling).with_extension(extension);
+        for path in siblings(&self.exe).into_iter().filter(|p| p.file_stem().is_some_and(|s| s != stem.as_str())) {
             if path.is_file() {
-                targets.push((path, binary_asset_name(sibling, &self.target)));
+                let sibling = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+                targets.push((path, binary_asset_name(&sibling, &self.target)));
             }
         }
         targets
@@ -407,22 +404,43 @@ pub fn ensure_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-/// Tidy up after a previous update: delete the binary it displaced. Called once at start, when
-/// nothing holds the old image any more. Never fatal — the file is inert, and a failure (a
-/// virus scanner still reading it, say) is retried at the next start.
+/// Every one of [`BINARIES`] as it would be named beside `exe`, whether or not it is there.
+pub fn siblings(exe: &Path) -> Vec<PathBuf> {
+    let Some(dir) = exe.parent() else { return Vec::new() };
+    BINARIES
+        .iter()
+        .map(|binary| match exe.extension() {
+            Some(extension) => dir.join(binary).with_extension(extension),
+            None => dir.join(binary),
+        })
+        .collect()
+}
+
+/// Tidy up after a previous update: delete the binaries it displaced. Called once at start, when
+/// nothing holds the old images any more. Never fatal — the files are inert, and a failure (a
+/// virus scanner still reading one, say) is retried at the next start.
 pub fn clean_up_after_previous_update() {
-    let Ok(exe) = std::env::current_exe() else { return };
-    for binary in BINARIES {
-        let Some(path) = exe.parent().map(|d| match exe.extension() {
-            Some(extension) => d.join(binary).with_extension(extension),
-            None => d.join(binary),
-        }) else {
-            continue;
-        };
+    match std::env::current_exe() {
+        Ok(exe) => {
+            clean_up_after(&exe);
+        }
+        Err(e) => tracing::warn!("not looking for a binary left by a previous update: {e}"),
+    }
+}
+
+/// The same, for a named install location rather than the running one. Returns how many were
+/// removed, which is what the tests assert on.
+pub fn clean_up_after(exe: &Path) -> usize {
+    let mut removed = 0;
+    for path in siblings(exe) {
         match stage::clean_old(&path) {
-            Ok(true) => tracing::info!("removed {}, left by a previous update", stage::old_path(&path).display()),
+            Ok(true) => {
+                removed += 1;
+                tracing::info!("removed {}, left by a previous update", stage::old_path(&path).display());
+            }
             Ok(false) => {}
             Err(e) => tracing::warn!("could not remove {}: {e}", stage::old_path(&path).display()),
         }
     }
+    removed
 }
