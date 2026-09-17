@@ -314,8 +314,8 @@
   "unresolved_reply_counts": [],
   "report_version": 20,
   "authoritative": true,
-  "scope": "intersection(35) + quadro-only(28)",
-  "count": 63,
+  "scope": "intersection(35) + quadro-only(28) + effect parameters(136)",
+  "count": 199,
   "missing": [],
   "commands": {
     "get_adats_links": {
@@ -1550,6 +1550,4846 @@
           "type": "ubyte"
         }
       ]
+    },
+    "get_Brainiac_conf": {
+      "name": "get_Brainiac_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483733,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 8}, {\"name\": \"thresh\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"linlog\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"mode\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"sideSource\", \"type\": \"uint8\"}, {\"name\": \"sideChanN\", \"type\": \"uint8\"}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_Drum-All-Nite_conf": {
+      "name": "get_Drum-All-Nite_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483731,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"reltime\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"src\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"mode\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"dettype\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"sideSource\", \"type\": \"uint8\"}, {\"name\": \"sideChanN\", \"type\": \"uint8\"}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_Gate Keeper_conf": {
+      "name": "get_Gate Keeper_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483734,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"thresh\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"linlog\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"mode\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"sideSource\", \"type\": \"uint8\"}, {\"name\": \"sideChanN\", \"type\": \"uint8\"}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_VCA160_conf": {
+      "name": "get_VCA160_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483681,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"compression\", \"type\": \"uint8\", \"default\": 21}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 57}], \"count\": 1}",
+          "size": 4
+        }
+      ]
+    },
+    "get_VEQ-432C_conf": {
+      "name": "get_VEQ-432C_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483714,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"hi_shelf_level\", \"type\": \"uint8\", \"default\": 48}, {\"name\": \"lo_shelf_level\", \"type\": \"uint8\", \"default\": 48}, {\"name\": \"lo_shelf_freq\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"lo_Q\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"lo_freq\", \"type\": \"uint8\", \"default\": 12}, {\"name\": \"lo_level\", \"type\": \"uint8\", \"default\": 48}, {\"name\": \"mid_Q\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"mid_freq\", \"type\": \"uint8\", \"default\": 12}, {\"name\": \"mid_level\", \"type\": \"uint8\", \"default\": 48}, {\"name\": \"hi_Q\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"hi_freq\", \"type\": \"uint8\", \"default\": 12}, {\"name\": \"hi_level\", \"type\": \"uint8\", \"default\": 48}], \"count\": 1}",
+          "size": 14
+        }
+      ]
+    },
+    "get_VEQ-STU 089_conf": {
+      "name": "get_VEQ-STU 089_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483669,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"mf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 8
+        }
+      ]
+    },
+    "get_VEQ-STU 169_conf": {
+      "name": "get_VEQ-STU 169_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483670,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"hpf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"mf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"mf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 7
+        }
+      ]
+    },
+    "get_VEQ-STU 900_conf": {
+      "name": "get_VEQ-STU 900_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483671,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_cut\", \"type\": \"ubyte\", \"default\": 100}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lmf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_X903_conf": {
+      "name": "get_X903_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483677,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 82}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 4
+        }
+      ]
+    },
+    "get_altec_436c_conf": {
+      "name": "get_altec_436c_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483683,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 27}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 69}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"linked\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_antelope_tremolo_conf": {
+      "name": "get_antelope_tremolo_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483701,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"waveform\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"rate\", \"type\": \"uint8\", \"default\": 30}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"varispeed\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"drywet\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_api_550_conf": {
+      "name": "get_api_550_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483656,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"mid_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"mid_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"low_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"bandpass\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_api_550b_conf": {
+      "name": "get_api_550b_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483676,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"lmid_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"lmid_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"hmid_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"hmid_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"low_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_shelf\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 12
+        }
+      ]
+    },
+    "get_atuner_conf": {
+      "name": "get_atuner_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483720,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}], \"count\": 1}",
+          "size": 1
+        }
+      ]
+    },
+    "get_audiobaton_conf": {
+      "name": "get_audiobaton_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483717,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"sg40\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg80\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg160\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg320\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg640\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg1280\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg2560\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg5120\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"sg10240\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"drive\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_ba6a_conf": {
+      "name": "get_ba6a_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483686,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 21}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"linked\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_ba_31_conf": {
+      "name": "get_ba_31_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483696,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 55}, {\"name\": \"trim\", \"type\": \"uint8\", \"default\": 55}], \"count\": 1}",
+          "size": 3
+        }
+      ]
+    },
+    "get_bae_10dcf_conf": {
+      "name": "get_bae_10dcf_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483698,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"output_gain\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 3}, {\"name\": \"release\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"ratio\", \"type\": \"ubyte\", \"default\": 3}, {\"name\": \"threshold\", \"type\": \"ubyte\", \"default\": 10}, {\"name\": \"high_pass_filter\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"threshold_lim\", \"type\": \"ubyte\", \"default\": 16}, {\"name\": \"release_lim\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"comp_on\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"limiter_on\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_bbdchorus_conf": {
+      "name": "get_bbdchorus_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483726,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"level\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"intensity\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"rate\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"chvibrato\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"type\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"bypass\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"peakmeter\", \"type\": \"uint8\", \"default\": 96}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_compressor_configs": {
+      "name": "get_compressor_configs",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483650,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"attack\", \"type\": \"uint32\", \"default\": 10000}, {\"name\": \"release\", \"type\": \"uint32\", \"default\": 10000}, {\"name\": \"taw\", \"type\": \"uint16\", \"default\": 65535}, {\"name\": \"ratio\", \"type\": \"uint16\", \"default\": 100}, {\"name\": \"gain\", \"type\": \"uint16\", \"default\": 0}, {\"name\": \"ctrl\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 24}, {\"name\": \"knee\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"linked\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 19
+        }
+      ]
+    },
+    "get_deesser_conf": {
+      "name": "get_deesser_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483675,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"ctrl\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"crit_f\", \"type\": \"uint16\", \"default\": 6500}, {\"name\": \"q_factor\", \"type\": \"uint16\", \"default\": 71}, {\"name\": \"filter_type\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"wd_control\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 30}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"knee_width\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 13
+        }
+      ]
+    },
+    "get_diode609_conf": {
+      "name": "get_diode609_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483730,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"limThreshold\", \"type\": \"uint8\", \"default\": 22}, {\"name\": \"limRecovery\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"limOut\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"limAttack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compThreshold\", \"type\": \"uint8\", \"default\": 15}, {\"name\": \"compRecovery\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compGain\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compRatio\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compHPF\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compOut\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compAttack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"preview\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 13
+        }
+      ]
+    },
+    "get_filtek_conf": {
+      "name": "get_filtek_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483719,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"LPFtop\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"hidB\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"hiQ\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"hiF\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"middB\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"midQ\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"midF\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"lodB\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"loQ\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"loF\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"HPFbot\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"drive\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 13
+        }
+      ]
+    },
+    "get_guitar_amp_configs": {
+      "name": "get_guitar_amp_configs",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483651,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"model\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"bass\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"mid\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"midfreq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"treble\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"density\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"presence\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"volume\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"boost\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"mode1\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mode2\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mode3\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mode4\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mode5\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 17
+        }
+      ]
+    },
+    "get_gyratec_xiv_conf": {
+      "name": "get_gyratec_xiv_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483725,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_freq\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"low_mode\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_q\", \"type\": \"uint8\", \"default\": 19}, {\"name\": \"low_level\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"lo_mid_freq\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"lo_mid_mode\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lo_mid_q\", \"type\": \"uint8\", \"default\": 19}, {\"name\": \"lo_mid_level\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"mid_freq\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"mid_mode\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"mid_q\", \"type\": \"uint8\", \"default\": 19}, {\"name\": \"mid_level\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"hi_mid_freq\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"hi_mid_mode\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"hi_mid_q\", \"type\": \"uint8\", \"default\": 19}, {\"name\": \"hi_mid_level\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"high_freq\", \"type\": \"uint8\", \"default\": 5}, {\"name\": \"high_mode\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"high_q\", \"type\": \"uint8\", \"default\": 19}, {\"name\": \"high_level\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"trim\", \"type\": \"uint8\", \"default\": 19}], \"count\": 1}",
+          "size": 22
+        }
+      ]
+    },
+    "get_gyratex_ix_conf": {
+      "name": "get_gyratex_ix_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483691,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 59}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 59}, {\"name\": \"phase\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_cut\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_gyratex_x_conf": {
+      "name": "get_gyratex_x_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483678,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"ubyte\", \"default\": 59}, {\"name\": \"output\", \"type\": \"ubyte\", \"default\": 31}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 69}, {\"name\": \"release\", \"type\": \"ubyte\", \"default\": 31}, {\"name\": \"ratio\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"threshold\", \"type\": \"ubyte\", \"default\": 58}, {\"name\": \"linked\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 8
+        }
+      ]
+    },
+    "get_harrison_32c_conf": {
+      "name": "get_harrison_32c_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483674,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_cut_enable\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_cut_enable\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_cut\", \"type\": \"ubyte\", \"default\": 100}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_switch\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_helios_69_conf": {
+      "name": "get_helios_69_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483660,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"bass_freq\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"bass_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"mid_freq\", \"type\": \"ubyte\", \"default\": 4}, {\"name\": \"mid_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mid_pk\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 8
+        }
+      ]
+    },
+    "get_impresser_conf": {
+      "name": "get_impresser_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483690,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 69}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 29}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 69}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 31}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 3}, {\"name\": \"high_pass_filter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"band_pass_filter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"distortion\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"british_mode\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"linked\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_lang_conf": {
+      "name": "get_lang_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483662,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_boost_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_boost_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_drop_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_drop_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_bandwidth\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_boost_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_boost_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_drop_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_drop_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_liverpool_conf": {
+      "name": "get_liverpool_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483679,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"ubyte\", \"default\": 34}, {\"name\": \"threshold\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"recovery\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"output\", \"type\": \"ubyte\", \"default\": 2}, {\"name\": \"linked\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 7
+        }
+      ]
+    },
+    "get_marblewhite_conf": {
+      "name": "get_marblewhite_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483715,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"sensitivity\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"bias\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"delay\", \"type\": \"uint8\", \"default\": 55}, {\"name\": \"resonance\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_memory_brigade_conf": {
+      "name": "get_memory_brigade_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483721,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"blend\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"level\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"feedback\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"chrs_vibr\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"delay\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"lpf_fc\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"size\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_mg4_conf": {
+      "name": "get_mg4_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483716,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"level\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"sub_band\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"40hz_band\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"160hz_band\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"650hz_band\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"2500hz_band\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"sky_gain\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"sky_band\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_neumann_pev_conf": {
+      "name": "get_neumann_pev_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483661,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"pres_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"pres_freq\", \"type\": \"ubyte\", \"default\": 3}, {\"name\": \"high_gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_neumann_w492_conf": {
+      "name": "get_neumann_w492_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483663,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"low_on\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lmid_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmid_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmid_on\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmid_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmid_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmid_on\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"high_on\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 15
+        }
+      ]
+    },
+    "get_neumann_w495_conf": {
+      "name": "get_neumann_w495_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483668,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mid_freq\", \"type\": \"ubyte\", \"default\": 5}, {\"name\": \"mid_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mid_q\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"level\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_neve_1023_conf": {
+      "name": "get_neve_1023_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483672,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"peak_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"peak_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"high_pass\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"phase_inv\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_neve_1073_conf": {
+      "name": "get_neve_1073_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483655,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"high_shelf\", \"type\": \"ubyte\", \"default\": 8}, {\"name\": \"peak_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"peak_gain\", \"type\": \"ubyte\", \"default\": 8}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 8}, {\"name\": \"high_pass\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"phase_inv\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_neve_1073_mp_conf": {
+      "name": "get_neve_1073_mp_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483693,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"impedance\", \"type\": \"uint8\", \"default\": 1}], \"count\": 1}",
+          "size": 4
+        }
+      ]
+    },
+    "get_neve_1084_conf": {
+      "name": "get_neve_1084_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483673,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"byte\", \"default\": 0}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"peak_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"peak_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"high_pass\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_pass\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_q\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"phase_inv\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 12
+        }
+      ]
+    },
+    "get_opto2a_conf": {
+      "name": "get_opto2a_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483707,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"meter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"limit\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 30}, {\"name\": \"peak\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_powerex_conf": {
+      "name": "get_powerex_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483699,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 20}, {\"name\": \"range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"attack\", \"type\": \"uint16\", \"default\": 100}, {\"name\": \"decay\", \"type\": \"uint16\", \"default\": 50}, {\"name\": \"ratio\", \"type\": \"uint16\", \"default\": 100}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_powergate_conf": {
+      "name": "get_powergate_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483687,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 90}, {\"name\": \"range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"attack\", \"type\": \"uint16\", \"default\": 100}, {\"name\": \"decay\", \"type\": \"uint16\", \"default\": 50}, {\"name\": \"hold\", \"type\": \"uint16\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "get_pultec_eqp_conf": {
+      "name": "get_pultec_eqp_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483654,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_boost\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_atten\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_boost\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_atten\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"bandwidth\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"atten_sel\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 9
+        }
+      ]
+    },
+    "get_pultec_hlf_conf": {
+      "name": "get_pultec_hlf_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483659,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_shelf\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"high_shelf\", \"type\": \"ubyte\", \"default\": 10}], \"count\": 1}",
+          "size": 3
+        }
+      ]
+    },
+    "get_pultec_meq_conf": {
+      "name": "get_pultec_meq_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483653,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"low_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"low_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mid_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"mid_gain\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_freq\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hi_gain\", \"type\": \"ubyte\", \"default\": 0}], \"count\": 1}",
+          "size": 7
+        }
+      ]
+    },
+    "get_rd_47_conf": {
+      "name": "get_rd_47_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483695,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 55}, {\"name\": \"trim\", \"type\": \"uint8\", \"default\": 55}], \"count\": 1}",
+          "size": 3
+        }
+      ]
+    },
+    "get_reel_to_reel_conf": {
+      "name": "get_reel_to_reel_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483694,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"speed\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"eq\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"bias\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"tape_type\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"modulation\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"hiss\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"meter_select\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"linked\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_space_flanger_conf": {
+      "name": "get_space_flanger_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483702,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"delay\", \"type\": \"uint8\", \"default\": 33}, {\"name\": \"feedback\", \"type\": \"int8\", \"default\": -96}, {\"name\": \"gain\", \"type\": \"int8\", \"default\": 0}, {\"name\": \"rate\", \"type\": \"uint8\", \"default\": 20}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"wave\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"drywet\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 8
+        }
+      ]
+    },
+    "get_ssl4kbus_conf": {
+      "name": "get_ssl4kbus_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483711,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"makeup_gain\", \"type\": \"uint8\", \"default\": 25}, {\"name\": \"rate\", \"type\": \"uint8\", \"default\": 15}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"auto_fade\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"sc_filter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"hr\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"drywet\", \"type\": \"uint8\", \"default\": 100}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_ssl4kstrip_conf": {
+      "name": "get_ssl4kstrip_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483712,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"comp_att\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"exp_att\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"exp_gate\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"int8\", \"default\": 0}, {\"name\": \"comp_thres\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"comp_ratio\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"comp_release\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"exp_thres\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"exp_range\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"exp_release\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"lpf_cutfreq\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"hpf_cutfreq\", \"type\": \"uint8\", \"default\": 100}, {\"name\": \"dyn_sc\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"pre_dyn\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 15
+        }
+      ]
+    },
+    "get_ssl_black_conf": {
+      "name": "get_ssl_black_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483666,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_ssl_brown_conf": {
+      "name": "get_ssl_brown_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483667,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_ssl_orange_conf": {
+      "name": "get_ssl_orange_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483665,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_ssl_pink_conf": {
+      "name": "get_ssl_pink_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483664,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"lf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_cut\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"hmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"hmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lmf_qual\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_bell\", \"type\": \"ubyte\", \"default\": 0}, {\"name\": \"lf_gain\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"lf_freq\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"level\", \"type\": \"byte\", \"default\": 0}], \"count\": 1}",
+          "size": 16
+        }
+      ]
+    },
+    "get_staylevin_conf": {
+      "name": "get_staylevin_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483682,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 9}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 32}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_summit_100a_conf": {
+      "name": "get_summit_100a_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483684,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 44}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"release\", \"type\": \"uint8\", \"default\": 2}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_telefunken_v76_conf": {
+      "name": "get_telefunken_v76_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483692,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"shelf_filter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"high_pass_filter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"out_vol\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_tube_176_conf": {
+      "name": "get_tube_176_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483680,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"ubyte\", \"default\": 56}, {\"name\": \"ratio\", \"type\": \"ubyte\", \"default\": 1}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"release\", \"type\": \"ubyte\", \"default\": 50}, {\"name\": \"output\", \"type\": \"ubyte\", \"default\": 31}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_tubechild670_conf": {
+      "name": "get_tubechild670_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483689,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"uint8\", \"default\": 25}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 49}, {\"name\": \"time_const\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"output\", \"type\": \"uint8\", \"default\": 47}], \"count\": 1}",
+          "size": 5
+        }
+      ]
+    },
+    "get_turboensembler_conf": {
+      "name": "get_turboensembler_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483718,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"humanize\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"voices\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"delay\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"color\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"colorShifter\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"space\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"feedback\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"presetIndex\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"pan\", \"type\": \"uint8\", \"default\": 90}, {\"name\": \"mix\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"gain\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 13
+        }
+      ]
+    },
+    "get_u473a_conf": {
+      "name": "get_u473a_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483728,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"drive\", \"type\": \"uint8\", \"default\": 67}, {\"name\": \"basscut\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"deess\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"attack\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"recovery\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"ratio\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"compgain\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"expthresh\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"exprecovery\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"expon\", \"type\": \"uint8\", \"default\": 0}], \"count\": 1}",
+          "size": 11
+        }
+      ]
+    },
+    "get_uad_1176_conf": {
+      "name": "get_uad_1176_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483657,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"ubyte\", \"default\": 35}, {\"name\": \"output\", \"type\": \"ubyte\", \"default\": 46}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 78}, {\"name\": \"release\", \"type\": \"ubyte\", \"default\": 21}, {\"name\": \"ratio\", \"type\": \"ubyte\", \"default\": 1}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_uad_1178_conf": {
+      "name": "get_uad_1178_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483685,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"input\", \"type\": \"ubyte\", \"default\": 35}, {\"name\": \"output\", \"type\": \"ubyte\", \"default\": 38}, {\"name\": \"attack\", \"type\": \"ubyte\", \"default\": 81}, {\"name\": \"release\", \"type\": \"ubyte\", \"default\": 18}, {\"name\": \"ratio\", \"type\": \"ubyte\", \"default\": 1}], \"count\": 1}",
+          "size": 6
+        }
+      ]
+    },
+    "get_veq56_conf": {
+      "name": "get_veq56_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483722,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"drive\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b31\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b63\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b125\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b250\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b500\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b1K\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b2K\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b4K\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b8K\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"b16K\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 12
+        }
+      ]
+    },
+    "get_vibrato_conf": {
+      "name": "get_vibrato_conf",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 2147483713,
+      "payload_id": null,
+      "params": [
+        {
+          "name": "id",
+          "type": "ubyte"
+        }
+      ],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"wave\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"mode\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"rate\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"depth\", \"type\": \"uint8\", \"default\": 0}, {\"name\": \"drywet\", \"type\": \"uint8\", \"default\": 50}, {\"name\": \"delay\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"rise\", \"type\": \"uint8\", \"default\": 1}, {\"name\": \"threshold\", \"type\": \"uint8\", \"default\": 10}, {\"name\": \"endfreq\", \"type\": \"uint8\", \"default\": 50}], \"count\": 1}",
+          "size": 10
+        }
+      ]
+    },
+    "set_Brainiac_conf": {
+      "name": "set_Brainiac_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "range",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "thresh",
+          "type": "uint8"
+        },
+        {
+          "name": "linlog",
+          "type": "uint8"
+        },
+        {
+          "name": "mode",
+          "type": "uint8"
+        },
+        {
+          "name": "sideSource",
+          "type": "uint8"
+        },
+        {
+          "name": "sideChanN",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_Drum-All-Nite_conf": {
+      "name": "set_Drum-All-Nite_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "range",
+          "type": "uint8"
+        },
+        {
+          "name": "reltime",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "src",
+          "type": "uint8"
+        },
+        {
+          "name": "mode",
+          "type": "uint8"
+        },
+        {
+          "name": "dettype",
+          "type": "uint8"
+        },
+        {
+          "name": "sideSource",
+          "type": "uint8"
+        },
+        {
+          "name": "sideChanN",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_Gate Keeper_conf": {
+      "name": "set_Gate Keeper_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "range",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "thresh",
+          "type": "uint8"
+        },
+        {
+          "name": "linlog",
+          "type": "uint8"
+        },
+        {
+          "name": "mode",
+          "type": "uint8"
+        },
+        {
+          "name": "sideSource",
+          "type": "uint8"
+        },
+        {
+          "name": "sideChanN",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_VCA160_conf": {
+      "name": "set_VCA160_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "compression",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_VEQ-432C_conf": {
+      "name": "set_VEQ-432C_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_shelf_level",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_shelf_level",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_shelf_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_Q",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_level",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_Q",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_level",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_Q",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_level",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_VEQ-STU 089_conf": {
+      "name": "set_VEQ-STU 089_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "mf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_VEQ-STU 169_conf": {
+      "name": "set_VEQ-STU 169_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "hpf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_VEQ-STU 900_conf": {
+      "name": "set_VEQ-STU 900_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_X903_conf": {
+      "name": "set_X903_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_altec_436c_conf": {
+      "name": "set_altec_436c_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "linked",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_antelope_tremolo_conf": {
+      "name": "set_antelope_tremolo_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "waveform",
+          "type": "uint8"
+        },
+        {
+          "name": "rate",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "varispeed",
+          "type": "uint8"
+        },
+        {
+          "name": "drywet",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_api_550_conf": {
+      "name": "set_api_550_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "bandpass",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_api_550b_conf": {
+      "name": "set_api_550b_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_shelf",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_atuner_conf": {
+      "name": "set_atuner_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_audiobaton_conf": {
+      "name": "set_audiobaton_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "sg40",
+          "type": "uint8"
+        },
+        {
+          "name": "sg80",
+          "type": "uint8"
+        },
+        {
+          "name": "sg160",
+          "type": "uint8"
+        },
+        {
+          "name": "sg320",
+          "type": "uint8"
+        },
+        {
+          "name": "sg640",
+          "type": "uint8"
+        },
+        {
+          "name": "sg1280",
+          "type": "uint8"
+        },
+        {
+          "name": "sg2560",
+          "type": "uint8"
+        },
+        {
+          "name": "sg5120",
+          "type": "uint8"
+        },
+        {
+          "name": "sg10240",
+          "type": "uint8"
+        },
+        {
+          "name": "drive",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ba6a_conf": {
+      "name": "set_ba6a_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "linked",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ba_31_conf": {
+      "name": "set_ba_31_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "trim",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_bae_10dcf_conf": {
+      "name": "set_bae_10dcf_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "output_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "release",
+          "type": "ubyte"
+        },
+        {
+          "name": "ratio",
+          "type": "ubyte"
+        },
+        {
+          "name": "threshold",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_pass_filter",
+          "type": "ubyte"
+        },
+        {
+          "name": "threshold_lim",
+          "type": "ubyte"
+        },
+        {
+          "name": "release_lim",
+          "type": "ubyte"
+        },
+        {
+          "name": "comp_on",
+          "type": "ubyte"
+        },
+        {
+          "name": "limiter_on",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_bbdchorus_conf": {
+      "name": "set_bbdchorus_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "name": "intensity",
+          "type": "uint8"
+        },
+        {
+          "name": "rate",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "chvibrato",
+          "type": "uint8"
+        },
+        {
+          "name": "type",
+          "type": "uint8"
+        },
+        {
+          "name": "bypass",
+          "type": "uint8"
+        },
+        {
+          "name": "peakmeter",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_compressor_cfg": {
+      "name": "set_compressor_cfg",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "inst_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "uint32"
+        },
+        {
+          "name": "release",
+          "type": "uint32"
+        },
+        {
+          "name": "taw",
+          "type": "uint16"
+        },
+        {
+          "name": "ratio",
+          "type": "uint16"
+        },
+        {
+          "name": "gain",
+          "type": "uint16"
+        },
+        {
+          "name": "ctrl",
+          "type": "ubyte"
+        },
+        {
+          "name": "threshold",
+          "type": "ubyte"
+        },
+        {
+          "name": "knee",
+          "type": "ubyte"
+        },
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_deesser_conf": {
+      "name": "set_deesser_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "ctrl",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "crit_f",
+          "type": "uint16"
+        },
+        {
+          "name": "q_factor",
+          "type": "uint16"
+        },
+        {
+          "name": "filter_type",
+          "type": "uint8"
+        },
+        {
+          "name": "wd_control",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "knee_width",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_diode609_conf": {
+      "name": "set_diode609_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "limThreshold",
+          "type": "uint8"
+        },
+        {
+          "name": "limRecovery",
+          "type": "uint8"
+        },
+        {
+          "name": "limOut",
+          "type": "uint8"
+        },
+        {
+          "name": "limAttack",
+          "type": "uint8"
+        },
+        {
+          "name": "compThreshold",
+          "type": "uint8"
+        },
+        {
+          "name": "compRecovery",
+          "type": "uint8"
+        },
+        {
+          "name": "compGain",
+          "type": "uint8"
+        },
+        {
+          "name": "compRatio",
+          "type": "uint8"
+        },
+        {
+          "name": "compHPF",
+          "type": "uint8"
+        },
+        {
+          "name": "compOut",
+          "type": "uint8"
+        },
+        {
+          "name": "compAttack",
+          "type": "uint8"
+        },
+        {
+          "name": "preview",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_filtek_conf": {
+      "name": "set_filtek_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "LPFtop",
+          "type": "uint8"
+        },
+        {
+          "name": "hidB",
+          "type": "uint8"
+        },
+        {
+          "name": "hiQ",
+          "type": "uint8"
+        },
+        {
+          "name": "hiF",
+          "type": "uint8"
+        },
+        {
+          "name": "middB",
+          "type": "uint8"
+        },
+        {
+          "name": "midQ",
+          "type": "uint8"
+        },
+        {
+          "name": "midF",
+          "type": "uint8"
+        },
+        {
+          "name": "lodB",
+          "type": "uint8"
+        },
+        {
+          "name": "loQ",
+          "type": "uint8"
+        },
+        {
+          "name": "loF",
+          "type": "uint8"
+        },
+        {
+          "name": "HPFbot",
+          "type": "uint8"
+        },
+        {
+          "name": "drive",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_guitar_amp_conf": {
+      "name": "set_guitar_amp_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "inst_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "model",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "bass",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid",
+          "type": "ubyte"
+        },
+        {
+          "name": "midfreq",
+          "type": "ubyte"
+        },
+        {
+          "name": "treble",
+          "type": "ubyte"
+        },
+        {
+          "name": "density",
+          "type": "ubyte"
+        },
+        {
+          "name": "presence",
+          "type": "ubyte"
+        },
+        {
+          "name": "volume",
+          "type": "ubyte"
+        },
+        {
+          "name": "boost",
+          "type": "ubyte"
+        },
+        {
+          "name": "mode1",
+          "type": "ubyte"
+        },
+        {
+          "name": "mode2",
+          "type": "ubyte"
+        },
+        {
+          "name": "mode3",
+          "type": "ubyte"
+        },
+        {
+          "name": "mode4",
+          "type": "ubyte"
+        },
+        {
+          "name": "mode5",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_gyratec_xiv_conf": {
+      "name": "set_gyratec_xiv_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "low_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "low_q",
+          "type": "uint8"
+        },
+        {
+          "name": "low_level",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_mid_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_mid_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_mid_q",
+          "type": "uint8"
+        },
+        {
+          "name": "lo_mid_level",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_q",
+          "type": "uint8"
+        },
+        {
+          "name": "mid_level",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_mid_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_mid_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_mid_q",
+          "type": "uint8"
+        },
+        {
+          "name": "hi_mid_level",
+          "type": "uint8"
+        },
+        {
+          "name": "high_freq",
+          "type": "uint8"
+        },
+        {
+          "name": "high_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "high_q",
+          "type": "uint8"
+        },
+        {
+          "name": "high_level",
+          "type": "uint8"
+        },
+        {
+          "name": "trim",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_gyratex_ix_conf": {
+      "name": "set_gyratex_ix_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "phase",
+          "type": "uint8"
+        },
+        {
+          "name": "low_cut",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_gyratex_x_conf": {
+      "name": "set_gyratex_x_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "ubyte"
+        },
+        {
+          "name": "output",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "release",
+          "type": "ubyte"
+        },
+        {
+          "name": "ratio",
+          "type": "ubyte"
+        },
+        {
+          "name": "threshold",
+          "type": "ubyte"
+        },
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_harrison_32c_conf": {
+      "name": "set_harrison_32c_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_cut_enable",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_cut_enable",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_switch",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_helios_69_conf": {
+      "name": "set_helios_69_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "bass_freq",
+          "type": "byte"
+        },
+        {
+          "name": "bass_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_pk",
+          "type": "ubyte"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_impresser_conf": {
+      "name": "set_impresser_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "high_pass_filter",
+          "type": "uint8"
+        },
+        {
+          "name": "band_pass_filter",
+          "type": "uint8"
+        },
+        {
+          "name": "distortion",
+          "type": "uint8"
+        },
+        {
+          "name": "british_mode",
+          "type": "uint8"
+        },
+        {
+          "name": "linked",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_lang_conf": {
+      "name": "set_lang_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_boost_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_boost_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_drop_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_drop_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_bandwidth",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_boost_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_boost_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_drop_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_drop_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_liverpool_conf": {
+      "name": "set_liverpool_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "ubyte"
+        },
+        {
+          "name": "threshold",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "recovery",
+          "type": "ubyte"
+        },
+        {
+          "name": "output",
+          "type": "ubyte"
+        },
+        {
+          "name": "linked",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_marblewhite_conf": {
+      "name": "set_marblewhite_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "sensitivity",
+          "type": "uint8"
+        },
+        {
+          "name": "bias",
+          "type": "uint8"
+        },
+        {
+          "name": "delay",
+          "type": "uint8"
+        },
+        {
+          "name": "resonance",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_memory_brigade_conf": {
+      "name": "set_memory_brigade_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "blend",
+          "type": "uint8"
+        },
+        {
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "name": "feedback",
+          "type": "uint8"
+        },
+        {
+          "name": "chrs_vibr",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "delay",
+          "type": "uint8"
+        },
+        {
+          "name": "lpf_fc",
+          "type": "uint8"
+        },
+        {
+          "name": "size",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_mg4_conf": {
+      "name": "set_mg4_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "name": "sub_band",
+          "type": "uint8"
+        },
+        {
+          "name": "40hz_band",
+          "type": "uint8"
+        },
+        {
+          "name": "160hz_band",
+          "type": "uint8"
+        },
+        {
+          "name": "650hz_band",
+          "type": "uint8"
+        },
+        {
+          "name": "2500hz_band",
+          "type": "uint8"
+        },
+        {
+          "name": "sky_gain",
+          "type": "uint8"
+        },
+        {
+          "name": "sky_band",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neumann_pev_conf": {
+      "name": "set_neumann_pev_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_gain",
+          "type": "byte"
+        },
+        {
+          "name": "pres_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "pres_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "byte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neumann_w492_conf": {
+      "name": "set_neumann_w492_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_on",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmid_on",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmid_on",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_on",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neumann_w495_conf": {
+      "name": "set_neumann_w495_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_q",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neve_1023_conf": {
+      "name": "set_neve_1023_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_pass",
+          "type": "ubyte"
+        },
+        {
+          "name": "phase_inv",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neve_1073_conf": {
+      "name": "set_neve_1073_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        },
+        {
+          "name": "high_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_pass",
+          "type": "ubyte"
+        },
+        {
+          "name": "phase_inv",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neve_1073_mp_conf": {
+      "name": "set_neve_1073_mp_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "impedance",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_neve_1084_conf": {
+      "name": "set_neve_1084_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "byte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "peak_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_pass",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_pass",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_q",
+          "type": "ubyte"
+        },
+        {
+          "name": "phase_inv",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_opto2a_conf": {
+      "name": "set_opto2a_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "meter",
+          "type": "uint8"
+        },
+        {
+          "name": "limit",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "peak",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_powerex_conf": {
+      "name": "set_powerex_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "range",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint16"
+        },
+        {
+          "name": "decay",
+          "type": "uint16"
+        },
+        {
+          "name": "ratio",
+          "type": "uint16"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_powergate_conf": {
+      "name": "set_powergate_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "range",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint16"
+        },
+        {
+          "name": "decay",
+          "type": "uint16"
+        },
+        {
+          "name": "hold",
+          "type": "uint16"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_pultec_eqp_conf": {
+      "name": "set_pultec_eqp_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_boost",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_atten",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_boost",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_atten",
+          "type": "ubyte"
+        },
+        {
+          "name": "bandwidth",
+          "type": "ubyte"
+        },
+        {
+          "name": "atten_sel",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_pultec_hlf_conf": {
+      "name": "set_pultec_hlf_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_shelf",
+          "type": "ubyte"
+        },
+        {
+          "name": "high_shelf",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_pultec_meq_conf": {
+      "name": "set_pultec_meq_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "low_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "low_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "mid_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hi_gain",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_rd_47_conf": {
+      "name": "set_rd_47_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "trim",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_reel_to_reel_conf": {
+      "name": "set_reel_to_reel_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "speed",
+          "type": "uint8"
+        },
+        {
+          "name": "eq",
+          "type": "uint8"
+        },
+        {
+          "name": "bias",
+          "type": "uint8"
+        },
+        {
+          "name": "tape_type",
+          "type": "uint8"
+        },
+        {
+          "name": "modulation",
+          "type": "uint8"
+        },
+        {
+          "name": "hiss",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "meter_select",
+          "type": "uint8"
+        },
+        {
+          "name": "linked",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_space_flanger_conf": {
+      "name": "set_space_flanger_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "delay",
+          "type": "uint8"
+        },
+        {
+          "name": "feedback",
+          "type": "int8"
+        },
+        {
+          "name": "gain",
+          "type": "int8"
+        },
+        {
+          "name": "rate",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "wave",
+          "type": "uint8"
+        },
+        {
+          "name": "drywet",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl4kbus_conf": {
+      "name": "set_ssl4kbus_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "makeup_gain",
+          "type": "uint8"
+        },
+        {
+          "name": "rate",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "auto_fade",
+          "type": "uint8"
+        },
+        {
+          "name": "sc_filter",
+          "type": "uint8"
+        },
+        {
+          "name": "hr",
+          "type": "uint8"
+        },
+        {
+          "name": "drywet",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl4kstrip_conf": {
+      "name": "set_ssl4kstrip_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "comp_att",
+          "type": "uint8"
+        },
+        {
+          "name": "exp_att",
+          "type": "uint8"
+        },
+        {
+          "name": "exp_gate",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "int8"
+        },
+        {
+          "name": "comp_thres",
+          "type": "uint8"
+        },
+        {
+          "name": "comp_ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "comp_release",
+          "type": "uint8"
+        },
+        {
+          "name": "exp_thres",
+          "type": "uint8"
+        },
+        {
+          "name": "exp_range",
+          "type": "uint8"
+        },
+        {
+          "name": "exp_release",
+          "type": "uint8"
+        },
+        {
+          "name": "lpf_cutfreq",
+          "type": "uint8"
+        },
+        {
+          "name": "hpf_cutfreq",
+          "type": "uint8"
+        },
+        {
+          "name": "dyn_sc",
+          "type": "uint8"
+        },
+        {
+          "name": "pre_dyn",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl_black_conf": {
+      "name": "set_ssl_black_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl_brown_conf": {
+      "name": "set_ssl_brown_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl_orange_conf": {
+      "name": "set_ssl_orange_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_ssl_pink_conf": {
+      "name": "set_ssl_pink_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "lf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_cut",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "hmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "lmf_qual",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_bell",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_gain",
+          "type": "ubyte"
+        },
+        {
+          "name": "lf_freq",
+          "type": "ubyte"
+        },
+        {
+          "name": "level",
+          "type": "byte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_staylevin_conf": {
+      "name": "set_staylevin_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_summit_100a_conf": {
+      "name": "set_summit_100a_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "release",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_telefunken_v76_conf": {
+      "name": "set_telefunken_v76_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        },
+        {
+          "name": "shelf_filter",
+          "type": "uint8"
+        },
+        {
+          "name": "high_pass_filter",
+          "type": "uint8"
+        },
+        {
+          "name": "out_vol",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_tube_176_conf": {
+      "name": "set_tube_176_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "ubyte"
+        },
+        {
+          "name": "ratio",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "release",
+          "type": "ubyte"
+        },
+        {
+          "name": "output",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_tubechild670_conf": {
+      "name": "set_tubechild670_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "time_const",
+          "type": "uint8"
+        },
+        {
+          "name": "output",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_turboensembler_conf": {
+      "name": "set_turboensembler_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "humanize",
+          "type": "uint8"
+        },
+        {
+          "name": "voices",
+          "type": "uint8"
+        },
+        {
+          "name": "delay",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "color",
+          "type": "uint8"
+        },
+        {
+          "name": "colorShifter",
+          "type": "uint8"
+        },
+        {
+          "name": "space",
+          "type": "uint8"
+        },
+        {
+          "name": "feedback",
+          "type": "uint8"
+        },
+        {
+          "name": "presetIndex",
+          "type": "uint8"
+        },
+        {
+          "name": "pan",
+          "type": "uint8"
+        },
+        {
+          "name": "mix",
+          "type": "uint8"
+        },
+        {
+          "name": "gain",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_u473a_conf": {
+      "name": "set_u473a_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "drive",
+          "type": "uint8"
+        },
+        {
+          "name": "basscut",
+          "type": "uint8"
+        },
+        {
+          "name": "deess",
+          "type": "uint8"
+        },
+        {
+          "name": "attack",
+          "type": "uint8"
+        },
+        {
+          "name": "recovery",
+          "type": "uint8"
+        },
+        {
+          "name": "ratio",
+          "type": "uint8"
+        },
+        {
+          "name": "compgain",
+          "type": "uint8"
+        },
+        {
+          "name": "expthresh",
+          "type": "uint8"
+        },
+        {
+          "name": "exprecovery",
+          "type": "uint8"
+        },
+        {
+          "name": "expon",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_uad_1176_conf": {
+      "name": "set_uad_1176_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "ubyte"
+        },
+        {
+          "name": "output",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "release",
+          "type": "ubyte"
+        },
+        {
+          "name": "ratio",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_uad_1178_conf": {
+      "name": "set_uad_1178_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "input",
+          "type": "ubyte"
+        },
+        {
+          "name": "output",
+          "type": "ubyte"
+        },
+        {
+          "name": "attack",
+          "type": "ubyte"
+        },
+        {
+          "name": "release",
+          "type": "ubyte"
+        },
+        {
+          "name": "ratio",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_veq56_conf": {
+      "name": "set_veq56_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "drive",
+          "type": "uint8"
+        },
+        {
+          "name": "b31",
+          "type": "uint8"
+        },
+        {
+          "name": "b63",
+          "type": "uint8"
+        },
+        {
+          "name": "b125",
+          "type": "uint8"
+        },
+        {
+          "name": "b250",
+          "type": "uint8"
+        },
+        {
+          "name": "b500",
+          "type": "uint8"
+        },
+        {
+          "name": "b1K",
+          "type": "uint8"
+        },
+        {
+          "name": "b2K",
+          "type": "uint8"
+        },
+        {
+          "name": "b4K",
+          "type": "uint8"
+        },
+        {
+          "name": "b8K",
+          "type": "uint8"
+        },
+        {
+          "name": "b16K",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_vibrato_conf": {
+      "name": "set_vibrato_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 21,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "uint8"
+        },
+        {
+          "name": "inst_id",
+          "type": "uint8"
+        },
+        {
+          "name": "wave",
+          "type": "uint8"
+        },
+        {
+          "name": "mode",
+          "type": "uint8"
+        },
+        {
+          "name": "rate",
+          "type": "uint8"
+        },
+        {
+          "name": "depth",
+          "type": "uint8"
+        },
+        {
+          "name": "drywet",
+          "type": "uint8"
+        },
+        {
+          "name": "delay",
+          "type": "uint8"
+        },
+        {
+          "name": "rise",
+          "type": "uint8"
+        },
+        {
+          "name": "threshold",
+          "type": "uint8"
+        },
+        {
+          "name": "endfreq",
+          "type": "uint8"
+        }
+      ],
+      "auto_send_notification": true
     }
   }
 }

@@ -4,21 +4,27 @@
 //   AfxType id (0 is empty), `inst` that type's instance. The Quadro has six user chains, read one at a
 //   time with get_afx_strip_order and the chain in ext3; the Studio+ sixteen, read with get_afx_order.
 //   Link byte k pairs chains 2k and 2k+1. Chains are shown, not changed: order writes wait (spec Q4).
-// - Bypass is per instance: set_afx_bypass(instance, type, enabled) with enabled 1 = processing. No read
-//   in scope returns it, so it is unknown until this app sets it. A linked chain's partner follows, as the
-//   panels mirror a link's changes onto the partner's own instances.
+// - Bypass is per instance: set_afx_bypass(instance, type, enabled) with enabled 1 = processing. Only an
+//   effect's own parameter read returns it, so it is unknown until that is read or this app sets it. A
+//   linked chain's partner follows, as the panels mirror a link's changes onto the partner's own instances.
 // - One reverb per device: set_reverb_config carries every field, mixer 0, and density always 100 (the
 //   panels never pass it). The Quadro adds returns into mixes 1-2 (0 full .. 90 lowest, no scale shown)
 //   and sends from mix 1's channels 1-16 (dB of attenuation, 96 = -inf, with a pan).
+// - Parameters are per effect type: its own get and set (store/effect-parameters.ts, generated from both
+//   panels). The Quadro reads one instance, named in `id`; the Studio+ reads every instance of the type at
+//   once. The reply's first field, `enabled`, is the instance's bypass. A change resends every parameter
+//   with the type and instance, as the panels do, and a linked chain's partner gets the same settings on
+//   its own instance at the same slot.
 // Reads are the page's own, so quiet (P63), and kept until forgotten (P80). A dry run reads nothing and
 // counts as read, with the panels' starting values, so the controls still show what they would send.
 // Writes that carry more than the value changed wait for a read: a default must not overwrite the
-// device's reverb.
+// device's reverb or an effect's settings.
 
 import type { Topology } from "gazelle-audio-client";
 
 import { batch, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import { EFFECT_NAMES } from "./effect-catalogue.ts";
+import { EFFECT_PARAMETERS, UNSUPPORTED_EFFECTS, type EffectDescription, type EffectParameter } from "./effect-parameters.ts";
 import { clampPan, PAN_CENTRE } from "./mixer.ts";
 
 /** Effect chains the app shows: the Quadro's AFX IN 1-6 (its AFX2DAW chains belong to the plugin), the Studio+'s 16. */
@@ -103,7 +109,46 @@ export interface EffectsContext {
   family: "quadro" | "studio";
   topology: Topology;
   invoke(command: string, args: Record<string, unknown>, options: { coalesce?: string }): Promise<boolean>;
-  read(command: string, ext3: number | undefined, quiet: boolean): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+  read(command: string, ext3: number | undefined, quiet: boolean, args?: Record<string, unknown>): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+}
+
+/** An effect instance's parameters by field name, in the values the editor shows (signed where the range is). */
+export interface EffectParameterValues {
+  /** False when nothing was read (a dry run): the values are the panel's starting values. */
+  known: boolean;
+  values: Readonly<Record<string, number>>;
+}
+
+const WIRE_BITS = { u8: 8, i8: 8, u16: 16, i16: 16, u32: 32, i32: 32 } as const;
+
+/** A value as the device holds it: a negative value in an unsigned field is its two's complement, as the panel's ctypes field makes it. */
+function toWire(parameter: EffectParameter, value: number): number {
+  return value < 0 && parameter.wire.startsWith("u") ? value + 2 ** WIRE_BITS[parameter.wire] : value;
+}
+
+/** A reply's value as the editor shows it: an unsigned field whose range goes negative reads its byte back as negative. */
+function fromWire(parameter: EffectParameter, raw: number): number {
+  const bits = WIRE_BITS[parameter.wire];
+  return parameter.min !== null && parameter.min < 0 && parameter.wire.startsWith("u") && raw >= 2 ** (bits - 1) ? raw - 2 ** bits : raw;
+}
+
+/** A parameter's value as the panel's code shows it: a menu's or bit's labels, On/Off, or the value (scaled, with its unit) where the code gives one. */
+export function formatParameter(parameter: EffectParameter, value: number): string {
+  switch (parameter.control) {
+    case "menu":
+      return parameter.options?.find(([v]) => v === value)?.[1] ?? String(value);
+    case "bits": {
+      const on = (parameter.options ?? []).filter(([bit]) => (value & bit) !== 0).map(([, text]) => text);
+      return on.length === 0 ? "None" : on.join(" + ");
+    }
+    case "switch":
+      return value === 0 ? "Off" : "On";
+    default: {
+      const shown = parameter.scale === undefined ? value : value / parameter.scale;
+      const text = parameter.decimals === undefined ? String(Math.round(shown * 1000) / 1000) : shown.toFixed(parameter.decimals);
+      return parameter.unit === undefined ? text : `${text} ${parameter.unit}`;
+    }
+  }
 }
 
 type Outcome = "read" | "dry" | "failed";
@@ -125,6 +170,10 @@ export class EffectsModel {
   readonly #needsRead = signal(true);
   #generation = 0;
   #reading: number | undefined;
+  readonly #parameters = new Map<string, Signal<EffectParameterValues | undefined>>();
+  /** The generation each parameter read was made in, by read key (`type:inst` on the Quadro, `type` on the Studio+). */
+  readonly #parametersRead = new Map<string, number>();
+  readonly #parametersReading = new Map<string, Promise<boolean>>();
 
   constructor(context: EffectsContext) {
     this.#context = context;
@@ -262,7 +311,7 @@ export class EffectsModel {
     };
   }
 
-  /** Whether an instance is bypassed, as far as this app knows: undefined until it has set it. */
+  /** Whether an instance is bypassed, as far as this app knows: undefined until its parameters are read or this app sets it. */
   bypass(type: number, inst: number): ReadonlySignal<boolean | undefined> {
     return this.#bypassOf(type, inst);
   }
@@ -369,6 +418,133 @@ export class EffectsModel {
     this.#sends.value = { ...current, entries: current.entries.map((e, i) => (i === channel - 1 ? entry : e)) };
     void this.#context.invoke("set_reverb_send", { mixer_id: 0, channel, level: entry.level, pan: entry.pan, mute: 0, solo: 0 }, { coalesce: `reverb_send:${channel}:${this.deviceId}` });
     return true;
+  }
+
+  /** What the editor knows of an effect type on this model; undefined when it is left out (see `unsupportedReason`). */
+  description(type: number): EffectDescription | undefined {
+    return EFFECT_PARAMETERS[this.family].get(type);
+  }
+
+  /** Why an effect type's parameters are not editable, when they are not. */
+  unsupportedReason(type: number): string | undefined {
+    if (this.description(type) !== undefined) return undefined;
+    return UNSUPPORTED_EFFECTS[this.family].get(type) ?? "Its parameters were not found in the vendor panel's code.";
+  }
+
+  /** An instance's parameters; undefined until read. */
+  parameters(type: number, inst: number): ReadonlySignal<EffectParameterValues | undefined> {
+    return this.#parametersOf(type, inst);
+  }
+
+  #parametersOf(type: number, inst: number): Signal<EffectParameterValues | undefined> {
+    const key = `${type}:${inst}`;
+    let state = this.#parameters.get(key);
+    if (state === undefined) {
+      state = signal<EffectParameterValues | undefined>(undefined);
+      this.#parameters.set(key, state);
+    }
+    return state;
+  }
+
+  /**
+   * Reads an instance's parameters unless read since the last `forget()` (the Studio+'s read covers
+   * every instance of the type). Resolves true when this call read. An effect left out is never read.
+   */
+  readParameters(type: number, inst: number): Promise<boolean> {
+    const description = this.description(type);
+    if (description === undefined) return Promise.resolve(false);
+    const key = description.instanceParam === undefined ? `${type}` : `${type}:${inst}`;
+    const generation = this.#generation;
+    if (this.#parametersRead.get(key) === generation) return Promise.resolve(false);
+    const reading = this.#parametersReading.get(key);
+    if (reading !== undefined) return reading.then(() => false);
+    const read = this.#readParameters(description, inst, key, generation).finally(() => this.#parametersReading.delete(key));
+    this.#parametersReading.set(key, read);
+    return read;
+  }
+
+  async #readParameters(description: EffectDescription, inst: number, key: string, generation: number): Promise<boolean> {
+    const args = description.instanceParam === undefined ? undefined : { [description.instanceParam]: inst };
+    const { response, dryRun } = await this.#context.read(description.get, undefined, true, args);
+    const list = entries(response);
+    if (dryRun) {
+      const values = Object.fromEntries(description.parameters.map((p) => [p.name, p.default ?? 0]));
+      batch(() => {
+        const instances = description.instanceParam === undefined ? Array.from({ length: description.replyCount }, (_, i) => i) : [inst];
+        for (const i of instances) this.#parametersOf(description.type, i).value = { known: false, values };
+      });
+    } else if (list !== undefined) {
+      batch(() => {
+        list.forEach((entry, index) => {
+          const instance = description.instanceParam === undefined ? index : inst;
+          const values = Object.fromEntries(description.parameters.map((p) => [p.name, fromWire(p, Number(entry[p.name] ?? p.default ?? 0))]));
+          this.#parametersOf(description.type, instance).value = { known: true, values };
+          if (entry["enabled"] !== undefined) this.#bypassOf(description.type, instance).value = Number(entry["enabled"]) === 0;
+        });
+      });
+    } else {
+      return true;
+    }
+    if (generation === this.#generation) this.#parametersRead.set(key, generation);
+    return true;
+  }
+
+  /**
+   * Changes one parameter of the effect in a chain's slot, and resends all of them, as the panels do; a
+   * linked chain's partner with the same effect at that slot gets the same settings on its own instance.
+   * Refused (false) until the instance is read, or when the value is not one the control offers.
+   */
+  setParameter(chain: number, position: number, name: string, value: number): boolean {
+    const own = this.#chain(chain);
+    const slot = own.slots.find((s) => s.position === position);
+    if (slot === undefined) throw new RangeError(`AFX IN ${chain + 1} has no effect in slot ${position + 1}`);
+    const description = this.description(slot.type);
+    if (description === undefined) throw new RangeError(`${slot.name}'s parameters are not supported: ${this.unsupportedReason(slot.type)}`);
+    const parameter = description.parameters.find((p) => p.name === name);
+    if (parameter === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
+    if (parameter.control === undefined) throw new RangeError(`${slot.name}'s ${name} is not a control (${parameter.hidden ?? "hidden"})`);
+    const current = this.#parametersOf(slot.type, slot.inst).peek();
+    if (current === undefined) return false;
+    const next = this.#accept(parameter, value);
+    if (next === undefined) return false;
+    const values = { ...current.values, [name]: next };
+    this.#sendParameters(description, slot.inst, { known: current.known, values });
+    const partner = own.linked ? this.#chains.peek()?.[own.partner] : undefined;
+    const mirror = partner?.slots.find((s) => s.position === position && s.type === slot.type);
+    if (mirror !== undefined) this.#sendParameters(description, mirror.inst, { known: current.known, values });
+    return true;
+  }
+
+  /** Sets a parameter back to the panel's starting value. */
+  resetParameter(chain: number, position: number, name: string): boolean {
+    const slot = this.#chain(chain).slots.find((s) => s.position === position);
+    const parameter = slot === undefined ? undefined : this.description(slot.type)?.parameters.find((p) => p.name === name);
+    return this.setParameter(chain, position, name, parameter?.default ?? 0);
+  }
+
+  /** The value a control takes for `value`: clamped and whole for a range, one of a menu's values, only a mask's bits. */
+  #accept(parameter: EffectParameter, value: number): number | undefined {
+    if (!Number.isFinite(value)) return undefined;
+    switch (parameter.control) {
+      case "menu":
+        return parameter.options?.some(([v]) => v === value) ? value : undefined;
+      case "bits":
+        return Math.round(value) & (parameter.options ?? []).reduce((mask, [bit]) => mask | bit, 0);
+      default:
+        return Math.min(parameter.max ?? value, Math.max(parameter.min ?? value, Math.round(value)));
+    }
+  }
+
+  #sendParameters(description: EffectDescription, inst: number, next: EffectParameterValues): void {
+    const state = this.#parametersOf(description.type, inst);
+    const before = state.peek();
+    state.value = next;
+    const args: Record<string, number> = { type_id: description.type, inst_id: inst };
+    for (const parameter of description.parameters) args[parameter.name] = toWire(parameter, next.values[parameter.name] ?? parameter.default ?? 0);
+    void this.#context.invoke(description.set, args, { coalesce: `afx_params:${description.type}:${inst}:${this.deviceId}` }).then((sent) => {
+      // Not sent: what was known before is all that is known.
+      if (!sent && state.peek() === next) state.value = before;
+    });
   }
 
   #checkQuadro(what: string): void {

@@ -291,8 +291,8 @@ async fn devices_enumerate_with_their_models() {
     // Command counts differ by model: this is the multi-device property in one assertion.
     for d in devices {
         let expected = match d["slug"].as_str().unwrap() {
-            "zenquadrosc_usb2" => 63,
-            "zenstudiotb" => 43,
+            "zenquadrosc_usb2" => 199,
+            "zenstudiotb" => 115,
             other => panic!("unexpected slug {other}"),
         };
         assert_eq!(d["command_count"], expected, "for {}", d["slug"]);
@@ -310,7 +310,7 @@ async fn unknown_device_is_404_with_a_code() {
 async fn device_commands_are_introspectable() {
     let (status, body) = get(app(), "/api/v1/devices/loopback-0/commands").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["count"], 63);
+    assert_eq!(body["count"], 199);
     assert_eq!(body["slug"], "zenquadrosc_usb2");
 
     let set_mixer = body["commands"]
@@ -866,7 +866,7 @@ async fn all_commands_lists_every_model() {
     let models = body["models"].as_array().unwrap();
     assert_eq!(models.len(), 2);
     let total: usize = models.iter().map(|m| m["count"].as_u64().unwrap() as usize).sum();
-    assert_eq!(total, 63 + 43);
+    assert_eq!(total, 199 + 115);
 }
 
 /// `set_routing` accepts its 32 routing pairs as an array of pairs, producing exactly the bytes

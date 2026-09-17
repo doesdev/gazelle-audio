@@ -378,6 +378,58 @@ def build(rf, name):
 #: Commands whose reply `count` could not be resolved, so their returns stay one element.
 UNRESOLVED_REPLY_COUNTS = []
 
+# Effect parameters (`--afx`). Each effect type has its own set and get; `afx_parameters.py` reads
+# them from the panels' bytecode into `refs/schemas/afx_parameters.json`, which says which to add and
+# what the report format alone cannot: the read's `ext3` as the panel sends it (the Quadro sets bit 31
+# and names the instance in `id`; the Studio+ format's `constants.AfxType` members resolve to stubs
+# here), the reply count (`<Class>.max_instances` on the Studio+), and the panel's starting values,
+# which go on the reply's fields as `default` so a loopback can answer a read with them.
+AFX_FAMILIES = {"zenquadrosc_usb2": "quadro", "zenstudiotb": "studio"}
+WIRE_BITS = {"u8": 8, "i8": 8, "u16": 16, "i16": 16, "u32": 32, "i32": 32}
+
+
+def afx_effects(path, device):
+    """The effects `afx_parameters.json` lists for a device: {command name: effect}."""
+    with open(path, "r", encoding="utf-8") as f:
+        doc = json.load(f)
+    effects = {}
+    for effect in doc[AFX_FAMILIES[device]]["effects"]:
+        effects[effect["set"]] = effect
+        effects[effect["get"]] = effect
+    return effects
+
+
+def wire_default(parameter):
+    """A parameter's default as the device holds it; a negative value in an unsigned field is its
+    two's complement (the panel assigns it to a ctypes unsigned field)."""
+    value = parameter.get("default")
+    if value is None:
+        return None
+    if value < 0 and parameter["wire"].startswith("u"):
+        value += 1 << WIRE_BITS[parameter["wire"]]
+    return value
+
+
+def apply_afx_get(entry, request, effect):
+    """Give an effect read its panel's `ext3`, its reply count, and the reply fields' defaults."""
+    entry["ext3"] = effect["get_ext3"]
+    defaults = {p["name"]: wire_default(p) for p in effect["parameters"]}
+    defaults["enabled"] = 1  # an effect starts processing (`_defaults['bp'] = 0`)
+    fields = [list(f)[:2] for f in request["returns"]["fields"]]
+    if any(len(list(f)) > 2 for f in request["returns"]["fields"]):
+        raise SystemExit("%s: a reply field has a bit width or default already" % entry["name"])
+    counted = {"fields": fields, "count": effect["reply_count"]}
+    returns = norm_fields([["entries", counted]])
+    # Sized from the plain layout above; the defaults ride in the same type in field-object form.
+    counted["fields"] = [
+        {"name": n, "type": t, "default": defaults[n]} if defaults.get(n) is not None else {"name": n, "type": t}
+        for n, t in fields
+    ]
+    returns[0]["type"] = json.dumps(counted)
+    entry["returns"] = returns
+    if entry["name"] in UNRESOLVED_REPLY_COUNTS:
+        UNRESOLVED_REPLY_COUNTS.remove(entry["name"])
+
 def main():
     ap = argparse.ArgumentParser(description="Extract a device's in-scope command layouts.")
     ap.add_argument("report_format")
@@ -385,9 +437,14 @@ def main():
     ap.add_argument("blob_dir", nargs="?",
                     help="raw bytecode blobs, to resolve constants whose module was never decompiled")
     ap.add_argument("--device", required=True, choices=sorted(SCOPES))
+    ap.add_argument("--afx", help="refs/schemas/afx_parameters.json: add each listed effect's parameter commands")
     args = ap.parse_args()
     path, out, blob_dir = args.report_format, args.out, args.blob_dir
     scope_label, scope = SCOPES[args.device]
+    effects = afx_effects(args.afx, args.device) if args.afx else {}
+    if effects:
+        scope = scope + sorted(effects)
+        scope_label = "%s + effect parameters(%d)" % (scope_label, len(effects))
     rf = load_report_format(path, blob_dir)
     result = {}
     missing = []
@@ -396,6 +453,8 @@ def main():
         if e is None:
             missing.append(name)
         else:
+            if name in effects and name == effects[name]["get"]:
+                apply_afx_get(e, find_request(rf, name), effects[name])
             result[name] = e
     # An unresolved constant only matters if it left a zero-length array in an
     # IN-SCOPE command. AFX model constants (Altec436C.max_instances etc.) appear
@@ -433,7 +492,7 @@ def main():
         "missing": missing,
         "commands": result,
     }
-    with open(out, "w", encoding="utf-8") as f:
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
         # Unresolved constants collapse to 0 here too (sizes as well as counts);
         # they are surfaced via unresolved_constants / in_scope_zero_counts.
         json.dump(doc, f, indent=2, default=lambda o: 0)

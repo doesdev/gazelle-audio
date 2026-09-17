@@ -17,6 +17,8 @@ see `.agent/reference/decompilation.md` for the full pipeline.
 | Extract command field layouts | `extract_field_layouts.py` | no |
 | Compare two panels' command sets | `extract_commands.py` | no |
 | Disassemble a function uncompyle6 could not render | `pyc_dis.py` | **no** |
+| Read class attributes and literals (an effect's `description`, a widget's range) from bytecode | `bytecode_eval.py` | **no** |
+| Effect parameter commands and editor metadata, both panels (`afx_parameters.json`, then `extract_field_layouts.py --afx`) | `afx_parameters.py` | **no** |
 | Recover full statements as source | `decompile_panel.py` → `decompile_one.py` | yes |
 
 Only the last row needs a legacy interpreter. Everything else runs on any modern Python,
