@@ -156,6 +156,37 @@ test("the devices a surface shows are listed in strip order, and each has a badg
   assert.equal(surfaces.deviceColor("loopback-1"), palette[4]);
 });
 
+test("the mixer dock shows the device in view or a surface, remembered per browser, and the device again once that surface is gone", async () => {
+  const storage = new MemoryStorage();
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const open = async () => {
+    const store = new Store(client, { timers: new ManualTimers(), storage, requestFrame: (callback) => callback(), themeSources: builtInThemes });
+    await store.start();
+    return store;
+  };
+  const store = await open();
+  assert.equal(store.mixerDockSurface.value, undefined, "the device in view until a surface is chosen");
+  const id = store.surfaces.create("Cue") as string;
+  assert.equal(store.setMixerDockSurface("nope"), false, "only a surface that exists");
+  assert.equal(store.mixerDockSurface.value, undefined);
+  assert.equal(store.setMixerDockSurface(id), true);
+  assert.equal(store.mixerDockSurface.value, id);
+  assert.equal(storage.items.get("gazelle.layout.mixerDockSurface"), JSON.stringify(id));
+
+  // Another browser tab, or a reload, finds the same choice once the workspace has loaded.
+  client.stored = structuredClone(store.workspace.value!);
+  const later = await open();
+  assert.equal(later.mixerDockSurface.value, id);
+
+  // A surface deleted (here or elsewhere) hands the dock back to the device in view.
+  store.surfaces.remove(id);
+  assert.equal(store.mixerDockSurface.value, undefined);
+  assert.equal(store.setMixerDockSurface(undefined), true);
+  assert.equal(storage.items.get("gazelle.layout.mixerDockSurface"), "null");
+  storage.items.set("gazelle.layout.mixerDockSurface", JSON.stringify(42));
+  assert.equal((await open()).mixerDockSurface.value, undefined, "a stored value that is not an id is ignored");
+});
+
 test("without a connection nothing is edited", async () => {
   const { client, store } = setup();
   await store.start();

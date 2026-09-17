@@ -235,6 +235,61 @@ test("each device's strips follow that device's mix on the surface, a pinned str
   expect(writes(frames).map((f) => f.command)).toEqual(["set_mixer", "set_pre_gain", "set_mute"]);
 });
 
+test("the mixer dock can show a surface instead of the device in view, with each strip's badge, until the surface is gone", async ({ page }) => {
+  const frames = recordFrames(page);
+  const strips = [
+    { id: "vox", kind: "channel", device_id: "loopback-0", channel: "vox" },
+    { id: "cue", kind: "master", device_id: "loopback-0", mix: 1 },
+    { id: "pre", kind: "input", device_id: "loopback-1", input: { kind: "preamp", channel: 0 } },
+  ];
+  await putWorkspace(server, { mixers: MIXERS, surfaces: [{ id: "s", name: "Cue rig", mixes: {}, strips }, { id: "t", name: "Other", mixes: {}, strips: [] }] });
+  // On the Studio+'s Inputs page the dock starts on that device.
+  await page.goto(`${server.url}/#/inputs/loopback-1`);
+  const dock = page.locator("ga-mixer-dock");
+  const source = dock.getByTestId("dock-source-select");
+  await expect(dock.locator('ga-strip[strip="0"]')).toHaveAttribute("device-id", "loopback-1");
+  await expect(source).toHaveValue("");
+  expect(await source.locator("option").allTextContents()).toEqual(["This device", "Cue rig", "Other"]);
+
+  await source.selectOption({ label: "Cue rig" });
+  await expect(dock.locator("ga-surface-strip")).toHaveCount(3);
+  await expect(dock.locator("ga-surface-strip").first()).toHaveAttribute("compact", "");
+  await expect(dock.getByTestId("dock-mix-select"), "the surface keeps its own mixes").toBeHidden();
+  await expect(dock.locator(".device")).toHaveText("Cue rig");
+  await expect(dock.locator('ga-surface-strip[strip-id="vox"]').getByTestId("device-badge")).toHaveText("Zen Quadro Synergy Core");
+  await expect(dock.locator('ga-surface-strip[strip-id="pre"]').getByTestId("device-badge")).toHaveText("Zen Studio+");
+  await expect(dock.locator('ga-surface-strip[strip-id="vox"] ga-strip')).toHaveAttribute("compact", "");
+  await expect(dock.locator('ga-surface-strip[strip-id="cue"] ga-strip')).toHaveAttribute("mixer", "1");
+
+  // The Quadro's Vox fader, from the Studio+'s page.
+  const fader = dock.locator('ga-surface-strip[strip-id="vox"]').getByTestId("fader-6");
+  await fader.focus();
+  await fader.press("PageDown");
+  await expect.poll(() => writes(frames).at(-1)).toMatchObject({ device_id: "loopback-0", command: "set_mixer", args: { mixer_id: 0, channel: 7, level: 6 } });
+
+  // Kept across a reload; hidden on that surface's own page, and shown on the Mixer page.
+  await page.reload();
+  await expect(dock.locator("ga-surface-strip")).toHaveCount(3);
+  await page.goto(`${server.url}/#/surface/s`);
+  await expect(page.locator("ga-surface .slot")).toHaveCount(3);
+  await expect(dock).toBeHidden();
+  await expect(dock.locator("ga-surface-strip"), "nothing is built for it there").toHaveCount(0);
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(dock).toBeVisible();
+  await expect(dock.locator("ga-surface-strip")).toHaveCount(3);
+  // An empty surface says so and links to it.
+  await source.selectOption({ label: "Other" });
+  await expect(dock.getByText("Other has no strips yet.")).toBeVisible();
+  await source.selectOption({ label: "Cue rig" });
+
+  // Deleted (here by another client, so the page reloads), the surface hands the dock back to the device in view.
+  await putWorkspace(server, { mixers: MIXERS });
+  await page.goto(`${server.url}/#/inputs/loopback-1`);
+  await page.reload();
+  await expect(dock.locator('ga-strip[strip="0"]')).toHaveAttribute("device-id", "loopback-1");
+  await expect(source).toHaveValue("");
+});
+
 test("a surface fits a phone: the page does not scroll sideways, the strips do", async ({ page }) => {
   const strips = [
     { id: "a", kind: "input", device_id: "loopback-1", input: { kind: "preamp", channel: 0 } },
