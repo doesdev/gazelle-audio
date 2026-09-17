@@ -292,7 +292,7 @@ async fn devices_enumerate_with_their_models() {
     for d in devices {
         let expected = match d["slug"].as_str().unwrap() {
             "zenquadrosc_usb2" => 199,
-            "zenstudiotb" => 115,
+            "zenstudiotb" => 117,
             other => panic!("unexpected slug {other}"),
         };
         assert_eq!(d["command_count"], expected, "for {}", d["slug"]);
@@ -866,7 +866,7 @@ async fn all_commands_lists_every_model() {
     let models = body["models"].as_array().unwrap();
     assert_eq!(models.len(), 2);
     let total: usize = models.iter().map(|m| m["count"].as_u64().unwrap() as usize).sum();
-    assert_eq!(total, 199 + 115);
+    assert_eq!(total, 199 + 117);
 }
 
 /// `set_routing` accepts its 32 routing pairs as an array of pairs, producing exactly the bytes

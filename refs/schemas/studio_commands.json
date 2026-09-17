@@ -475,8 +475,8 @@
   ],
   "report_version": null,
   "authoritative": true,
-  "scope": "intersection(35) + studio-only mix/monitoring(8) + effect parameters(72)",
-  "count": 115,
+  "scope": "intersection(35) + studio-only mix/monitoring(8) + effect parameters(74)",
+  "count": 117,
   "missing": [],
   "commands": {
     "get_adats_links": {
@@ -1422,6 +1422,21 @@
         }
       ]
     },
+    "get_eq_configs": {
+      "name": "get_eq_configs",
+      "report_id": "0x74",
+      "ext2": 7,
+      "ext3": 1,
+      "payload_id": null,
+      "params": [],
+      "returns": [
+        {
+          "name": "entries",
+          "type": "{\"fields\": [{\"name\": \"biquads\", \"type\": {\"fields\": [[\"freq\", \"uint16\"], [\"qual\", \"uint16\"], [\"gain\", \"int16\"], [\"ftype\", \"uint8\"]], \"count\": 5}}, {\"name\": \"enabled\", \"type\": \"uint8\", \"default\": 1}], \"count\": 8}",
+          "size": 288
+        }
+      ]
+    },
     "get_guitar_amp_configs": {
       "name": "get_guitar_amp_configs",
       "report_id": "0x74",
@@ -2166,6 +2181,44 @@
         },
         {
           "name": "linked",
+          "type": "ubyte"
+        }
+      ],
+      "auto_send_notification": true
+    },
+    "set_eq_conf": {
+      "name": "set_eq_conf",
+      "report_id": "0x70",
+      "ext2": 0,
+      "ext3": 0,
+      "payload_id": 20,
+      "params": [
+        {
+          "name": "type_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "inst_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "strip_id",
+          "type": "ubyte"
+        },
+        {
+          "name": "freq",
+          "type": "uint16"
+        },
+        {
+          "name": "qual",
+          "type": "uint16"
+        },
+        {
+          "name": "gain",
+          "type": "int16"
+        },
+        {
+          "name": "ftype",
           "type": "ubyte"
         }
       ],

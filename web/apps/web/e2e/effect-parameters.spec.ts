@@ -23,15 +23,26 @@ test.afterAll(async () => {
 });
 
 const slots = (...effects: [number, number][]) => Array.from({ length: 8 }, (_, i) => ({ type: effects[i]?.[0] ?? 0, inst: effects[i]?.[1] ?? 0 }));
-/** AFX IN 1 and 2 linked, each a PowerGate then a PowerFFC; AFX IN 3 a FET-A76 and a Brainiac; AFX IN 4 a ClearQ. */
-const QUADRO_CHAINS: Record<number, [number, number][]> = { 0: [[39, 2], [2, 0]], 1: [[39, 3], [2, 1]], 2: [[9, 0], [85, 1]], 3: [[1, 0]] };
+/** AFX IN 1 and 2 linked, each a PowerGate then a PowerFFC; AFX IN 3 a FET-A76 and a Brainiac; AFX IN 4 a ClearQ; AFX IN 5 a Guitar Amp. */
+const QUADRO_CHAINS: Record<number, [number, number][]> = { 0: [[39, 2], [2, 0]], 1: [[39, 3], [2, 1]], 2: [[9, 0], [85, 1]], 3: [[1, 0]], 4: [[3, 1]] };
 
 type Frame = { id?: number; device_id?: string; command?: string; ext3?: number; args?: Record<string, number> };
 
 const gate = { enabled: 1, threshold: 60, range: 4, attack: 250, decay: 80, hold: 1200, gain: 244 };
+/** A Darkface 65 whose other settings hold values it does not use (the switches another model left). */
+const amp = { enabled: 1, model: 0, gain: 70, bass: 62, mid: 63, midfreq: 9, treble: 68, density: 4, presence: 50, volume: 89, boost: 12, mode1: 1, mode2: 1, mode3: 0, mode4: 1, mode5: 0, level: -6 };
+
+/** Studio+ Equalizer bands as a reply carries them, instance i's band 1 frequency telling them apart. */
+const eqBands = (inst: number) => [
+  { freq: 80, qual: 0, gain: 0, ftype: 4 },
+  { freq: 200 + inst, qual: 70, gain: -300, ftype: 2 },
+  { freq: 2000, qual: 120, gain: 250, ftype: 2 },
+  { freq: 6000, qual: 50, gain: 0, ftype: 2 },
+  { freq: 12000, qual: 0, gain: 400, ftype: 1 },
+];
 
 /** Answers loopback-0's (Quadro) and loopback-1's (Studio+) reads as a device would; returns every frame the page sends. */
-async function answerReads(page: Page): Promise<Frame[]> {
+async function answerReads(page: Page, hold: { eqPart1?: Promise<void> } = {}): Promise<Frame[]> {
   const sent: Frame[] = [];
   const replies: Record<string, (frame: Frame) => unknown> = {
     "loopback-0|get_afx_strip_order": (frame) => ({ entries: [{ slots: slots(...(QUADRO_CHAINS[frame.ext3 ?? -1] ?? [])) }] }),
@@ -42,10 +53,13 @@ async function answerReads(page: Page): Promise<Frame[]> {
     "loopback-0|get_powergate_conf": (frame) => ({ entries: [{ ...gate, enabled: frame.args?.["id"] === 3 ? 0 : 1 }] }),
     "loopback-0|get_compressor_configs": () => ({ entries: [{ enabled: 1, attack: 12500, release: 10000, taw: 65535, ratio: 400, gain: 150, ctrl: 0, threshold: 24, knee: 0, linked: 0 }] }),
     "loopback-0|get_uad_1176_conf": () => ({ entries: [{ enabled: 1, input: 35, output: 46, attack: 78, release: 21, ratio: 1 }] }),
+    "loopback-0|get_guitar_amp_configs": () => ({ entries: [amp] }),
     "loopback-0|get_Brainiac_conf": () => ({ entries: [{ enabled: 1, release: 0, attack: 0, range: 0, ratio: 8, thresh: 0, linlog: 0, mode: 0, sideSource: 7, sideChanN: 3 }] }),
-    "loopback-1|get_afx_order": () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: i === 0 ? slots([39, 7]) : slots() })) }),
+    "loopback-1|get_afx_order": () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: i === 0 ? slots([39, 7]) : i === 1 ? slots([3, 2]) : i === 2 ? slots([1, 9]) : slots() })) }),
+    "loopback-1|get_eq_configs": (frame) => ({ entries: Array.from({ length: 8 }, (_, k) => ({ biquads: eqBands((frame.ext3 ?? 0) * 8 + k), enabled: 1 })) }),
     "loopback-1|get_afx_links": () => ({ entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }),
     "loopback-1|get_reverb_config": () => ({ mixer_id: 0, room_size: 0, color: 0, predelay: 0, density: 100, early_ref_gain: 0, late_ref_delay: 0, richness: 0, reverb_time: 0, reverb_level: 25, on: 1 }),
+    "loopback-1|get_guitar_amp_configs": () => ({ entries: Array.from({ length: 4 }, (_, i) => ({ ...amp, model: i === 2 ? 6 : 0 })) }),
     "loopback-1|get_powergate_configs": () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ ...gate, threshold: 100 + i, gain: -6, linked: 0 })) }),
   };
   await page.routeWebSocket(/\/ws$/, (socket) => {
@@ -55,6 +69,10 @@ async function answerReads(page: Page): Promise<Frame[]> {
       sent.push(frame);
       const reply = replies[`${frame.device_id}|${frame.command}`];
       if (reply === undefined) return upstream.send(message);
+      if (frame.command === "get_eq_configs" && frame.ext3 === 1 && hold.eqPart1 !== undefined) {
+        void hold.eqPart1.then(() => socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response: reply(frame), response_error: null } })));
+        return;
+      }
       socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response: reply(frame), response_error: null } }));
     });
   });
@@ -184,6 +202,106 @@ test("the Studio+ reads every instance of the type at once and addresses the one
   const args = { type_id: 39, inst_id: 7, threshold: 106, range: 4, attack: 250, decay: 80, hold: 1200, gain: -6 };
   await expect.poll(() => of(sent, "set_powergate_conf")()).toEqual([args]);
   await expect(lastSent(page)).toContainText(await wouldSend("loopback-1", "set_powergate_conf", args));
+});
+
+test("the Guitar Amp shows the chosen model's knobs and switches, and a model change swaps them", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  await page.getByTestId("edit-4-0").click();
+  const editor = page.getByTestId("effect-editor");
+  const bright = page.getByTestId("param-mode1");
+  await expect(bright).toHaveAttribute("aria-pressed", "true");
+  await expect(editor.locator(".param .label")).toHaveText(["Model", "Bass", "Mid", "Treble", "Volume", "Bright (mode 1)", "Level"]);
+  await expect(page.getByTestId("param-gain")).toHaveCount(0);
+  await expect(page.getByTestId("editor-note")).toContainText("amp model does not use");
+
+  await bright.click();
+  await expect(bright).toHaveAttribute("aria-pressed", "false");
+  const settings = { type_id: 3, inst_id: 1, model: 0, gain: 70, bass: 62, mid: 63, midfreq: 9, treble: 68, density: 4, presence: 50, volume: 89, boost: 12, mode1: 0, mode2: 1, mode3: 0, mode4: 1, mode5: 0, level: -6 };
+  await expect.poll(of(sent, "set_guitar_amp_conf")).toEqual([settings]);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_guitar_amp_conf", settings));
+
+  // Modern CH3: a gain and presence knob and a three-way switch; the model is all that changes on the wire.
+  await page.getByTestId("param-model").selectOption({ label: "Modern (US) CH3" });
+  await expect(editor.locator(".param .label")).toHaveText(["Model", "Gain", "Bass", "Mid", "Treble", "Presence", "Volume", "Mode 1", "Level"]);
+  await expect.poll(() => of(sent, "set_guitar_amp_conf")().at(-1)).toEqual({ ...settings, model: 2 });
+  const mode = page.getByTestId("param-mode1");
+  await expect(mode).toHaveValue("0");
+  await mode.selectOption({ label: "Modern" });
+  await expect.poll(() => of(sent, "set_guitar_amp_conf")().at(-1)).toEqual({ ...settings, model: 2, mode1: 2 });
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_guitar_amp_conf", { ...settings, model: 2, mode1: 2 }));
+  const gain = page.getByTestId("param-gain");
+  await gain.focus();
+  await gain.press("ArrowUp");
+  await expect.poll(() => of(sent, "set_guitar_amp_conf")().at(-1)).toEqual({ ...settings, model: 2, mode1: 2, gain: 71 });
+});
+
+test("the Studio+ Guitar Amp offers its ten models and lays out Marcus II's four switches", async ({ page }) => {
+  const sent = await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-1`);
+  await page.getByTestId("edit-1-0").click();
+  await expect(page.getByTestId("param-model").locator("option")).toHaveCount(10);
+  await expect(page.getByTestId("param-model")).toHaveValue("6");
+  const labels = page.getByTestId("effect-editor").locator(".param .label");
+  await expect(labels).toHaveText(["Model", "Gain", "Bass", "Mid", "Treble", "Volume", "Boost", "Shift (mode 2)", "Shift (mode 3)", "Mode 4", "Mode 5", "Level"]);
+  await expect(page.getByTestId("param-mode4")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("param-mode5").click();
+  const settings = { type_id: 3, inst_id: 2, model: 6, gain: 70, bass: 62, mid: 63, midfreq: 9, treble: 68, density: 4, presence: 50, volume: 89, boost: 12, mode1: 1, mode2: 1, mode3: 0, mode4: 1, mode5: 1, level: -6 };
+  await expect.poll(of(sent, "set_guitar_amp_conf")).toEqual([settings]);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-1", "set_guitar_amp_conf", settings));
+});
+
+test("the Studio+ Equalizer reads both parts before a write, then sends one band per change", async ({ page }) => {
+  let release = () => {};
+  const eqPart1 = new Promise<void>((resolve) => (release = resolve));
+  const sent = await answerReads(page, { eqPart1 });
+  await page.goto(`${server.url}/#/effects/loopback-1`);
+  await page.getByTestId("edit-2-0").click();
+  const editor = page.getByTestId("effect-editor");
+  await expect(editor.getByRole("heading", { level: 2 })).toContainText("Equalizer #10");
+  await expect.poll(() => sent.filter((f) => f.command === "get_eq_configs").map((f) => f.ext3)).toEqual([0, 1]);
+
+  // Part 0 answered, part 1 held: nothing is shown or sent yet.
+  const gain = page.getByTestId("param-gain-1");
+  await expect(gain).toHaveAttribute("aria-disabled", "true");
+  await gain.focus();
+  await gain.press("ArrowUp");
+  await expect(page.getByTestId("editor-note")).toContainText("Reading the settings");
+  release();
+
+  await expect(page.getByTestId("param-freq-1")).toHaveAttribute("aria-valuetext", "209");
+  await expect(gain).toHaveAttribute("aria-valuetext", "-3");
+  await expect(page.getByTestId("param-qual-2")).toHaveAttribute("aria-valuetext", "1.20");
+  await expect(page.getByTestId("param-freq-4")).toHaveAttribute("aria-valuetext", "12k");
+  await expect(page.getByTestId("param-ftype-0")).toHaveValue("4");
+  await expect(page.getByTestId("param-gain-0")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("param-qual-0")).toHaveCount(0);
+  await expect(page.getByTestId("param-ftype-2")).toHaveCount(0);
+  await expect(editor.locator(".band")).toHaveCount(5);
+  expect(sent.filter((f) => f.command === "set_eq_conf"), "no write before both parts were read").toHaveLength(0);
+
+  await gain.focus();
+  await gain.press("ArrowUp");
+  await expect(gain).toHaveAttribute("aria-valuetext", "-2.99");
+  const band1 = { type_id: 1, inst_id: 9, strip_id: 1, freq: 209, qual: 70, gain: -299, ftype: 2 };
+  await expect.poll(of(sent, "set_eq_conf")).toEqual([band1]);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-1", "set_eq_conf", band1));
+
+  const freq = page.getByTestId("param-freq-3");
+  await freq.focus();
+  await freq.press("Home");
+  await expect(freq).toHaveAttribute("aria-valuetext", "400");
+  const band3 = { type_id: 1, inst_id: 9, strip_id: 3, freq: 400, qual: 50, gain: 0, ftype: 2 };
+  await expect.poll(of(sent, "set_eq_conf")).toEqual([band1, band3]);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-1", "set_eq_conf", band3));
+
+  // The high band as a low-pass filter: its gain goes out as 0 and stays off.
+  await page.getByTestId("param-ftype-4").selectOption({ label: "Low-pass" });
+  const band4 = { type_id: 1, inst_id: 9, strip_id: 4, freq: 12000, qual: 0, gain: 0, ftype: 3 };
+  await expect.poll(() => of(sent, "set_eq_conf")().at(-1)).toEqual(band4);
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-1", "set_eq_conf", band4));
+  await expect(page.getByTestId("param-gain-4")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("param-gain-4")).toHaveAttribute("aria-valuetext", "0");
 });
 
 test.describe("on a phone", () => {

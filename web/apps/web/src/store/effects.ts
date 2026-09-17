@@ -12,9 +12,10 @@
 //   and sends from mix 1's channels 1-16 (dB of attenuation, 96 = -inf, with a pan).
 // - Parameters are per effect type: its own get and set (store/effect-parameters.ts, generated from both
 //   panels). The Quadro reads one instance, named in `id`; the Studio+ reads every instance of the type at
-//   once. The reply's first field, `enabled`, is the instance's bypass. A change resends every parameter
-//   with the type and instance, as the panels do, and a linked chain's partner gets the same settings on
-//   its own instance at the same slot.
+//   once. The reply's `enabled` is the instance's bypass. A change resends every parameter with the type and
+//   instance, as the panels do, and a linked chain's partner gets the same settings on its own instance at
+//   the same slot. The Studio+ Equalizer is the exception: it is read in two parts (ext3 0 and 1, eight
+//   instances each), both before any write, and set one band per command, coalesced per band.
 // Reads are the page's own, so quiet (P63), and kept until forgotten (P80). A dry run reads nothing and
 // counts as read, with the panels' starting values, so the controls still show what they would send.
 // Writes that carry more than the value changed wait for a read: a default must not overwrite the
@@ -121,6 +122,11 @@ export interface EffectParameterValues {
 
 const WIRE_BITS = { u8: 8, i8: 8, u16: 16, i16: 16, u32: 32, i32: 32 } as const;
 
+/** The key of a band's parameter in an effect's values (the Studio+ Equalizer's `gain` of band 2 is `gain.2`). */
+export function bandKey(name: string, band: number): string {
+  return `${name}.${band}`;
+}
+
 /** A value as the device holds it: a negative value in an unsigned field is its two's complement, as the panel's ctypes field makes it. */
 function toWire(parameter: EffectParameter, value: number): number {
   return value < 0 && parameter.wire.startsWith("u") ? value + 2 ** WIRE_BITS[parameter.wire] : value;
@@ -144,11 +150,59 @@ export function formatParameter(parameter: EffectParameter, value: number): stri
     case "switch":
       return value === 0 ? "Off" : "On";
     default: {
+      // The panel's frequency display: value / 1000 to one decimal above 1000, dropping ".0" (5k). Python's
+      // format and toFixed agree on the float's exact value except at an exact half (11250 / 1000 is 11.25
+      // exactly), which Python rounds to even (11.2k) and toFixed up.
+      if (parameter.kilo === true && value > 1000) {
+        const down = Math.floor(value / 100);
+        const text = value % 500 === 250 ? ((down + (down % 2)) / 10).toFixed(1) : (value / 1000).toFixed(1);
+        return `${text.replace(/[.]0$/, "")}k`;
+      }
       const shown = parameter.scale === undefined ? value : value / parameter.scale;
       const text = parameter.decimals === undefined ? String(Math.round(shown * 1000) / 1000) : shown.toFixed(parameter.decimals);
       return parameter.unit === undefined ? text : `${text} ${parameter.unit}`;
     }
   }
+}
+
+/**
+ * The parameters an effect shows controls for, given its values, in the set command's order. Where the
+ * controls depend on a value (the Guitar Amp's model, whose panel has one view per model), only the chosen
+ * layout's are shown, with what that layout makes of them (a switch's name and positions); a field no
+ * layout of this value lists has no control and goes back as read. Hidden fields are never shown.
+ */
+export function shownParameters(description: EffectDescription, values: Readonly<Record<string, number>>): EffectParameter[] {
+  const layouts = description.layouts;
+  const chosen = layouts === undefined ? undefined : layouts.models.get(values[layouts.by] ?? description.parameters.find((p) => p.name === layouts.by)?.default ?? -1);
+  return description.parameters.flatMap((parameter): EffectParameter[] => {
+    if (layouts === undefined || !layouts.fields.includes(parameter.name)) return parameter.control === undefined ? [] : [parameter];
+    const control = chosen?.find((c) => c.name === parameter.name);
+    if (control === undefined) return [];
+    const { hidden: _hidden, ...shown } = parameter;
+    const merged: EffectParameter = { ...shown, ...control };
+    return merged.control === undefined ? [] : [merged];
+  });
+}
+
+/** An effect's starting values as the panel's code gives them, band by band where it has bands. */
+function startingValues(description: EffectDescription): Record<string, number> {
+  const values: Record<string, number> = Object.fromEntries(description.parameters.map((p) => [p.name, p.default ?? 0]));
+  description.bands?.bands.forEach((band, b) => band.forEach((p) => (values[bandKey(p.name, b)] = p.default ?? 0)));
+  return values;
+}
+
+/** One reply entry's values: each parameter, and each band's from the entry's list of bands. */
+function readValues(description: EffectDescription, entry: Record<string, unknown>): Record<string, number> {
+  const values: Record<string, number> = Object.fromEntries(description.parameters.map((p) => [p.name, fromWire(p, Number(entry[p.name] ?? p.default ?? 0))]));
+  const bands = description.bands;
+  if (bands !== undefined) {
+    const list = entry[bands.list];
+    bands.bands.forEach((band, b) => {
+      const read = Array.isArray(list) ? (list[b] as Record<string, unknown> | undefined) : undefined;
+      for (const p of band) values[bandKey(p.name, b)] = fromWire(p, Number(read?.[p.name] ?? p.default ?? 0));
+    });
+  }
+  return values;
 }
 
 type Outcome = "read" | "dry" | "failed";
@@ -465,22 +519,25 @@ export class EffectsModel {
 
   async #readParameters(description: EffectDescription, inst: number, key: string, generation: number): Promise<boolean> {
     const args = description.instanceParam === undefined ? undefined : { [description.instanceParam]: inst };
-    const { response, dryRun } = await this.#context.read(description.get, undefined, true, args);
-    const list = entries(response);
-    if (dryRun) {
-      const values = Object.fromEntries(description.parameters.map((p) => [p.name, p.default ?? 0]));
+    // A read in parts names the part in ext3 (the Studio+ Equalizer); every part is read before any is taken.
+    const parts = description.readParts;
+    const reads = await Promise.all(Array.from({ length: parts ?? 1 }, (_, part) => this.#context.read(description.get, parts === undefined ? undefined : part, true, args)));
+    const lists = reads.map((read) => entries(read.response));
+    if (reads.some((read) => read.dryRun)) {
+      const values = startingValues(description);
       batch(() => {
-        const instances = description.instanceParam === undefined ? Array.from({ length: description.replyCount }, (_, i) => i) : [inst];
+        const instances = description.instanceParam === undefined ? Array.from({ length: description.replyCount * (parts ?? 1) }, (_, i) => i) : [inst];
         for (const i of instances) this.#parametersOf(description.type, i).value = { known: false, values };
       });
-    } else if (list !== undefined) {
+    } else if (lists.every((list) => list !== undefined)) {
       batch(() => {
-        list.forEach((entry, index) => {
-          const instance = description.instanceParam === undefined ? index : inst;
-          const values = Object.fromEntries(description.parameters.map((p) => [p.name, fromWire(p, Number(entry[p.name] ?? p.default ?? 0))]));
-          this.#parametersOf(description.type, instance).value = { known: true, values };
-          if (entry["enabled"] !== undefined) this.#bypassOf(description.type, instance).value = Number(entry["enabled"]) === 0;
-        });
+        lists.forEach((list, part) =>
+          list?.forEach((entry, index) => {
+            const instance = description.instanceParam === undefined ? part * description.replyCount + index : inst;
+            this.#parametersOf(description.type, instance).value = { known: true, values: readValues(description, entry) };
+            if (entry["enabled"] !== undefined) this.#bypassOf(description.type, instance).value = Number(entry["enabled"]) === 0;
+          }),
+        );
       });
     } else {
       return true;
@@ -494,17 +551,26 @@ export class EffectsModel {
    * linked chain's partner with the same effect at that slot gets the same settings on its own instance.
    * Refused (false) until the instance is read, or when the value is not one the control offers.
    */
-  setParameter(chain: number, position: number, name: string, value: number): boolean {
+  setParameter(chain: number, position: number, name: string, value: number, band?: number): boolean {
     const own = this.#chain(chain);
     const slot = own.slots.find((s) => s.position === position);
     if (slot === undefined) throw new RangeError(`AFX IN ${chain + 1} has no effect in slot ${position + 1}`);
     const description = this.description(slot.type);
     if (description === undefined) throw new RangeError(`${slot.name}'s parameters are not supported: ${this.unsupportedReason(slot.type)}`);
-    const parameter = description.parameters.find((p) => p.name === name);
-    if (parameter === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
-    if (parameter.control === undefined) throw new RangeError(`${slot.name}'s ${name} is not a control (${parameter.hidden ?? "hidden"})`);
+    if (description.bands !== undefined) return this.#setBandParameter(own, slot, description, name, value, band);
+    const declared = description.parameters.find((p) => p.name === name);
+    if (declared === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
     const current = this.#parametersOf(slot.type, slot.inst).peek();
+    const layouts = description.layouts;
+    if (layouts?.fields.includes(name) !== true && declared.control === undefined) throw new RangeError(`${slot.name}'s ${name} is not a control (${declared.hidden ?? "hidden"})`);
     if (current === undefined) return false;
+    const parameter = shownParameters(description, current.values).find((p) => p.name === name);
+    if (parameter === undefined) {
+      const by = description.parameters.find((p) => p.name === layouts?.by);
+      const value = current.values[layouts?.by ?? ""];
+      const chosen = by?.options?.find(([v]) => v === value)?.[1] ?? `${by?.label ?? "This setting"} ${value}`;
+      throw new RangeError(`${chosen} does not use ${name}: it goes back as the device reported it`);
+    }
     const next = this.#accept(parameter, value);
     if (next === undefined) return false;
     const values = { ...current.values, [name]: next };
@@ -515,11 +581,56 @@ export class EffectsModel {
     return true;
   }
 
-  /** Sets a parameter back to the panel's starting value. */
-  resetParameter(chain: number, position: number, name: string): boolean {
+  /** Sets a parameter (of one band, for an effect set band by band) back to the panel's starting value. */
+  resetParameter(chain: number, position: number, name: string, band?: number): boolean {
     const slot = this.#chain(chain).slots.find((s) => s.position === position);
-    const parameter = slot === undefined ? undefined : this.description(slot.type)?.parameters.find((p) => p.name === name);
-    return this.setParameter(chain, position, name, parameter?.default ?? 0);
+    const description = slot === undefined ? undefined : this.description(slot.type);
+    const parameters = description?.bands === undefined ? description?.parameters : band === undefined ? undefined : description.bands.bands[band];
+    const parameter = parameters?.find((p) => p.name === name);
+    return this.setParameter(chain, position, name, parameter?.default ?? 0, band);
+  }
+
+  /**
+   * One band's parameter of an effect set band by band (the Studio+ Equalizer): only that band is sent,
+   * coalesced per band, and a linked partner's same effect gets it too. While a pass filter is chosen the
+   * band's gain is 0 and refused, as the panel disables it; choosing one sends the gain as 0.
+   */
+  #setBandParameter(own: EffectChain, slot: EffectSlot, description: EffectDescription, name: string, value: number, band: number | undefined): boolean {
+    const bands = description.bands?.bands ?? [];
+    if (band === undefined || !Number.isInteger(band) || band < 0 || band >= bands.length) throw new RangeError(`${slot.name} is set one band at a time: name a band 0..${bands.length - 1}`);
+    const parameters = bands[band] ?? [];
+    const parameter = parameters.find((p) => p.name === name);
+    if (parameter === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
+    if (parameter.control === undefined) throw new RangeError(`${slot.name}'s band ${band + 1} ${name} is not a control (${parameter.hidden ?? "hidden"})`);
+    const current = this.#parametersOf(slot.type, slot.inst).peek();
+    if (current === undefined) return false;
+    const off = parameter.offWhen;
+    if (off !== undefined && off.values.includes(current.values[bandKey(off.name, band)] ?? Number.NaN)) return false;
+    const next = this.#accept(parameter, value);
+    if (next === undefined) return false;
+    const values: Record<string, number> = { ...current.values, [bandKey(name, band)]: next };
+    for (const other of parameters) {
+      if (other.offWhen?.name === name && other.offWhen.values.includes(next)) values[bandKey(other.name, band)] = 0;
+    }
+    this.#sendBand(description, slot.inst, band, { known: current.known, values });
+    const partner = own.linked ? this.#chains.peek()?.[own.partner] : undefined;
+    const mirror = partner?.slots.find((s) => s.position === slot.position && s.type === slot.type);
+    if (mirror !== undefined) this.#sendBand(description, mirror.inst, band, { known: current.known, values });
+    return true;
+  }
+
+  #sendBand(description: EffectDescription, inst: number, band: number, next: EffectParameterValues): void {
+    const bands = description.bands;
+    if (bands === undefined) return;
+    const state = this.#parametersOf(description.type, inst);
+    const before = state.peek();
+    state.value = next;
+    const args: Record<string, number> = { type_id: description.type, inst_id: inst, [bands.param]: band };
+    for (const parameter of bands.bands[band] ?? []) args[parameter.name] = toWire(parameter, next.values[bandKey(parameter.name, band)] ?? parameter.default ?? 0);
+    void this.#context.invoke(description.set, args, { coalesce: `afx_params:${description.type}:${inst}:${band}:${this.deviceId}` }).then((sent) => {
+      // Not sent: what was known before is all that is known.
+      if (!sent && state.peek() === next) state.value = before;
+    });
   }
 
   /** The value a control takes for `value`: clamped and whole for a range, one of a menu's values, only a mask's bits. */
