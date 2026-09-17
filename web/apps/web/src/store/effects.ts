@@ -3,7 +3,14 @@
 // - Chains are fed by routing (AFX IN k), up to eight slots each, a slot being {type, inst}: `type` an
 //   AfxType id (0 is empty), `inst` that type's instance. The Quadro has six user chains, read one at a
 //   time with get_afx_strip_order and the chain in ext3; the Studio+ sixteen, read with get_afx_order.
-//   Link byte k pairs chains 2k and 2k+1. Chains are shown, not changed: order writes wait (spec Q4).
+//   Link byte k pairs chains 2k and 2k+1.
+// - A chain is changed by writing all eight slots with set_afx_order, the effects packed from the first
+//   slot and the rest empty, which is the shape the hardware probe confirmed (P114): it inserts, removes
+//   and, untried on a device, reorders. The device sets the instance's `enabled` to 1 on insert and 0 on
+//   removal by itself, so no bypass goes with either. A linked chain's partner gets the same change on
+//   its own instances. Which instances are free comes from get_afx_available_instances, on the Quadro
+//   with get_afx_remaining_featured_instances for the licence; the Studio+'s reply has no length in the
+//   schema, so its free instances are what its sixteen chains leave.
 // - Bypass is per instance: set_afx_bypass(instance, type, enabled) with enabled 1 = processing. Only an
 //   effect's own parameter read returns it, so it is unknown until that is read or this app sets it. A
 //   linked chain's partner follows, as the panels mirror a link's changes onto the partner's own instances.
@@ -45,6 +52,13 @@ const RETURNS = 2;
 const SENDS = 16;
 /** `set_reverb_config`'s density: in neither panel's UI, and always sent as its schema default. */
 const DENSITY = 100;
+/** Instances of an effect type the firmware has (`MAX_INSTANCE_COUNT`). */
+const MAX_INSTANCES = 16;
+/** Types with a smaller pool than the rest: the Studio+'s Guitar Amp and Guitar Cabinet have four. */
+const FEWER_INSTANCES: Readonly<Record<"quadro" | "studio", ReadonlyMap<number, number>>> = {
+  quadro: new Map<number, number>(),
+  studio: new Map<number, number>([[3, 4], [4, 4]]),
+};
 
 /** The reverb level as the panels show it: 20·log10(v / 25) dB, whole. */
 export function formatReverbLevel(level: number): string {
@@ -76,6 +90,18 @@ export interface EffectChain {
   slots: EffectSlot[];
   linked: boolean;
   partner: number;
+}
+
+/** An effect type as the "Add effect" control offers it for one chain. */
+export interface EffectOffer {
+  type: number;
+  name: string;
+  /** Instances of it free to use. */
+  free: number;
+  /** True when the device counted them; false when they are only what the chains this app has read leave. */
+  counted: boolean;
+  /** Why it cannot be added to this chain now, if it cannot. */
+  unavailable?: string;
 }
 
 export interface ReverbConfig {
@@ -207,6 +233,24 @@ function readValues(description: EffectDescription, entry: Record<string, unknow
 
 type Outcome = "read" | "dry" | "failed";
 
+/** One chain's `slots` as it came back, with what became of the read. */
+interface OrderRead {
+  index: number;
+  dryRun: boolean;
+  failed: boolean;
+  slots: unknown;
+}
+
+/** A chain as `set_afx_order` carries it: eight `{type, inst}` slots, the effects first and the rest empty. */
+function chainBytes(slots: readonly EffectSlot[]): Uint8Array {
+  const bytes = new Uint8Array(SLOTS * 2);
+  slots.slice(0, SLOTS).forEach((slot, position) => {
+    bytes[position * 2] = slot.type;
+    bytes[position * 2 + 1] = slot.inst;
+  });
+  return bytes;
+}
+
 function entries(response: Record<string, unknown> | null): Record<string, unknown>[] | undefined {
   const list = response?.["entries"];
   return Array.isArray(list) ? (list as Record<string, unknown>[]) : undefined;
@@ -220,6 +264,7 @@ export class EffectsModel {
   readonly #reverb = signal<ReverbConfig | undefined>(undefined);
   readonly #returns = signal<{ known: boolean; entries: ReverbReturn[] } | undefined>(undefined);
   readonly #sends = signal<{ known: boolean; entries: ReverbSend[] } | undefined>(undefined);
+  readonly #instances = signal<{ counted: boolean; free: ReadonlyMap<number, number> } | undefined>(undefined);
   readonly #bypass = new Map<string, Signal<boolean | undefined>>();
   readonly #needsRead = signal(true);
   #generation = 0;
@@ -294,18 +339,19 @@ export class EffectsModel {
   async #load(): Promise<Outcome> {
     const { family, read } = this.#context;
     const count = CHAINS[family];
-    const orders =
-      family === "quadro"
-        ? Promise.all(Array.from({ length: count }, (_, chain) => read("get_afx_strip_order", chain, true).then((r) => ({ ...r, slots: entries(r.response)?.[0]?.["slots"] }))))
-        : read("get_afx_order", undefined, true).then((r) => Array.from({ length: count }, (_, chain) => ({ ...r, slots: entries(r.response)?.[chain]?.["slots"] })));
     const [chains, links, reverb, returns, sends] = await Promise.all([
-      orders,
+      this.#readOrders(Array.from({ length: count }, (_, chain) => chain)),
       read("get_afx_links", undefined, true),
       read("get_reverb_config", undefined, true),
       family === "quadro" ? read("get_reverb_returns", undefined, true) : undefined,
       family === "quadro" ? read("get_reverb_sends", undefined, true) : undefined,
+      // The free instance counts are an extra: a refusal leaves them unknown rather than failing the page's read.
+      this.#readInstances(),
     ]);
-    const outcomes: Outcome[] = [...chains, links, reverb, ...(returns === undefined ? [] : [returns]), ...(sends === undefined ? [] : [sends])].map((r) => (r.dryRun ? "dry" : r.response === null ? "failed" : "read"));
+    const outcomes: Outcome[] = [
+      ...chains.map((r) => (r.dryRun ? "dry" : r.failed ? "failed" : "read") as Outcome),
+      ...[links, reverb, ...(returns === undefined ? [] : [returns]), ...(sends === undefined ? [] : [sends])].map((r): Outcome => (r.dryRun ? "dry" : r.response === null ? "failed" : "read")),
+    ];
 
     batch(() => {
       this.#applyChains(chains, links);
@@ -326,26 +372,66 @@ export class EffectsModel {
     return outcomes.includes("failed") ? "failed" : outcomes.every((o) => o === "dry") ? "dry" : "read";
   }
 
-  #applyChains(chains: { response: Record<string, unknown> | null; dryRun: boolean; slots: unknown }[], links: { response: Record<string, unknown> | null; dryRun: boolean }): void {
-    const linkBytes = entries(links.response);
+  /** One chain each, as each model's panel reads them: the Quadro one at a time with the chain in `ext3`. */
+  async #readOrders(indexes: readonly number[]): Promise<OrderRead[]> {
+    const { family, read } = this.#context;
+    if (family === "quadro") {
+      return Promise.all(
+        indexes.map(async (index) => {
+          const r = await read("get_afx_strip_order", index, true);
+          return { index, dryRun: r.dryRun, failed: !r.dryRun && r.response === null, slots: entries(r.response)?.[0]?.["slots"] };
+        }),
+      );
+    }
+    const r = await read("get_afx_order", undefined, true);
+    return indexes.map((index) => ({ index, dryRun: r.dryRun, failed: !r.dryRun && r.response === null, slots: entries(r.response)?.[index]?.["slots"] }));
+  }
+
+  /**
+   * How many instances of each type are free, for the "Add effect" control. Only the Quadro is asked: the
+   * Studio+'s reply has no length in our schema (`unresolved_reply_counts`), so it would decode as one
+   * record, and its free instances are worked out from its chains instead. The Quadro's count is the lower
+   * of the free instances and the licence's remaining featured instances, as its panel does.
+   */
+  async #readInstances(): Promise<void> {
+    if (this.family !== "quadro") return;
+    const { read } = this.#context;
+    const [available, featured] = await Promise.all([read("get_afx_available_instances", undefined, true), read("get_afx_remaining_featured_instances", undefined, true)]);
+    const counts = (response: Record<string, unknown> | null): Map<number, number> | undefined => {
+      const list = entries(response);
+      return list === undefined ? undefined : new Map(list.map((entry) => [Number(entry["type_id"] ?? 0), Number(entry["inst_count"] ?? 0)]));
+    };
+    const free = available.dryRun ? undefined : counts(available.response);
+    if (free === undefined) return;
+    // What a negative featured count means is unknown, so it is taken as none left rather than guessed at.
+    const licence = featured.dryRun ? undefined : counts(featured.response);
+    this.#instances.value = { counted: true, free: new Map([...free].map(([type, count]) => [type, licence === undefined ? count : Math.min(count, Math.max(0, licence.get(type) ?? count))])) };
+  }
+
+  /** Takes what was read into the chains: a chain not read this time keeps what was known, links and all. */
+  #applyChains(chains: readonly OrderRead[], links?: { response: Record<string, unknown> | null; dryRun: boolean }): void {
+    const linkBytes = links === undefined ? undefined : entries(links.response);
     const previous = this.#chains.peek();
     const destination = this.#context.topology.outputs.findIndex((output) => output.type === "AFX_IN");
     const names = EFFECT_NAMES[this.family];
-    const next = chains.map((read, index): EffectChain | undefined => {
-      const partner = index % 2 === 0 ? index + 1 : index - 1;
-      const linked = linkBytes === undefined ? (previous?.[index]?.linked ?? false) : Number(linkBytes[Math.floor(index / 2)]?.["linked"] ?? 0) === 1;
-      const base = { index, name: `AFX IN ${index + 1}`, destination: destination < 0 ? undefined : destination, linked, partner };
-      if (read.dryRun) return { ...base, known: false, slots: [] };
-      if (!Array.isArray(read.slots)) return previous?.[index] === undefined ? undefined : { ...previous[index], linked };
-      const slots = (read.slots as Record<string, unknown>[]).slice(0, SLOTS).flatMap((slot, position) => {
+    const read = new Map(chains.map((chain) => [chain.index, chain]));
+    const base = (index: number) => ({ index, name: `AFX IN ${index + 1}`, destination: destination < 0 ? undefined : destination, partner: index % 2 === 0 ? index + 1 : index - 1 });
+    const next = Array.from({ length: CHAINS[this.family] }, (_, index): EffectChain | undefined => {
+      const before = previous?.[index];
+      const linked = linkBytes === undefined ? (before?.linked ?? false) : Number(linkBytes[Math.floor(index / 2)]?.["linked"] ?? 0) === 1;
+      const chain = read.get(index);
+      if (chain === undefined) return before === undefined ? undefined : { ...before, linked };
+      if (chain.dryRun) return { ...base(index), known: false, slots: [], linked };
+      if (!Array.isArray(chain.slots)) return before === undefined ? undefined : { ...before, linked };
+      const slots = (chain.slots as Record<string, unknown>[]).slice(0, SLOTS).flatMap((slot, position) => {
         const type = Number(slot["type"] ?? 0);
         const inst = Number(slot["inst"] ?? 0);
         return type === 0 ? [] : [{ position, type, inst, name: names.get(type) ?? `Effect ${type}` }];
       });
-      return { ...base, known: true, slots };
+      return { ...base(index), known: true, slots, linked };
     });
     if (next.every((chain) => chain === undefined)) return;
-    this.#chains.value = next.map((chain, index) => chain ?? { index, name: `AFX IN ${index + 1}`, known: false, destination: destination < 0 ? undefined : destination, slots: [], linked: false, partner: index % 2 === 0 ? index + 1 : index - 1 });
+    this.#chains.value = next.map((chain, index) => chain ?? { ...base(index), known: false, slots: [], linked: false });
   }
 
   #parseReverb(r: Record<string, unknown>): ReverbConfig {
@@ -395,6 +481,182 @@ export class EffectsModel {
   /** Bypasses every effect in a chain, or lets them all process: one command each, as the panels' "BP ALL" does. */
   setChainBypass(chain: number, bypassed: boolean): void {
     for (const slot of this.#chain(chain).slots) this.setBypass(chain, slot.position, bypassed);
+  }
+
+  /**
+   * The effect types this model has, for one chain's "Add effect" control: how many instances of each are
+   * free, whether the device counted them, and why one cannot be added to this chain now. In name order.
+   */
+  offers(index: number): EffectOffer[] {
+    const chains = this.#chains.value;
+    const chain = chains?.[index];
+    const partner = chain?.linked === true ? chains?.[chain.partner] : undefined;
+    const needed = partner === undefined ? 1 : 2;
+    const counts = this.#instances.value;
+    const used = this.#used();
+    return [...EFFECT_NAMES[this.family]]
+      .map(([type, name]): EffectOffer => {
+        const counted = counts?.free.get(type);
+        const free = counted ?? Math.max(0, this.#maxInstances(type) - (used.get(type)?.size ?? 0));
+        const unavailable =
+          chain === undefined || !chain.known
+            ? "The chains have not been read from the device."
+            : chain.slots.length >= SLOTS
+              ? "This chain has all eight slots filled."
+              : partner !== undefined && (!partner.known || partner.slots.length >= SLOTS)
+                ? `AFX IN ${chain.partner + 1}, which this chain is linked with, has no free slot.`
+                : free < needed || this.#freeInstances(type, needed).length < needed
+                  ? needed === 2
+                    ? "A linked pair needs two free instances of this effect."
+                    : "No free instance of this effect is left."
+                  : undefined;
+        return { type, name, free, counted: counted !== undefined, ...(unavailable === undefined ? {} : { unavailable }) };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Adds an effect of `type` to a chain: the lowest free instance, after what is already there, written as
+   * the whole chain. A linked chain's partner gets one of its own at the same place. Refused (false) when
+   * the chain is unread or full or there is no free instance, as `offers` says.
+   */
+  addEffect(index: number, type: number): boolean {
+    const offer = this.offers(index).find((o) => o.type === type);
+    if (offer === undefined) throw new RangeError(`this model has no effect of type ${type}`);
+    if (offer.unavailable !== undefined) return false;
+    const chain = this.#chain(index);
+    const partner = chain.linked ? this.#chains.peek()?.[chain.partner] : undefined;
+    const needed = partner === undefined ? 1 : 2;
+    const free = this.#freeInstances(type, needed);
+    if (free.length < needed) return false;
+    const name = EFFECT_NAMES[this.family].get(type) ?? `Effect ${type}`;
+    const slot = (position: number, inst: number): EffectSlot => ({ position, type, inst, name });
+    const writes: [number, EffectSlot[]][] = [[index, [...chain.slots, slot(chain.slots.length, free[0] as number)]]];
+    if (partner !== undefined) writes.push([partner.index, [...partner.slots, slot(partner.slots.length, free[1] as number)]]);
+    for (const inst of free) {
+      // The device sets an inserted instance's `enabled` to 1 itself (P114), so no bypass goes with it.
+      this.#bypassOf(type, inst).value = false;
+      // Its settings survive, but the device may have changed them: read them again when it is opened.
+      this.#forgetParameters(type, inst);
+    }
+    this.#writeChains(writes);
+    return true;
+  }
+
+  /**
+   * Removes the effect in one slot: the chain goes out without it, what followed moved up and the trailing
+   * slots empty. A linked partner's same effect in the same slot goes too.
+   */
+  removeEffect(index: number, position: number): boolean {
+    const chain = this.#chain(index);
+    const slot = chain.slots.find((s) => s.position === position);
+    if (slot === undefined) throw new RangeError(`AFX IN ${index + 1} has no effect in slot ${position + 1}`);
+    if (!chain.known) return false;
+    const writes: [number, EffectSlot[]][] = [[index, chain.slots.filter((s) => s !== slot)]];
+    const mirror = this.#mirror(chain, position, slot.type);
+    if (mirror !== undefined) writes.push([mirror.chain.index, mirror.chain.slots.filter((s) => s !== mirror.slot)]);
+    // Removal clears the instance's `enabled` on the device (P114), which is bypassed as this app shows it.
+    this.#bypassOf(slot.type, slot.inst).value = true;
+    if (mirror !== undefined) this.#bypassOf(mirror.slot.type, mirror.slot.inst).value = true;
+    this.#writeChains(writes);
+    return true;
+  }
+
+  /**
+   * Moves the effect in a slot `by` places earlier (negative) or later in its chain, and the same effect in
+   * a linked partner's slot with it. Refused (false) when it would leave the chain.
+   * **Reordering has never been tried on a device** (P114 covered only inserting and removing).
+   */
+  moveEffect(index: number, position: number, by: number): boolean {
+    const chain = this.#chain(index);
+    const from = chain.slots.findIndex((s) => s.position === position);
+    if (from < 0) throw new RangeError(`AFX IN ${index + 1} has no effect in slot ${position + 1}`);
+    const to = from + by;
+    if (!chain.known || !Number.isInteger(by) || by === 0 || to < 0 || to >= chain.slots.length) return false;
+    const moved = (slots: readonly EffectSlot[]): EffectSlot[] => {
+      const next = [...slots];
+      const [slot] = next.splice(from, 1);
+      if (slot !== undefined) next.splice(to, 0, slot);
+      return next;
+    };
+    const writes: [number, EffectSlot[]][] = [[index, moved(chain.slots)]];
+    const type = chain.slots[from]?.type;
+    const mirror = type === undefined ? undefined : this.#mirror(chain, position, type);
+    if (mirror !== undefined && mirror.chain.slots.length > to) writes.push([mirror.chain.index, moved(mirror.chain.slots)]);
+    this.#writeChains(writes);
+    return true;
+  }
+
+  /** A linked partner's slot at the same position holding the same effect, which a change is mirrored onto. */
+  #mirror(chain: EffectChain, position: number, type: number): { chain: EffectChain; slot: EffectSlot } | undefined {
+    const partner = chain.linked ? this.#chains.peek()?.[chain.partner] : undefined;
+    const slot = partner?.slots.find((s) => s.position === position && s.type === type);
+    return partner === undefined || slot === undefined ? undefined : { chain: partner, slot };
+  }
+
+  /** Every instance of each type the chains this app has read are using. */
+  #used(): Map<number, Set<number>> {
+    const used = new Map<number, Set<number>>();
+    for (const chain of this.#chains.value ?? []) {
+      if (!chain.known) continue;
+      for (const slot of chain.slots) {
+        const instances = used.get(slot.type) ?? new Set<number>();
+        instances.add(slot.inst);
+        used.set(slot.type, instances);
+      }
+    }
+    return used;
+  }
+
+  #maxInstances(type: number): number {
+    return FEWER_INSTANCES[this.family].get(type) ?? MAX_INSTANCES;
+  }
+
+  /** The `needed` lowest instances of a type no chain this app has read is using. */
+  #freeInstances(type: number, needed: number): number[] {
+    const used = this.#used().get(type) ?? new Set<number>();
+    const free: number[] = [];
+    for (let inst = 0; inst < this.#maxInstances(type) && free.length < needed; inst++) {
+      if (!used.has(inst)) free.push(inst);
+    }
+    return free;
+  }
+
+  /** An instance whose chain changed: read its settings again when its editor is next opened. */
+  #forgetParameters(type: number, inst: number): void {
+    const description = this.description(type);
+    if (description === undefined) return;
+    this.#parametersRead.delete(description.instanceParam === undefined ? `${type}` : `${type}:${inst}`);
+  }
+
+  /**
+   * Writes whole chains, each `set_afx_order` carrying eight slots packed from the first with the rest
+   * empty, and reads back what the device made of it. Shown at once and put back when nothing was sent.
+   * Not coalesced: a superseded write would read as a failure and put back a chain that did change.
+   */
+  #writeChains(writes: readonly (readonly [number, readonly EffectSlot[]])[]): void {
+    const before = this.#chains.peek();
+    const packed = writes.map(([index, slots]) => [index, slots.map((slot, position) => ({ ...slot, position }))] as const);
+    if (before !== undefined) {
+      this.#chains.value = before.map((chain) => {
+        const write = packed.find(([index]) => index === chain.index);
+        return write === undefined ? chain : { ...chain, slots: [...write[1]] };
+      });
+    }
+    void Promise.all(packed.map(([index, slots]) => this.#context.invoke("set_afx_order", { ch_id: index, slots: chainBytes(slots) }, {}))).then((sent) => {
+      if (sent.includes(false)) {
+        if (before !== undefined) this.#chains.value = before;
+        return;
+      }
+      void this.#refresh(packed.map(([index]) => index));
+    });
+  }
+
+  /** After a change: the chains written and the free instance counts, as the panel reads them again. */
+  async #refresh(indexes: readonly number[]): Promise<void> {
+    const generation = this.#generation;
+    const [orders] = await Promise.all([this.#readOrders(indexes), this.#readInstances()]);
+    if (generation === this.#generation) this.#applyChains(orders);
   }
 
   #chain(index: number): EffectChain {

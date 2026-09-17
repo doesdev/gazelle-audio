@@ -251,3 +251,168 @@ test("reads are quiet, a failed read is tried again, a dry run counts as read wi
   assert.equal(await kept.load(), true, "load always reads");
   assert.equal(reads(), 3);
 });
+
+// Editing a chain: add, remove and reorder (P114's hardware probe confirmed inserting and removing one
+// effect on the Quadro). The chain always goes out whole, packed from slot 1 with the rest empty.
+
+/** The sixteen bytes `set_afx_order` carries: each slot's type and instance, trailing slots zero. */
+const orderBytes = (...effects: [type: number, inst: number][]) => Uint8Array.from(Array.from({ length: 8 }, (_, i) => [effects[i]?.[0] ?? 0, effects[i]?.[1] ?? 0]).flat());
+
+const instanceReplies = (free: Record<number, number> = { 39: 14, 1: 15, 9: 16, 3: 4, 2: 16 }, featured: Record<number, number> = {}): Replies => ({
+  get_afx_available_instances: () => ({ entries: Object.entries(free).map(([type_id, inst_count]) => ({ type_id: Number(type_id), inst_count })) }),
+  get_afx_remaining_featured_instances: () => ({ entries: Object.entries(featured).map(([type_id, inst_count]) => ({ type_id: Number(type_id), inst_count })) }),
+});
+
+const orders = (sent: (deviceId: string, command: string) => Invocation[]) => sent("loopback-0", "set_afx_order").map((c) => [c.args?.["ch_id"], c.args?.["slots"]]);
+
+test("the Quadro reads its free instance counts with the chains, taking the lower of the free and the licensed count", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies({ 39: 14, 3: 4, 9: 0 }, { 39: 2, 3: 9, 9: 6 }) });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  assert.equal(sent("loopback-0", "get_afx_available_instances").length, 1);
+  assert.equal(sent("loopback-0", "get_afx_remaining_featured_instances").length, 1);
+
+  const offers = effects.offers(2);
+  const offer = (type: number) => offers.find((o) => o.type === type);
+  assert.deepEqual([offer(39)?.free, offer(39)?.counted], [2, true], "the licence allows fewer than are free");
+  assert.equal(offer(3)?.free, 4, "and here the pool is smaller than the licence");
+  assert.equal(offer(9)?.unavailable, "No free instance of this effect is left.");
+  assert.equal(offer(2)?.counted, false, "a type the device did not count falls back to what the chains show");
+  assert.ok(offers.length > 60 && offers.every((o) => o.name !== undefined));
+});
+
+test("adding an effect writes the whole chain as bytes, packed from slot 1, on the lowest free instance", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies() });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  const reads = () => sent("loopback-0", "get_afx_available_instances").length;
+  assert.equal(reads(), 1, "read when the page opens");
+
+  // AFX IN 5 holds FET-A76 #1 (type 9, instance 0); PowerGate (39) instances 2 and 3 are in chains 1-2.
+  assert.equal(effects.addEffect(4, 39), true);
+  assert.deepEqual(effects.chains.value?.[4]?.slots.map((s) => [s.position, s.type, s.inst]), [[0, 9, 0], [1, 39, 0]], "shown at once, after what was there");
+  await flush();
+  assert.deepEqual(orders(sent), [[4, orderBytes([9, 0], [39, 0])]]);
+  assert.ok(sent("loopback-0", "set_afx_order")[0]?.args?.["slots"] instanceof Uint8Array, "bytes, which the client sends as hex: the server refuses an array of objects");
+  assert.equal(effects.bypass(39, 0).value, false, "the device sets enabled on insert (P114), so no bypass is sent");
+  assert.equal(sent("loopback-0", "set_afx_bypass").length, 0);
+  assert.equal(reads(), 2, "the counts are read again after the change");
+});
+
+test("adding to a linked chain gives the partner the same effect on its own instance", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies() });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  // Chains 1 and 2 are linked, and each holds PowerGate and ClearQ already.
+  assert.equal(effects.addEffect(0, 9), true);
+  await flush();
+  assert.deepEqual(orders(sent), [
+    [0, orderBytes([39, 2], [1, 0], [9, 1])],
+    [1, orderBytes([39, 3], [1, 1], [9, 2])],
+  ], "the linked partner gets its own instances, the two lowest free");
+  assert.deepEqual([effects.bypass(9, 1).value, effects.bypass(9, 2).value], [false, false]);
+});
+
+test("removing writes the chain without it and the partner follows; the device clears the instance's enabled", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies() });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  const reads = () => sent("loopback-0", "get_afx_strip_order").length;
+  assert.equal(reads(), 6);
+  assert.equal(effects.removeEffect(0, 0), true);
+  assert.deepEqual(effects.chains.value?.[0]?.slots.map((s) => [s.position, s.type]), [[0, 1]], "what follows moves up a slot, at once");
+  await flush();
+  assert.deepEqual(orders(sent), [
+    [0, orderBytes([1, 0])],
+    [1, orderBytes([1, 1])],
+  ], "the rest keeps its order and the trailing slots are empty");
+  assert.equal(reads(), 8, "the two chains written are read back");
+  assert.deepEqual(effects.chains.value?.[0]?.slots.map((s) => [s.position, s.type]), [[0, 39], [1, 1]], "and what the device then reports is what is shown");
+  assert.deepEqual([effects.bypass(39, 2).value, effects.bypass(39, 3).value], [true, true], "removal sets enabled 0 on the device (P114)");
+  assert.equal(sent("loopback-0", "set_afx_bypass").length, 0);
+  assert.throws(() => effects.removeEffect(2, 0), RangeError);
+});
+
+test("moving an effect earlier or later writes its chain once, and the linked partner's too", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies() });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  assert.equal(effects.moveEffect(0, 1, -1), true, "ClearQ moves ahead of PowerGate");
+  assert.deepEqual(effects.chains.value?.[0]?.slots.map((s) => [s.position, s.type]), [[0, 1], [1, 39]], "shown at once, then read back from the device");
+  await flush();
+  assert.deepEqual(orders(sent), [
+    [0, orderBytes([1, 0], [39, 2])],
+    [1, orderBytes([1, 1], [39, 3])],
+  ]);
+
+  // The chains were read back after the write and the fake device reports the order it always had.
+  assert.equal(effects.moveEffect(0, 0, 1), true, "the same move the other way round");
+  await flush();
+  assert.deepEqual(orders(sent).slice(2), [
+    [0, orderBytes([1, 0], [39, 2])],
+    [1, orderBytes([1, 1], [39, 3])],
+  ], "one set_afx_order each, never a swap of two");
+  assert.equal(effects.moveEffect(0, 0, -1), false, "the first cannot move earlier");
+  assert.equal(effects.moveEffect(4, 0, 1), false, "nor the last later");
+  assert.throws(() => effects.moveEffect(2, 0, 1), RangeError);
+});
+
+test("adding is refused with no free instance, with a full chain, and before the chains are read", async () => {
+  const { store, sent } = setup({ ...quadroReplies(), ...instanceReplies({ 39: 0 }) });
+  const effects = store.effects("loopback-0");
+  assert.equal(effects.addEffect(4, 39), false, "unread: refused, so no chain is written from nothing");
+  await effects.readOnce();
+  assert.equal(effects.addEffect(4, 39), false, "the device reports no free instance");
+  assert.equal(effects.offers(4).find((o) => o.type === 39)?.unavailable, "No free instance of this effect is left.");
+  assert.throws(() => effects.addEffect(4, 999), RangeError);
+
+  const full: Record<number, [number, number][]> = { 3: [[9, 0], [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6], [9, 7]] };
+  const packed = setup({ ...quadroReplies(), ...instanceReplies(), get_afx_strip_order: (call) => ({ entries: [{ slots: slots(...(full[Number(call.options?.["ext3"])] ?? [])) }] }) });
+  const other = packed.store.effects("loopback-0");
+  await other.readOnce();
+  assert.equal(other.offers(3).find((o) => o.type === 39)?.unavailable, "This chain has all eight slots filled.");
+  assert.equal(other.addEffect(3, 39), false);
+  await flush();
+  assert.equal(packed.sent("loopback-0", "set_afx_order").length + sent("loopback-0", "set_afx_order").length, 0);
+});
+
+test("a chain write that is not sent puts the chain back", async () => {
+  const { store, client } = setup({ ...quadroReplies(), ...instanceReplies() });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  const before = effects.chains.value?.[4]?.slots;
+  client.respond = async () => {
+    throw new Error("gone");
+  };
+  assert.equal(effects.addEffect(4, 39), true);
+  assert.equal(effects.chains.value?.[4]?.slots.length, 2, "shown at once");
+  await flush();
+  assert.deepEqual(effects.chains.value?.[4]?.slots, before, "and put back when it was not sent");
+});
+
+test("the Studio+ works out free instances from its sixteen chains, since its count reply has no length in the schema", async () => {
+  const studio = setup({
+    get_afx_order: () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: i < 4 ? slots([3, i]) : slots() })) }),
+    get_afx_links: () => ({ entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }),
+    get_reverb_config: () => ({ mixer_id: 0, room_size: 0, color: 0, predelay: 0, density: 100, early_ref_gain: 0, late_ref_delay: 0, richness: 0, reverb_time: 0, reverb_level: 25, on: 0 }),
+  });
+  const effects = studio.store.effects("loopback-1");
+  await effects.readOnce();
+  assert.equal(studio.sent("loopback-1", "get_afx_available_instances").length, 0, "its reply's count is unresolved, so it is not read");
+  const offers = effects.offers(5);
+  assert.deepEqual([offers.find((o) => o.type === 3)?.free, offers.find((o) => o.type === 3)?.counted], [0, false], "the Guitar Amp has four instances and all four are in chains");
+  assert.equal(offers.find((o) => o.type === 3)?.unavailable, "No free instance of this effect is left.");
+  assert.equal(offers.find((o) => o.type === 2)?.free, 16);
+
+  assert.equal(effects.addEffect(5, 2), true);
+  await flush();
+  assert.deepEqual(studio.sent("loopback-1", "set_afx_order").map((c) => [c.args?.["ch_id"], c.args?.["slots"]]), [[5, orderBytes([2, 0])]]);
+});
+
+test("the free instance counts failing does not fail the whole read", async () => {
+  const { store } = setup(quadroReplies());
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  assert.equal(effects.needsRead.value, false, "the chains and the reverb were read");
+  assert.equal(effects.offers(2).find((o) => o.type === 39)?.counted, false, "with the counts unread, what the chains show is all that is known");
+});
