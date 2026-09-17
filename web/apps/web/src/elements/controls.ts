@@ -12,14 +12,19 @@ export interface ControlOptions {
   get(): number;
   set(value: number): void;
   enabled(): boolean;
+  /**
+   * The value at a fraction of the control's travel (0 at its top or left edge), for a control whose
+   * scale is not linear, like a fader's audio taper. Linear from `min` to `max` when left out.
+   */
+  valueAt?(fraction: number): number;
 }
 
 /** Pointer drag, wheel, double-click reset and keyboard control of a value along one axis. */
 export function bindControl(element: HTMLElement, options: ControlOptions): void {
   const valueAt = (event: PointerEvent) => {
     const rect = element.getBoundingClientRect();
-    const fraction = options.axis === "y" ? (event.clientY - rect.top) / rect.height : (event.clientX - rect.left) / rect.width;
-    return options.min + Math.min(1, Math.max(0, fraction)) * (options.max - options.min);
+    const fraction = Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top) / rect.height : (event.clientX - rect.left) / rect.width));
+    return options.valueAt === undefined ? options.min + fraction * (options.max - options.min) : options.valueAt(fraction);
   };
   element.addEventListener("pointerdown", (event) => {
     if (!options.enabled() || event.button !== 0) return;

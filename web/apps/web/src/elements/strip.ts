@@ -10,12 +10,13 @@
 
 import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
-import { formatLevel, formatPan, formatSend, LEVEL_MAX, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
+import { faderPosition, formatLevel, formatPan, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
 
-const FADER_MARKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+/** Scale marks on the fader, closer together towards the floor as its audio taper draws them. */
+const FADER_MARKS = [0, 5, 10, 20, 30, 40, 60, 90];
 
 /** A peak in dB below full scale, as the readouts show it. */
 const peakText = (db: number) => (db >= METER_FLOOR ? "< -60" : db < 0.5 ? "0" : `-${Math.round(db)}`);
@@ -135,8 +136,8 @@ export class GaStrip extends GaElement {
 
     const cap = h("div", { class: "cap" });
     const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}` }, h("div", { class: "groove" }), cap);
-    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: 0, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled });
-    const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: ${(mark / LEVEL_MAX) * 100}%` }, mark === 0 ? "0" : `-${mark}`)));
+    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: 0, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition });
+    const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: ${faderPosition(mark) * 100}%` }, mark === 0 ? "0" : `-${mark}`)));
     const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}` });
     const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "on:click": () => mixer.toggleMute(id) }, "M");
 
@@ -236,7 +237,7 @@ export class GaStrip extends GaElement {
 
     this.watch(() => {
       const s = state.value;
-      cap.style.setProperty("--position", String(s.level / LEVEL_MAX));
+      cap.style.setProperty("--position", String(faderPosition(s.level)));
       fader.setAttribute("aria-valuenow", String(-s.level));
       fader.setAttribute("aria-valuetext", formatLevel(s.level));
       levelReadout.textContent = formatLevel(s.level);

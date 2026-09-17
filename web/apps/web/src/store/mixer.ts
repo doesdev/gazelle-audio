@@ -31,6 +31,25 @@ export function levelDb(level: number): number {
   return level === 0 ? 0 : -level;
 }
 
+/**
+ * The fader's taper (the user, 2026-09-16): an audio taper rather than a linear one, so most of the
+ * travel sits near 0 dB where mixing happens. Height from the bottom is (1 - attenuation / 90)^2:
+ * -10 dB is about a fifth of the way down, halfway is about -26 dB, and -60 dB is near the floor.
+ */
+const FADER_TAPER = 2;
+
+/** Where a level sits on the fader, as a fraction of its travel from the top (0 dB) to the bottom. */
+export function faderPosition(level: number): number {
+  const clamped = Math.min(LEVEL_MAX, Math.max(0, level));
+  return 1 - (1 - clamped / LEVEL_MAX) ** FADER_TAPER;
+}
+
+/** The level at a fraction of the fader's travel from the top: `faderPosition`'s inverse. */
+export function levelAtFaderPosition(position: number): number {
+  const clamped = Math.min(1, Math.max(0, position));
+  return LEVEL_MAX * (1 - (1 - clamped) ** (1 / FADER_TAPER));
+}
+
 export function levelFromDb(db: number): number {
   return Math.min(LEVEL_MAX, Math.max(0, Math.round(-db)));
 }

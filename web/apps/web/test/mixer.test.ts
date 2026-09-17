@@ -5,7 +5,7 @@ import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { effect } from "../src/core/signal.ts";
-import { clampPan, formatLevel, formatPan, formatSend, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
+import { clampPan, faderPosition, formatLevel, formatPan, formatSend, LEVEL_MAX, levelAtFaderPosition, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -24,6 +24,24 @@ test("levels, pans and meters use the panels' scales", () => {
   assert.deepEqual([clampPan(0), clampPan(26), clampPan(27), clampPan(38), clampPan(39), clampPan(63)], [2, 26, 32, 32, 39, 62], "2..62, with 27..38 snapping to centre");
   assert.deepEqual([formatPan(PAN_CENTRE), formatPan(40), formatPan(2)], ["0", "+8", "-30"]);
   assert.deepEqual([96, 60, 50, 40, 30, 20, 10, 0].map(meterDeflection), [0, 0, 5, 15, 30, 50, 75, 100], "Antelope's piecewise meter anchors");
+});
+
+test("the fader has an audio taper: most of its travel near the top, and position and level convert both ways (the user, 2026-09-16)", () => {
+  // Positions are measured from the top of the fader, as a pointer finds them.
+  assert.equal(faderPosition(0), 0, "0 dB at the top");
+  assert.equal(faderPosition(LEVEL_MAX), 1, "-90 dB at the bottom");
+  assert.ok(faderPosition(10) < 0.25, `-10 dB within the top quarter (${faderPosition(10)})`);
+  assert.ok(Math.abs(levelAtFaderPosition(0.5) - 26.4) < 0.1, `halfway down is about -26 dB, not -45 (${levelAtFaderPosition(0.5)})`);
+  assert.ok(faderPosition(60) > 0.85, `-60 dB is in the bottom seventh (${faderPosition(60)})`);
+  let previous = -1;
+  for (let level = 0; level <= LEVEL_MAX; level++) {
+    const at = faderPosition(level);
+    assert.ok(at > previous, "further down is always quieter");
+    previous = at;
+    assert.ok(Math.abs(levelAtFaderPosition(at) - level) < 1e-9, "position and level convert back exactly");
+  }
+  assert.equal(levelAtFaderPosition(-0.2), 0, "past the top is 0 dB");
+  assert.equal(levelAtFaderPosition(1.3), LEVEL_MAX, "past the bottom is the floor");
 });
 
 test("Quadro strips send set_mixer with the whole strip, coalesced per strip, master on channel 0", async () => {

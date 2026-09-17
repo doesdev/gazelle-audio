@@ -190,6 +190,30 @@ test("a channel on a preamp shows that preamp's controls, and they send its comm
   await expect(lastSent(page)).toContainText(dryRun("set_pre_gain", hexOf(bytes)));
 });
 
+test("the fader has an audio taper: clicking halfway down sets about -26 dB, and the scale is drawn to match", async ({ page }) => {
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const fader = page.getByTestId("fader-6");
+  await expect(fader).toHaveAttribute("aria-disabled", "false");
+  const box = await fader.boundingBox();
+  if (box === null) throw new Error("no fader");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.getByTestId("level-6")).toHaveText("-26 dB");
+  // The cap sits where it was clicked, not where -26 dB would be on a linear scale (29%).
+  const cap = page.locator('ga-channel[data-channel-slot="6"] ga-strip .cap');
+  await expect.poll(async () => Number.parseFloat(await cap.evaluate((el) => (el as HTMLElement).style.getPropertyValue("--position")))).toBeGreaterThan(0.48);
+
+  // The scale is drawn on the same taper: 0 to -10 dB takes about a fifth of the travel (a linear
+  // scale gives it a ninth), and -60 dB sits near the floor (linear puts it two thirds down).
+  const markAt = async (text: string) => {
+    const mark = page.locator('ga-channel[data-channel-slot="6"] ga-strip .scale span', { hasText: new RegExp(`^${text}$`) });
+    return Number.parseFloat((await mark.getAttribute("style"))?.match(/top: ([\d.]+)%/)?.[1] ?? "-1");
+  };
+  expect(await markAt("-10")).toBeGreaterThan(18);
+  expect(await markAt("-10")).toBeLessThan(24);
+  expect(await markAt("-60")).toBeGreaterThan(85);
+});
+
 test("channel heads are one height, so faders line up whatever the input and whether or not the channel is set up", async ({ page }) => {
   await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }, { id: "b", name: "DAW", slot: 7, source: { group: 1, channel: 0 }, main_mix: 1, sends: [] }, { id: "c", name: "", slot: 8, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
