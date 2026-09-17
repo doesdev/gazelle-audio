@@ -247,7 +247,7 @@ export class GaStrip extends GaElement {
       });
       this.watch(() => {
         const colours = Math.max(1, store.theme.value.palette.length);
-        // A group colour (the `color` attribute) wins over the theme palette.
+        // A channel's colour (the `color` attribute: its group's, its own or its input's) wins over the theme palette.
         const own = this.getAttribute("color");
         this.style.setProperty("--strip-colour", own !== null && own !== "" ? own : `var(--ga-channel-palette-${Math.floor(id / 2) % colours})`);
       });

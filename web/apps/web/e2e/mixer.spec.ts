@@ -295,6 +295,116 @@ test("groups: made from a channel's menu, joined, renamed, coloured, collapsed (
   await expect.poll(slots).toEqual(["6", "8", "7"]);
 });
 
+/** A strip's name bar colour, as the browser computes it. */
+const barColour = (page: Page, slot: number) => page.locator(`ga-channel[data-channel-slot="${slot}"] ga-strip .name`).evaluate((el) => getComputedStyle(el).backgroundColor);
+const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+const storedChannels = async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { channels: { id: string; color?: string }[] }> }).mixers["loopback-0"]?.channels ?? [];
+
+test("a channel's colour defaults to its input's, is picked from the palette or set freely in a popover, and Clear hands it back (the user, 2026-09-16)", async ({ page }) => {
+  // Quadro sources: PREAMP is green (#25a844) and USB 1 PLAY blue (#6ac4f8) on the Routing page.
+  await layout({
+    "loopback-0": {
+      channels: [
+        { id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Keys", slot: 7, source: { group: 1, channel: 0 }, main_mix: 0, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#25a844"));
+  await expect.poll(() => barColour(page, 7)).toBe(rgb("#6ac4f8"));
+
+  const swatch = page.getByTestId("colour-6");
+  const popover = page.getByRole("dialog", { name: "Channel 7 colour" });
+  await expect(popover).toBeHidden();
+  await swatch.click();
+  await expect(popover).toBeVisible();
+  await expect(swatch).toHaveAttribute("aria-expanded", "true");
+  await expect(popover.getByRole("button", { name: "Clear" })).toBeDisabled();
+
+  // A palette swatch: the bar and the workspace take it, and the swatch shows as chosen.
+  const first = popover.getByRole("button", { name: "Palette colour 1" });
+  const paletteColour = (await first.getAttribute("title")) ?? "";
+  expect(paletteColour).toMatch(/^#[0-9a-f]{6}$/i);
+  await first.click();
+  await expect.poll(() => barColour(page, 6)).toBe(rgb(paletteColour));
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await storedChannels()).find((c) => c.id === "a")?.color).toBe(paletteColour);
+  await expect.poll(() => barColour(page, 7), "other channels keep their input's colour").toBe(rgb("#6ac4f8"));
+
+  // Any colour, from the colour input.
+  await popover.getByLabel("Custom colour").fill("#123456");
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#123456"));
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+
+  // Escape closes it and puts focus back on the swatch.
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+  await expect(swatch).toBeFocused();
+  await expect(swatch).toHaveAttribute("aria-expanded", "false");
+
+  // From the keyboard: Enter opens it on the palette, and Clear goes back to the input's colour.
+  await swatch.press("Enter");
+  await expect(popover).toBeVisible();
+  await expect(first).toBeFocused();
+  const clear = popover.getByRole("button", { name: "Clear" });
+  await expect(clear).toBeEnabled();
+  await clear.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#25a844"));
+  await expect.poll(async () => "color" in ((await storedChannels()).find((c) => c.id === "a") ?? {})).toBe(false);
+  await expect(clear).toBeDisabled();
+
+  // A click elsewhere closes it.
+  await page.getByTestId("name-7").click();
+  await expect(popover).toBeHidden();
+});
+
+test("a group colour wins over a channel's own, which the popover says is kept for when it leaves the group", async ({ page }) => {
+  await layout({
+    "loopback-0": {
+      groups: [{ id: "drums", name: "Drums", collapsed: false, color: "#b5473a" }],
+      channels: [{ id: "a", name: "Kick", group: "drums", color: "#123456", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#b5473a"));
+
+  await page.getByTestId("colour-6").click();
+  const popover = page.getByRole("dialog", { name: "Channel 7 colour" });
+  await expect(popover).toBeVisible();
+  await expect(popover.getByTestId("colour-note-6")).toBeVisible();
+  await expect(popover.getByTestId("colour-note-6")).toContainText("Drums");
+  await expect(popover.getByLabel("Custom colour")).toHaveValue("#123456");
+  // Choosing a colour in a coloured group saves it, and the group's colour still shows.
+  await popover.getByLabel("Custom colour").fill("#654321");
+  await expect.poll(async () => (await storedChannels()).find((c) => c.id === "a")?.color).toBe("#654321");
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#b5473a"));
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("group-6").selectOption({ label: "No group" });
+  await expect.poll(() => barColour(page, 6)).toBe(rgb("#654321"));
+  await page.getByTestId("colour-6").click();
+  await expect(popover.getByTestId("colour-note-6")).toBeHidden();
+});
+
+test("the colour swatch is disabled, and its popover closes, while the server is away", async ({ page }) => {
+  const own = await startServer(["--dry-run"], { webUi: true });
+  try {
+    await putWorkspace(own, { mixers: { "loopback-0": { channels: [{ id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
+    await page.goto(`${own.url}/#/mixer/loopback-0`);
+    const swatch = page.getByTestId("colour-6");
+    await swatch.click();
+    await expect(page.getByRole("dialog", { name: "Channel 7 colour" })).toBeVisible();
+    await own.stop();
+    await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
+    await expect(page.getByRole("dialog", { name: "Channel 7 colour" })).toBeHidden();
+    await expect(swatch).toBeDisabled();
+  } finally {
+    await own.stop();
+  }
+});
+
 test("a mix master names the mix and sends it to outputs: the menu adds a left/right pair, a chip's × removes it", async ({ page }) => {
   await layout({ "loopback-0": { mixes: [{ name: "Monitors" }], channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
