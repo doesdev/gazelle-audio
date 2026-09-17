@@ -18,6 +18,7 @@
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
+import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
@@ -218,6 +219,8 @@ export interface StoreDependencies {
   requestFrame?: RequestFrame;
   /** Built-in and community themes; gazelle-dark must be among them. */
   themeSources?: readonly ThemeSource[];
+  /** Whether the window was phone width as the app opened: the mixer dock then starts collapsed unless a choice is kept. */
+  narrow?: boolean;
 }
 
 export interface Notice {
@@ -358,7 +361,7 @@ export class Store {
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
-    this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
+    this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
     // A surface deleted here or elsewhere hands the dock back to the device in view.
     this.mixerDockSurface = computed(() => {
@@ -388,6 +391,7 @@ export class Store {
           if (status !== "open") {
             for (const mixer of this.#mixers.values()) mixer.forget();
             for (const routing of this.#routings.values()) routing.forget();
+            for (const effects of this.#effects.values()) effects.forget();
           }
         }),
       ),
@@ -397,6 +401,7 @@ export class Store {
         // Unplugged, or about to be re-attached: what comes back may not be as it was.
         for (const mixer of this.#mixers.values()) if (mixer.deviceId === deviceId) mixer.forget();
         this.#routings.get(deviceId)?.forget();
+        this.#effects.get(deviceId)?.forget();
       }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
     );
@@ -754,6 +759,25 @@ export class Store {
     return model;
   }
 
+  readonly #effects = new Map<string, EffectsModel>();
+
+  /** A device's effect chains and reverb, created on first use; throws for a device of unknown model. */
+  effects(deviceId: string): EffectsModel {
+    const existing = this.#effects.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no known effects`);
+    const model = new EffectsModel({
+      deviceId,
+      family,
+      topology: topologies[family],
+      invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      read: (command, ext3, quiet) => this.#readCommand(deviceId, command, ext3, quiet),
+    });
+    this.#effects.set(deviceId, model);
+    return model;
+  }
+
   readonly #routings = new Map<string, RoutingModel>();
 
   /** A device's routing model, created on first use; throws for a device of unknown model. */
@@ -1027,7 +1051,7 @@ export class Store {
 
   readonly #outputMeters = new Map<string, readonly OutputMeter[]>();
 
-  /** Whether the compact mixer dock under the pages is collapsed; remembered per browser. */
+  /** Whether the compact mixer dock under the pages is collapsed; remembered per browser. Until it is, it starts collapsed at phone width. */
   get mixerDockCollapsed(): ReadonlySignal<boolean> {
     return this.#mixerDockCollapsed;
   }

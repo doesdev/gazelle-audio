@@ -156,6 +156,24 @@ test("the dock is hidden on the Mixer page, and stays collapsed across a reload 
   await expect.poll(() => slots(page)).toEqual(["8", "6"]);
 });
 
+test("a mix with no channel set up is one short line, without the master, and the strips come back with a mix that has some", async ({ page }) => {
+  await putWorkspace(server, { mixers: { "loopback-0": { mixes: [{ name: "Monitors" }, { name: "Cue" }], channels: [channel("c", "Click", 7, 1, [], 2)] } } });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  const empty = dock(page).getByText("No channels in Monitors.");
+  await expect(empty).toBeVisible();
+  await expect(dock(page).getByRole("link", { name: "Open the Mixer page" })).toHaveAttribute("href", "#/mixer/loopback-0");
+  await expect(dock(page).locator("ga-strip"), "no master for a mix with nothing in it").toHaveCount(0);
+  const row = await dock(page).getByTestId("dock-strips").boundingBox();
+  expect(row?.height, "the empty row is one line").toBeLessThanOrEqual(32);
+  expect((await dock(page).boundingBox())?.height, "the whole dock stays short").toBeLessThanOrEqual(80);
+
+  await dock(page).getByTestId("dock-mix-select").selectOption("1");
+  await expect.poll(() => slots(page)).toEqual(["7"]);
+  await expect(dock(page).locator('ga-strip[strip="master"]')).toHaveAttribute("label", "Cue");
+  await expect(empty).toHaveCount(0);
+  expect((await dock(page).getByTestId("dock-strips").boundingBox())?.height).toBeGreaterThanOrEqual(150);
+});
+
 test("a mix wider than the window scrolls inside the dock, not the page (the user, 2026-09-16)", async ({ page }) => {
   // 26 channels at 46 px a strip: wider than a 900 px window.
   const many = Array.from({ length: 26 }, (_, i) => channel(`n${i}`, `Ch ${i}`, 6 + i, 0, [], i % 4));
@@ -170,4 +188,35 @@ test("a mix wider than the window scrolls inside the dock, not the page (the use
   const strips = await dock(page).locator(".strips").evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
   expect(strips.scroll, "the dock's strips overflow their own row").toBeGreaterThan(strips.client);
   await expect(dock(page).locator('ga-strip[strip="master"]')).toBeInViewport();
+});
+
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+
+  test("the dock starts collapsed, since open it takes a quarter of the screen, and stays open once opened", async ({ page }) => {
+    await putWorkspace(server, { mixers: MIXERS });
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    await expect(page.locator("ga-inputs")).toBeVisible();
+    const toggle = dock(page).getByRole("button", { name: "Mixer", exact: true });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(dock(page).locator("ga-strip"), "nothing is built for it collapsed").toHaveCount(0);
+    await expect(dock(page).getByTestId("dock-mix-select"), "nor an empty Mix menu in its bar").toBeHidden();
+    expect((await dock(page).boundingBox())?.height).toBeLessThanOrEqual(48);
+
+    await toggle.tap();
+    await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+    await expect(dock(page).getByTestId("dock-mix-select")).toHaveValue("0");
+    await page.reload();
+    await expect(page.locator("ga-inputs")).toBeVisible();
+    await expect(toggle, "a choice kept wins over the phone's default").toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+  });
+
+  test("a mix with no channel set up still fits one line", async ({ page }) => {
+    await putWorkspace(server, { mixers: { "loopback-0": { mixes: [{ name: "Monitors" }], channels: [] } } });
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    await dock(page).getByRole("button", { name: "Mixer", exact: true }).tap();
+    await expect(dock(page).getByRole("link", { name: "Open the Mixer page" })).toBeVisible();
+    expect((await dock(page).getByTestId("dock-strips").boundingBox())?.height, "one line at 375 px").toBeLessThanOrEqual(32);
+  });
 });

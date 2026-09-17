@@ -17,6 +17,8 @@ export interface ControlOptions {
    * scale is not linear, like a fader's audio taper. Linear from `min` to `max` when left out.
    */
   valueAt?(fraction: number): number;
+  /** The value a wheel or arrow/page key step of `steps` (signed, in `up`'s direction already) leads to; `value + steps` when left out. */
+  stepFrom?(value: number, steps: number): number;
   /**
    * Pixels at each end of the element outside the control's travel. A fader's cap is centred on its
    * value, so its travel runs from half a cap below the top to half a cap above the bottom.
@@ -32,6 +34,7 @@ export function bindControl(element: HTMLElement, options: ControlOptions): void
     const fraction = Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top - inset) / (rect.height - 2 * inset) : (event.clientX - rect.left - inset) / (rect.width - 2 * inset)));
     return options.valueAt === undefined ? options.min + fraction * (options.max - options.min) : options.valueAt(fraction);
   };
+  const step = (by: number) => (options.stepFrom === undefined ? options.get() + by : options.stepFrom(options.get(), by));
   element.addEventListener("pointerdown", (event) => {
     if (!options.enabled() || event.button !== 0) return;
     element.setPointerCapture(event.pointerId);
@@ -50,14 +53,14 @@ export function bindControl(element: HTMLElement, options: ControlOptions): void
     (event) => {
       if (!options.enabled()) return;
       event.preventDefault();
-      options.set(options.get() + (event.deltaY < 0 ? options.up : -options.up));
+      options.set(step(event.deltaY < 0 ? options.up : -options.up));
     },
     { passive: false },
   );
   element.addEventListener("keydown", (event) => {
     if (!options.enabled()) return;
     const steps: Record<string, number> = { ArrowUp: options.up, ArrowRight: options.up, ArrowDown: -options.up, ArrowLeft: -options.up, PageUp: options.page * options.up, PageDown: -options.page * options.up };
-    if (event.key in steps) options.set(options.get() + (steps[event.key] ?? 0));
+    if (event.key in steps) options.set(step(steps[event.key] ?? 0));
     else if (event.key === "Home") options.set(options.min);
     else if (event.key === "End") options.set(options.max);
     else return;

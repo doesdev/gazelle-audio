@@ -6,6 +6,7 @@
 import "@fontsource-variable/inter";
 import "@fontsource-variable/josefin-sans";
 
+import { DRAWER_MAX_PX } from "./elements/app.ts";
 import { provideStore } from "./elements/index.ts";
 import { openStore } from "./store/store.ts";
 import type { ThemeSource } from "./themes/theme.ts";
@@ -22,7 +23,9 @@ const themeSources: ThemeSource[] = [
 
 async function boot(): Promise<void> {
   try {
-    const store = await openStore(location.origin, { themeSources });
+    // At phone width the open mixer dock would take a quarter of the screen (P93, P98).
+    const narrow = matchMedia(`(max-width: ${DRAWER_MAX_PX}px)`).matches;
+    const store = await openStore(location.origin, { themeSources, narrow });
     provideStore(store);
     document.body.replaceChildren(document.createElement("ga-app"));
   } catch (error) {

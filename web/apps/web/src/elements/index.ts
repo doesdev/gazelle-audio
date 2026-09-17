@@ -7,6 +7,7 @@ import { GaMixMaster } from "./mix-master.ts";
 import { GaRouting } from "./routing-page.ts";
 import { GaDeviceList } from "./device-list.ts";
 import { GaDeviceStatus } from "./device-status.ts";
+import { GaEffects } from "./effects-page.ts";
 import { GaHeader } from "./header.ts";
 import { GaInputs } from "./inputs-page.ts";
 import { GaOutputs } from "./outputs-page.ts";
@@ -41,6 +42,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-channel-group", GaChannelGroup],
   ["ga-mix-master", GaMixMaster],
   ["ga-routing", GaRouting],
+  ["ga-effects", GaEffects],
   ["ga-mixer", GaMixer],
   ["ga-mixer-dock", GaMixerDock],
   ["ga-surface-strip", GaSurfaceStrip],

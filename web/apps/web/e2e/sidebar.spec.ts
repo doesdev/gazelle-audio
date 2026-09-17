@@ -1,7 +1,8 @@
 // One sidebar (the user, 2026-09-16): the device cards, the meter and the Control Room in one
 // column that docks to either side, on the right unless moved, and collapses to its rail; the
 // side, the collapse and each section's collapse are remembered per browser. At phone width it is
-// a drawer opened from the header, and no page scrolls sideways: wide content scrolls in its own box.
+// a drawer opened from the header that holds focus while open, and no page scrolls sideways: wide
+// content scrolls in its own box.
 
 import { expect, test, type Page } from "@playwright/test";
 
@@ -214,4 +215,71 @@ test.describe("on a phone", () => {
     await page.getByRole("button", { name: "Move the sidebar to the right" }).tap();
     await page.keyboard.press("Escape");
   });
+
+  test("the open drawer keeps Tab and Shift+Tab within it, and the page behind is inert", async ({ page }) => {
+    await page.goto(`${server.url}/#/inputs/loopback-0`);
+    const menu = page.getByRole("button", { name: "Open the sidebar" });
+    const close = page.getByRole("button", { name: "Close the sidebar" });
+    await menu.tap();
+    await expect(close).toBeFocused();
+    for (const selector of ["ga-app ga-header", "ga-app main", "ga-app footer"]) await expect(page.locator(selector), `${selector} is inert`).toHaveJSProperty("inert", true);
+    await expect(page.locator("ga-app aside.sidebar")).toHaveJSProperty("inert", false);
+
+    // Forward through every control in the drawer, into its elements' shadow roots, and round again.
+    const seen: string[] = [];
+    let wrapped = false;
+    for (let i = 0; i < 80 && !wrapped; i++) {
+      await page.keyboard.press("Tab");
+      const focus = await focused(page);
+      expect(focus.inDrawer, `Tab ${i + 1} reached ${focus.name}`).toBe(true);
+      if (focus.name === "Close the sidebar") wrapped = true;
+      else seen.push(focus.name);
+    }
+    expect(wrapped, "Tab comes round to the close button").toBe(true);
+    expect(seen.length, "it passes through the sections' controls").toBeGreaterThan(3);
+    const last = seen.at(-1);
+
+    // Backwards from the first control goes to the last.
+    await page.keyboard.press("Shift+Tab");
+    expect(await focused(page)).toEqual({ inDrawer: true, name: last });
+    await page.keyboard.press("Tab");
+    expect((await focused(page)).name).toBe("Close the sidebar");
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    const back = await focused(page);
+    expect(back.inDrawer).toBe(true);
+    expect(back.name).toBe(seen.at(-2));
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeFocused();
+    for (const selector of ["ga-app ga-header", "ga-app main", "ga-app footer"]) await expect(page.locator(selector), `${selector} is live again`).toHaveJSProperty("inert", false);
+    await page.keyboard.press("Tab");
+    expect((await focused(page)).inDrawer, "closed, Tab leaves the menu button for the page").toBe(false);
+  });
 });
+
+test("on a desktop, Tab moves from the sidebar on to the rest of the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 860 });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await page.getByRole("button", { name: "Collapse the sidebar" }).focus();
+  for (const selector of ["ga-app ga-header", "ga-app main", "ga-app footer"]) await expect(page.locator(selector)).toHaveJSProperty("inert", false);
+  let left = false;
+  for (let i = 0; i < 80 && !left; i++) {
+    await page.keyboard.press("Tab");
+    left = !(await focused(page)).inDrawer;
+  }
+  expect(left, "focus is not held in the docked sidebar").toBe(true);
+});
+
+/** The deepest focused element's accessible-ish name, and whether it sits in the sidebar. */
+const focused = (page: Page) =>
+  page.evaluate(() => {
+    let active: Element | null = document.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    let inDrawer = false;
+    for (let node: Node | null = active; node !== null; node = node instanceof ShadowRoot ? node.host : node.parentNode) {
+      if (node instanceof HTMLElement && node.matches("aside.sidebar")) inDrawer = true;
+    }
+    const name = active === null ? "" : (active.getAttribute("aria-label") ?? active.getAttribute("data-testid") ?? active.textContent?.trim() ?? active.tagName);
+    return { inDrawer, name: `${active?.tagName.toLowerCase()}:${name}`.replace(/^button:Close the sidebar$/, "Close the sidebar") };
+  });

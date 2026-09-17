@@ -81,9 +81,25 @@ export function clampPan(value: number): number {
   return pan >= PAN_SNAP[0] && pan <= PAN_SNAP[1] ? PAN_CENTRE : pan;
 }
 
+/**
+ * A pan as a side and how far towards it (the user, 2026-09-17): "L 100%", "C", "R 27%". The byte's
+ * steps either side of centre are a share of full left or right, so signed numbers read as dB.
+ */
+/**
+ * A wheel or key step of `steps` from `pan`. Dragging snaps to centre inside the detent (27..38), as
+ * the panel's knob does, but a step would land back on centre and never leave: from centre a step goes
+ * just past the detent instead (the user, 2026-09-17). Steps into the detent still land on centre.
+ */
+export function stepPan(pan: number, steps: number): number {
+  if (pan === PAN_CENTRE && steps !== 0) return steps > 0 ? PAN_SNAP[1] + 1 : PAN_SNAP[0] - 1;
+  return clampPan(pan + steps);
+}
+
 export function formatPan(pan: number): string {
   const offset = pan - PAN_CENTRE;
-  return offset > 0 ? `+${offset}` : String(offset);
+  if (offset === 0) return "C";
+  const share = Math.round((Math.abs(offset) / (PAN_MAX - PAN_CENTRE)) * 100);
+  return `${offset < 0 ? "L" : "R"} ${share}%`;
 }
 
 /** Antelope's meter scale: how far (0..100) a bar reaches for a byte of dB below full scale. */

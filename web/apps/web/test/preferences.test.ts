@@ -117,6 +117,24 @@ test("whether the mixer dock is collapsed is remembered per browser; it starts o
   assert.equal(store(storage).mixerDockCollapsed.value, true);
 });
 
+test("at phone width the mixer dock starts collapsed until a choice is kept; a kept choice wins at any width", () => {
+  const phone = (storage: MemoryStorage) => new Store(new FakeClient(), { storage, timers: new ManualTimers(), themeSources: builtInThemes, narrow: true });
+  const storage = new MemoryStorage();
+  assert.equal(phone(storage).mixerDockCollapsed.value, true, "never set: collapsed on a phone");
+  assert.equal(store(storage).mixerDockCollapsed.value, false, "never set: open elsewhere");
+  assert.equal(storage.items.has(MIXER_DOCK_STORAGE_KEY), false, "the default is not stored as a choice");
+
+  phone(storage).setMixerDockCollapsed(false);
+  assert.equal(phone(storage).mixerDockCollapsed.value, false, "opened on a phone, it stays open there");
+  store(storage).setMixerDockCollapsed(true);
+  assert.equal(store(storage).mixerDockCollapsed.value, true);
+  assert.equal(phone(storage).mixerDockCollapsed.value, true);
+
+  storage.items.set(MIXER_DOCK_STORAGE_KEY, JSON.stringify("yes"));
+  assert.equal(phone(storage).mixerDockCollapsed.value, true, "an invalid stored value falls back to the width's default");
+  assert.equal(store(storage).mixerDockCollapsed.value, false);
+});
+
 test("the device last selected is remembered per browser, and shown where a page names none", () => {
   const storage = new MemoryStorage();
   const client = new FakeClient(UNKNOWN, QUADRO, STUDIO);

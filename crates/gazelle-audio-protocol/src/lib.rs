@@ -97,10 +97,12 @@ pub struct Command {
 /// for these (bytecode research, 2026-09):
 /// * `get_routing`: `ext3` is the destination group index; `get_device_data` asks once per group.
 /// * `get_mixer`: `ext3` is the mixer id; one call returns one mixer.
+/// * `get_afx_strip_order` (Quadro): `ext3` is the effect chain; the panel reads each chain on its own
+///   (`AfxModelController.get_device_data`, 2026-09-17).
 ///
 /// Every other command must keep its schema `ext3`: overriding it would silently change what
 /// the device is asked, so callers are refused rather than trusted.
-pub const EXT3_SELECTOR_COMMANDS: &[&str] = &["get_routing", "get_mixer"];
+pub const EXT3_SELECTOR_COMMANDS: &[&str] = &["get_routing", "get_mixer", "get_afx_strip_order"];
 
 impl Command {
     /// Whether this command takes a per-request `ext3` selector (see [`EXT3_SELECTOR_COMMANDS`]).
