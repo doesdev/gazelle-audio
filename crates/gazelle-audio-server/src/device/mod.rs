@@ -6,6 +6,7 @@ pub mod handle;
 pub mod hotplug;
 pub mod manager;
 pub mod mixer_loopback;
+pub mod read_loopback;
 pub mod routing_loopback;
 pub mod usb;
 pub mod worker;
