@@ -18,6 +18,7 @@
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
+import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
@@ -377,6 +378,7 @@ export class Store {
           if (status !== "open") {
             for (const mixer of this.#mixers.values()) mixer.forget();
             for (const routing of this.#routings.values()) routing.forget();
+            for (const effects of this.#effects.values()) effects.forget();
           }
         }),
       ),
@@ -386,6 +388,7 @@ export class Store {
         // Unplugged, or about to be re-attached: what comes back may not be as it was.
         for (const mixer of this.#mixers.values()) if (mixer.deviceId === deviceId) mixer.forget();
         this.#routings.get(deviceId)?.forget();
+        this.#effects.get(deviceId)?.forget();
       }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
     );
@@ -703,6 +706,25 @@ export class Store {
       timers: this.#timers,
     });
     this.#outputs.set(deviceId, model);
+    return model;
+  }
+
+  readonly #effects = new Map<string, EffectsModel>();
+
+  /** A device's effect chains and reverb, created on first use; throws for a device of unknown model. */
+  effects(deviceId: string): EffectsModel {
+    const existing = this.#effects.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) throw new Error(`${deviceId} has no known model, so no known effects`);
+    const model = new EffectsModel({
+      deviceId,
+      family,
+      topology: topologies[family],
+      invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
+      read: (command, ext3, quiet) => this.#readCommand(deviceId, command, ext3, quiet),
+    });
+    this.#effects.set(deviceId, model);
     return model;
   }
 

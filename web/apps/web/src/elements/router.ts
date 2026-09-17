@@ -1,9 +1,9 @@
 // Hash routes (spec §6.2): #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
-// #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing.
+// #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing, #/effects[/<device id>].
 
 import { signal } from "../core/signal.ts";
 
-export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing";
+export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing" | "effects";
 
 export interface Route {
   page: Page;
@@ -19,6 +19,7 @@ export const PAGES: readonly { page: Page; label: string }[] = [
   { page: "outputs", label: "Outputs" },
   { page: "mixer", label: "Mixer" },
   { page: "routing", label: "Routing" },
+  { page: "effects", label: "Effects" },
 ];
 
 export function parseRoute(hash: string): Route {

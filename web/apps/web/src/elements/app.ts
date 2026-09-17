@@ -298,6 +298,8 @@ function pageFor(page: Page, id: string | undefined): HTMLElement {
       return id === undefined ? h("p", { class: "placeholder" }, "No device with a known mixer is connected.") : h("ga-mixer", { "device-id": id });
     case "routing":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-routing", { "device-id": id });
+    case "effects":
+      return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-effects", { "device-id": id });
   }
 }
 
