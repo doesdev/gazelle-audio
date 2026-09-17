@@ -132,6 +132,8 @@ test("menus, switches and bit masks: PowerFFC's detector, FET-A76's ratio button
   await page.getByTestId("edit-0-1").click();
   await expect(page.getByTestId("param-attack")).toHaveAttribute("aria-valuetext", "12.5");
   await expect(page.getByTestId("param-ratio")).toHaveAttribute("aria-valuetext", "4.0");
+  // Seven controls: `ctrl` and `linked` have none.
+  await expect(page.getByTestId("effect-editor").locator(".param")).toHaveCount(7);
   const taw = page.getByTestId("param-taw");
   await expect(taw).toHaveValue("65535");
   await taw.selectOption({ label: "RMS 50" });
@@ -152,6 +154,8 @@ test("menus, switches and bit masks: PowerFFC's detector, FET-A76's ratio button
   const linlog = page.getByTestId("param-linlog");
   await expect(linlog).toHaveAttribute("aria-pressed", "false");
   await linlog.click();
+  await expect(linlog).toHaveAttribute("aria-pressed", "true");
+  await expect(linlog).toHaveText("On");
   await expect.poll(() => of(sent, "set_Brainiac_conf")()).toEqual([{ type_id: 85, inst_id: 1, release: 0, attack: 0, range: 0, ratio: 8, thresh: 0, linlog: 1, mode: 0, sideSource: 7, sideChanN: 3 }]);
   await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_Brainiac_conf", { type_id: 85, inst_id: 1, release: 0, attack: 0, range: 0, ratio: 8, thresh: 0, linlog: 1, mode: 0, sideSource: 7, sideChanN: 3 }));
 });
