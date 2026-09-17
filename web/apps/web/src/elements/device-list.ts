@@ -17,7 +17,7 @@ import { href, route, type Page } from "./router.ts";
 const STATUS_REPORT = "0x73";
 
 /** The pages that show one device, and so can switch to another in place. */
-const DEVICE_PAGES: readonly Page[] = ["devices", "inputs", "outputs", "mixer", "routing"];
+const DEVICE_PAGES: readonly Page[] = ["devices", "inputs", "outputs", "mixer", "routing", "effects"];
 
 export class GaDeviceList extends GaElement {
   static override styles = [
