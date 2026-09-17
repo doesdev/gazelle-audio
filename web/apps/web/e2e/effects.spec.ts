@@ -196,11 +196,17 @@ test("with nothing read (dry run) the page says so, and chains are not shown as 
   await expect(page.getByTestId("chain-0")).toContainText("Not read");
 });
 
-test("on the loopback, not in dry run, chains read back empty and the reverb follows what was set", async ({ page }) => {
-  const live = await startServer([], { webUi: true });
+test("on the loopback, not in dry run, chains read back loaded and the reverb follows what was set", async ({ page }) => {
+  const live = await startServer(["--loopback-cyclic-ms", "50"], { webUi: true });
   try {
     await page.goto(`${live.url}/#/effects/loopback-0`);
-    await expect(page.getByTestId("chain-0")).toContainText("No effects");
+    // The loopback loads every chain with a Guitar Amp and a FET-A76, so the page and its effect
+    // meters have something to show without hardware.
+    await expect(page.getByTestId("slot-0-0")).toContainText("Guitar Amp");
+    await expect(page.getByTestId("slot-0-1")).toContainText("FET-A76");
+    // The effect meters come from the loopback's own 0x83, shaped as the Quadro's.
+    await expect(page.getByTestId("meter-0-0")).toBeVisible();
+    await expect(page.getByTestId("meter-0-0")).not.toContainText("GR —");
     const on = page.getByTestId("reverb-on");
     await expect(on).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("effects-note")).toHaveText("");

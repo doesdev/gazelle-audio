@@ -432,3 +432,21 @@ test("an added effect's settings are read again when it is opened, since the dev
   await effects.readParameters(39, 0);
   assert.equal(reads(), 2, "the instance it was given is read again");
 });
+
+test("readChainsOnce reads the chains alone, once, for pages that only need to know what is loaded", async () => {
+  const { store, sent } = setup(quadroReplies());
+  const effects = store.effects("loopback-0");
+  assert.equal(await effects.readChainsOnce(), true);
+  assert.equal(sent("loopback-0", "get_afx_strip_order").length, 6, "every chain, and nothing else");
+  assert.equal(sent("loopback-0", "get_reverb_config").length + sent("loopback-0", "get_afx_available_instances").length, 0, "the reverb and the instance counts are the Effects page's own reads");
+  assert.deepEqual(effects.chains.value?.[4]?.slots.map((s) => s.name), ["FET-A76"]);
+
+  assert.equal(await effects.readChainsOnce(), false, "read once");
+  assert.equal(sent("loopback-0", "get_afx_strip_order").length, 6);
+
+  // The Effects page's own read still happens, and forgetting brings both back.
+  assert.equal(effects.needsRead.value, true, "the chains are not the whole page");
+  assert.equal(await effects.readOnce(), true);
+  effects.forget();
+  assert.equal(await effects.readChainsOnce(), true);
+});

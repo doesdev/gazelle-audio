@@ -744,3 +744,85 @@ test("a refused import leaves the workspace as it was and says why", async () =>
   assert.equal(await store.replaceWorkspace(empty()), "Not connected to the server.");
   assert.equal(client.puts.length, puts);
 });
+
+/** A client that answers the chain reads with `chains`, chain index to `[type, inst]` pairs. */
+function withChains(chains: Readonly<Record<string, readonly (readonly [number, number][])[]>>): FakeClient {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
+  const slots = (loaded: readonly (readonly [number, number])[] = []) => Array.from({ length: 8 }, (_, i) => ({ type: loaded[i]?.[0] ?? 0, inst: loaded[i]?.[1] ?? 0 }));
+  client.respond = async (call) => {
+    const table = chains[call.deviceId] ?? [];
+    const response =
+      call.command === "get_afx_strip_order"
+        ? { entries: [{ slots: slots(table[Number(call.options?.["ext3"] ?? 0)]) }] }
+        : call.command === "get_afx_order"
+          ? { entries: Array.from({ length: 16 }, (_, i) => ({ slots: slots(table[i]) })) }
+          : call.command === "get_afx_links"
+            ? { entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }
+            : null;
+    return { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 1, dry_run: false, response, response_error: null };
+  };
+  return client;
+}
+
+test("effect meters come from 0x83: the Quadro's two bytes per loaded effect in chain order, the Studio+'s by chain and slot", async () => {
+  // Quadro: chain 0 holds two effects, chain 1 one, chain 2 none. Its report is those effects'
+  // meters, two bytes each (peak then gain reduction), then the four mic emulation meters.
+  const client = withChains({ "loopback-0": [[[3, 0], [9, 0]], [[9, 1]]], "loopback-1": [[[3, 0], [9, 0]]] });
+  const { store, frames } = setup(client);
+  await store.start();
+  await store.effects("loopback-0").readChainsOnce();
+  await store.effects("loopback-1").readChainsOnce();
+  const listen = [store.watchReport("loopback-0", "0x83"), store.watchReport("loopback-1", "0x83")];
+  const report = (id: string, fields: Record<string, unknown>) => {
+    client.cyclic.get(`${id}|0x83`)?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+
+  const first = store.effectMeter("loopback-0", 0, 0);
+  const second = store.effectMeter("loopback-0", 0, 1);
+  const third = store.effectMeter("loopback-0", 1, 0);
+  assert.ok(first && second && third);
+  assert.equal(store.effectMeter("loopback-0", 0, 0), first, "one meter per effect, shared by everything that shows it");
+  assert.equal(store.effectMeter("loopback-0", 2, 0), undefined, "an empty chain has no effect to meter");
+
+  report("loopback-0", { afx_meters: [{ data: Uint8Array.of(12, 3, 40, 0, 20, 6, 96, 96, 96, 96) }] });
+  assert.deepEqual([first.level.value, first.reduction.value], [12, 3]);
+  assert.deepEqual([second.level.value, second.reduction.value], [40, 0]);
+  assert.deepEqual([third.level.value, third.reduction.value], [20, 6], "chain 1's effect follows chain 0's two");
+
+  // Studio+: chain by chain and slot by slot, in fixed fields.
+  const studio = store.effectMeter("loopback-1", 0, 1);
+  assert.ok(studio);
+  const entries = (at: Record<number, number>, name: string) => Array.from({ length: 16 }, (_, c) => ({ [name]: Uint8Array.from({ length: 8 }, (_, s) => (c === 0 ? (at[s] ?? 96) : 96)) }));
+  report("loopback-1", { channel_peaks: entries({ 1: 18 }, "effect_peaks"), channel_gain_reductions: entries({ 1: 9 }, "values") });
+  assert.deepEqual([studio.level.value, studio.reduction.value], [18, 9]);
+  for (const stop of listen) stop();
+});
+
+test("a strip fed by AFX OUT meters the last effect in that chain; an empty chain shows no meter and says why", async () => {
+  const client = withChains({ "loopback-0": [[[3, 0], [9, 0]]], "loopback-1": [] });
+  const { store, frames } = setup(client);
+  await store.start();
+  await store.effects("loopback-0").readChainsOnce();
+  const stop = store.watchReport("loopback-0", "0x83");
+
+  // AFX OUT is the Quadro's topology input group 5, one channel per chain.
+  const chain1 = store.inputMeter("loopback-0", { group: 5, channel: 0 });
+  assert.ok(chain1);
+  client.cyclic.get("loopback-0|0x83")?.({ afx_meters: [{ data: Uint8Array.of(12, 3, 40, 0, 96, 96, 96, 96) }] });
+  for (const frame of frames.splice(0)) frame();
+  assert.equal(chain1.level.value, 40, "the chain's output is as far as the device meters it: its last effect");
+  assert.match(chain1.note.value, /last effect/);
+
+  const empty = store.inputMeter("loopback-0", { group: 5, channel: 3 });
+  assert.ok(empty);
+  assert.equal(empty.level.value, undefined);
+  assert.match(empty.note.value, /no effects/);
+
+  // A chain nobody has read is not known to be empty, and says so.
+  const unread = store.inputMeter("loopback-1", { group: 6, channel: 0 });
+  assert.ok(unread);
+  assert.equal(unread.level.value, undefined);
+  assert.match(unread.note.value, /not been read/);
+  stop();
+});

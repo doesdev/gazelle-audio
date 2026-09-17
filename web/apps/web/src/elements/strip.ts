@@ -244,7 +244,12 @@ export class GaStrip extends GaElement {
       }
       if (!metered) meter.title = "This channel is not in the selected mix";
       else if (inputMeter === undefined) meter.title = "This input reports no meter";
-      else meter.title = "The input's level, before the fader";
+      // A meter that reads nothing says why: an effect chain may be empty or simply unread.
+      else {
+        this.watch(() => {
+          meter.title = inputMeter.note.value;
+        });
+      }
       this.watch(() => {
         clip.toggleAttribute("data-on", inputMeter?.clipped.value === true);
       });

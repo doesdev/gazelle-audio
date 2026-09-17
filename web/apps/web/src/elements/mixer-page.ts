@@ -307,6 +307,9 @@ export class GaMixer extends GaElement {
 
     // Point the device's meters at the chosen mix.
     this.watch(() => store.mixer(deviceId, channels.meteredMix.value).activate());
+    // A strip fed by AFX OUT is metered by its chain's last effect, which needs the chains read and
+    // the effect-meter report followed while the page is open.
+    this.watch(() => store.effects(deviceId).activate());
 
     // Channels in layout order (consecutive channels of one group inside a group element), then
     // "+", then the masters of the mixes in use.

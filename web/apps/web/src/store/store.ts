@@ -156,7 +156,31 @@ export interface InputMeter {
   level: ReadonlySignal<number | undefined>;
   clipped: ReadonlySignal<boolean>;
   clearClip(): void;
+  /**
+   * What the meter shows, for a strip's tooltip. A meter that reads nothing says why (P85): an
+   * effect chain may be empty or simply not read yet, and either way the device reports nothing
+   * for it.
+   */
+  note: ReadonlySignal<string>;
 }
+
+/** An effect's meter: an input meter's peak and clip, plus the gain reduction the device reports. */
+export interface EffectMeter extends InputMeter {
+  /** The gain reduction byte, `undefined` until a report arrives. Its unit is the effect's own. */
+  reduction: ReadonlySignal<number | undefined>;
+}
+
+/** The report both models push their effect meters in, many times a second. */
+const EFFECT_METER_REPORT = "0x83";
+
+/**
+ * The topology input type a mixer strip is fed from when it carries an effect chain's output. The
+ * channel is the chain index in both models.
+ */
+const AFX_OUT = "AFX_OUT";
+
+/** What a strip's meter shows, by default: the input's level before the fader. */
+const INPUT_METER_NOTE = "The input's level, before the fader";
 
 /** One stereo output's meter, from the fixed output fields only the Quadro reports. */
 export interface OutputMeter {
@@ -804,6 +828,7 @@ export class Store {
       topology: topologies[family],
       invoke: (command, args, options) => this.#invokeCommand(deviceId, command, args, options),
       read: (command, ext3, quiet, args) => this.#readCommand(deviceId, command, ext3, quiet, args),
+      watchMeters: () => this.watchReport(deviceId, EFFECT_METER_REPORT),
     });
     this.#effects.set(deviceId, model);
     return model;
@@ -1040,6 +1065,9 @@ export class Store {
     const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
     if (family === undefined || family === null) return undefined;
     const type = topologies[family].inputs[source.group]?.type;
+    // An effect chain's output is metered by the chain, not by a field of the status report: the
+    // device meters each effect, and the last one in the chain is as far as it goes.
+    if (type === AFX_OUT) return this.#chainMeter(deviceId, family, source.channel);
     const fieldName = type === undefined ? undefined : INPUT_METER_FIELDS[family][type];
     if (fieldName === undefined) return undefined;
     const key = `${deviceId}|${fieldName}|${source.channel}`;
@@ -1051,12 +1079,101 @@ export class Store {
       return (bytes instanceof Uint8Array || Array.isArray(bytes)) && source.channel < bytes.length ? Number((bytes as ArrayLike<number>)[source.channel]) : undefined;
     });
     const light = this.#clipLight(computed(() => level.value === 0));
-    const meter: InputMeter = { level, clipped: light.lit, clearClip: () => this.#clearClip(light) };
+    const meter: InputMeter = { level, clipped: light.lit, clearClip: () => this.#clearClip(light), note: computed(() => INPUT_METER_NOTE) };
     this.#inputMeters.set(key, meter);
     return meter;
   }
 
   readonly #inputMeters = new Map<string, InputMeter>();
+
+  /**
+   * The meter of one effect in a chain, from the effect-meter report (0x83), or undefined when that
+   * position holds no effect.
+   *
+   * The models report the same two numbers differently (`reference/devices.md`, "Effects (AFX) and
+   * reverb"). The Quadro sends two bytes -- peak, then gain reduction -- per **loaded** effect,
+   * chain by chain in chain order, so an effect's place in the report depends on how many effects
+   * the chains before it hold; that is the one place this mapping lives. The Studio+ sends fixed
+   * fields indexed by chain and by the effect's position within it.
+   *
+   * The peak is dB below full scale, as every other meter is. The gain reduction's unit is the
+   * effect's own: the vendor panel's meter widget reads some effects' bytes as dB, others as
+   * quarter-dB, so it is shown as the device's own steps rather than a figure this app invents.
+   */
+  effectMeter(deviceId: string, chain: number, position: number): EffectMeter | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    const slots = this.effects(deviceId).chains.peek()?.[chain]?.slots;
+    if (slots !== undefined && position >= slots.length) return undefined;
+    const at = computed(() => (position < (this.effects(deviceId).chains.value?.[chain]?.slots.length ?? 0) ? { chain, position } : undefined));
+    const note = computed(() => (at.value === undefined ? "This slot holds no effect" : "The effect's output level"));
+    return this.#effectMeterAt(deviceId, family, at, `${deviceId}|effect|${chain}|${position}`, note);
+  }
+
+  /** The meter of a chain's last effect: the chain's output, as far as the device reports it. */
+  #chainMeter(deviceId: string, family: "quadro" | "studio", chain: number): EffectMeter {
+    const at = computed(() => {
+      const slots = this.effects(deviceId).chains.value?.[chain]?.slots;
+      return slots === undefined || slots.length === 0 ? undefined : { chain, position: slots.length - 1 };
+    });
+    const note = computed(() => {
+      if (at.value !== undefined) return "The chain's last effect, which is as far as the device meters it";
+      return this.effects(deviceId).chains.value?.[chain]?.known === true
+        ? "This chain has no effects, so the device reports no meter for it"
+        : "This chain has not been read, so nothing is known to meter";
+    });
+    return this.#effectMeterAt(deviceId, family, at, `${deviceId}|chain|${chain}`, note);
+  }
+
+  /**
+   * One effect meter, following whichever effect `at` names. `at` is a signal so a chain's meter
+   * can follow its last effect as the chain is edited.
+   */
+  #effectMeterAt(
+    deviceId: string,
+    family: "quadro" | "studio",
+    at: ReadonlySignal<{ chain: number; position: number } | undefined>,
+    key: string,
+    note: ReadonlySignal<string>,
+  ): EffectMeter {
+    const existing = this.#effectMeters.get(key);
+    if (existing !== undefined) return existing;
+    const byte = (which: "peak" | "reduction") =>
+      computed(() => {
+        const where = at.value;
+        if (where === undefined) return undefined;
+        if (family === "studio") {
+          const field = this.field(deviceId, EFFECT_METER_REPORT, which === "peak" ? "channel_peaks" : "channel_gain_reductions").value;
+          const entry = Array.isArray(field) ? (field[where.chain] as Record<string, unknown> | undefined) : undefined;
+          const slots = entry?.[which === "peak" ? "effect_peaks" : "values"];
+          return slots instanceof Uint8Array && where.position < slots.length ? Number(slots[where.position]) : undefined;
+        }
+        // The Quadro's effect meters run from the first byte, chain by chain, two per loaded effect,
+        // so the offset is how many effects the chains before this one hold. Everything after them
+        // is the mic emulation meters, which are not an effect's.
+        const chains = this.effects(deviceId).chains.value;
+        if (chains === undefined) return undefined;
+        let before = 0;
+        for (let i = 0; i < where.chain; i++) before += chains[i]?.slots.length ?? 0;
+        const field = this.field(deviceId, EFFECT_METER_REPORT, "afx_meters").value;
+        const data = Array.isArray(field) ? (field[0] as Record<string, unknown> | undefined)?.["data"] : undefined;
+        const index = (before + where.position) * 2 + (which === "peak" ? 0 : 1);
+        return data instanceof Uint8Array && index < data.length ? Number(data[index]) : undefined;
+      });
+    const level = byte("peak");
+    const light = this.#clipLight(computed(() => level.value === 0));
+    const meter: EffectMeter = {
+      level,
+      reduction: byte("reduction"),
+      clipped: light.lit,
+      clearClip: () => this.#clearClip(light),
+      note,
+    };
+    this.#effectMeters.set(key, meter);
+    return meter;
+  }
+
+  readonly #effectMeters = new Map<string, EffectMeter>();
 
   /** The output meters a device reports, or undefined for a model that reports none of its own. */
   outputMeters(deviceId: string): readonly OutputMeter[] | undefined {

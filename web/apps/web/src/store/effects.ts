@@ -137,6 +137,8 @@ export interface EffectsContext {
   topology: Topology;
   invoke(command: string, args: Record<string, unknown>, options: { coalesce?: string }): Promise<boolean>;
   read(command: string, ext3: number | undefined, quiet: boolean, args?: Record<string, unknown>): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
+  /** Follows the device's effect-meter report until the returned function is called. */
+  watchMeters(): () => void;
 }
 
 /** An effect instance's parameters by field name, in the values the editor shows (signed where the range is). */
@@ -269,6 +271,9 @@ export class EffectsModel {
   readonly #needsRead = signal(true);
   #generation = 0;
   #reading: number | undefined;
+  /** The generation the chains were last read in, and the one a chains-only read is running for. */
+  #chainsRead: number | undefined;
+  #readingChains: number | undefined;
   readonly #parameters = new Map<string, Signal<EffectParameterValues | undefined>>();
   /** The generation each parameter read was made in, by read key (`type:inst` on the Quadro, `type` on the Studio+). */
   readonly #parametersRead = new Map<string, number>();
@@ -322,6 +327,46 @@ export class EffectsModel {
     return true;
   }
 
+  /**
+   * Reads the chains alone, unless they have been read since the last `forget()`. Resolves true when
+   * this call read.
+   *
+   * The Mixer needs to know what each chain holds to meter a strip fed by AFX OUT, and its last
+   * effect is as far as the device meters the chain. That is a fraction of what the Effects page
+   * reads, so it asks for the orders and the links only, and leaves `needsRead` set for the page's
+   * own read. Quiet, like every read a page makes of its own accord (P63).
+   */
+  /**
+   * Follows the effect meters and makes sure the chains are read, for a page that shows them.
+   * Returns a disposer.
+   *
+   * The report arrives about 125 times a second, so it is followed only while a page showing it is
+   * open, and which effect each of its bytes belongs to is knowable only from the chains.
+   */
+  activate(): () => void {
+    void this.readChainsOnce();
+    return this.#context.watchMeters();
+  }
+
+  async readChainsOnce(): Promise<boolean> {
+    const generation = this.#generation;
+    if (this.#chainsRead === generation || this.#readingChains === generation) return false;
+    this.#readingChains = generation;
+    try {
+      const { family, read } = this.#context;
+      const [chains, links] = await Promise.all([
+        this.#readOrders(Array.from({ length: CHAINS[family] }, (_, chain) => chain)),
+        read("get_afx_links", undefined, true),
+      ]);
+      if (generation !== this.#generation) return true;
+      batch(() => this.#applyChains(chains, links));
+      if (!chains.some((chain) => chain.failed)) this.#chainsRead = generation;
+    } finally {
+      if (this.#readingChains === generation) this.#readingChains = undefined;
+    }
+    return true;
+  }
+
   /** Reads everything now. Resolves true when every read was answered. */
   async load(): Promise<boolean> {
     const generation = this.#generation;
@@ -353,6 +398,8 @@ export class EffectsModel {
       ...[links, reverb, ...(returns === undefined ? [] : [returns]), ...(sends === undefined ? [] : [sends])].map((r): Outcome => (r.dryRun ? "dry" : r.response === null ? "failed" : "read")),
     ];
 
+    // The page's read covers the chains too, so a later `readChainsOnce` has nothing to do.
+    if (!chains.some((chain) => chain.failed)) this.#chainsRead = this.#generation;
     batch(() => {
       this.#applyChains(chains, links);
       if (reverb.dryRun) this.#reverb.value = { ...REVERB_DEFAULT };

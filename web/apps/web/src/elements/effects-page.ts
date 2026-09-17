@@ -18,10 +18,12 @@ import { h } from "../core/dom.ts";
 import { effect as effectOf, signal, untracked } from "../core/signal.ts";
 import type { EffectParameter } from "../store/effect-parameters.ts";
 import { bandKey, formatParameter, formatReverbLevel, formatRoomSize, REVERB_LEVEL_MAX, REVERB_LEVEL_MIN, REVERB_LEVEL_UNITY, REVERB_RETURN_MAX, REVERB_SEND_MAX, shownParameters, type EffectChain, type EffectSlot, type EffectsModel } from "../store/effects.ts";
-import { formatPan, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition } from "../store/mixer.ts";
+import { formatPan, meterDeflection, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition } from "../store/mixer.ts";
 import { formatVolume } from "../store/outputs.ts";
+import { meterGradient } from "../themes/theme.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 
 /** The Quadro panel's names for its two reverb returns, by the mix they feed. */
 const RETURN_NAMES = ["Mix 1 (Monitor/HP1)", "Mix 2 (HP2)"] as const;
@@ -52,7 +54,18 @@ export class GaEffects extends GaElement {
       .source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ga-text-secondary); }
       .link { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-accent-text); background: var(--ga-accent); }
       .slots { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; min-height: 26px; padding: 2px 4px; border-radius: 2px; background: var(--ga-surface-inset); }
+      .slot { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) minmax(64px, 96px) auto; align-items: center; gap: 4px 6px; min-height: 26px; padding: 2px 4px; border-radius: 2px; background: var(--ga-surface-inset); }
+      /* The effect's own meter: its peak on the mixer's scale, then the gain reduction the device reports. */
+      .effect-meter { display: grid; grid-template-columns: minmax(0, 1fr) 6px; align-items: center; gap: 4px; }
+      .effect-meter .bar { position: relative; height: 5px; overflow: hidden; border-radius: 1px; background: var(--ga-meter-background); }
+      .effect-meter .bar .gradient { position: absolute; inset: 0; background: var(--effect-meter-gradient, var(--ga-accent)); }
+      .effect-meter .bar .mask { position: absolute; top: 0; bottom: 0; right: 0; width: 100%; background: var(--ga-meter-background); }
+      .effect-meter .bar .mask::after { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 2px; background: var(--ga-text-primary); opacity: 0.35; filter: blur(1.5px); }
+      .effect-meter .bar .peak-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ga-text-primary); opacity: 0.85; box-shadow: 0 0 4px var(--ga-text-primary); }
+      .effect-meter .bar .peak-mark[hidden] { display: none; }
+      .effect-meter .clip { width: 6px; height: 10px; padding: 0; border: 0; border-radius: 1px; background: var(--ga-meter-background); }
+      .effect-meter .clip[data-on] { background: var(--ga-meter-clip); cursor: pointer; }
+      .effect-meter .reduction { grid-column: 1 / -1; font-size: 10px; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; }
       .slot-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
       .slot-tools button { min-width: 22px; min-height: 20px; padding: 0 4px; font-size: 11px; line-height: 1; }
       .add { max-width: 100%; min-width: 0; font-size: 11px; }
@@ -126,6 +139,11 @@ export class GaEffects extends GaElement {
     // Read once when the page opens, and again once the connection or the device has come back.
     this.watch(() => {
       if (store.connected.value && effects.needsRead.value) untracked(() => void effects.readOnce());
+    });
+    // Follow the effect meters while the page is open, and nowhere else: about 125 reports a second.
+    this.watch(() => effects.activate());
+    this.watch(() => {
+      this.style.setProperty("--effect-meter-gradient", meterGradient(store.theme.value.meter.gradient, undefined, "to right", (db) => meterDeflection(-db)));
     });
     const destination = topology.outputs.findIndex((output) => output.type === "AFX_IN");
     if (destination >= 0) {
@@ -249,6 +267,7 @@ export class GaEffects extends GaElement {
       const remove = h("button", { type: "button", class: "remove", "data-testid": `remove-${index}-${slot.position}`, "aria-label": `Remove ${slot.name} ${slot.inst + 1} from ${name}`, title: `Remove ${slot.name} ${slot.inst + 1} from the chain. The device switches the effect off as it goes.`, "on:click": () => effects.removeEffect(index, slot.position) }, "\u2715");
       const process = h("button", { type: "button", class: "process", "data-testid": `active-${index}-${slot.position}`, "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, false) }, "On");
       const off = h("button", { type: "button", class: "bypass", "data-testid": `bypass-${index}-${slot.position}`, "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, true) }, "Bypass");
+      const meter = this.#slotMeter(deviceId, index, slot, disposers);
       disposers.push(
         this.#effect(() => {
           const state = bypass.value;
@@ -281,6 +300,7 @@ export class GaEffects extends GaElement {
           " ",
           h("span", { class: "instance" }, `#${slot.inst + 1}`),
         ),
+        meter,
         h("span", { class: "slot-tools" }, h("span", { class: "pair", role: "group", "aria-label": `${slot.name} bypass` }, process, off), up, down, remove),
       );
     });
@@ -549,6 +569,42 @@ export class GaEffects extends GaElement {
   /** An effect disposed with the chain list rather than the page, since the list is rebuilt on every read. */
   #effect(fn: () => void): () => void {
     return untracked(() => effectOf(fn));
+  }
+
+  /**
+   * One effect's meter: its peak on the mixer's scale with the same ballistics (P86) and clip light
+   * (P88), and the gain reduction the device reports beside it.
+   *
+   * The gain reduction is shown in the device's own steps. The vendor panel reads it as dB for some
+   * effects and as quarter-dB for others, depending on the meter widget each effect's view uses, so
+   * a single figure in dB would be wrong for half of them; what it means is a hardware check
+   * (`reference/devices.md`).
+   */
+  #slotMeter(deviceId: string, chain: number, slot: EffectSlot, disposers: (() => void)[]): HTMLElement {
+    const store = useStore();
+    const meter = store.effectMeter(deviceId, chain, slot.position);
+    const reduction = h("span", { class: "reduction" });
+    if (meter === undefined) {
+      reduction.textContent = "no meter";
+      return h("span", { class: "effect-meter", title: "The device reports no meter for this effect" }, reduction);
+    }
+    const mask = h("div", { class: "mask" });
+    const peakMark = h("div", { class: "peak-mark", hidden: "" });
+    const bar = h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask, peakMark);
+    const clip = h("button", { type: "button", class: "clip", "data-testid": `clip-${chain}-${slot.position}`, "aria-label": `${slot.name} ${slot.inst + 1} clip; select to clear`, "on:click": () => meter.clearClip() });
+    disposers.push(
+      animateMeter(meter.level, (motion) => {
+        mask.style.width = `${100 - meterDeflection(motion.level)}%`;
+        peakMark.hidden = motion.peak >= METER_FLOOR;
+        peakMark.style.left = `${meterDeflection(motion.peak)}%`;
+      }),
+      this.#effect(() => {
+        clip.toggleAttribute("data-on", meter.clipped.value);
+        const gr = meter.reduction.value;
+        reduction.textContent = gr === undefined ? "GR —" : `GR ${gr}`;
+      }),
+    );
+    return h("span", { class: "effect-meter", "data-testid": `meter-${chain}-${slot.position}`, title: "The effect's level, dB below full scale, and the gain reduction the device reports, in its own steps" }, bar, clip, reduction);
   }
 
   #reverb(effects: EffectsModel, enabled: () => boolean): HTMLElement {
