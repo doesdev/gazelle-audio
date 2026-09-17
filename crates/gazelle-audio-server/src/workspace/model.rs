@@ -34,6 +34,10 @@ pub struct Workspace {
     /// Mixer layouts the user saved, per device model (decision P56). Additive like `mixers`.
     #[serde(default)]
     pub layouts: Vec<SavedLayout>,
+    /// Top-level fields this server does not know (a newer app's), kept as they came and given back
+    /// so an export always imports back whole (workspace spec, Q7).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// A mixer layout saved by name, which any device of `family` can start from.
@@ -58,6 +62,7 @@ impl Default for Workspace {
             aliases: BTreeMap::new(),
             mixers: BTreeMap::new(),
             layouts: Vec::new(),
+            extra: BTreeMap::new(),
         }
     }
 }

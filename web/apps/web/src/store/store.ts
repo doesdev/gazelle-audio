@@ -1274,7 +1274,8 @@ export class Store {
       return undefined;
     } catch (error) {
       if (pending) this.#saveTimer = this.#timers.setTimeout(() => void this.#save(), SAVE_DEBOUNCE_MS);
-      // The server answers a document it cannot deserialise in plain text, so the client knows only the status.
+      // A server from before workspace spec phase 1 answers a document it cannot deserialise in plain
+      // text, so the client knows only the status; newer ones say which part in a `bad_value`.
       if (error instanceof GazelleError && /^http_4\d\d$/.test(error.code)) return "The server could not read it as a workspace: a part of it is missing or has the wrong type.";
       return `The server refused it: ${message(error)}`;
     } finally {

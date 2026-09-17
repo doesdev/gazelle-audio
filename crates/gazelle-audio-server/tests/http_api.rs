@@ -608,6 +608,74 @@ async fn workspace_roundtrips() {
     assert_eq!(back["aliases"]["loopback-0"], "Main Rig");
 }
 
+/// A document the server cannot read as a workspace is refused with the same JSON error body as any
+/// other refusal (workspace spec phase 1), naming the part that is wrong, so a page can say why.
+/// The stored workspace is left as it was.
+#[tokio::test]
+async fn an_unreadable_workspace_is_refused_with_a_json_reason() {
+    let app = app();
+    let (status, _) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "aliases": {"loopback-0": "Kept"}})).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let broken = [
+        ("a group without a name", json!({"version": 1, "groups": [{"id": "g"}]}), "groups[0]"),
+        ("a slot that is text", json!({"version": 1, "mixers": {"loopback-0": {"channels": [{"id": "a", "slot": "six"}]}}}), "channels[0].slot"),
+        ("links that are not a list", json!({"version": 1, "links": {}}), "links"),
+        ("no version", json!({"groups": []}), "version"),
+    ];
+    for (why, document, part) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value", "{why}: {body}");
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("bad value: not a workspace: "), "{why}: {message}");
+        assert!(message.contains(part), "{why}: the message should name {part}: {message}");
+    }
+
+    // Not JSON at all is refused the same way.
+    let res = app
+        .clone()
+        .oneshot(Request::builder().method("PUT").uri("/api/v1/workspace").header("content-type", "application/json").body(Body::from("drums on ADAT")).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).expect("a JSON body");
+    assert_eq!(body["error"]["code"], "bad_value", "{body}");
+
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["aliases"]["loopback-0"], "Kept", "refused documents change nothing");
+}
+
+/// Top-level fields this server does not know are kept and given back (the user's answer to the
+/// workspace spec's Q7), so an export from a newer app imports back whole.
+#[tokio::test]
+async fn unknown_workspace_fields_are_kept() {
+    let app = app();
+    let document = json!({"version": 1, "aliases": {"loopback-0": "Desk"}, "snapshots_index": [{"id": "s1"}], "future": {"nested": [1, 2, 3], "flag": true}});
+    let (status, saved) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["future"], json!({"nested": [1, 2, 3], "flag": true}));
+    let (_, back) = get(app, "/api/v1/workspace").await;
+    assert_eq!(back["snapshots_index"], json!([{"id": "s1"}]));
+    assert_eq!(back["future"], json!({"nested": [1, 2, 3], "flag": true}));
+    assert_eq!(back["aliases"]["loopback-0"], "Desk", "known fields are still read as before");
+}
+
+/// Only workspace versions this server understands are accepted: a newer document could mean
+/// something different by the fields it shares, and version 0 was never written.
+#[tokio::test]
+async fn workspace_versions_are_checked() {
+    let app = app();
+    for version in [0, 2, 99] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": version})).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "version {version}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value");
+        assert_eq!(body["error"]["message"], format!("bad value: workspace version {version} is not one this server reads (1)"));
+    }
+    let (status, body) = send(app, "PUT", "/api/v1/workspace", json!({"version": 1})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 #[tokio::test]
 async fn all_commands_lists_every_model() {
     let (status, body) = get(app(), "/api/v1/commands").await;

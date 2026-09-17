@@ -110,6 +110,13 @@ test("a file the server refuses is not imported, and the server's reason is show
   await page.getByTestId("workspace-import-replace").click();
   await expect(problem).toHaveText("bad.json was not imported. The server refused it: bad value: link 'solo': a link needs at least two channels");
   expect(await serverWorkspace()).toEqual(before);
+
+  // A document of the right outline with a part the server cannot read: its reason names the part.
+  const unreadable = { version: 1, groups: [{ id: "g" }], links: [], aliases: {}, mixers: {} };
+  await file.setInputFiles({ name: "part.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(unreadable)) });
+  await page.getByTestId("workspace-import-replace").click();
+  await expect(problem).toContainText("part.json was not imported. The server refused it: bad value: not a workspace: groups[0]: missing field `name`");
+  expect(await serverWorkspace()).toEqual(before);
   await expect(aliasField(page, "loopback-0")).toHaveValue("Kept");
 });
 

@@ -1,12 +1,13 @@
 //! Workspace read and replace.
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::Json;
 
 use std::collections::HashSet;
 
 use crate::error::ServerError;
-use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Workspace, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS};
+use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Workspace, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, WORKSPACE_VERSION};
 use crate::AppState;
 
 pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspace>, ServerError> {
@@ -15,8 +16,18 @@ pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspa
 
 pub async fn put_workspace(
     State(state): State<AppState>,
-    Json(workspace): Json<Workspace>,
+    document: Result<Json<Workspace>, JsonRejection>,
 ) -> Result<Json<Workspace>, ServerError> {
+    // A document that is not a workspace is refused like any other bad value, in the JSON error body
+    // and naming the part that is wrong: axum's own rejection is plain text, which a page cannot show.
+    let Json(workspace) = document.map_err(|rejection| {
+        let text = rejection.body_text();
+        let reason = text.split_once(": ").map_or(text.as_str(), |(_, reason)| reason);
+        ServerError::BadValue(format!("not a workspace: {reason}"))
+    })?;
+    if !(1..=WORKSPACE_VERSION).contains(&workspace.version) {
+        return Err(ServerError::BadValue(format!("workspace version {} is not one this server reads ({WORKSPACE_VERSION})", workspace.version)));
+    }
     check_colours(&workspace.groups)?;
     check_links(&workspace.links)?;
     for (device, mixer) in &workspace.mixers {
