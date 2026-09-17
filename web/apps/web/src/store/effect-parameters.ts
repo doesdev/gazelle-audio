@@ -23,10 +23,30 @@ export interface EffectParameter {
   readonly scale?: number;
   readonly decimals?: number;
   readonly unit?: string;
-  /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose range depends on the model. */
+  /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose control depends on the model (see `EffectDescription.layouts`). */
   readonly hidden?: "sidechain" | "link" | "internal" | "unused" | "model";
   /** Where the range came from when not this panel's own control (the Quadro's description of the same effect). */
   readonly rangeFrom?: "quadro";
+}
+
+/** One control in a model's layout: the parameter it drives, and what the model changes about it (a switch's name, positions and range). */
+export interface EffectControlLayout {
+  readonly name: string;
+  readonly label?: string;
+  readonly control?: NonNullable<EffectParameter["control"]>;
+  readonly min?: number;
+  readonly max?: number;
+  readonly options?: readonly (readonly [number, string])[];
+}
+
+/** Controls that depend on another parameter's value (the Guitar Amp's model), as the panel shows one view per model. */
+export interface EffectLayouts {
+  /** The parameter whose value picks the layout. */
+  readonly by: string;
+  /** Every parameter some layout shows: one the chosen layout does not list has no control and goes back as read. */
+  readonly fields: readonly string[];
+  /** The controls each value shows, in the set command's order. */
+  readonly models: ReadonlyMap<number, readonly EffectControlLayout[]>;
 }
 
 export interface EffectDescription {
@@ -39,6 +59,8 @@ export interface EffectDescription {
   readonly instanceParam?: string;
   /** In the set command's order, after type_id and inst_id. */
   readonly parameters: readonly EffectParameter[];
+  /** Which of the parameters show, by another parameter's value; absent when every control always shows. */
+  readonly layouts?: EffectLayouts;
   /** partial: some parameters have no control and go back as read. */
   readonly status: "full" | "partial";
 }
@@ -56,7 +78,7 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
       { name: "knee", label: "Knee", wire: "u8", min: 0, max: 30, default: 0, control: "range" },
       { name: "linked", label: "Linked", wire: "u8", min: null, max: null, default: 0, hidden: "link" }
     ] }],
-    [3, { type: 3, name: "Guitar Amp", set: "set_guitar_amp_conf", get: "get_guitar_amp_configs", replyCount: 1, instanceParam: "id", status: "partial", parameters: [
+    [3, { type: 3, name: "Guitar Amp", set: "set_guitar_amp_conf", get: "get_guitar_amp_configs", replyCount: 1, instanceParam: "id", status: "full", parameters: [
       { name: "model", label: "Model", wire: "u8", min: 0, max: 10, default: 0, control: "menu", options: [[0, "Darkface 65 (US)"], [1, "Top30 (UK) Bright"], [2, "Modern (US) CH3"], [3, "Plexi 59 (UK)"], [4, "Rock 22.10 (UK)"], [5, "Rock 75 (UK)"], [6, "Marcus II (US) Lead"], [7, "Tweed Deluxe (US)"], [8, "Overange 120 (UK)"], [9, "BurnSphere (DE) Lead"], [10, "Bass SuperTube VR"]] },
       { name: "gain", label: "Gain", wire: "u8", min: 0, max: 100, default: 50, control: "range" },
       { name: "bass", label: "Bass", wire: "u8", min: 0, max: 100, default: 50, control: "range" },
@@ -73,7 +95,19 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
       { name: "mode4", label: "Mode4", wire: "u8", min: null, max: null, default: 0, hidden: "model" },
       { name: "mode5", label: "Mode5", wire: "u8", min: null, max: null, default: 0, hidden: "model" },
       { name: "level", label: "Level", wire: "i8", min: -48, max: 12, default: 0, control: "range", unit: "dB" }
-    ] }],
+    ], layouts: { by: "model", fields: ["gain", "bass", "mid", "treble", "presence", "volume", "boost", "mode1", "mode2", "mode3", "mode4", "mode5"], models: new Map<number, readonly EffectControlLayout[]>([
+      [0, [{ name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }, { name: "mode1", label: "Bright (mode 1)", control: "switch", min: 0, max: 1 }]],
+      [1, [{ name: "bass" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [2, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }, { name: "mode1", label: "Mode 1", control: "menu", min: 0, max: 2, options: [[0, "Raw"], [1, "Vintage"], [2, "Modern"]] }]],
+      [3, [{ name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [4, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [5, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [6, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }, { name: "boost" }, { name: "mode2", label: "Shift (mode 2)", control: "switch", min: 0, max: 1 }, { name: "mode3", label: "Shift (mode 3)", control: "switch", min: 0, max: 1 }, { name: "mode4", label: "Mode 4", control: "switch", min: 0, max: 1 }, { name: "mode5", label: "Mode 5", control: "switch", min: 0, max: 1 }]],
+      [7, [{ name: "mid" }, { name: "volume" }, { name: "mode2", label: "Mode 2", control: "switch", min: 0, max: 1 }]],
+      [8, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }]],
+      [9, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }, { name: "mode1", label: "Mode 1", control: "switch", min: 0, max: 1 }, { name: "mode2", label: "Mode 2", control: "switch", min: 0, max: 1 }]],
+      [10, [{ name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }, { name: "mode1", label: "Mode 1", control: "switch", min: 0, max: 1 }, { name: "mode2", label: "Mode 2", control: "switch", min: 0, max: 1 }, { name: "mode3", label: "Mode 3", control: "menu", min: 0, max: 2, options: [[0, "Position 1"], [1, "Position 2"], [2, "Position 3"]] }, { name: "mode4", label: "Mode 4", control: "menu", min: 0, max: 2, options: [[0, "Position 1"], [1, "Position 2"], [2, "Position 3"]] }]],
+    ]) } }],
     [5, { type: 5, name: "VMEQ-5", set: "set_pultec_meq_conf", get: "get_pultec_meq_conf", replyCount: 1, instanceParam: "id", status: "full", parameters: [
       { name: "low_freq", label: "Low freq", wire: "u8", min: 0, max: 4, default: 0, control: "range" },
       { name: "low_gain", label: "Low gain", wire: "u8", min: 0, max: 100, default: 0, control: "range" },
@@ -759,7 +793,7 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
       { name: "knee", label: "Knee", wire: "u8", min: 0, max: 30, default: 0, control: "range" },
       { name: "linked", label: "Linked", wire: "u8", min: null, max: null, default: 0, hidden: "link" }
     ] }],
-    [3, { type: 3, name: "Guitar Amp", set: "set_guitar_amp_conf", get: "get_guitar_amp_configs", replyCount: 4, status: "partial", parameters: [
+    [3, { type: 3, name: "Guitar Amp", set: "set_guitar_amp_conf", get: "get_guitar_amp_configs", replyCount: 4, status: "full", parameters: [
       { name: "model", label: "Model", wire: "u8", min: 0, max: 9, default: 0, control: "menu", options: [[0, "Darkface 65 (US)"], [1, "Top30 (UK) Bright"], [2, "Modern (US) CH3"], [3, "Plexi 59 (UK)"], [4, "Rock 22.10 (UK)"], [5, "Rock 75 (UK)"], [6, "Marcus II (US) Lead"], [7, "Tweed Deluxe (US)"], [8, "Overange 120 (UK)"], [9, "BurnSphere (DE) Lead"]] },
       { name: "gain", label: "Gain", wire: "u8", min: 0, max: 100, default: 50, control: "range" },
       { name: "bass", label: "Bass", wire: "u8", min: 0, max: 100, default: 50, control: "range" },
@@ -776,7 +810,18 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
       { name: "mode4", label: "Mode4", wire: "u8", min: null, max: null, default: 0, hidden: "model" },
       { name: "mode5", label: "Mode5", wire: "u8", min: null, max: null, default: 0, hidden: "model" },
       { name: "level", label: "Level", wire: "i8", min: -48, max: 12, default: 0, control: "range", unit: "dB" }
-    ] }],
+    ], layouts: { by: "model", fields: ["gain", "bass", "mid", "treble", "presence", "volume", "boost", "mode1", "mode2", "mode3", "mode4", "mode5"], models: new Map<number, readonly EffectControlLayout[]>([
+      [0, [{ name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }, { name: "mode1", label: "Bright (mode 1)", control: "switch", min: 0, max: 1 }]],
+      [1, [{ name: "bass" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [2, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }, { name: "mode1", label: "Mode 1", control: "menu", min: 0, max: 2, options: [[0, "Raw"], [1, "Vintage"], [2, "Modern"]] }]],
+      [3, [{ name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [4, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [5, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }]],
+      [6, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }, { name: "boost" }, { name: "mode2", label: "Shift (mode 2)", control: "switch", min: 0, max: 1 }, { name: "mode3", label: "Shift (mode 3)", control: "switch", min: 0, max: 1 }, { name: "mode4", label: "Mode 4", control: "switch", min: 0, max: 1 }, { name: "mode5", label: "Mode 5", control: "switch", min: 0, max: 1 }]],
+      [7, [{ name: "mid" }, { name: "volume" }, { name: "mode2", label: "Mode 2", control: "switch", min: 0, max: 1 }]],
+      [8, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "volume" }]],
+      [9, [{ name: "gain" }, { name: "bass" }, { name: "mid" }, { name: "treble" }, { name: "presence" }, { name: "volume" }, { name: "mode1", label: "Mode 1", control: "switch", min: 0, max: 1 }, { name: "mode2", label: "Mode 2", control: "switch", min: 0, max: 1 }]],
+    ]) } }],
     [5, { type: 5, name: "VMEQ-5", set: "set_pultec_meq_conf", get: "get_pultec_meq_configs", replyCount: 16, status: "full", parameters: [
       { name: "low_freq", label: "Low freq", wire: "u8", min: 0, max: 4, default: 0, control: "range" },
       { name: "low_gain", label: "Low gain", wire: "u8", min: 0, max: 100, default: 0, control: "range" },

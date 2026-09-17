@@ -2,8 +2,8 @@
  "generator": "refs/tools/scripts/afx_parameters.py",
  "quadro": {
   "summary": {
-   "full": 64,
-   "partial": 4,
+   "full": 65,
+   "partial": 3,
    "unsupported": 4,
    "with_display_rules": 6
   },
@@ -339,7 +339,343 @@
       "unit": "dB"
      }
     ],
-    "status": "partial",
+    "status": "full",
+    "layouts": {
+     "by": "model",
+     "fields": [
+      "gain",
+      "bass",
+      "mid",
+      "treble",
+      "presence",
+      "volume",
+      "boost",
+      "mode1",
+      "mode2",
+      "mode3",
+      "mode4",
+      "mode5"
+     ],
+     "models": {
+      "0": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Bright (mode 1)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "1": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "2": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Mode 1",
+        "control": "menu",
+        "min": 0,
+        "max": 2,
+        "options": [
+         [
+          0,
+          "Raw"
+         ],
+         [
+          1,
+          "Vintage"
+         ],
+         [
+          2,
+          "Modern"
+         ]
+        ]
+       }
+      ],
+      "3": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "4": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "5": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "6": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "boost"
+       },
+       {
+        "name": "mode2",
+        "label": "Shift (mode 2)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode3",
+        "label": "Shift (mode 3)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode4",
+        "label": "Mode 4",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode5",
+        "label": "Mode 5",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "7": [
+       {
+        "name": "mid"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode2",
+        "label": "Mode 2",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "8": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "9": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Mode 1",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode2",
+        "label": "Mode 2",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "10": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Mode 1",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode2",
+        "label": "Mode 2",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode3",
+        "label": "Mode 3",
+        "control": "menu",
+        "min": 0,
+        "max": 2,
+        "options": [
+         [
+          0,
+          "Position 1"
+         ],
+         [
+          1,
+          "Position 2"
+         ],
+         [
+          2,
+          "Position 3"
+         ]
+        ]
+       },
+       {
+        "name": "mode4",
+        "label": "Mode 4",
+        "control": "menu",
+        "min": 0,
+        "max": 2,
+        "options": [
+         [
+          0,
+          "Position 1"
+         ],
+         [
+          1,
+          "Position 2"
+         ],
+         [
+          2,
+          "Position 3"
+         ]
+        ]
+       }
+      ]
+     }
+    },
     "instance_param": "id"
    },
    {
@@ -6182,8 +6518,8 @@
  },
  "studio": {
   "summary": {
-   "full": 35,
-   "partial": 1,
+   "full": 36,
+   "partial": 0,
    "unsupported": 2,
    "with_display_rules": 5
   },
@@ -6514,7 +6850,273 @@
       "control": "range"
      }
     ],
-    "status": "partial"
+    "status": "full",
+    "layouts": {
+     "by": "model",
+     "fields": [
+      "gain",
+      "bass",
+      "mid",
+      "treble",
+      "presence",
+      "volume",
+      "boost",
+      "mode1",
+      "mode2",
+      "mode3",
+      "mode4",
+      "mode5"
+     ],
+     "models": {
+      "0": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Bright (mode 1)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "1": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "2": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Mode 1",
+        "control": "menu",
+        "min": 0,
+        "max": 2,
+        "options": [
+         [
+          0,
+          "Raw"
+         ],
+         [
+          1,
+          "Vintage"
+         ],
+         [
+          2,
+          "Modern"
+         ]
+        ]
+       }
+      ],
+      "3": [
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "4": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "5": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "6": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "boost"
+       },
+       {
+        "name": "mode2",
+        "label": "Shift (mode 2)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode3",
+        "label": "Shift (mode 3)",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode4",
+        "label": "Mode 4",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode5",
+        "label": "Mode 5",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "7": [
+       {
+        "name": "mid"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode2",
+        "label": "Mode 2",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ],
+      "8": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "volume"
+       }
+      ],
+      "9": [
+       {
+        "name": "gain"
+       },
+       {
+        "name": "bass"
+       },
+       {
+        "name": "mid"
+       },
+       {
+        "name": "treble"
+       },
+       {
+        "name": "presence"
+       },
+       {
+        "name": "volume"
+       },
+       {
+        "name": "mode1",
+        "label": "Mode 1",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       },
+       {
+        "name": "mode2",
+        "label": "Mode 2",
+        "control": "switch",
+        "min": 0,
+        "max": 1
+       }
+      ]
+     }
+    }
    },
    {
     "type": 5,

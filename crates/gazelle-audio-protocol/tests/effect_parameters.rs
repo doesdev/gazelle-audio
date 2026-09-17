@@ -118,6 +118,39 @@ fn every_catalogued_effect_has_its_set_and_get_in_the_schema_as_the_catalogue_de
     }
 }
 
+/// The Guitar Amp's controls depend on its model (`GuitarAmp.model_classes`, one view per model, each with
+/// its own knobs and switches). The catalogue says which parameters each model the panel offers shows,
+/// and every other parameter goes back as read.
+#[test]
+fn the_guitar_amp_lists_each_offered_models_controls_from_its_parameters() {
+    let doc = catalogue();
+    for family in ["quadro", "studio"] {
+        let amp = doc[family]["effects"].as_array().unwrap().iter().find(|e| e["type"] == 3).expect("the Guitar Amp");
+        let parameters: Vec<&str> = amp["parameters"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+        let layouts = &amp["layouts"];
+        assert_eq!(layouts["by"], "model", "{family}: the model picks the layout");
+        let model = amp["parameters"].as_array().unwrap().iter().find(|p| p["name"] == "model").unwrap();
+        let offered: Vec<String> = model["options"].as_array().unwrap().iter().map(|o| o[0].to_string()).collect();
+        let models = layouts["models"].as_object().expect("layouts by model id");
+        let mut ids: Vec<&String> = models.keys().collect();
+        ids.sort_by_key(|id| id.parse::<u32>().unwrap());
+        assert_eq!(ids, offered.iter().collect::<Vec<_>>(), "{family}: a layout for every model the menu offers, and no other");
+        for (id, controls) in models {
+            for control in controls.as_array().unwrap() {
+                let name = control["name"].as_str().unwrap();
+                assert!(parameters.contains(&name), "{family} model {id}: {name} is not a parameter");
+                assert!(!["model", "level"].contains(&name), "{family} model {id}: the model menu and level are every model's");
+            }
+        }
+        assert_eq!(amp["status"], "full", "{family}: nothing is left without a control on the model that uses it");
+    }
+    // Darkface 65: four knobs and its bright switch; Tweed Deluxe: two knobs and one switch.
+    let quadro = doc["quadro"]["effects"].as_array().unwrap().iter().find(|e| e["type"] == 3).unwrap();
+    let names = |id: &str| -> Vec<String> { quadro["layouts"]["models"][id].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap().to_string()).collect() };
+    assert_eq!(names("0"), ["bass", "mid", "treble", "volume", "mode1"]);
+    assert_eq!(names("7"), ["mid", "volume", "mode2"]);
+}
+
 #[test]
 fn a_reply_decodes_per_instance_with_signed_fields_signed() {
     let reg = registry(gazelle_audio_protocol::STUDIO_COMMANDS_PATH);

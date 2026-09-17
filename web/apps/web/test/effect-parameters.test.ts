@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { EFFECT_PARAMETERS, UNSUPPORTED_EFFECTS } from "../src/store/effect-parameters.ts";
-import { formatParameter } from "../src/store/effects.ts";
+import { formatParameter, shownParameters } from "../src/store/effects.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
 
@@ -169,6 +169,64 @@ test("in a dry run an effect counts as read with the panel's starting values", a
   assert.equal(effects.bypass(85, 1).value, undefined, "nothing was read, so bypass stays unknown");
   assert.equal(await effects.readParameters(85, 1), false);
   assert.equal(sent("loopback-0", "get_Brainiac_conf").length, 1);
+});
+
+const amp = { enabled: 1, model: 0, gain: 70, bass: 62, mid: 63, midfreq: 9, treble: 68, density: 4, presence: 50, volume: 89, boost: 12, mode1: 1, mode2: 1, mode3: 0, mode4: 1, mode5: 0, level: -6 };
+
+test("the Guitar Amp's controls come from each model's own layout in the panel's code", () => {
+  const quadro = EFFECT_PARAMETERS.quadro.get(3);
+  const studio = EFFECT_PARAMETERS.studio.get(3);
+  assert.equal(quadro?.status, "full");
+  assert.equal(quadro?.layouts?.by, "model");
+  const layout = (family: "quadro" | "studio", model: number) => EFFECT_PARAMETERS[family].get(3)?.layouts?.models.get(model);
+  assert.deepEqual(layout("quadro", 0)?.map((c) => c.name), ["bass", "mid", "treble", "volume", "mode1"], "Darkface 65: four knobs and a bright switch");
+  assert.deepEqual(layout("quadro", 0)?.find((c) => c.name === "mode1"), { name: "mode1", label: "Bright (mode 1)", control: "switch", min: 0, max: 1 });
+  assert.deepEqual(layout("quadro", 2)?.find((c) => c.name === "mode1"), { name: "mode1", label: "Mode 1", control: "menu", min: 0, max: 2, options: [[0, "Raw"], [1, "Vintage"], [2, "Modern"]] }, "Modern CH3's three-way switch, named as its class names its positions");
+  assert.deepEqual(layout("quadro", 6)?.filter((c) => c.control !== undefined).map((c) => c.label), ["Shift (mode 2)", "Shift (mode 3)", "Mode 4", "Mode 5"], "Marcus II's two shift buttons and two switches");
+  assert.deepEqual(layout("quadro", 10)?.find((c) => c.name === "mode3")?.options, [[0, "Position 1"], [1, "Position 2"], [2, "Position 3"]], "an inherited three-way switch has no names of its own");
+  assert.deepEqual(layout("quadro", 7)?.map((c) => c.name), ["mid", "volume", "mode2"]);
+  assert.equal(layout("studio", 10), undefined, "the Studio+ build does not offer the Bass SuperTube VR");
+  assert.deepEqual(layout("studio", 6), layout("quadro", 6), "both panels lay the models out alike");
+  assert.deepEqual(studio?.layouts?.fields, quadro?.layouts?.fields);
+
+  assert.ok(quadro);
+  const shown = (values: Record<string, number>) => shownParameters(quadro, values).map((p) => p.name);
+  assert.deepEqual(shown(amp), ["model", "bass", "mid", "treble", "volume", "mode1", "level"]);
+  assert.deepEqual(shown({ ...amp, model: 2 }), ["model", "gain", "bass", "mid", "treble", "presence", "volume", "mode1", "level"]);
+  assert.deepEqual(shown({ ...amp, model: 42 }), ["model", "level"], "a model the panel does not know shows only what every model has");
+  assert.equal(shownParameters(quadro, amp).find((p) => p.name === "mode1")?.label, "Bright (mode 1)");
+  assert.deepEqual(shownParameters(EFFECT_PARAMETERS.quadro.get(39)!, {}).map((p) => p.name), ["threshold", "range", "attack", "decay", "hold", "gain"], "an effect without layouts shows every control");
+});
+
+test("an amp's switches follow its model; values the model does not use go back as read", async () => {
+  const replies = quadroChains();
+  const order = replies["get_afx_strip_order"]!;
+  const { store, sent } = setup({
+    ...replies,
+    get_afx_strip_order: (call) => (Number(call.options?.["ext3"]) === 4 ? { entries: [{ slots: slots([3, 1]) }] } : order(call)),
+    get_guitar_amp_configs: () => ({ entries: [amp] }),
+  });
+  const effects = store.effects("loopback-0");
+  await effects.readOnce();
+  await effects.readParameters(3, 1);
+  const all = (change: Record<string, number>) => ({ type_id: 3, inst_id: 1, ...Object.fromEntries(Object.entries(amp).filter(([name]) => name !== "enabled")), ...change });
+
+  assert.throws(() => effects.setParameter(4, 0, "gain", 10), /Darkface 65 \(US\) does not use gain/, "Darkface has no gain knob");
+  assert.throws(() => effects.setParameter(4, 0, "mode2", 0), /does not use mode2/);
+  assert.equal(effects.setParameter(4, 0, "mode1", 0), true);
+  assert.equal(effects.setParameter(4, 0, "mode1", 2), true, "a two-way switch takes 0 or 1");
+  await flush();
+  assert.deepEqual(sent("loopback-0", "set_guitar_amp_conf").map((c) => c.args), [all({ mode1: 0 }), all({ mode1: 1 })], "gain, midfreq, density, boost and the other switches as read");
+
+  assert.equal(effects.setParameter(4, 0, "model", 2), true);
+  await flush();
+  assert.deepEqual(sent("loopback-0", "set_guitar_amp_conf").at(-1)?.args, all({ model: 2 }), "a model change sends only the model: the panel keeps every other setting");
+  assert.equal(effects.setParameter(4, 0, "mode1", 3), false, "Modern CH3's switch has three positions");
+  assert.equal(effects.setParameter(4, 0, "mode1", 2), true);
+  assert.equal(effects.setParameter(4, 0, "gain", 64), true, "Modern CH3 has a gain knob");
+  await flush();
+  assert.deepEqual(sent("loopback-0", "set_guitar_amp_conf").at(-1)?.args, all({ model: 2, mode1: 2, gain: 64 }));
+  assert.throws(() => effects.setParameter(4, 0, "mode2", 1), /does not use mode2/);
 });
 
 test("parameters show as the panel's code shows them, and as the device's value where it gives no unit", () => {

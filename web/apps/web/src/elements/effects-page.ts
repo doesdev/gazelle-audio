@@ -12,7 +12,7 @@
 import { h } from "../core/dom.ts";
 import { effect as effectOf, signal, untracked } from "../core/signal.ts";
 import type { EffectParameter } from "../store/effect-parameters.ts";
-import { formatParameter, formatReverbLevel, formatRoomSize, REVERB_LEVEL_MAX, REVERB_LEVEL_MIN, REVERB_LEVEL_UNITY, REVERB_RETURN_MAX, REVERB_SEND_MAX, type EffectChain, type EffectSlot, type EffectsModel } from "../store/effects.ts";
+import { formatParameter, formatReverbLevel, formatRoomSize, REVERB_LEVEL_MAX, REVERB_LEVEL_MIN, REVERB_LEVEL_UNITY, REVERB_RETURN_MAX, REVERB_SEND_MAX, shownParameters, type EffectChain, type EffectSlot, type EffectsModel } from "../store/effects.ts";
 import { formatPan, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition } from "../store/mixer.ts";
 import { formatVolume } from "../store/outputs.ts";
 import { bindControl } from "./controls.ts";
@@ -27,7 +27,7 @@ const HIDDEN_REASONS: Record<NonNullable<EffectParameter["hidden"]>, string> = {
   link: "Its link setting follows the chains' stereo link and is kept as the device reports it.",
   internal: "Settings the vendor panel does not show are kept as the device reports them.",
   unused: "Settings no amp model uses are kept as the device reports them.",
-  model: "Its mode switches work differently for each amp model and are kept as the device reports them.",
+  model: "Settings the chosen amp model does not use, and those no model uses, are kept as the device reports them.",
 };
 
 export class GaEffects extends GaElement {
@@ -305,7 +305,10 @@ export class GaEffects extends GaElement {
     }
 
     const values = effects.parameters(slot.type, slot.inst);
-    const hidden = [...new Set(description.parameters.flatMap((p) => (p.hidden === undefined ? [] : [HIDDEN_REASONS[p.hidden]])))];
+    // The amp's model-dependent settings include those no model uses: one sentence says both.
+    const kinds = new Set(description.parameters.flatMap((p) => (p.hidden === undefined ? [] : [p.hidden])));
+    if (kinds.has("model")) kinds.delete("unused");
+    const hidden = [...kinds].map((kind) => HIDDEN_REASONS[kind]);
     const unitless = description.parameters.some((p) => p.control === "range" && p.unit === undefined && p.scale === undefined);
     disposers.push(
       this.#effect(() => {
@@ -321,26 +324,52 @@ export class GaEffects extends GaElement {
     untracked(() => void effects.readParameters(slot.type, slot.inst));
 
     const enabled = () => store.connected.peek() && values.peek() !== undefined;
-    const params = h(
-      "div",
-      { class: "params" },
-      description.parameters.filter((p) => p.control !== undefined).map((parameter) => {
-        const get = () => values.peek()?.values[parameter.name] ?? parameter.default ?? 0;
-        const set = (value: number) => void effects.setParameter(chain, slot.position, parameter.name, value);
-        const reset = () => {
-          if (enabled()) effects.resetParameter(chain, slot.position, parameter.name);
-        };
-        const control = this.#parameterControl(parameter, get, set, reset, enabled, disposers, () => values.value?.values[parameter.name] ?? parameter.default ?? 0);
-        return h("div", { class: "param" }, h("span", { class: "label", title: parameter.label }, parameter.label), control);
+    const params = h("div", { class: "params", "data-testid": "effect-params" });
+    const applyEnabled = () => {
+      const on = enabled();
+      for (const button of params.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("button, select")) button.disabled = !on;
+      for (const bar of params.querySelectorAll('[role="slider"]')) bar.setAttribute("aria-disabled", String(!on));
+    };
+    // The controls shown, rebuilt only when what picks them changes (the Guitar Amp's model: each model's
+    // view in the panel has its own knobs and switches).
+    const layouts = description.layouts;
+    const starting = Object.fromEntries(description.parameters.map((p) => [p.name, p.default ?? 0]));
+    let shownKey: number | undefined | null = null;
+    let controlDisposers: (() => void)[] = [];
+    disposers.push(() => controlDisposers.forEach((dispose) => dispose()));
+    disposers.push(
+      this.#effect(() => {
+        const current = values.value?.values ?? starting;
+        const key = layouts === undefined ? undefined : current[layouts.by];
+        if (key === shownKey) return;
+        shownKey = key;
+        untracked(() => {
+          controlDisposers.forEach((dispose) => dispose());
+          controlDisposers = [];
+          params.replaceChildren(
+            ...shownParameters(description, current).map((parameter) => {
+              const get = () => values.peek()?.values[parameter.name] ?? parameter.default ?? 0;
+              const set = (value: number) => void effects.setParameter(chain, slot.position, parameter.name, value);
+              const reset = () => {
+                if (enabled()) effects.resetParameter(chain, slot.position, parameter.name);
+              };
+              const control = this.#parameterControl(parameter, get, set, reset, enabled, controlDisposers, () => values.value?.values[parameter.name] ?? parameter.default ?? 0);
+              return h("div", { class: "param" }, h("span", { class: "label", title: parameter.label }, parameter.label), control);
+            }),
+          );
+          if (layouts !== undefined && key !== undefined && !layouts.models.has(key)) {
+            params.append(h("p", { class: "note", "data-testid": "editor-layout-note" }, `The device reports a ${description.parameters.find((p) => p.name === layouts.by)?.label.toLowerCase() ?? layouts.by} (${key}) the vendor panel does not offer, so only the settings every one has are shown.`));
+          }
+          applyEnabled();
+        });
       }),
     );
     section.append(params);
     disposers.push(
       this.#effect(() => {
         void values.value;
-        const on = store.connected.value && values.value !== undefined;
-        for (const button of params.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("button, select")) button.disabled = !on;
-        for (const bar of params.querySelectorAll('[role="slider"]')) bar.setAttribute("aria-disabled", String(!on));
+        void store.connected.value;
+        applyEnabled();
       }),
     );
     return section;

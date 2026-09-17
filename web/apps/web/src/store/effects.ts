@@ -151,6 +151,25 @@ export function formatParameter(parameter: EffectParameter, value: number): stri
   }
 }
 
+/**
+ * The parameters an effect shows controls for, given its values, in the set command's order. Where the
+ * controls depend on a value (the Guitar Amp's model, whose panel has one view per model), only the chosen
+ * layout's are shown, with what that layout makes of them (a switch's name and positions); a field no
+ * layout of this value lists has no control and goes back as read. Hidden fields are never shown.
+ */
+export function shownParameters(description: EffectDescription, values: Readonly<Record<string, number>>): EffectParameter[] {
+  const layouts = description.layouts;
+  const chosen = layouts === undefined ? undefined : layouts.models.get(values[layouts.by] ?? description.parameters.find((p) => p.name === layouts.by)?.default ?? -1);
+  return description.parameters.flatMap((parameter): EffectParameter[] => {
+    if (layouts === undefined || !layouts.fields.includes(parameter.name)) return parameter.control === undefined ? [] : [parameter];
+    const control = chosen?.find((c) => c.name === parameter.name);
+    if (control === undefined) return [];
+    const { hidden: _hidden, ...shown } = parameter;
+    const merged: EffectParameter = { ...shown, ...control };
+    return merged.control === undefined ? [] : [merged];
+  });
+}
+
 type Outcome = "read" | "dry" | "failed";
 
 function entries(response: Record<string, unknown> | null): Record<string, unknown>[] | undefined {
@@ -500,11 +519,19 @@ export class EffectsModel {
     if (slot === undefined) throw new RangeError(`AFX IN ${chain + 1} has no effect in slot ${position + 1}`);
     const description = this.description(slot.type);
     if (description === undefined) throw new RangeError(`${slot.name}'s parameters are not supported: ${this.unsupportedReason(slot.type)}`);
-    const parameter = description.parameters.find((p) => p.name === name);
-    if (parameter === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
-    if (parameter.control === undefined) throw new RangeError(`${slot.name}'s ${name} is not a control (${parameter.hidden ?? "hidden"})`);
+    const declared = description.parameters.find((p) => p.name === name);
+    if (declared === undefined) throw new RangeError(`${slot.name} has no parameter ${name}`);
     const current = this.#parametersOf(slot.type, slot.inst).peek();
+    const layouts = description.layouts;
+    if (layouts?.fields.includes(name) !== true && declared.control === undefined) throw new RangeError(`${slot.name}'s ${name} is not a control (${declared.hidden ?? "hidden"})`);
     if (current === undefined) return false;
+    const parameter = shownParameters(description, current.values).find((p) => p.name === name);
+    if (parameter === undefined) {
+      const by = description.parameters.find((p) => p.name === layouts?.by);
+      const value = current.values[layouts?.by ?? ""];
+      const chosen = by?.options?.find(([v]) => v === value)?.[1] ?? `${by?.label ?? "This setting"} ${value}`;
+      throw new RangeError(`${chosen} does not use ${name}: it goes back as the device reported it`);
+    }
     const next = this.#accept(parameter, value);
     if (next === undefined) return false;
     const values = { ...current.values, [name]: next };

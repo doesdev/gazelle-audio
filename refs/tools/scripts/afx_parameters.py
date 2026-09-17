@@ -290,6 +290,90 @@ HAND_MAPPED: dict[str, dict[str, Any]] = {
 #: Guitar Amp switches whose range depends on the model (two- or three-way per model's layout).
 MODEL_DEPENDENT = {"mode1", "mode2", "mode3", "mode4", "mode5"}
 
+GUITAR_AMP_MODELS_MODULE = "antelope_ui_afx_models_guitar_amp_models.pyc"
+
+
+def guitar_amp_layouts(panel: Panel, cls: be.ClassDef, parameters: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which parameters each amp model shows, and how its switches work.
+
+    `GuitarAmp.model_classes` lists one view class per model; each view's `_setup_ui` builds
+    `controlw = OrderedDict([(field, WidgetClass(self).move(x, y)), ...])`, and only those fields have a
+    control while that model is chosen (`GuitarAmp.switch_to_model` sets the chosen view's widgets from
+    the shared `params`; `bind` sends every field whatever the model). So a field a model does not list
+    goes back as read. A knob must have the parameter's own range; a switch is a `Button` whose
+    positions are its `button_values`, two (a switch) or three (a menu). The model menu and the level are
+    the effect's own widgets and every model's.
+    """
+    by_name = {p["name"]: p for p in parameters}
+    offered = [value for value, _ in by_name["model"]["options"]]
+    ids = panel.classes["GuitarAmpModelID"].attrs
+    models: dict[int, list[dict[str, Any]]] = {}
+    for view in cls.lookup("model_classes") or []:
+        view_cls = panel.find(view.path, GUITAR_AMP_MODELS_MODULE) if isinstance(view, be.Sym) else None
+        member = view_cls.attrs.get("id") if view_cls is not None else None
+        if not (isinstance(member, be.Sym) and ".GuitarAmpModelID." in f".{member.path}"):
+            fail(f"{cls.name}: model view {view!r} has no GuitarAmpModelID ({member!r})")
+        model_id = ids[member.path.rsplit(".", 1)[1]]
+        if model_id not in offered:
+            continue
+        code = be.function(view_cls.attrs.get("_setup_ui"))
+        controls = be.evaluate(code, panel.py, {}).get("controlw") if code is not None else None
+        if not isinstance(controls, dict) or not controls:
+            fail(f"{view_cls.name}: _setup_ui builds no controlw")
+        stem = view_cls.name.removeprefix("GA_")
+        entries: dict[str, dict[str, Any]] = {}
+        for field, built in controls.items():
+            call = be.receiver(built)
+            widget = panel.find(call.func.path, GUITAR_AMP_MODELS_MODULE) if isinstance(call, be.Call) and isinstance(call.func, be.Sym) else None
+            parameter = by_name.get(field)
+            if widget is None or parameter is None or field in ("model", "level"):
+                fail(f"{view_cls.name}.{field}: widget {built!r} for parameter {parameter!r}")
+            low, high, initial = panel.widget_range(widget)
+            if field in MODEL_DEPENDENT:
+                entries[field] = amp_switch(panel, view_cls.name, stem, field, widget, (low, high, initial))
+            elif (low, high) != (parameter["min"], parameter["max"]) or "hidden" in parameter:
+                fail(f"{view_cls.name}.{field}: {widget.name} is {low}..{high}, the parameter {parameter['min']}..{parameter['max']}")
+            else:
+                entries[field] = {"name": field}
+        models[model_id] = [entries[p["name"]] for p in parameters if p["name"] in entries]
+    if sorted(models) != sorted(offered):
+        fail(f"{cls.name}: layouts for models {sorted(models)}, menu offers {sorted(offered)}")
+    used = {c["name"] for layout in models.values() for c in layout}
+    return {"by": "model", "fields": [p["name"] for p in parameters if p["name"] in used], "models": {str(k): v for k, v in sorted(models.items())}}
+
+
+def amp_switch(panel: Panel, view: str, stem: str, field: str, widget: be.ClassDef, widget_range: tuple[Any, Any, Any]) -> dict[str, Any]:
+    """An amp model's mode switch: a `Button`, its value the index of its position (`Button.get_value_as_name`
+    reads `button_values[value]`). Named by its class where the class says what it is (`DarkfaceBrightButton`
+    is "Bright"); positions are named only where the class declares its own `button_values` (the base
+    class's are `released`/`pressed` image states, and a subclass inherits another switch's images)."""
+    if not any(a.endswith("buttons.Button") for a in widget.ancestry()):
+        fail(f"{view}.{field}: {widget.name} is not a button")
+    values = widget.lookup("button_values", panel.button.attrs["button_values"])
+    low, high, initial = widget_range
+    if not isinstance(values, list) or (low, high) != (0, len(values) - 1) or initial != 0:
+        fail(f"{view}.{field}: {widget.name} positions {values!r}, range {widget_range}")
+    number_label = f"Mode {field.removeprefix('mode')}"
+    word = widget.name
+    for suffix in ("ThreeWay", "Button", "Switch"):
+        word = word.removesuffix(suffix)
+    for prefix in (stem, "GuitarAmp"):
+        word = word.removeprefix(prefix)
+    word = re.sub(r"([a-z])([A-Z])", r"\1 \2", word).strip()
+    entry: dict[str, Any] = {"name": field, "label": number_label if word in ("", "Mode") else f"{word} ({number_label.lower()})"}
+    if len(values) == 2:
+        entry.update(control="switch", min=0, max=1)
+    elif len(values) == 3:
+        declared = "button_values" in widget.attrs
+        names = [v[0] if isinstance(v, tuple) else None for v in values]
+        if declared and not all(isinstance(n, str) for n in names):
+            fail(f"{view}.{field}: {widget.name} positions {values!r}")
+        options = [[i, str(names[i]).capitalize() if declared else f"Position {i + 1}"] for i in range(len(values))]
+        entry.update(control="menu", min=0, max=len(values) - 1, options=options)
+    else:
+        fail(f"{view}.{field}: {widget.name} has {len(values)} positions")
+    return entry
+
 
 def wire_fields(entry: Any) -> list[list[Any]]:
     if isinstance(entry, dict):
@@ -411,7 +495,8 @@ def quadro_hand_mapped(panel: Panel, cls: be.ClassDef, device: dict[str, Any]) -
     fields = declared[2:]
     check_device_layout(cls.name, set_name, get_name, fields, type_id, device, [["type_id", "ubyte"], ["inst_id", "ubyte"]])
     parameters = hand_mapped_parameters(panel, cls, fields)
-    return effect_entry(type_id, cls, f"{cls.module}:{cls.name} (hand-declared commands)", set_name, get_name, SINGLE_INSTANCE | type_id, "id", 1, parameters)
+    layouts = guitar_amp_layouts(panel, cls, parameters) if cls.name == "GuitarAmp" else None
+    return effect_entry(type_id, cls, f"{cls.module}:{cls.name} (hand-declared commands)", set_name, get_name, SINGLE_INSTANCE | type_id, "id", 1, parameters, layouts)
 
 
 def hand_mapped_parameters(panel: Panel, cls: be.ClassDef, fields: list[list[Any]]) -> list[dict[str, Any]]:
@@ -487,7 +572,7 @@ def guitar_amp_knob(panel: Panel) -> tuple[int, int, int]:
     return 0, 100, 50
 
 
-def effect_entry(type_id: int, cls: be.ClassDef, source: str, set_name: str, get_name: str, ext3: int, instance_param: str | None, count: int, parameters: list[dict[str, Any]]) -> dict[str, Any]:
+def effect_entry(type_id: int, cls: be.ClassDef, source: str, set_name: str, get_name: str, ext3: int, instance_param: str | None, count: int, parameters: list[dict[str, Any]], layouts: dict[str, Any] | None = None) -> dict[str, Any]:
     for p in parameters:
         if "control" not in p and "hidden" not in p:
             p["control"] = "switch" if (p["min"], p["max"]) == (0, 1) else "range"
@@ -503,9 +588,14 @@ def effect_entry(type_id: int, cls: be.ClassDef, source: str, set_name: str, get
         "reply_count": count,
         "parameters": parameters,
         # Partly: some parameters are sent as read and have no control (a sidechain source picked
-        # from routing, or a switch whose range depends on the amp model).
-        "status": "partial" if {"sidechain", "model"} & set(hidden) else "full",
+        # from routing, or a switch whose range depends on the amp model and no layout says how).
+        "status": "partial" if "sidechain" in hidden or ("model" in hidden and layouts is None) else "full",
     }
+    if layouts is not None:
+        missing = {p["name"] for p in parameters if p.get("hidden") == "model"} - set(layouts["fields"])
+        if missing:
+            fail(f"{cls.name}: no model uses {sorted(missing)}")
+        entry["layouts"] = layouts
     if instance_param is not None:
         entry["instance_param"] = instance_param
     return entry
@@ -608,7 +698,8 @@ def studio(panel: Panel, requests: dict[str, Any], quadro_effects: dict[int, dic
         if cls.name in ("Uad1176", "Uad1178"):
             uad_ratio(panel, cls, parameters)
         add_displays(panel, cls, parameters)
-        out.append(effect_entry(type_id, cls, f"{cls.module}:{cls.name}", set_name, get_name, type_id, None, count, parameters))
+        layouts = guitar_amp_layouts(panel, cls, parameters) if cls.name == "GuitarAmp" else None
+        out.append(effect_entry(type_id, cls, f"{cls.module}:{cls.name}", set_name, get_name, type_id, None, count, parameters, layouts))
     return out
 
 
@@ -683,6 +774,9 @@ def render_ts(doc: dict[str, Any]) -> str:
                 parts.append(f"{rename.get(k, k)}: {json.dumps(p[k])}")
         return "{ " + ", ".join(parts) + " }"
 
+    def layout_ts(c: dict[str, Any]) -> str:
+        return "{ " + ", ".join(f"{k}: {json.dumps(c[k])}" for k in ("name", "label", "control", "min", "max", "options") if k in c) + " }"
+
     lines = [
         "// Generated by refs/tools/scripts/afx_parameters.py from both panels' bytecode; do not edit.",
         "// Every effect type whose parameters the app can edit: its set and get commands as the panel sends",
@@ -709,10 +803,30 @@ def render_ts(doc: dict[str, Any]) -> str:
         "  readonly scale?: number;",
         "  readonly decimals?: number;",
         "  readonly unit?: string;",
-        "  /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose range depends on the model. */",
+        "  /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose control depends on the model (see `EffectDescription.layouts`). */",
         "  readonly hidden?: \"sidechain\" | \"link\" | \"internal\" | \"unused\" | \"model\";",
         "  /** Where the range came from when not this panel's own control (the Quadro's description of the same effect). */",
         "  readonly rangeFrom?: \"quadro\";",
+        "}",
+        "",
+        "/** One control in a model's layout: the parameter it drives, and what the model changes about it (a switch's name, positions and range). */",
+        "export interface EffectControlLayout {",
+        "  readonly name: string;",
+        "  readonly label?: string;",
+        "  readonly control?: NonNullable<EffectParameter[\"control\"]>;",
+        "  readonly min?: number;",
+        "  readonly max?: number;",
+        "  readonly options?: readonly (readonly [number, string])[];",
+        "}",
+        "",
+        "/** Controls that depend on another parameter's value (the Guitar Amp's model), as the panel shows one view per model. */",
+        "export interface EffectLayouts {",
+        "  /** The parameter whose value picks the layout. */",
+        "  readonly by: string;",
+        "  /** Every parameter some layout shows: one the chosen layout does not list has no control and goes back as read. */",
+        "  readonly fields: readonly string[];",
+        "  /** The controls each value shows, in the set command's order. */",
+        "  readonly models: ReadonlyMap<number, readonly EffectControlLayout[]>;",
         "}",
         "",
         "export interface EffectDescription {",
@@ -725,6 +839,8 @@ def render_ts(doc: dict[str, Any]) -> str:
         "  readonly instanceParam?: string;",
         "  /** In the set command's order, after type_id and inst_id. */",
         "  readonly parameters: readonly EffectParameter[];",
+        "  /** Which of the parameters show, by another parameter's value; absent when every control always shows. */",
+        "  readonly layouts?: EffectLayouts;",
         "  /** partial: some parameters have no control and go back as read. */",
         "  readonly status: \"full\" | \"partial\";",
         "}",
@@ -738,7 +854,12 @@ def render_ts(doc: dict[str, Any]) -> str:
             instance = f", instanceParam: {json.dumps(e['instance_param'])}" if "instance_param" in e else ""
             lines.append(f"    [{e['type']}, {{ type: {e['type']}, name: {json.dumps(e['name'])}, set: {json.dumps(e['set'])}, get: {json.dumps(e['get'])}, replyCount: {e['reply_count']}{instance}, status: {json.dumps(e['status'])}, parameters: [")
             lines.append(params)
-            lines.append("    ] }],")
+            if "layouts" in e:
+                layouts = e["layouts"]
+                models = ",\n".join(f"      [{model}, [{', '.join(layout_ts(c) for c in controls)}]]" for model, controls in layouts["models"].items())
+                lines.append(f"    ], layouts: {{ by: {json.dumps(layouts['by'])}, fields: {json.dumps(layouts['fields'])}, models: new Map<number, readonly EffectControlLayout[]>([\n{models},\n    ]) }} }}],")
+            else:
+                lines.append("    ] }],")
         lines.append("  ]),")
     lines.append("};")
     lines.append("")
