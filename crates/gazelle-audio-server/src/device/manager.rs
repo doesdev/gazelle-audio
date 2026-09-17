@@ -1,14 +1,14 @@
 //! Owns every connected device and routes work to the right worker.
 
 use gazelle_audio_protocol::field::Field;
-use gazelle_audio_protocol::registry::Registry;
+use gazelle_audio_protocol::registry::{CyclicReport, Registry};
 use gazelle_audio_transport::{Device, LoopbackDevice};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use crate::device::cyclic_loopback::CyclicLoopback;
+use crate::device::cyclic_loopback::{CyclicLoopback, Shape};
 use crate::device::mixer_loopback::MixerLoopback;
 use crate::device::read_loopback::ReadLoopback;
 use crate::device::routing_loopback::RoutingLoopback;
@@ -17,6 +17,23 @@ use crate::device::handle::DeviceHandle;
 use crate::device::worker::{self, DeviceEvent, WorkerContext};
 use crate::error::ServerError;
 use crate::registry_set::RegistrySet;
+
+/// The report id both models use for their effect meters.
+const EFFECT_METER_REPORT: u32 = 0x83;
+
+/// What a cyclic loopback's report of this layout should look like.
+///
+/// Everything but the effect meters is a sweep over the layout's declared length, which is what
+/// every cyclic loopback report was before. The effect meters differ per model and are not their
+/// declared length on the Quadro, so they get a shape of their own: the Quadro is the model whose
+/// layout carries `variable_tail`.
+fn shape_of(id: u32, layout: &CyclicReport) -> Shape {
+    match (id, layout.variable_tail) {
+        (EFFECT_METER_REPORT, true) => Shape::QuadroEffectMeters,
+        (EFFECT_METER_REPORT, false) => Shape::StudioEffectMeters,
+        _ => Shape::Sweep(layout.fields.iter().map(Field::size).sum()),
+    }
+}
 
 /// How many events may queue for a slow WebSocket client before it is told it lagged.
 const EVENT_BUFFER: usize = 256;
@@ -160,17 +177,18 @@ impl DeviceManager {
 
     /// Attach emulating loopbacks that also push every cyclic report their model declares,
     /// once per `interval` (`--loopback-cyclic-ms`). Each report is at least as long as its
-    /// layout, which the decoder accepts, as the existing cyclic tests rely on.
+    /// layout, which the decoder accepts, as the existing cyclic tests rely on; the effect
+    /// meters are shaped like the model's own instead (`shape_of`).
     pub fn attach_cyclic_loopbacks(self: &Arc<Self>, pids: &[u16], max_packet_size: usize, interval: Duration) {
         for (n, pid) in pids.iter().enumerate() {
-            let reports: Vec<(u32, usize)> = self
+            let reports: Vec<(u32, Shape)> = self
                 .registries
                 .for_pid(*pid)
                 .map(|model| {
                     let mut ids: Vec<u32> = model.registry.cyclic_ids().copied().collect();
                     ids.sort_unstable();
                     ids.into_iter()
-                        .filter_map(|id| model.registry.cyclic(id).map(|layout| (id, layout.fields.iter().map(Field::size).sum())))
+                        .filter_map(|id| model.registry.cyclic(id).map(|layout| (id, shape_of(id, layout))))
                         .collect()
                 })
                 .unwrap_or_default();

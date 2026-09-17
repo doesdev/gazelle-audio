@@ -8,6 +8,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use gazelle_audio_server::device::manager::DeviceManager;
+use gazelle_audio_server::device::read_loopback::LOOPBACK_CHAIN;
 use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO, PID_STUDIO};
 use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
@@ -38,12 +39,34 @@ async fn a_quadro_effect_chain_is_read_by_its_index_in_ext3() {
     let hex = body["sent_hex"].as_str().expect("sent_hex");
     assert_eq!(&hex[24..32], "05000000", "the chain index goes in header bytes 12..16");
 
-    // Not dry run: the loopback answers one chain of eight empty slots, whichever chain is named.
+    // Not dry run: the loopback answers one chain, the same for whichever chain is named. It holds
+    // the effects of `LOOPBACK_CHAIN` packed from the first slot, so the Effects page and the
+    // effect meters have something to show without hardware.
     let (status, body) = post(app(), "/api/v1/devices/loopback-0/command/get_afx_strip_order?ext3=3").await;
     assert_eq!(status, StatusCode::OK, "body: {body}");
     let slots = body["response"]["entries"][0]["slots"].as_array().expect("one chain's slots");
     assert_eq!(slots.len(), 8);
-    assert!(slots.iter().all(|s| s["type"] == 0 && s["inst"] == 0), "an unset chain is empty: {slots:?}");
+    let loaded: Vec<(u64, u64)> = slots.iter().map(|s| (s["type"].as_u64().unwrap(), s["inst"].as_u64().unwrap())).collect();
+    let expected: Vec<(u64, u64)> = LOOPBACK_CHAIN.iter().map(|&(t, i)| (u64::from(t), u64::from(i))).collect();
+    assert_eq!(&loaded[..LOOPBACK_CHAIN.len()], &expected[..], "the loopback's chain: {slots:?}");
+    assert!(loaded[LOOPBACK_CHAIN.len()..].iter().all(|&s| s == (0, 0)), "the rest of the chain is empty: {slots:?}");
+}
+
+/// The Studio+ reads all sixteen chains at once, and the loopback fills each with the same effects.
+#[tokio::test]
+async fn the_studio_reads_every_chain_at_once_and_the_loopback_fills_them() {
+    let (status, body) = post(app(), "/api/v1/devices/loopback-1/command/get_afx_order").await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let chains = body["response"]["entries"].as_array().expect("every chain");
+    assert_eq!(chains.len(), 16);
+    for chain in chains {
+        let slots = chain["slots"].as_array().expect("eight slots");
+        assert_eq!(slots.len(), 8);
+        for (position, &(ty, inst)) in LOOPBACK_CHAIN.iter().enumerate() {
+            assert_eq!((slots[position]["type"].as_u64(), slots[position]["inst"].as_u64()), (Some(u64::from(ty)), Some(u64::from(inst))));
+        }
+        assert!(slots[LOOPBACK_CHAIN.len()..].iter().all(|s| s["type"] == 0), "the rest of the chain is empty");
+    }
 }
 
 /// The Studio+ panel reads its equalizers in two parts, `ext3` = 0 and 1 in place of the header's type

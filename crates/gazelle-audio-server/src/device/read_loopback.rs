@@ -70,6 +70,19 @@ fn declared_defaults(returns: &[Field]) -> Option<Vec<u8>> {
 /// per band; `tests/effects_reads.rs` checks them against `refs/schemas/afx_parameters.json`.
 const EQ_BANDS: [(u16, u16, i16, u8); 5] = [(100, 0, 0, 0), (100, 50, 0, 2), (2000, 50, 0, 2), (5000, 50, 0, 2), (5000, 0, 0, 1)];
 
+/// The effects every chain holds in the loopback, in order: `(type, instance)`.
+///
+/// A chain of all-empty slots left the Effects page, its meters and every AFX OUT mixer strip with
+/// nothing to show without hardware, so the loopback loads each chain with a Guitar Amp (type 3,
+/// the one the hardware probe inserted, P114) and a FET-A76 (type 9, a compressor, so its gain
+/// reduction has something to report). Both models carry both types. The same chain answers every
+/// chain: a read has one reply per command, not one per `ext3`, so every chain looks alike and
+/// every chain uses instance 0 — test data, not a device simulator.
+pub const LOOPBACK_CHAIN: &[(u8, u8)] = &[(3, 0), (9, 0)];
+
+/// Slots a chain holds in either model's reply to a chain read.
+const CHAIN_SLOTS: usize = 8;
+
 /// What a fresh device reports for `name`: zeros of the layout's length, except where a zero would
 /// be implausible or unhelpful.
 fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
@@ -115,6 +128,18 @@ fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
         "get_daw_mode" => {
             if let Some(at) = offset_of(returns, "split_point") {
                 bytes[at] = 16;
+            }
+        }
+        // Every chain holds `LOOPBACK_CHAIN`, packed from its first slot, the rest empty. An entry
+        // is eight `{type, inst}` pairs, whether the reply is one chain or all of them.
+        "get_afx_order" | "get_afx_strip_order" => {
+            if entry_size(returns) == Some(CHAIN_SLOTS * 2) {
+                bytes.chunks_mut(CHAIN_SLOTS * 2).for_each(|chain| {
+                    for (position, &(ty, inst)) in LOOPBACK_CHAIN.iter().enumerate() {
+                        chain[position * 2] = ty;
+                        chain[position * 2 + 1] = inst;
+                    }
+                });
             }
         }
         // Effect catalogues list each type id once, with no instances.

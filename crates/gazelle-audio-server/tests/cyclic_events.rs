@@ -137,3 +137,55 @@ async fn cyclic_loopbacks_emit_decoded_reports_and_still_answer() {
     assert!(!outcome.dry_run);
     devices.shutdown_all();
 }
+
+/// The effect-meter report the cyclic loopback emits is shaped like each model's own, so the web UI
+/// can be exercised without hardware.
+///
+/// The Quadro's is as long as its loaded effects make it -- two bytes per effect, chain by chain,
+/// then its four mic emulation meters -- and the chains are the ones `get_afx_strip_order` answers,
+/// so the two agree. The Studio+'s is its fixed 16 chains by 8 slots, peaks then gain reductions.
+#[tokio::test]
+async fn the_cyclic_loopback_emits_an_effect_meter_report_shaped_like_the_device_s() {
+    use gazelle_audio_protocol::payload::Value;
+    use gazelle_audio_server::device::read_loopback::LOOPBACK_CHAIN;
+    use gazelle_audio_server::registry_set::PID_STUDIO;
+    use std::time::Duration;
+
+    for (pid, chains) in [(PID_QUADRO, 6usize), (PID_STUDIO, 16usize)] {
+        let registries = RegistrySet::builtin().expect("registries");
+        let devices = DeviceManager::new(registries);
+        let mut events = devices.subscribe();
+        devices.attach_cyclic_loopbacks(&[pid], 64, Duration::from_millis(20));
+
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        let mut meters = None;
+        while tokio::time::Instant::now() < deadline && meters.is_none() {
+            match tokio::time::timeout(tokio::time::Duration::from_millis(250), events.recv()).await {
+                Ok(Ok(ServerEvent::Device(DeviceEvent::Cyclic { report_id: 0x83, fields, .. }))) => meters = Some(fields),
+                Ok(Ok(ServerEvent::Device(DeviceEvent::Undecoded { report_id, len, .. }))) => {
+                    panic!("cyclic loopback report 0x{report_id:X} ({len} bytes) arrived undecoded");
+                }
+                _ => continue,
+            }
+        }
+        let fields = meters.expect("an effect-meter report within 5 s");
+        if pid == PID_QUADRO {
+            let Some(Value::List(items)) = fields.get("afx_meters") else { panic!("no afx_meters: {fields:?}") };
+            let [Value::Struct(one)] = items.as_slice() else { panic!("afx_meters is not one struct") };
+            let Some(Value::Bytes(data)) = one.get("data") else { panic!("no data") };
+            // The four mic emulation meters follow the effect meters, as the device sends them.
+            assert_eq!(data.len(), chains * LOOPBACK_CHAIN.len() * 2 + 4, "two bytes per loaded effect, then the mic emulation meters");
+            assert!(data[..data.len() - 4].iter().any(|&b| b < 60), "the effect meters carry signal, not silence");
+        } else {
+            let Some(Value::List(peaks)) = fields.get("channel_peaks") else { panic!("no channel_peaks: {fields:?}") };
+            assert_eq!(peaks.len(), chains, "one entry per chain");
+            let Some(Value::Struct(first)) = peaks.first() else { panic!("no first chain") };
+            let Some(Value::Bytes(slots)) = first.get("effect_peaks") else { panic!("no effect_peaks") };
+            assert_eq!(slots.len(), 8, "eight slots a chain");
+            assert!(slots[..LOOPBACK_CHAIN.len()].iter().any(|&b| b < 60), "the loaded slots carry signal");
+            assert!(slots[LOOPBACK_CHAIN.len()..].iter().all(|&b| b == 96), "an empty slot meters silence");
+            assert!(fields.contains_key("channel_gain_reductions"), "gain reductions travel with the peaks");
+        }
+        devices.shutdown_all();
+    }
+}
