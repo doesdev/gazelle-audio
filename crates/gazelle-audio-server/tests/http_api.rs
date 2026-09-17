@@ -5,6 +5,7 @@
 //! byte-level tests prove correct, rather than merely returning 200.
 
 use gazelle_audio_server::device::manager::DeviceManager;
+use gazelle_audio_server::snapshot::store::MemorySnapshotStore;
 use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO, PID_STUDIO};
 use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
@@ -26,6 +27,7 @@ fn app_with_themes(themes_dir: Option<std::path::PathBuf>) -> axum::Router {
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
     http::router(AppState {
         devices,
+        snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
         force_dry_run: false,
         backend: "loopback".into(),
@@ -563,6 +565,7 @@ async fn server_wide_dry_run_cannot_be_overridden() {
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
     let app = http::router(AppState {
         devices,
+        snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
         force_dry_run: true,
         backend: "loopback".into(),
@@ -910,6 +913,7 @@ async fn a_set_command_does_not_wait_for_a_reply_the_device_never_sends() {
     devices.attach(DeviceId::loopback(0), Box::new(LoopbackDevice::new(0x23e5, PID_QUADRO, 320)), "loopback", true);
     let app = http::router(AppState {
         devices,
+        snapshots: Arc::new(MemorySnapshotStore::default()),
         store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
         force_dry_run: false,
         backend: "loopback".into(),

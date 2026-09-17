@@ -7,6 +7,7 @@
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use gazelle_audio_server::device::manager::DeviceManager;
+use gazelle_audio_server::snapshot::store::MemorySnapshotStore;
 use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO};
 use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, web, AppState};
@@ -20,6 +21,7 @@ fn app() -> axum::Router {
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
     web::with_ui(http::router(AppState {
         devices,
+        snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
         force_dry_run: false,
         backend: "loopback".into(),

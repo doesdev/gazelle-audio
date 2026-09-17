@@ -17,6 +17,7 @@ pub mod error;
 pub mod http;
 pub mod logging;
 pub mod registry_set;
+pub mod snapshot;
 pub mod tray;
 pub mod value;
 #[cfg(feature = "web-ui")]
@@ -27,6 +28,7 @@ pub mod ws;
 use std::sync::Arc;
 
 use crate::device::manager::DeviceManager;
+use crate::snapshot::store::SnapshotStore;
 use crate::workspace::store::WorkspaceStore;
 
 /// Everything the HTTP and WebSocket layers share.
@@ -34,6 +36,8 @@ use crate::workspace::store::WorkspaceStore;
 pub struct AppState {
     pub devices: Arc<DeviceManager>,
     pub store: Arc<dyn WorkspaceStore>,
+    /// Where snapshots are kept: beside the workspace, one document each (decision 0011).
+    pub snapshots: Arc<dyn SnapshotStore>,
     /// When set, every command is non-mutating regardless of per-request options.
     pub force_dry_run: bool,
     pub backend: String,

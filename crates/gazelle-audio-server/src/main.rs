@@ -8,11 +8,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gazelle_audio_server::config::{default_log_dir, default_themes_dir, default_workspace_path};
+use gazelle_audio_server::config::{default_log_dir, default_snapshots_dir, default_themes_dir, default_workspace_path};
 use gazelle_audio_server::device::hotplug::{self, HotPlug, Scanner};
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
+use gazelle_audio_server::snapshot::store::{JsonDirStore, MemorySnapshotStore, SnapshotStore};
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::tray::{self, boot::BootArgs};
 use gazelle_audio_server::{http, logging, AppState};
@@ -45,7 +46,12 @@ struct Args {
     #[arg(long)]
     workspace: Option<PathBuf>,
 
-    /// Keep workspace state in memory only.
+    /// Where snapshots are stored, one JSON file each. Defaults to a "snapshots" folder beside
+    /// the workspace file.
+    #[arg(long)]
+    snapshots_dir: Option<PathBuf>,
+
+    /// Keep workspace state and snapshots in memory only.
     #[arg(long)]
     no_persist: bool,
 
@@ -180,9 +186,21 @@ async fn prepare(
         Arc::new(JsonFileStore::new(path))
     };
 
+    let snapshots: Arc<dyn SnapshotStore> = if args.no_persist {
+        Arc::new(MemorySnapshotStore::default())
+    } else {
+        let dir = args
+            .snapshots_dir
+            .clone()
+            .unwrap_or_else(|| default_snapshots_dir(|k| std::env::var(k).ok()));
+        tracing::info!("snapshots: {}", dir.display());
+        Arc::new(JsonDirStore::new(dir))
+    };
+
     let state = AppState {
         devices: devices.clone(),
         store,
+        snapshots,
         force_dry_run: args.dry_run,
         backend: format!("{:?}", args.backend).to_lowercase(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),

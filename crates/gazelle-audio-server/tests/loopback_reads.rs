@@ -8,6 +8,7 @@ use gazelle_audio_protocol::registry::Registry;
 use gazelle_audio_protocol::wire::HEADER_SIZE;
 use gazelle_audio_protocol::Command;
 use gazelle_audio_server::device::manager::{loopback_stack, DeviceManager, ANTELOPE_USB_VID};
+use gazelle_audio_server::snapshot::store::MemorySnapshotStore;
 use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO, PID_STUDIO};
 use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
@@ -144,7 +145,7 @@ fn app(force_dry_run: bool) -> axum::Router {
     let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
     devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
-    http::router(AppState { devices, store, force_dry_run, backend: "loopback".into(), themes_dir: None })
+    http::router(AppState { devices, store, snapshots: Arc::new(MemorySnapshotStore::default()), force_dry_run, backend: "loopback".into(), themes_dir: None })
 }
 
 async fn post(app: &axum::Router, uri: &str, body: Value) -> Value {

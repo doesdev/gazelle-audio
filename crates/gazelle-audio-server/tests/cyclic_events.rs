@@ -189,3 +189,34 @@ async fn the_cyclic_loopback_emits_an_effect_meter_report_shaped_like_the_device
         devices.shutdown_all();
     }
 }
+
+/// The manager keeps the latest decoded report per device, so something that needs the device's
+/// state now -- a snapshot capture -- can read it without waiting for the next report to come
+/// round. A device that goes away takes its cache with it, so a stale state is never read back
+/// for one that is no longer there.
+#[tokio::test]
+async fn the_latest_cyclic_report_is_kept_per_device_and_dropped_with_it() {
+    use std::time::Duration;
+
+    let registries = RegistrySet::builtin().expect("registries");
+    let devices = DeviceManager::new(registries);
+    devices.attach_cyclic_loopbacks(&[PID_QUADRO], 64, Duration::from_millis(20));
+    let id = DeviceId::loopback(0);
+
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+    let mut cached = None;
+    while tokio::time::Instant::now() < deadline && cached.is_none() {
+        cached = devices.cyclic(&id, 0x73);
+        if cached.is_none() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+    }
+    let fields = cached.expect("the last 0x73 report within 5 s");
+    assert!(fields.contains_key("preamp_gains"), "the cache holds the decoded fields, not bytes");
+    assert!(devices.cyclic(&id, 0x83).is_some(), "every report id is kept, not just the first");
+    assert!(devices.cyclic(&id, 0x99).is_none(), "a report id the device never sent is not invented");
+
+    devices.detach(&id).expect("detach");
+    assert!(devices.cyclic(&id, 0x73).is_none(), "a device that went away leaves no state behind");
+    devices.shutdown_all();
+}

@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod devices;
 pub mod health;
+pub mod snapshots;
 pub mod themes;
 pub mod workspace;
 
@@ -27,6 +28,16 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/workspace",
             get(workspace::get_workspace).put(workspace::put_workspace),
         )
+        .route(
+            "/api/v1/snapshots",
+            get(snapshots::list_snapshots).post(snapshots::create_snapshot),
+        )
+        .route("/api/v1/snapshots/import", post(snapshots::import_snapshots))
+        .route(
+            "/api/v1/snapshots/{id}",
+            get(snapshots::get_snapshot).patch(snapshots::rename_snapshot).delete(snapshots::delete_snapshot),
+        )
+        .route("/api/v1/snapshots/{id}/compare", get(snapshots::compare_snapshot))
         .route("/api/v1/themes", get(themes::list_themes))
         .route("/api/v1/ws", get(crate::ws::ws_handler))
         .with_state(state)

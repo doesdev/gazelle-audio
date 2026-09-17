@@ -30,6 +30,12 @@ pub fn default_workspace_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("workspace.json"), |dir| dir.join("workspace.json"))
 }
 
+/// Where snapshots go when `--snapshots-dir` is not given: a `snapshots` folder beside the
+/// workspace file, in the same config directory (P82), one JSON document each.
+pub fn default_snapshots_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    config_dir(var).map_or_else(|| PathBuf::from("snapshots"), |dir| dir.join("snapshots"))
+}
+
 /// The directory of user theme files for the web UI when `--themes-dir` is not given.
 pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))
@@ -75,6 +81,16 @@ mod tests {
     fn xdg_config_home_uses_a_gazelle_folder() {
         let p = default_workspace_path(env(&[("XDG_CONFIG_HOME", "/xdg"), ("HOME", "/home/u")]));
         assert_eq!(p, PathBuf::from("/xdg/gazelle/workspace.json"));
+    }
+
+    /// Snapshots follow the workspace, in a folder beside it: they are the same user's state, and
+    /// `--workspace` pointing elsewhere without them would split a setup in two.
+    #[test]
+    fn snapshots_sit_beside_the_workspace_in_the_config_folder() {
+        let appdata = r"C:\Users\u\AppData\Roaming";
+        assert_eq!(default_snapshots_dir(env(&[("APPDATA", appdata)])), PathBuf::from(appdata).join("gazelle").join("snapshots"));
+        assert_eq!(default_snapshots_dir(env(&[("GAZELLE_CONFIG_DIR", "/srv/gazelle")])), PathBuf::from("/srv/gazelle/snapshots"));
+        assert_eq!(default_snapshots_dir(env(&[])), PathBuf::from("snapshots"));
     }
 
     #[test]
