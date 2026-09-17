@@ -10,7 +10,7 @@
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology } from "gazelle-audio-client";
+import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
 import { PAN_CENTRE } from "./mixer.ts";
 import type { MixerModel } from "./mixer.ts";
 import { PROFILES } from "./profiles.ts";
@@ -276,6 +276,15 @@ export class ChannelsModel {
     return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? withOptional(g, "color", color) : g)) }));
   }
 
+  /**
+   * Gives a channel its own colour (`#rrggbb`), or clears it (undefined), which hands its strip
+   * back to its input's colour. A group colour still wins while the channel is in the group.
+   */
+  setChannelColor(id: string, color: string | undefined): boolean {
+    if (color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(color)) throw new RangeError(`a channel colour is #rrggbb, not ${color}`);
+    return this.#edit(id, (c) => withOptional(c, "color", color));
+  }
+
   renameGroup(id: string, name: string): boolean {
     return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? { ...g, name } : g)) }));
   }
@@ -500,6 +509,40 @@ export class ChannelsModel {
     while (taken.has(id));
     return id;
   }
+}
+
+/** Where a channel's strip colour came from, strongest first. */
+export type ChannelColorSource = "group" | "custom" | "input" | "palette";
+
+/** What `channelColor` reads: the device's layout groups, its topology inputs, and the theme palette. */
+export interface ChannelColorContext {
+  /** The layout's groups (`DeviceMixer.groups`). */
+  groups: readonly MixerGroup[];
+  /** The device's routing sources (`Topology.inputs`), whose colours the Routing page shows. */
+  inputs: readonly Pick<TopologyGroup, "color">[];
+  /** The theme's channel palette (`ResolvedTheme.palette`). */
+  palette: readonly string[];
+}
+
+/**
+ * The colour of a channel's strip (its name bar), and where it came from. The user's order
+ * (2026-09-16): the colour of the group the channel is in, when that group has one; else the
+ * channel's own colour; else the Routing page's colour for its input; else the theme palette's,
+ * by mixer input pair as strips always were. The channel's own colour is kept while a group
+ * colour hides it, and shows again when the channel leaves the group. `color` is undefined only
+ * for an empty palette, leaving the strip its default.
+ *
+ * Pure, so any view of a channel (strip, dock) colours it alike; read it in an effect over the
+ * layout and theme to follow them.
+ */
+export function channelColor(channel: MixerChannel, context: ChannelColorContext): { color: string | undefined; from: ChannelColorSource } {
+  const group = channel.group === undefined ? undefined : context.groups.find((g) => g.id === channel.group)?.color;
+  if (group !== undefined) return { color: group, from: "group" };
+  if (channel.color !== undefined) return { color: channel.color, from: "custom" };
+  const input = channel.source === undefined ? undefined : context.inputs[channel.source.group]?.color;
+  if (input !== undefined) return { color: input, from: "input" };
+  // An empty palette indexes NaN, which is no colour.
+  return { color: context.palette[Math.floor(channel.slot / 2) % context.palette.length], from: "palette" };
 }
 
 /** The object with `key` set, or without it when `value` is undefined (the server omits unset fields). */
