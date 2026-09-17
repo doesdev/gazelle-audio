@@ -5,7 +5,7 @@ import { GazelleError } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { effect } from "../src/core/signal.ts";
-import { clampPan, faderPosition, stepPan, formatLevel, formatPan, formatSend, LEVEL_MAX, levelAtFaderPosition, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
+import { clampPan, faderPosition, panAtPosition, formatLevel, formatPan, formatSend, LEVEL_MAX, levelAtFaderPosition, levelFromDb, meterDeflection, PAN_CENTRE } from "../src/store/mixer.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -21,11 +21,10 @@ const sent = (client: FakeClient, command: string) => client.invocations.filter(
 test("levels, pans and meters use the panels' scales", () => {
   assert.deepEqual([formatLevel(0), formatLevel(6), formatLevel(90)], ["0 dB", "-6 dB", "-90 dB"]);
   assert.deepEqual([levelFromDb(-6), levelFromDb(3), levelFromDb(-120)], [6, 0, 90]);
-  assert.deepEqual([clampPan(0), clampPan(26), clampPan(27), clampPan(38), clampPan(39), clampPan(63)], [2, 26, 32, 32, 39, 62], "2..62, with 27..38 snapping to centre");
-  // A wheel or key step can't be held by the centre detent (the user, 2026-09-17): from centre it
-  // steps just past the detent; inwards into it, it lands on centre; elsewhere it steps as asked.
-  assert.deepEqual([stepPan(32, 1), stepPan(32, -1), stepPan(32, 5), stepPan(32, -5)], [39, 26, 39, 26]);
-  assert.deepEqual([stepPan(39, -1), stepPan(26, 1), stepPan(40, 1), stepPan(3, -1), stepPan(2, -1), stepPan(62, 5)], [32, 32, 41, 2, 2, 62]);
+  assert.deepEqual([clampPan(0), clampPan(26), clampPan(27), clampPan(33), clampPan(38), clampPan(63)], [2, 26, 27, 33, 38, 62], "2..62, every step of it: the wheel and keys move one step (the user, 2026-09-17)");
+  // Dragging keeps the panel's centre detent: a pointer anywhere in 27..38 lands on centre.
+  const at = (pan: number) => (pan - 2) / 60;
+  assert.deepEqual([panAtPosition(0), panAtPosition(at(26)), panAtPosition(at(27)), panAtPosition(0.5), panAtPosition(at(38)), panAtPosition(at(39)), panAtPosition(1), panAtPosition(1.2)], [2, 26, 32, 32, 32, 39, 62, 62]);
   // Pan reads as a side and a share of the way there (the user, 2026-09-17): the byte's ±30 steps are ±100%.
   assert.deepEqual([formatPan(PAN_CENTRE), formatPan(40), formatPan(2), formatPan(62), formatPan(31), formatPan(3)], ["C", "R 27%", "L 100%", "R 100%", "L 3%", "L 97%"]);
   assert.deepEqual([96, 60, 50, 40, 30, 20, 10, 0].map(meterDeflection), [0, 0, 5, 15, 30, 50, 75, 100], "Antelope's piecewise meter anchors");

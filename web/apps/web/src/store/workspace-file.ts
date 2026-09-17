@@ -18,6 +18,10 @@ export interface WorkspaceSummary {
   mixers: number;
   /** Saved layouts. */
   layouts: number;
+  /** Declared digital cables. */
+  cables: number;
+  /** Cross-device surfaces. */
+  surfaces: number;
   /** Every device id the file mentions, sorted. */
   devices: string[];
 }
@@ -52,10 +56,10 @@ export function readWorkspaceFile(text: string, readableVersion: number): Worksp
   const version = parsed["version"];
   if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return { ok: false, problem: "has no version number, so it is not a Gazelle workspace" };
   if (version > readableVersion) return { ok: false, problem: `was written by a newer Gazelle (workspace version ${version}); this server reads version ${readableVersion}` };
-  for (const part of ["groups", "links", "layouts"]) {
+  for (const part of ["groups", "links", "layouts", "surfaces", "cables"]) {
     if (part in parsed && !Array.isArray(parsed[part])) return { ok: false, problem: `has ${part} that are not a list` };
   }
-  for (const part of ["aliases", "mixers"]) {
+  for (const part of ["aliases", "mixers", "device_colors"]) {
     if (part in parsed && !isMap(parsed[part])) return { ok: false, problem: `has ${part} that are not a map of devices` };
   }
   return { ok: true, workspace: parsed as unknown as Workspace, summary: summarise(parsed) };
@@ -77,8 +81,16 @@ function summarise(document: Record<string, unknown>): WorkspaceSummary {
 
   const aliases = Object.keys(map("aliases"));
   const mixers = Object.keys(map("mixers"));
-  for (const id of [...aliases, ...mixers]) devices.add(id);
+  for (const id of [...aliases, ...mixers, ...Object.keys(map("device_colors"))]) devices.add(id);
   const links = list("links");
   links.forEach(members);
-  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, devices: [...devices].sort() };
+  const surfaces = list("surfaces");
+  for (const surface of surfaces) {
+    if (!isMap(surface)) continue;
+    if (isMap(surface["mixes"])) for (const id of Object.keys(surface["mixes"])) devices.add(id);
+    if (Array.isArray(surface["strips"])) for (const strip of surface["strips"]) if (isMap(strip) && typeof strip["device_id"] === "string") devices.add(strip["device_id"]);
+  }
+  const cables = list("cables");
+  for (const cable of cables) for (const end of isMap(cable) ? [cable["from"], cable["to"]] : []) if (isMap(end) && typeof end["device_id"] === "string") devices.add(end["device_id"]);
+  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, surfaces: surfaces.length, cables: cables.length, devices: [...devices].sort() };
 }

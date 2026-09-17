@@ -224,11 +224,14 @@ export class GaApp extends GaElement {
     this.onDisconnect(() => scroll?.());
     this.watch(() => {
       const current = route.value;
-      title.textContent = PAGES.find((p) => p.page === current.page)?.label ?? "";
+      title.textContent = current.page === "surface" ? "Surface" : (PAGES.find((p) => p.page === current.page)?.label ?? "");
       // Every page but the Devices page needs a device of known model.
       const known = current.page !== "devices";
       let deviceId: string | undefined;
-      if (current.page !== "workspace") {
+      if (current.page === "surface") {
+        // A surface's address names the surface, and its strips name their own devices.
+        deviceId = current.id;
+      } else if (current.page !== "workspace") {
         const named = current.id === undefined ? undefined : store.devices.value.find((d) => d.id === current.id);
         deviceId = current.id ?? store.deviceInView(known);
         // A device the address names is the selected one from here on, when this page can show it.
@@ -300,6 +303,8 @@ function pageFor(page: Page, id: string | undefined): HTMLElement {
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-routing", { "device-id": id });
     case "effects":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-effects", { "device-id": id });
+    case "surface":
+      return h("ga-surface", { "surface-id": id ?? "" });
   }
 }
 

@@ -608,6 +608,223 @@ async fn workspace_roundtrips() {
     assert_eq!(back["aliases"]["loopback-0"], "Main Rig");
 }
 
+/// A document the server cannot read as a workspace is refused with the same JSON error body as any
+/// other refusal (workspace spec phase 1), naming the part that is wrong, so a page can say why.
+/// The stored workspace is left as it was.
+#[tokio::test]
+async fn an_unreadable_workspace_is_refused_with_a_json_reason() {
+    let app = app();
+    let (status, _) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "aliases": {"loopback-0": "Kept"}})).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let broken = [
+        ("a group without a name", json!({"version": 1, "groups": [{"id": "g"}]}), "groups[0]"),
+        ("a slot that is text", json!({"version": 1, "mixers": {"loopback-0": {"channels": [{"id": "a", "slot": "six"}]}}}), "channels[0].slot"),
+        ("links that are not a list", json!({"version": 1, "links": {}}), "links"),
+        ("no version", json!({"groups": []}), "version"),
+    ];
+    for (why, document, part) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value", "{why}: {body}");
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("bad value: not a workspace: "), "{why}: {message}");
+        assert!(message.contains(part), "{why}: the message should name {part}: {message}");
+    }
+
+    // Not JSON at all is refused the same way.
+    let res = app
+        .clone()
+        .oneshot(Request::builder().method("PUT").uri("/api/v1/workspace").header("content-type", "application/json").body(Body::from("drums on ADAT")).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).expect("a JSON body");
+    assert_eq!(body["error"]["code"], "bad_value", "{body}");
+
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["aliases"]["loopback-0"], "Kept", "refused documents change nothing");
+}
+
+/// Top-level fields this server does not know are kept and given back (the user's answer to the
+/// workspace spec's Q7), so an export from a newer app imports back whole.
+#[tokio::test]
+async fn unknown_workspace_fields_are_kept() {
+    let app = app();
+    let document = json!({"version": 1, "aliases": {"loopback-0": "Desk"}, "snapshots_index": [{"id": "s1"}], "future": {"nested": [1, 2, 3], "flag": true}});
+    let (status, saved) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["future"], json!({"nested": [1, 2, 3], "flag": true}));
+    let (_, back) = get(app, "/api/v1/workspace").await;
+    assert_eq!(back["snapshots_index"], json!([{"id": "s1"}]));
+    assert_eq!(back["future"], json!({"nested": [1, 2, 3], "flag": true}));
+    assert_eq!(back["aliases"]["loopback-0"], "Desk", "known fields are still read as before");
+}
+
+/// Only workspace versions this server understands are accepted: a newer document could mean
+/// something different by the fields it shares, and version 0 was never written.
+#[tokio::test]
+async fn workspace_versions_are_checked() {
+    let app = app();
+    for version in [0, 2, 99] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": version})).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "version {version}: {body}");
+        assert_eq!(body["error"]["code"], "bad_value");
+        assert_eq!(body["error"]["message"], format!("bad value: workspace version {version} is not one this server reads (1)"));
+    }
+    let (status, body) = send(app, "PUT", "/api/v1/workspace", json!({"version": 1})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// Each device can have a badge colour for the strips a surface shows (workspace spec Q15).
+#[tokio::test]
+async fn device_colours_round_trip_and_are_validated() {
+    let app = app();
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "device_colors": {"loopback-0": "#3fae6a", "usb:gone": "#B5473A"}})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["device_colors"], json!({"loopback-0": "#3fae6a", "usb:gone": "#B5473A"}));
+
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["device_colors"], json!({}), "a new workspace has no device colours");
+    assert_eq!(plain["surfaces"], json!([]), "and no surfaces");
+
+    for bad in ["blue", "#3fae6", "3fae6a0", "#3fae6g"] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", json!({"version": 1, "device_colors": {"loopback-1": bad}})).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: device loopback-1: color must be #rrggbb, got {bad:?}"));
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["device_colors"]["loopback-0"], "#3fae6a", "rejected saves change nothing");
+}
+
+/// A surface (workspace spec §4.8) is a named row of strips from any device, each naming its device,
+/// with one selected mix per device. Indexes are checked against the device's model when the device
+/// is attached; strips for a device the server has never seen are kept as they are.
+#[tokio::test]
+async fn surfaces_round_trip_and_are_validated() {
+    let app = app();
+    let surface = |strips: Value| json!({"version": 1, "surfaces": [{"id": "s1", "name": "Drum tracking", "mixes": {"loopback-0": 1, "loopback-1": 0}, "strips": strips}]});
+    let good = json!([
+        {"id": "a", "kind": "input", "device_id": "loopback-1", "input": {"kind": "preamp", "channel": 11}},
+        {"id": "b", "kind": "input", "device_id": "loopback-1", "input": {"kind": "line", "channel": 7}},
+        {"id": "c", "kind": "input", "device_id": "loopback-0", "input": {"kind": "adat", "channel": 7}},
+        {"id": "d", "kind": "channel", "device_id": "loopback-0", "channel": "ch-kick"},
+        {"id": "e", "kind": "channel", "device_id": "loopback-0", "channel": "ch-vox", "mix": 3},
+        {"id": "f", "kind": "master", "device_id": "loopback-0", "mix": 3},
+        {"id": "g", "kind": "master", "device_id": "loopback-1"},
+        {"id": "h", "kind": "output", "device_id": "loopback-1", "output": 4},
+        {"id": "i", "kind": "output", "device_id": "usb:gone", "output": 9},
+        {"id": "j", "kind": "input", "device_id": "usb:gone", "input": {"kind": "line", "channel": 40}},
+        {"id": "k", "kind": "label", "text": "Drums"}
+    ]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(good.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["surfaces"][0]["name"], "Drum tracking");
+    assert_eq!(body["surfaces"][0]["mixes"], json!({"loopback-0": 1, "loopback-1": 0}));
+    assert_eq!(body["surfaces"][0]["strips"], good, "strips come back as sent, unset parts omitted");
+
+    let two = |a: Value, b: Value| json!({"version": 1, "surfaces": [a, b]});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", two(json!({"id": "x", "name": "A"}), json!({"id": "x", "name": "B"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["message"], "bad value: surface 'x': the id is used twice");
+
+    let broken = [
+        ("blank name", json!({"version": 1, "surfaces": [{"id": "s1", "name": " "}]}), "surface 's1': it needs a name"),
+        ("mix outside 0..3", json!({"version": 1, "surfaces": [{"id": "s1", "name": "A", "mixes": {"loopback-0": 4}}]}), "surface 's1': the mix for loopback-0 is outside 0..3"),
+        ("repeated strip id", surface(json!([{"id": "a", "kind": "label", "text": ""}, {"id": "a", "kind": "label", "text": ""}])), "surface 's1': strip 'a': the id is used twice"),
+        ("unknown kind", surface(json!([{"id": "a", "kind": "fader", "device_id": "loopback-0"}])), "surface 's1': strip 'a': kind must be one of channel, master, input, output, port, label, not \"fader\""),
+        ("no device", surface(json!([{"id": "a", "kind": "master"}])), "surface 's1': strip 'a': a master strip needs a device_id"),
+        ("channel without a channel", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0"}])), "surface 's1': strip 'a': a channel strip needs a channel id"),
+        ("pinned mix outside 0..3", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0", "channel": "c", "mix": 4}])), "surface 's1': strip 'a': mix 4 is outside 0..3"),
+        ("master mix outside 0..3", surface(json!([{"id": "a", "kind": "master", "device_id": "loopback-0", "mix": 9}])), "surface 's1': strip 'a': mix 9 is outside 0..3"),
+        ("input without an input", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0"}])), "surface 's1': strip 'a': an input strip needs an input"),
+        ("unknown input kind", surface(json!([{"id": "a", "kind": "input", "device_id": "usb:gone", "input": {"kind": "usb", "channel": 0}}])), "surface 's1': strip 'a': input kind must be one of preamp, line, adat, spdif, not \"usb\""),
+        ("Quadro has no line inputs", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0", "input": {"kind": "line", "channel": 0}}])), "surface 's1': strip 'a': the quadro has no line inputs"),
+        ("preamp past the Quadro's four", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-0", "input": {"kind": "preamp", "channel": 4}}])), "surface 's1': strip 'a': the quadro has preamp inputs 0..3, not 4"),
+        ("ADAT past the Studio+'s sixteen", surface(json!([{"id": "a", "kind": "input", "device_id": "loopback-1", "input": {"kind": "adat", "channel": 16}}])), "surface 's1': strip 'a': the studio has adat inputs 0..15, not 16"),
+        ("output without an output", surface(json!([{"id": "a", "kind": "output", "device_id": "loopback-0"}])), "surface 's1': strip 'a': an output strip needs an output"),
+        ("Quadro has no Reamp", surface(json!([{"id": "a", "kind": "output", "device_id": "loopback-0", "output": 4}])), "surface 's1': strip 'a': the quadro has outputs 0..3, not 4"),
+        ("label without text", surface(json!([{"id": "a", "kind": "label"}])), "surface 's1': strip 'a': a label strip needs text"),
+    ];
+    for (why, document, message) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"), "{why}");
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert_eq!(body["surfaces"][0]["strips"].as_array().map(Vec::len), Some(11), "rejected saves change nothing");
+}
+
+/// Digital cables (workspace spec §4.5) are declared connections from one device's S/PDIF or ADAT
+/// output to another's input of the same kind. They never route anything; the server checks their
+/// kinds and, for attached devices, that the channels exist. A surface can show a device's digital
+/// output as a port strip.
+#[tokio::test]
+async fn cables_and_port_strips_round_trip_and_are_validated() {
+    let app = app();
+    let end = |device: &str, port: &str, first: u32| json!({"device_id": device, "port": port, "first": first});
+    let cable = |from: Value, to: Value, channels: u32| json!({"id": "c1", "from": from, "to": to, "channels": channels});
+    let document = |cables: Value| json!({"version": 1, "cables": cables});
+    let good = json!([
+        {"id": "adat", "from": end("loopback-1", "ADAT_OUT", 0), "to": end("loopback-0", "ADAT_IN", 0), "channels": 8},
+        {"id": "adat2", "from": end("loopback-1", "ADAT_OUT", 8), "to": end("usb:gone", "ADAT_IN", 8), "channels": 8},
+        {"id": "spdif", "from": end("loopback-0", "SPDIF_OUT", 0), "to": end("loopback-1", "SPDIF_IN", 0), "channels": 2}
+    ]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(good.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["cables"], good);
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["cables"], json!([]), "a new workspace has no cables");
+
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(json!([cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "ADAT_IN", 0), 8), cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 2)]))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["message"], "bad value: cable 'c1': the id is used twice");
+
+    let broken = [
+        ("an input as the sender", cable(end("loopback-1", "ADAT_IN", 0), end("loopback-0", "ADAT_IN", 0), 8), "cable 'c1': from must be SPDIF_OUT or ADAT_OUT, not \"ADAT_IN\""),
+        ("an output as the receiver", cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "SPDIF_OUT", 0), 2), "cable 'c1': to must be SPDIF_IN or ADAT_IN, not \"SPDIF_OUT\""),
+        ("S/PDIF into ADAT", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "ADAT_IN", 0), 2), "cable 'c1': SPDIF_OUT cannot feed ADAT_IN"),
+        ("a device into itself", cable(end("loopback-1", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 2), "cable 'c1': a cable joins two devices"),
+        ("no channels", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 0), "cable 'c1': it needs 1..2 channels, not 0"),
+        ("three S/PDIF channels", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 3), "cable 'c1': it needs 1..2 channels, not 3"),
+        ("nine on one optical cable", cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "ADAT_IN", 0), 9), "cable 'c1': it needs 1..8 channels, not 9"),
+        ("the Quadro has no ADAT out", cable(end("loopback-0", "ADAT_OUT", 0), end("loopback-1", "ADAT_IN", 0), 8), "cable 'c1': the quadro has no ADAT_OUT"),
+        ("past the Quadro's eight ADAT inputs", cable(end("loopback-1", "ADAT_OUT", 8), end("loopback-0", "ADAT_IN", 4), 8), "cable 'c1': the quadro's ADAT_IN has channels 0..7, not 4..11"),
+        ("one past the Quadro's last ADAT input", cable(end("loopback-1", "ADAT_OUT", 8), end("loopback-0", "ADAT_IN", 1), 8), "cable 'c1': the quadro's ADAT_IN has channels 0..7, not 1..8"),
+        ("past the Studio+'s sixteen ADAT outputs", cable(end("loopback-1", "ADAT_OUT", 12), end("loopback-0", "ADAT_IN", 0), 8), "cable 'c1': the studio's ADAT_OUT has channels 0..15, not 12..19"),
+    ];
+    for (why, bad, message) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(json!([bad]))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"), "{why}");
+    }
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["cables"], good, "rejected saves change nothing");
+
+    let surface = |strip: Value| json!({"version": 1, "surfaces": [{"id": "s", "name": "S", "strips": [strip]}]});
+    for strip in [json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "SPDIF_OUT"}), json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 8})] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(strip.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{strip}: {body}");
+        assert_eq!(body["surfaces"][0]["strips"][0], strip);
+    }
+    let broken_ports = [
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0"}), "a port strip needs a port"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "ADAT_IN"}), "port must be SPDIF_OUT or ADAT_OUT, not \"ADAT_IN\""),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "ADAT_OUT"}), "the quadro has no ADAT_OUT"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 4}), "an ADAT port starts at a multiple of 8, not 4"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 16}), "the studio's ADAT_OUT has channels 0..15, not 16..23"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "SPDIF_OUT", "first": 2}), "the studio's SPDIF_OUT has channels 0..1, not 2..3"),
+    ];
+    for (strip, message) in broken_ports {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(strip.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{strip}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: surface 's': strip 'p': {message}"), "{strip}");
+    }
+}
+
 #[tokio::test]
 async fn all_commands_lists_every_model() {
     let (status, body) = get(app(), "/api/v1/commands").await;
