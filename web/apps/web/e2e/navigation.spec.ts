@@ -117,12 +117,48 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
   await page.waitForTimeout(1000);
   expect(sent.slice(before)).toEqual([]);
 
-  // Coming back reads no mix, nor the device's link flags that follow a read (P80): the store has
-  // them from the first visit. Where each mix plays is read again (routing is read fresh by design, P80).
+  // Coming back reads no mix, nor the device's link flags that follow a read, nor where each mix
+  // plays (P80): the store has them from the first visit.
   await open(page, "mixer");
   await expect(page.locator("ga-mixer")).toBeVisible();
   await page.waitForTimeout(1000);
-  expect(sent.slice(before).filter((c) => c.startsWith("get_") && c !== "get_routing"), "a second visit re-reads no mix").toEqual([]);
+  expect(sent.slice(before).filter((c) => c.startsWith("get_")), "a second visit re-reads no mix and no routing").toEqual([]);
+});
+
+test("routing is read once: the Mixer, the Routing page and the Mixer again read each group once, until asked to read", async ({ page }) => {
+  const sent: string[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", (event) => {
+      if (typeof event.payload === "string") {
+        const command = (JSON.parse(event.payload) as { command?: string }).command;
+        if (command !== undefined) sent.push(command);
+      }
+    }),
+  );
+  const count = (command: string) => sent.filter((c) => c === command).length;
+
+  // The Studio+ has 14 destination groups: the Mixer reads its 4 mix inputs to import a layout, and
+  // the 10 others to show where each mix plays.
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  await expect.poll(() => count("get_routing")).toBe(14);
+  await open(page, "workspace");
+  await open(page, "mixer");
+  await expect(page.locator("ga-mixer")).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(count("get_routing"), "not again on coming back").toBe(14);
+
+  await open(page, "routing");
+  await expect(page.locator("ga-routing")).toHaveAttribute("device-id", "loopback-1");
+  await page.waitForTimeout(1000);
+  expect(count("get_routing"), "the Routing page reads nothing the Mixer read").toBe(14);
+  await open(page, "mixer");
+  await expect(page.locator("ga-mixer")).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(count("get_routing"), "nor does the Mixer after it").toBe(14);
+
+  await open(page, "routing");
+  await page.locator("ga-routing").getByRole("button", { name: "Read from device" }).click();
+  await expect.poll(() => count("get_routing"), "asked to, every group is read").toBe(28);
 });
 
 test("the Mixer reads every mix again when the connection to the server comes back", async ({ page }) => {
@@ -153,11 +189,14 @@ test("the Mixer reads every mix again when the connection to the server comes ba
   await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
   await expect(page.getByTestId("connection")).toHaveText("Connected", { timeout: 15_000 });
   await expect.poll(() => count("get_mixer"), "while the page is open").toBe(8);
+  // Where each mix plays, too: the 10 output groups, not the mix inputs the first visit imported from.
+  await expect.poll(() => count("get_routing"), "routing while the page is open").toBe(24);
   await expect(page.getByText(/could not be read/), "and not tried while the connection was down").toHaveCount(0);
   await open(page, "inputs");
   await open(page, "mixer");
   await page.waitForTimeout(500);
   expect(count("get_mixer"), "and once only").toBe(8);
+  expect(count("get_routing"), "routing once only").toBe(24);
 });
 
 test("a half-typed name is a draft: leaving the page keeps it without saving it, until Enter or Escape", async ({ page }) => {

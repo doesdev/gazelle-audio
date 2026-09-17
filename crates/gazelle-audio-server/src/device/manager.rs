@@ -412,6 +412,67 @@ pub(crate) mod tests {
         assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
     }
 
+    /// An answering loopback whose replies, while `refusing` is set, come back as the device's
+    /// refusal: the reply id and `ext2` with the top bit set, `ext3` and the contents zeroed, as
+    /// hardware session 2 captured.
+    struct Refusing {
+        inner: LoopbackDevice,
+        refusing: Arc<AtomicBool>,
+    }
+
+    impl Device for Refusing {
+        fn send(&mut self, report: &Report) -> Result<bool, WireError> {
+            self.inner.send(report)
+        }
+        fn on_received_data(&mut self, packet: RawPacket) {
+            self.inner.on_received_data(packet)
+        }
+        fn max_packet_size(&self) -> usize {
+            self.inner.max_packet_size()
+        }
+        fn vid(&self) -> u16 {
+            self.inner.vid()
+        }
+        fn pid(&self) -> u16 {
+            self.inner.pid()
+        }
+        fn poll_reports(&mut self) -> Vec<Report> {
+            let refusing = self.refusing.load(Ordering::SeqCst);
+            let mut reports = self.inner.poll_reports();
+            for report in reports.iter_mut().filter(|r| refusing && r.cmd() == 0x75) {
+                let h = report.header;
+                report.header = gazelle_audio_protocol::wire::Header::new(h.cmd | 0x8000_0000, h.seq, h.ext2 | 0x8000_0000, 0);
+                report.contents.fill(0);
+            }
+            reports
+        }
+    }
+
+    #[tokio::test]
+    async fn a_read_the_device_refuses_fails_as_refused_at_once_and_the_device_carries_on() {
+        let devices = manager();
+        let refusing = Arc::new(AtomicBool::new(true));
+        let device = Refusing { inner: LoopbackDevice::emulating(ANTELOPE_USB_VID, PID_QUADRO, 64), refusing: refusing.clone() };
+        let id = DeviceId::from_serial("1000000000001");
+        devices.attach(id.clone(), Box::new(device), "usb", true);
+        let handle = devices.handle(&id).unwrap();
+
+        let started = Instant::now();
+        let result = handle.request("get_adats_links", PayloadValues::default(), None, false).await;
+        match &result {
+            Err(e @ ServerError::Refused { command, .. }) => {
+                assert_eq!(command, "get_adats_links");
+                assert_eq!(e.code(), "refused");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(started.elapsed() < Duration::from_secs(1), "not left to the 3 s timeout: {:?}", started.elapsed());
+
+        refusing.store(false, Ordering::SeqCst);
+        handle.request("get_adats_links", PayloadValues::default(), None, false).await.expect("the next read is answered");
+        assert!(!devices.is_empty(), "a refusal does not detach the device");
+    }
+
     #[test]
     fn detaching_a_device_tells_clients_once() {
         let devices = manager();
