@@ -30,6 +30,7 @@ export const MIXER_WIDTH_STORAGE_KEY = "gazelle.mixer.width";
 export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
 export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
+export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
@@ -129,6 +130,18 @@ const INPUT_METER_FIELDS: Readonly<Record<"quadro" | "studio", Readonly<Record<s
   studio: { PREAMP: "peaks_preamp", LINE_IN: "peaks_line", ADAT_IN: "peaks_adat", SPDIF_IN: "peaks_spdif" },
 };
 
+/**
+ * How long a clip light stays lit after the signal stops clipping, in ms, or null to hold it until
+ * it is cleared. The countdown starts when the clip ends, not when it starts: a device repeats the
+ * same report for as long as it clips, and a light should not go out while it does.
+ */
+export const CLIP_AUTO_CLEAR_CHOICES: readonly (number | null)[] = [2000, 5000, 10000, 30000, null];
+const CLIP_AUTO_CLEAR_DEFAULT = 5000;
+
+function parseClipAutoClear(stored: unknown): number | null | undefined {
+  return CLIP_AUTO_CLEAR_CHOICES.includes(stored as number | null) ? (stored as number | null) : undefined;
+}
+
 /** One input's meter: its latest peak byte (dB below full scale) and a clip light that latches. */
 export interface InputMeter {
   level: ReadonlySignal<number | undefined>;
@@ -141,6 +154,15 @@ export interface OutputMeter {
   name: string;
   left: ReadonlySignal<number | undefined>;
   right: ReadonlySignal<number | undefined>;
+  /** Lit when either side clips; as an input's. */
+  clipped: ReadonlySignal<boolean>;
+  clearClip(): void;
+}
+
+interface ClipLight {
+  lit: Signal<boolean>;
+  clipping: ReadonlySignal<boolean>;
+  timer: unknown;
 }
 
 const QUADRO_OUTPUT_METERS: readonly (readonly [name: string, field: string])[] = [
@@ -295,6 +317,8 @@ export class Store {
   readonly #panels: Signal<PanelState>;
   readonly #selectedDevice: Signal<string | undefined>;
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
+  readonly #clipAutoClear: Signal<number | null>;
+  readonly #clipLights = new Set<ClipLight>();
   readonly #selectedMix = new Map<string, ReadonlySignal<number>>();
   readonly #views = new Map<string, Signal<unknown>>();
 
@@ -320,6 +344,7 @@ export class Store {
     this.#panels = persisted(this.#storage, PANELS_STORAGE_KEY, { leftCollapsed: false, rightCollapsed: false }, parsePanels);
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
+    this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -876,14 +901,8 @@ export class Store {
       const bytes = field.value;
       return (bytes instanceof Uint8Array || Array.isArray(bytes)) && source.channel < bytes.length ? Number((bytes as ArrayLike<number>)[source.channel]) : undefined;
     });
-    const clipped = signal(false);
-    // Made on first use, often inside a watch: untracked, so it stands on its own.
-    untracked(() =>
-      effect(() => {
-        if (level.value === 0) clipped.value = true;
-      }),
-    );
-    const meter: InputMeter = { level, clipped, clearClip: () => (clipped.value = false) };
+    const light = this.#clipLight(computed(() => level.value === 0));
+    const meter: InputMeter = { level, clipped: light.lit, clearClip: () => this.#clearClip(light) };
     this.#inputMeters.set(key, meter);
     return meter;
   }
@@ -903,13 +922,71 @@ export class Store {
           const bytes = field.value;
           return (bytes instanceof Uint8Array || Array.isArray(bytes)) && i < bytes.length ? Number((bytes as ArrayLike<number>)[i]) : undefined;
         });
-      return { name, left: side(0), right: side(1) };
+      const left = side(0);
+      const right = side(1);
+      const light = this.#clipLight(computed(() => left.value === 0 || right.value === 0));
+      return { name, left, right, clipped: light.lit, clearClip: () => this.#clearClip(light) };
     });
     this.#outputMeters.set(deviceId, meters);
     return meters;
   }
 
   readonly #outputMeters = new Map<string, readonly OutputMeter[]>();
+
+  /** How long clip lights stay lit once a clip ends, in ms, or null to hold them until cleared. Remembered. */
+  get clipAutoClear(): ReadonlySignal<number | null> {
+    return this.#clipAutoClear;
+  }
+
+  /** Sets the clip lights' auto-clear to one of `CLIP_AUTO_CLEAR_CHOICES`; a light already lit counts down afresh. */
+  setClipAutoClear(ms: number | null): void {
+    if (!CLIP_AUTO_CLEAR_CHOICES.includes(ms)) throw new RangeError(`clip auto-clear must be one of ${CLIP_AUTO_CLEAR_CHOICES.join(", ")}`);
+    this.#clipAutoClear.value = ms;
+    for (const light of this.#clipLights) if (light.lit.peek() && !light.clipping.peek()) this.#countDown(light);
+  }
+
+  /** Clears every clip light, input and output, on every device. */
+  clearAllClips(): void {
+    batch(() => {
+      for (const light of this.#clipLights) this.#clearClip(light);
+    });
+  }
+
+  /** A clip light that lights while `clipping` and counts down to clearing once it stops. */
+  #clipLight(clipping: ReadonlySignal<boolean>): ClipLight {
+    const light: ClipLight = { lit: signal(false), clipping, timer: undefined };
+    this.#clipLights.add(light);
+    // Made on first use, often inside a watch: untracked, so it stands on its own.
+    untracked(() =>
+      effect(() => {
+        if (clipping.value) {
+          this.#timers.clearTimeout(light.timer);
+          light.timer = undefined;
+          light.lit.value = true;
+        } else if (untracked(() => light.lit.value)) {
+          this.#countDown(light);
+        }
+      }),
+    );
+    return light;
+  }
+
+  #countDown(light: ClipLight): void {
+    this.#timers.clearTimeout(light.timer);
+    light.timer = undefined;
+    const ms = this.#clipAutoClear.peek();
+    if (ms === null) return;
+    light.timer = this.#timers.setTimeout(() => {
+      light.timer = undefined;
+      light.lit.value = false;
+    }, ms);
+  }
+
+  #clearClip(light: ClipLight): void {
+    this.#timers.clearTimeout(light.timer);
+    light.timer = undefined;
+    light.lit.value = false;
+  }
 
   /** Sets the sample rate by index into [`SAMPLE_RATES`]. */
   setSampleRate(deviceId: string, index: number): boolean {

@@ -6,7 +6,7 @@ import { GazelleError } from "gazelle-audio-client";
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
-import { CLIP_HOLD_MS, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -562,5 +562,67 @@ test("output meters: the Quadro reports Monitor, HP1, HP2 and Line Out; the Stud
   assert.deepEqual([lineOut?.left.value, lineOut?.right.value], [12, 13]);
   assert.deepEqual([meters?.[0]?.left.value, meters?.[0]?.right.value], [96, 96]);
   assert.equal(store.outputMeters("loopback-1"), undefined);
+  stop();
+});
+
+test("clip lights latch, clear when clicked or all at once, and auto-clear after a remembered delay (default 5 s, or never)", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const frames: (() => void)[] = [];
+  const timers = new ManualTimers();
+  const storage = new MemoryStorage();
+  const store = new Store(client, { timers, storage, requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const stop = store.watchReport("loopback-0", "0x73");
+  const report = (fields: Record<string, unknown>) => {
+    client.cyclic.get("loopback-0|0x73")?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  const preamps = (clipAt?: number) => Uint8Array.from({ length: 4 }, (_, i) => (i === clipAt ? 0 : 40));
+  const pair = (clip: boolean) => Uint8Array.of(clip ? 0 : 30, 30);
+
+  assert.deepEqual(CLIP_AUTO_CLEAR_CHOICES, [2000, 5000, 10000, 30000, null]);
+  assert.equal(store.clipAutoClear.value, 5000, "clip lights clear themselves after 5 s unless told otherwise");
+
+  const preamp = store.inputMeter("loopback-0", { group: 0, channel: 2 });
+  const lineOut = store.outputMeters("loopback-0")?.[3];
+  assert.ok(preamp && lineOut);
+
+  // Auto-clear counts from when the signal stops clipping: a device repeats the same report while it
+  // clips, so a light must not clear while the clip goes on.
+  report({ peaks_preamp: preamps(2), line_out: pair(true) });
+  assert.deepEqual([preamp.clipped.value, lineOut.clipped.value], [true, true]);
+  timers.advance(60_000);
+  assert.deepEqual([preamp.clipped.value, lineOut.clipped.value], [true, true], "held for as long as it clips");
+  report({ peaks_preamp: preamps(), line_out: pair(false) });
+  timers.advance(3000);
+  report({ peaks_preamp: preamps(2) });
+  report({ peaks_preamp: preamps() });
+  timers.advance(4999);
+  assert.equal(preamp.clipped.value, true, "a second clip restarts the preamp's countdown");
+  assert.equal(lineOut.clipped.value, false, "the line out has not clipped since, so it has cleared");
+  timers.advance(1);
+  assert.equal(preamp.clipped.value, false);
+
+  // Clicked clear, and clear all.
+  report({ peaks_preamp: preamps(2), line_out: pair(true) });
+  lineOut.clearClip();
+  assert.deepEqual([preamp.clipped.value, lineOut.clipped.value], [true, false]);
+  report({ peaks_preamp: preamps(2), line_out: pair(true) });
+  store.clearAllClips();
+  assert.deepEqual([preamp.clipped.value, lineOut.clipped.value], [false, false]);
+
+  // Never: a clip holds until it is cleared, and the choice is remembered.
+  store.setClipAutoClear(null);
+  report({ peaks_preamp: preamps(), line_out: pair(false) });
+  report({ peaks_preamp: preamps(2) });
+  report({ peaks_preamp: preamps() });
+  timers.advance(600_000);
+  assert.equal(preamp.clipped.value, true);
+  assert.equal(new Store(client, { timers, storage, themeSources: builtIns }).clipAutoClear.value, null);
+  // Turning auto-clear back on starts the countdown for a light already lit.
+  store.setClipAutoClear(2000);
+  timers.advance(2000);
+  assert.equal(preamp.clipped.value, false);
+  assert.throws(() => store.setClipAutoClear(1234), RangeError);
   stop();
 });

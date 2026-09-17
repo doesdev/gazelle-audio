@@ -6,7 +6,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type RunningServer } from "../../../packages/client/test/integration/server.ts";
-import { resetWorkspace } from "./workspace.ts";
+import { putWorkspace, resetWorkspace } from "./workspace.ts";
 
 let server: RunningServer;
 
@@ -92,4 +92,69 @@ test("the right panel meters the device's outputs: Monitor, HP1, HP2 and Line ou
   await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
   await expect(meters.locator("[data-output]")).toHaveCount(0);
   await expect(meters).toContainText("reports no output meters");
+});
+
+test("clip lights: click one to clear it, Clear clears them all, and they clear themselves after the chosen delay or hold", async ({ page }) => {
+  // The loopback's report bytes cycle, and a cycling byte can reach 0; the frames are rewritten so
+  // a clip comes only when the test asks for one.
+  let clipping = false;
+  const rewrite = (hex: string, clipAt: number) => Array.from({ length: hex.length / 2 }, (_, i) => (clipping && i === clipAt ? "00" : "28")).join("");
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const upstream = socket.connectToServer();
+    upstream.onMessage((message) => {
+      const frame = typeof message === "string" ? (JSON.parse(message) as { type?: string; fields?: Record<string, unknown> }) : {};
+      if (frame.type === "cyclic" && frame.fields !== undefined) {
+        for (const [name, value] of Object.entries(frame.fields)) {
+          if (typeof value === "string" && name.startsWith("peaks_") || name === "line_out") frame.fields[name] = rewrite(value as string, 0);
+        }
+        return socket.send(JSON.stringify(frame));
+      }
+      socket.send(message);
+    });
+  });
+  // One channel on PREAMP 1, whose strip meters that input.
+  await putWorkspace(server, { mixers: { "loopback-0": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const panel = page.locator("ga-output-meters");
+  const lineOut = page.getByTestId("output-clip-Line out");
+  const monitor = page.getByTestId("output-clip-Monitor");
+  const strip = page.locator("ga-strip .clip[data-on]");
+  await expect(page.getByTestId("clip-auto-clear")).toHaveValue("5000");
+  await expect(page.locator('ga-channel[data-channel-slot="0"] ga-strip')).toBeVisible();
+  await expect(lineOut).not.toHaveAttribute("data-on");
+
+  clipping = true;
+  await expect(lineOut).toHaveAttribute("data-on", "");
+  await expect(monitor).toHaveAttribute("data-on", "");
+  await expect(strip.first()).toBeVisible();
+  clipping = false;
+  await page.waitForTimeout(200);
+  await lineOut.click();
+  await expect(lineOut).not.toHaveAttribute("data-on");
+  await expect(monitor).toHaveAttribute("data-on", "");
+  await page.getByTestId("clip-clear-all").click();
+  // Well inside the 5 s auto-clear, so it is the button that cleared them.
+  await expect(monitor).not.toHaveAttribute("data-on", { timeout: 1000 });
+  await expect(strip).toHaveCount(0, { timeout: 1000 });
+
+  // Hold: lit until cleared, and remembered.
+  await panel.getByTestId("clip-auto-clear").selectOption({ label: "Hold" });
+  clipping = true;
+  await expect(monitor).toHaveAttribute("data-on", "");
+  clipping = false;
+  await page.waitForTimeout(2500);
+  await expect(monitor).toHaveAttribute("data-on", "");
+  await page.reload();
+  await expect(page.getByTestId("clip-auto-clear")).toHaveValue("never");
+
+  // 2 s: clears itself once the clip is over.
+  await page.getByTestId("clip-auto-clear").selectOption({ label: "2 s" });
+  clipping = true;
+  await expect(monitor).toHaveAttribute("data-on", "");
+  await expect(strip.first()).toBeVisible();
+  clipping = false;
+  await page.waitForTimeout(1000);
+  await expect(monitor).toHaveAttribute("data-on", "");
+  await expect(monitor).not.toHaveAttribute("data-on", { timeout: 3000 });
+  await expect(strip).toHaveCount(0);
 });

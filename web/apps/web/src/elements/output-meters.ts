@@ -3,12 +3,14 @@
 // scale as the mixer's meters. The Quadro reports Monitor, HP1, HP2 and Line out in fixed fields,
 // which were checked against what the user heard (hardware, 2026-09-16). The Studio+ reports its
 // output levels only through a selectable meter bank, so it shows a note instead.
+// Each output has a clip light, cleared with a click; a small toolbar clears every clip light, on
+// the mixer's strips too, and sets how soon they clear themselves (P88).
 
 import { h } from "../core/dom.ts";
-import { untracked } from "../core/signal.ts";
+import { effect, untracked } from "../core/signal.ts";
 import { animateMeter, METER_FLOOR, type MeterMotion } from "./meter-motion.ts";
 import { meterDeflection } from "../store/mixer.ts";
-import { displayName } from "../store/store.ts";
+import { CLIP_AUTO_CLEAR_CHOICES, displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { route } from "./router.ts";
@@ -18,9 +20,15 @@ const STATUS_REPORT = "0x73";
 export class GaOutputMeters extends GaElement {
   static override styles = [
     sheet(`
-      :host { display: grid; gap: 6px; }
+      :host { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
       .device { font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .output { display: grid; grid-template-columns: minmax(48px, auto) minmax(0, 1fr) 40px; align-items: center; gap: 6px; }
+      .header { display: flex; align-items: center; gap: 4px; min-width: 0; }
+      .header .device { flex: 1; min-width: 0; }
+      .header select, .header button { font: inherit; font-size: 10px; height: 18px; padding: 0 4px; color: var(--ga-text-secondary); background: transparent; border: 1px solid var(--ga-border-subtle); border-radius: 2px; }
+      .header button:hover, .header select:hover { color: var(--ga-text-primary); }
+      .output { display: grid; grid-template-columns: minmax(48px, auto) minmax(0, 1fr) 6px 32px; align-items: center; gap: 6px; }
+      .clip { width: 6px; height: 12px; padding: 0; border: 0; border-radius: 1px; background: var(--ga-meter-background); }
+      .clip[data-on] { background: var(--ga-meter-clip); cursor: pointer; }
       .output-name { font-size: 11px; color: var(--ga-text-secondary); }
       .bars { display: grid; gap: 2px; }
       .bar { position: relative; height: 5px; overflow: hidden; border-radius: 1px; background: var(--ga-meter-background); }
@@ -44,6 +52,17 @@ export class GaOutputMeters extends GaElement {
       for (const dispose of held.splice(0)) dispose();
     };
     this.onDisconnect(release);
+    const autoClear = h(
+      "select",
+      { "aria-label": "Clip lights clear after", title: "Clip lights clear this long after a clip ends", "data-testid": "clip-auto-clear", "on:change": () => store.setClipAutoClear(autoClear.value === "never" ? null : Number(autoClear.value)) },
+      ...CLIP_AUTO_CLEAR_CHOICES.map((ms) => h("option", { value: ms === null ? "never" : String(ms) }, ms === null ? "Hold" : `${ms / 1000} s`)),
+    ) as HTMLSelectElement;
+    this.watch(() => {
+      const ms = store.clipAutoClear.value;
+      autoClear.value = ms === null ? "never" : String(ms);
+    });
+    const clearAll = h("button", { type: "button", title: "Clear every clip light", "aria-label": "Clear all clip lights", "data-testid": "clip-clear-all", "on:click": () => store.clearAllClips() }, "Clear");
+    const header = (...children: Node[]) => h("div", { class: "header" }, ...children, autoClear, clearAll);
     this.watch(() => {
       const current = route.value;
       const known = store.devices.value.filter((d) => d.family !== null);
@@ -57,7 +76,7 @@ export class GaOutputMeters extends GaElement {
         return;
       }
       const meters = store.outputMeters(device.id);
-      const name = h("span", { class: "device" }, displayName(device, store.workspace.peek()));
+      const name = header(h("span", { class: "device" }, displayName(device, store.workspace.peek())));
       if (meters === undefined) {
         this.root.replaceChildren(name, h("p", { class: "placeholder" }, "This model reports no output meters of its own: its output levels only reach its selectable meter bank."));
         return;
@@ -84,7 +103,13 @@ export class GaOutputMeters extends GaElement {
             );
             return h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask, peakMark);
           };
-          return h("div", { class: "output", "data-output": meter.name, title: `${meter.name}: peak, dB below full scale` }, h("span", { class: "output-name" }, meter.name), h("div", { class: "bars" }, bar("left"), bar("right")), peak);
+          const clip = h("button", { class: "clip", type: "button", "aria-label": `${meter.name} clip; select to clear`, "data-testid": `output-clip-${meter.name}`, "on:click": () => meter.clearClip() });
+          held.push(
+            effect(() => {
+              clip.toggleAttribute("data-on", meter.clipped.value);
+            }),
+          );
+          return h("div", { class: "output", "data-output": meter.name, title: `${meter.name}: peak, dB below full scale` }, h("span", { class: "output-name" }, meter.name), h("div", { class: "bars" }, bar("left"), bar("right")), clip, peak);
         }),
       ));
     });

@@ -14,7 +14,11 @@ export function persisted<T>(storage: KeyValueStorage | undefined, key: string, 
   let initial = fallback;
   try {
     const raw = storage?.getItem(key);
-    if (raw !== null && raw !== undefined) initial = parse(JSON.parse(raw)) ?? fallback;
+    if (raw !== null && raw !== undefined) {
+      // Undefined is "not a valid value"; null can be a preference of its own.
+      const parsed = parse(JSON.parse(raw));
+      if (parsed !== undefined) initial = parsed;
+    }
   } catch {
     // Unreadable or corrupt: use the default.
   }
