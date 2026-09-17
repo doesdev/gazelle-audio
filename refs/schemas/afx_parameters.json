@@ -6518,12 +6518,269 @@
  },
  "studio": {
   "summary": {
-   "full": 36,
+   "full": 37,
    "partial": 0,
-   "unsupported": 2,
-   "with_display_rules": 5
+   "unsupported": 1,
+   "with_display_rules": 6
   },
   "effects": [
+   {
+    "type": 1,
+    "name": "Equalizer",
+    "class": "Equalizer",
+    "source": "antelope_ui_afx_equalizer.pyc:Equalizer, zenstudiotb_sync.pyc:sync_eqs, zenstudiotb_bind.pyc:bind_eq",
+    "set": "set_eq_conf",
+    "get": "get_eq_configs",
+    "get_ext3": 1,
+    "reply_count": 8,
+    "read_parts": 2,
+    "parameters": [],
+    "bands": {
+     "param": "strip_id",
+     "list": "biquads",
+     "bands": [
+      [
+       {
+        "name": "freq",
+        "label": "Frequency",
+        "wire": "u16",
+        "min": 20,
+        "max": 800,
+        "default": 100,
+        "kilo": true,
+        "control": "range"
+       },
+       {
+        "name": "qual",
+        "label": "Q",
+        "wire": "u16",
+        "min": null,
+        "max": null,
+        "default": 0,
+        "hidden": "internal"
+       },
+       {
+        "name": "gain",
+        "label": "Gain",
+        "wire": "i16",
+        "min": -2400,
+        "max": 1200,
+        "default": 0,
+        "off_when": {
+         "name": "ftype",
+         "values": [
+          4
+         ]
+        },
+        "scale": 100,
+        "control": "range"
+       },
+       {
+        "name": "ftype",
+        "label": "Type",
+        "wire": "u8",
+        "min": 0,
+        "max": 4,
+        "default": 0,
+        "control": "menu",
+        "options": [
+         [
+          0,
+          "Low shelf"
+         ],
+         [
+          4,
+          "High-pass"
+         ]
+        ]
+       }
+      ],
+      [
+       {
+        "name": "freq",
+        "label": "Frequency",
+        "wire": "u16",
+        "min": 20,
+        "max": 800,
+        "default": 100,
+        "kilo": true,
+        "control": "range"
+       },
+       {
+        "name": "qual",
+        "label": "Q",
+        "wire": "u16",
+        "min": 50,
+        "max": 1800,
+        "default": 50,
+        "scale": 100,
+        "decimals": 2,
+        "control": "range"
+       },
+       {
+        "name": "gain",
+        "label": "Gain",
+        "wire": "i16",
+        "min": -2400,
+        "max": 1200,
+        "default": 0,
+        "scale": 100,
+        "control": "range"
+       },
+       {
+        "name": "ftype",
+        "label": "Type",
+        "wire": "u8",
+        "min": null,
+        "max": null,
+        "default": 2,
+        "hidden": "internal"
+       }
+      ],
+      [
+       {
+        "name": "freq",
+        "label": "Frequency",
+        "wire": "u16",
+        "min": 125,
+        "max": 8000,
+        "default": 2000,
+        "kilo": true,
+        "control": "range"
+       },
+       {
+        "name": "qual",
+        "label": "Q",
+        "wire": "u16",
+        "min": 50,
+        "max": 1800,
+        "default": 50,
+        "scale": 100,
+        "decimals": 2,
+        "control": "range"
+       },
+       {
+        "name": "gain",
+        "label": "Gain",
+        "wire": "i16",
+        "min": -2400,
+        "max": 1200,
+        "default": 0,
+        "scale": 100,
+        "control": "range"
+       },
+       {
+        "name": "ftype",
+        "label": "Type",
+        "wire": "u8",
+        "min": null,
+        "max": null,
+        "default": 2,
+        "hidden": "internal"
+       }
+      ],
+      [
+       {
+        "name": "freq",
+        "label": "Frequency",
+        "wire": "u16",
+        "min": 400,
+        "max": 20000,
+        "default": 5000,
+        "kilo": true,
+        "control": "range"
+       },
+       {
+        "name": "qual",
+        "label": "Q",
+        "wire": "u16",
+        "min": 50,
+        "max": 1800,
+        "default": 50,
+        "scale": 100,
+        "decimals": 2,
+        "control": "range"
+       },
+       {
+        "name": "gain",
+        "label": "Gain",
+        "wire": "i16",
+        "min": -2400,
+        "max": 1200,
+        "default": 0,
+        "scale": 100,
+        "control": "range"
+       },
+       {
+        "name": "ftype",
+        "label": "Type",
+        "wire": "u8",
+        "min": null,
+        "max": null,
+        "default": 2,
+        "hidden": "internal"
+       }
+      ],
+      [
+       {
+        "name": "freq",
+        "label": "Frequency",
+        "wire": "u16",
+        "min": 400,
+        "max": 20000,
+        "default": 5000,
+        "kilo": true,
+        "control": "range"
+       },
+       {
+        "name": "qual",
+        "label": "Q",
+        "wire": "u16",
+        "min": null,
+        "max": null,
+        "default": 0,
+        "hidden": "internal"
+       },
+       {
+        "name": "gain",
+        "label": "Gain",
+        "wire": "i16",
+        "min": -2400,
+        "max": 1200,
+        "default": 0,
+        "off_when": {
+         "name": "ftype",
+         "values": [
+          3
+         ]
+        },
+        "scale": 100,
+        "control": "range"
+       },
+       {
+        "name": "ftype",
+        "label": "Type",
+        "wire": "u8",
+        "min": 1,
+        "max": 3,
+        "default": 1,
+        "control": "menu",
+        "options": [
+         [
+          1,
+          "High shelf"
+         ],
+         [
+          3,
+          "Low-pass"
+         ]
+        ]
+       }
+      ]
+     ]
+    },
+    "status": "full"
+   },
    {
     "type": 2,
     "name": "Compressor",
@@ -10229,11 +10486,6 @@
    }
   ],
   "unsupported": [
-   {
-    "type": 1,
-    "name": "Equalizer",
-    "reason": "The panel reads it in two parts with ext3 = 0 or 1 overriding the header (instances 0-7, then 8-15), and each change sends one band."
-   },
    {
     "type": 4,
     "name": "Guitar Cabinet",

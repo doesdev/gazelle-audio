@@ -88,8 +88,8 @@ fn every_read_in_both_registries_answers_a_reply_of_its_layout_length() {
             }
         }
     }
-    // Quadro: 26 reads and 68 effect types' parameter reads; Studio+: 12 and 36.
-    assert_eq!(checked, 26 + 68 + 12 + 36, "every read of both models");
+    // Quadro: 26 reads and 68 effect types' parameter reads; Studio+: 12 and 37.
+    assert_eq!(checked, 26 + 68 + 12 + 37, "every read of both models");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 

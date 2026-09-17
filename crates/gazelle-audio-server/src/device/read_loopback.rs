@@ -63,9 +63,28 @@ fn declared_defaults(returns: &[Field]) -> Option<Vec<u8>> {
     Some(entry.repeat(*count))
 }
 
+/// The Studio+ Equalizer's bands as its panel starts them, band 0 first: `(freq, qual, gain, ftype)`. The
+/// widgets' starting values in `Equalizer._setup_ui`'s `strips_config` (low, low, mid and high frequency
+/// pans; no Q on the outer bands) and each filter button's first position sent through `bind._adapt_ftype`
+/// (low shelf 0, peak 2, high shelf 1). Kept here because the schema's defaults are one per field, not one
+/// per band; `tests/effects_reads.rs` checks them against `refs/schemas/afx_parameters.json`.
+const EQ_BANDS: [(u16, u16, i16, u8); 5] = [(100, 0, 0, 0), (100, 50, 0, 2), (2000, 50, 0, 2), (5000, 50, 0, 2), (5000, 0, 0, 1)];
+
 /// What a fresh device reports for `name`: zeros of the layout's length, except where a zero would
 /// be implausible or unhelpful.
 fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
+    // Each entry: five bands of freq u16, qual u16, gain i16, ftype u8, then `enabled`.
+    if name == "get_eq_configs" && entry_size(returns) == Some(EQ_BANDS.len() * 7 + 1) {
+        let mut entry = Vec::with_capacity(EQ_BANDS.len() * 7 + 1);
+        for (freq, qual, gain, ftype) in EQ_BANDS {
+            entry.extend_from_slice(&freq.to_le_bytes());
+            entry.extend_from_slice(&qual.to_le_bytes());
+            entry.extend_from_slice(&gain.to_le_bytes());
+            entry.push(ftype);
+        }
+        entry.push(1);
+        return entry.repeat(layout_len(returns) / entry.len());
+    }
     if let Some(bytes) = declared_defaults(returns).filter(|bytes| bytes.len() == layout_len(returns)) {
         return bytes;
     }
@@ -135,6 +154,9 @@ struct Read {
     response: u32,
     ext2: u32,
     ext3: Option<u32>,
+    /// Whether its `ext3` is a per-request selector (the Studio+ Equalizer's part), so any `ext3` no other
+    /// read claims is its.
+    selector: bool,
 }
 
 struct Set {
@@ -167,7 +189,7 @@ impl ReadLoopback {
             .iter()
             .map(|c| {
                 let shared = commands.iter().any(|o| o.name != c.name && (o.report_id, o.ext2) == (c.report_id, c.ext2));
-                Read { name: c.name.clone(), response: c.report_id + 1, ext2: c.ext2, ext3: shared.then_some(c.ext3) }
+                Read { name: c.name.clone(), response: c.report_id + 1, ext2: c.ext2, ext3: shared.then_some(c.ext3), selector: c.takes_ext3_selector() }
             })
             .collect();
         let replies = commands.iter().map(|c| (c.name.clone(), default_reply(&c.name, &c.returns))).collect();
@@ -192,9 +214,11 @@ impl ReadLoopback {
 
     fn read_for(&self, report: &Report) -> Option<&str> {
         let h = report.header;
+        let same = |r: &&Read| (r.response, r.ext2) == (h.cmd, h.ext2);
         self.reads
             .iter()
-            .find(|r| (r.response, r.ext2) == (h.cmd, h.ext2) && r.ext3.is_none_or(|ext3| ext3 == h.ext3))
+            .find(|r| same(r) && r.ext3.is_none_or(|ext3| ext3 == h.ext3))
+            .or_else(|| self.reads.iter().find(|r| same(r) && r.selector))
             .map(|r| r.name.as_str())
     }
 

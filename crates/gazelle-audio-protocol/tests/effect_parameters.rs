@@ -93,9 +93,14 @@ fn every_catalogued_effect_has_its_set_and_get_in_the_schema_as_the_catalogue_de
         for effect in effects {
             let name = effect["name"].as_str().unwrap();
             let parameters = effect["parameters"].as_array().unwrap();
+            // An effect set one band per command (the Studio+ Equalizer) names the band, then that band's fields.
+            let bands = effect.get("bands");
+            let band_fields: Vec<&str> = bands.map(|b| b["bands"][0].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect()).unwrap_or_default();
             let set = reg.get(effect["set"].as_str().unwrap()).unwrap_or_else(|| panic!("{family} {name}: no {}", effect["set"]));
             let set_names: Vec<&str> = set.params.iter().map(Field::name).collect();
             let mut expected = vec!["type_id", "inst_id"];
+            expected.extend(bands.map(|b| b["param"].as_str().unwrap()));
+            expected.extend(band_fields.iter().copied());
             expected.extend(parameters.iter().map(|p| p["name"].as_str().unwrap()));
             assert_eq!(set_names, expected, "{family} {name}: set fields");
             assert_eq!((set.report_id, set.ext2, set.ext3), (0x70, 0, 0), "{family} {name}: set header");
@@ -109,13 +114,53 @@ fn every_catalogued_effect_has_its_set_and_get_in_the_schema_as_the_catalogue_de
                 panic!("{family} {name}: reply is not a list of entries");
             };
             assert_eq!((entries.as_str(), *count as u64), ("entries", effect["reply_count"].as_u64().unwrap()), "{family} {name}: reply count");
-            assert_eq!((fields[0].name(), default_of(&fields[0])), ("enabled", Some(1)), "{family} {name}: an effect starts processing");
+            let enabled = fields.iter().find(|f| f.name() == "enabled").unwrap_or_else(|| panic!("{family} {name}: reply lacks enabled"));
+            assert_eq!(default_of(enabled), Some(1), "{family} {name}: an effect starts processing");
+            if let Some(bands) = bands {
+                let list = bands["list"].as_str().unwrap();
+                let Some(Field::StructArray { count, fields: band, .. }) = fields.iter().find(|f| f.name() == list) else {
+                    panic!("{family} {name}: reply lacks the band list {list}");
+                };
+                assert_eq!(*count, bands["bands"].as_array().unwrap().len(), "{family} {name}: one reply band per catalogued band");
+                assert_eq!(band.iter().map(Field::name).collect::<Vec<_>>(), band_fields, "{family} {name}: a reply band's fields");
+                for (index, parameters) in bands["bands"].as_array().unwrap().iter().enumerate() {
+                    let names: Vec<&str> = parameters.as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+                    assert_eq!(names, band_fields, "{family} {name}: band {index} has every band's fields");
+                }
+            }
             for parameter in parameters {
                 let field = fields.iter().find(|f| f.name() == parameter["name"].as_str().unwrap()).unwrap_or_else(|| panic!("{family} {name}: reply lacks {}", parameter["name"]));
                 assert_eq!(default_of(field), wire_default(parameter), "{family} {name}.{}: reply default", parameter["name"]);
             }
         }
     }
+}
+
+/// The Studio+ Equalizer (`sync.sync_eqs`, `bind.bind_eq`): read in two parts, `ext3` = 0 then 1 in place of
+/// the header's type (eight instances each), and set one band per command, named in `strip_id`.
+#[test]
+fn the_studio_equalizer_is_read_in_two_parts_and_set_one_band_at_a_time() {
+    let reg = registry(gazelle_audio_protocol::STUDIO_COMMANDS_PATH);
+    let get = reg.get("get_eq_configs").expect("get_eq_configs");
+    assert!(get.takes_ext3_selector(), "the part goes in ext3");
+    for part in [0u32, 1] {
+        let bytes = reg.build_request_with_ext3("get_eq_configs", &PayloadValues::default(), Some(part)).unwrap();
+        assert_eq!(hex(&bytes), format!("7400000010000000070000000{part}000000"));
+    }
+    let [Field::StructArray { name, count, fields }] = get.returns.as_slice() else { panic!("{:?}", get.returns) };
+    assert_eq!((name.as_str(), *count), ("entries", 8), "a part is eight instances");
+    let names: Vec<&str> = fields.iter().map(Field::name).collect();
+    assert_eq!(names, ["biquads", "enabled"]);
+    let Field::StructArray { count: bands, fields: band, .. } = &fields[0] else { panic!("{:?}", fields[0]) };
+    assert_eq!((*bands, band.iter().map(Field::name).collect::<Vec<_>>()), (5, vec!["freq", "qual", "gain", "ftype"]));
+    assert_eq!(get.returns[0].size(), 8 * (5 * 7 + 1));
+
+    let set = reg.get("set_eq_conf").expect("set_eq_conf");
+    let values = [("type_id", 1), ("inst_id", 9), ("strip_id", 2), ("freq", 2000), ("qual", 120), ("gain", -300i64 as u64), ("ftype", 2)]
+        .iter()
+        .fold(PayloadValues::default(), |v, (name, value)| v.with_scalar(name, *value));
+    // Payload id 20 with nparams 3 (0xd4), 10 bytes; freq 2000, Q 1.20, gain -3.00 as int16 0xfed4, peak (2); seq 28.
+    assert_eq!(hex(&set.build_request(&values).unwrap()), "700000001c0000000000000000000000d40a".to_string() + "010902d0077800d4fe02");
 }
 
 /// The Guitar Amp's controls depend on its model (`GuitarAmp.model_classes`, one view per model, each with

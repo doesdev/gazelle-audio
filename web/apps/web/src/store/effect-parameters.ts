@@ -23,10 +23,14 @@ export interface EffectParameter {
   readonly scale?: number;
   readonly decimals?: number;
   readonly unit?: string;
+  /** Shown in thousands above 1000 with a k (5k, 11.3k), as the panel's frequency display does. */
+  readonly kilo?: boolean;
   /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose control depends on the model (see `EffectDescription.layouts`). */
   readonly hidden?: "sidechain" | "link" | "internal" | "unused" | "model";
   /** Where the range came from when not this panel's own control (the Quadro's description of the same effect). */
   readonly rangeFrom?: "quadro";
+  /** While another field of the same band holds one of these values (a pass filter), this one is 0 and cannot be changed. */
+  readonly offWhen?: { readonly name: string; readonly values: readonly number[] };
 }
 
 /** One control in a model's layout: the parameter it drives, and what the model changes about it (a switch's name, positions and range). */
@@ -59,6 +63,10 @@ export interface EffectDescription {
   readonly instanceParam?: string;
   /** In the set command's order, after type_id and inst_id. */
   readonly parameters: readonly EffectParameter[];
+  /** Read in this many parts, part p in ext3 in place of the type, its entries being instances p * replyCount + k. */
+  readonly readParts?: number;
+  /** Set one band per command: `param` names the band, and each band has its own parameters, read from each entry's `list`. */
+  readonly bands?: { readonly param: string; readonly list: string; readonly bands: readonly (readonly EffectParameter[])[] };
   /** Which of the parameters show, by another parameter's value; absent when every control always shows. */
   readonly layouts?: EffectLayouts;
   /** partial: some parameters have no control and go back as read. */
@@ -663,7 +671,6 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
       { name: "drive", label: "Drive", wire: "u8", min: 0, max: 100, default: 50, control: "range" }
     ] }],
     [72, { type: 72, name: "ATuner", set: "set_atuner_conf", get: "get_atuner_conf", replyCount: 1, instanceParam: "id", status: "full", parameters: [
-
     ] }],
     [73, { type: 73, name: "Memory Cat Brigade", set: "set_memory_brigade_conf", get: "get_memory_brigade_conf", replyCount: 1, instanceParam: "id", status: "full", parameters: [
       { name: "blend", label: "Blend", wire: "u8", min: 0, max: 100, default: 50, control: "range" },
@@ -782,6 +789,39 @@ export const EFFECT_PARAMETERS: Readonly<Record<EffectFamily, ReadonlyMap<number
     ] }],
   ]),
   studio: new Map<number, EffectDescription>([
+    [1, { type: 1, name: "Equalizer", set: "set_eq_conf", get: "get_eq_configs", replyCount: 8, status: "full", parameters: [
+    ], readParts: 2, bands: { param: "strip_id", list: "biquads", bands: [
+      [
+        { name: "freq", label: "Frequency", wire: "u16", min: 20, max: 800, default: 100, control: "range", kilo: true },
+        { name: "qual", label: "Q", wire: "u16", min: null, max: null, default: 0, hidden: "internal" },
+        { name: "gain", label: "Gain", wire: "i16", min: -2400, max: 1200, default: 0, control: "range", scale: 100, offWhen: { name: "ftype", values: [4] } },
+        { name: "ftype", label: "Type", wire: "u8", min: 0, max: 4, default: 0, control: "menu", options: [[0, "Low shelf"], [4, "High-pass"]] }
+      ],
+      [
+        { name: "freq", label: "Frequency", wire: "u16", min: 20, max: 800, default: 100, control: "range", kilo: true },
+        { name: "qual", label: "Q", wire: "u16", min: 50, max: 1800, default: 50, control: "range", scale: 100, decimals: 2 },
+        { name: "gain", label: "Gain", wire: "i16", min: -2400, max: 1200, default: 0, control: "range", scale: 100 },
+        { name: "ftype", label: "Type", wire: "u8", min: null, max: null, default: 2, hidden: "internal" }
+      ],
+      [
+        { name: "freq", label: "Frequency", wire: "u16", min: 125, max: 8000, default: 2000, control: "range", kilo: true },
+        { name: "qual", label: "Q", wire: "u16", min: 50, max: 1800, default: 50, control: "range", scale: 100, decimals: 2 },
+        { name: "gain", label: "Gain", wire: "i16", min: -2400, max: 1200, default: 0, control: "range", scale: 100 },
+        { name: "ftype", label: "Type", wire: "u8", min: null, max: null, default: 2, hidden: "internal" }
+      ],
+      [
+        { name: "freq", label: "Frequency", wire: "u16", min: 400, max: 20000, default: 5000, control: "range", kilo: true },
+        { name: "qual", label: "Q", wire: "u16", min: 50, max: 1800, default: 50, control: "range", scale: 100, decimals: 2 },
+        { name: "gain", label: "Gain", wire: "i16", min: -2400, max: 1200, default: 0, control: "range", scale: 100 },
+        { name: "ftype", label: "Type", wire: "u8", min: null, max: null, default: 2, hidden: "internal" }
+      ],
+      [
+        { name: "freq", label: "Frequency", wire: "u16", min: 400, max: 20000, default: 5000, control: "range", kilo: true },
+        { name: "qual", label: "Q", wire: "u16", min: null, max: null, default: 0, hidden: "internal" },
+        { name: "gain", label: "Gain", wire: "i16", min: -2400, max: 1200, default: 0, control: "range", scale: 100, offWhen: { name: "ftype", values: [3] } },
+        { name: "ftype", label: "Type", wire: "u8", min: 1, max: 3, default: 1, control: "menu", options: [[1, "High shelf"], [3, "Low-pass"]] }
+      ],
+    ] } }],
     [2, { type: 2, name: "Compressor", set: "set_compressor_cfg", get: "get_compressor_configs", replyCount: 16, status: "full", parameters: [
       { name: "attack", label: "Attack", wire: "u32", min: 100, max: 150000, default: 10000, control: "range", scale: 1000, decimals: 1 },
       { name: "release", label: "Release", wire: "u32", min: 1000, max: 600000, default: 10000, control: "range", scale: 1000, decimals: 1 },
@@ -1183,7 +1223,6 @@ export const UNSUPPORTED_EFFECTS: Readonly<Record<EffectFamily, ReadonlyMap<numb
     [75, "Its parameters are floats, which the protocol crate does not carry; the panel also writes x2 as a float but reads it as an integer, and swaps morph and bias between its write and its read."],
   ]),
   studio: new Map<number, string>([
-    [1, "The panel reads it in two parts with ext3 = 0 or 1 overriding the header (instances 0-7, then 8-15), and each change sends one band."],
     [4, "Its sound is an impulse response and filters computed on the computer by the vendor's cabinet library from these settings (set_impulse_part, set_biquads), and its microphone positions are floats, which the protocol crate does not carry."],
   ]),
 };

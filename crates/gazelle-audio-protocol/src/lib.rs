@@ -8,7 +8,7 @@
 //!
 //! The recovered command sets live in `refs/schemas/quadro_commands.json` (199:
 //! the shared 35 + 28 Quadro-only + a set and a get for each of 68 effect types) and
-//! `refs/schemas/studio_commands.json` (115: the shared 35 + 8 Studio+-only + 36 effect
+//! `refs/schemas/studio_commands.json` (117: the shared 35 + 8 Studio+-only + 37 effect
 //! types' pairs; `refs/schemas/afx_parameters.json`). Each command carries a `report_id`,
 //! `ext2`/`ext3` selectors, an optional `payload_id`, and a list of `Field`s
 //! for its request params and/or its response `returns`.
@@ -100,10 +100,12 @@ pub struct Command {
 /// * `get_mixer`: `ext3` is the mixer id; one call returns one mixer.
 /// * `get_afx_strip_order` (Quadro): `ext3` is the effect chain; the panel reads each chain on its own
 ///   (`AfxModelController.get_device_data`, 2026-09-17).
+/// * `get_eq_configs` (Studio+): `ext3` is the part, 0 or 1, in place of the Equalizer's type; each part
+///   answers eight instances (`zenstudiotb.sync.sync_eqs`, 2026-09-18). Only the Studio+ schema has it.
 ///
 /// Every other command must keep its schema `ext3`: overriding it would silently change what
 /// the device is asked, so callers are refused rather than trusted.
-pub const EXT3_SELECTOR_COMMANDS: &[&str] = &["get_routing", "get_mixer", "get_afx_strip_order"];
+pub const EXT3_SELECTOR_COMMANDS: &[&str] = &["get_routing", "get_mixer", "get_afx_strip_order", "get_eq_configs"];
 
 impl Command {
     /// Whether this command takes a per-request `ext3` selector (see [`EXT3_SELECTOR_COMMANDS`]).

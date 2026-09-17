@@ -418,6 +418,21 @@ def apply_afx_get(entry, request, effect):
     fields = [list(f)[:2] for f in request["returns"]["fields"]]
     if any(len(list(f)) > 2 for f in request["returns"]["fields"]):
         raise SystemExit("%s: a reply field has a bit width or default already" % entry["name"])
+    bands = effect.get("bands")
+    if bands is not None:
+        # An effect read band by band (the Studio+ Equalizer): each entry holds a list of bands whose count is
+        # a class attribute (`equalizer.Equalizer.num_strips`) this script only stubs, so it comes from the
+        # catalogue, which read it from the class.
+        for field in fields:
+            if field[0] == bands["list"]:
+                inner = _coerce(field[1])
+                stub = inner.get("count") if isinstance(inner, dict) else None
+                if not isinstance(inner, dict) or not (isinstance(stub, _Default) or stub == len(bands["bands"])):
+                    raise SystemExit("%s: band list %s is %r" % (entry["name"], field[0], inner))
+                field[1] = {"fields": [list(f)[:2] for f in inner["fields"]], "count": len(bands["bands"])}
+                break
+        else:
+            raise SystemExit("%s: no band list %s in the reply" % (entry["name"], bands["list"]))
     counted = {"fields": fields, "count": effect["reply_count"]}
     returns = norm_fields([["entries", counted]])
     # Sized from the plain layout above; the defaults ride in the same type in field-object form.

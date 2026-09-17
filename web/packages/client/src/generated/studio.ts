@@ -211,6 +211,27 @@ export interface StudioCommands {
       }>;
     };
   };
+  get_eq_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 8 × struct of 36 bytes */
+      entries: Array<{
+        /** 5 × struct of 7 bytes */
+        biquads: Array<{
+          /** u16, 0..65535 */
+          freq: number;
+          /** u16, 0..65535 */
+          qual: number;
+          /** i16, -32768..32767 */
+          gain: number;
+          /** u8, 0..255 */
+          ftype: number;
+        }>;
+        /** u8, 0..255; default 1 */
+        enabled: number;
+      }>;
+    };
+  };
   get_guitar_amp_configs: {
     params: Record<string, never>;
     returns: {
@@ -1348,6 +1369,25 @@ export interface StudioCommands {
       output: number;
       /** u8, 0..255 */
       linked: number;
+    };
+    returns: null;
+  };
+  set_eq_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      strip_id: number;
+      /** u16, 0..65535 */
+      freq: number;
+      /** u16, 0..65535 */
+      qual: number;
+      /** i16, -32768..32767 */
+      gain: number;
+      /** u8, 0..255 */
+      ftype: number;
     };
     returns: null;
   };
@@ -2553,6 +2593,7 @@ export const studioSchema = {
     "get_compressor_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "attack", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "release", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "taw", "scalar": "u16", "default": 65535 }, { "kind": "scalar", "name": "ratio", "scalar": "u16", "default": 100 }, { "kind": "scalar", "name": "gain", "scalar": "u16", "default": 0 }, { "kind": "scalar", "name": "ctrl", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 24 }, { "kind": "scalar", "name": "knee", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_dbx_160_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "compression", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_dbx_903_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_eq_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "struct_array", "name": "biquads", "count": 5, "fields": [{ "kind": "scalar", "name": "freq", "scalar": "u16" }, { "kind": "scalar", "name": "qual", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "i16" }, { "kind": "scalar", "name": "ftype", "scalar": "u8" }] }, { "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }] }] },
     "get_guitar_amp_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 4, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "model", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "bass", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mid", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "midfreq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "treble", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "density", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "presence", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "volume", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "boost", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mode1", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode2", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode3", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode4", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode5", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
     "get_gyratec_x_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_harrison_32c_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut_enable", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_cut_enable", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
@@ -2604,6 +2645,7 @@ export const studioSchema = {
     "set_config_feature": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "feature", "scalar": "u8" }, { "kind": "scalar", "name": "status", "scalar": "u8" }], "returns": null },
     "set_dbx_160_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "compression", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_dbx_903_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_eq_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "strip_id", "scalar": "u8" }, { "kind": "scalar", "name": "freq", "scalar": "u16" }, { "kind": "scalar", "name": "qual", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "i16" }, { "kind": "scalar", "name": "ftype", "scalar": "u8" }], "returns": null },
     "set_guitar_amp_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "model", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "u8" }, { "kind": "scalar", "name": "bass", "scalar": "u8" }, { "kind": "scalar", "name": "mid", "scalar": "u8" }, { "kind": "scalar", "name": "midfreq", "scalar": "u8" }, { "kind": "scalar", "name": "treble", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8" }, { "kind": "scalar", "name": "presence", "scalar": "u8" }, { "kind": "scalar", "name": "volume", "scalar": "u8" }, { "kind": "scalar", "name": "boost", "scalar": "u8" }, { "kind": "scalar", "name": "mode1", "scalar": "u8" }, { "kind": "scalar", "name": "mode2", "scalar": "u8" }, { "kind": "scalar", "name": "mode3", "scalar": "u8" }, { "kind": "scalar", "name": "mode4", "scalar": "u8" }, { "kind": "scalar", "name": "mode5", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
     "set_gyratec_x_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_harrison_32c_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut_enable", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hi_cut_enable", "scalar": "u8" }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },

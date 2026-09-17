@@ -55,7 +55,8 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bytecode_eval as be  # noqa: E402
-from pyc_inspect import walk  # noqa: E402
+import pyc_dis  # noqa: E402
+from pyc_inspect import load_blob, walk  # noqa: E402
 
 QUADRO_PY = (3, 8)
 STUDIO_PY = (3, 5)
@@ -103,7 +104,6 @@ UNSUPPORTED: dict[str, dict[int, str]] = {
         75: "Its parameters are floats, which the protocol crate does not carry; the panel also writes x2 as a float but reads it as an integer, and swaps morph and bias between its write and its read.",
     },
     "studio": {
-        1: "The panel reads it in two parts with ext3 = 0 or 1 overriding the header (instances 0-7, then 8-15), and each change sends one band.",
         4: "Its sound is an impulse response and filters computed on the computer by the vendor's cabinet library from these settings (set_impulse_part, set_biquads), and its microphone positions are floats, which the protocol crate does not carry.",
     },
 }
@@ -670,6 +670,9 @@ def studio(panel: Panel, requests: dict[str, Any], quadro_effects: dict[int, dic
         get_name = gets.get(type_id)
         if get_name is None:
             fail(f"studio type {type_id} ({cls.name}): no read with ext3 {type_id}")
+        if cls.name == "Equalizer":
+            out.append(studio_equalizer(panel, cls, requests, get_name))
+            continue
         reply = [list(f)[:2] for f in requests[get_name]["returns"]["fields"]]
         count = requests[get_name]["returns"].get("count")
         if reply[0][0] != "enabled" or count != cls.lookup("max_instances"):
@@ -701,6 +704,246 @@ def studio(panel: Panel, requests: dict[str, Any], quadro_effects: dict[int, dic
         layouts = guitar_amp_layouts(panel, cls, parameters) if cls.name == "GuitarAmp" else None
         out.append(effect_entry(type_id, cls, f"{cls.module}:{cls.name}", set_name, get_name, type_id, None, count, parameters, layouts))
     return out
+
+
+#: The Equalizer's band fields as the editor names them (the code's names are `freq`, `qual`, `gain`, `ftype`).
+EQ_LABELS = {"freq": "Frequency", "qual": "Q", "gain": "Gain", "ftype": "Type"}
+
+#: What the panel's EQ plot calls each filter name's family (`Equalizer.redraw_plot`: names starting `low` are
+#: `LF`, `high` `HF`, `lpf` `LP`, `hpf` `HP`, the rest `peak`), as the editor labels them.
+EQ_FILTER_LABELS = {"LF": "Low shelf", "HF": "High shelf", "LP": "Low-pass", "HP": "High-pass", "peak": "Peak"}
+
+
+def studio_equalizer(panel: Panel, cls: be.ClassDef, requests: dict[str, Any], get_name: str) -> dict[str, Any]:
+    """The Studio+ Equalizer: five bands per instance, read in parts and set one band per command.
+
+    * **Read** (`zenstudiotb.sync.sync_eqs`): `get_eq_configs` once per part, `ext3` = the part index in
+      place of the header's type (`range(EQ_PARTS)`, `EQ_PARTS = 2`); part p's entries are instances
+      p * 8 + k (`set_all` pairs `widgets[:8]` / `widgets[8:]` with the entries). Each entry is
+      `biquads[num_strips]` then `enabled`.
+    * **Write** (`zenstudiotb.bind.bind_eq`): each strip's `value_changed` sends `set_eq_conf(type, instance,
+      strip index, freq, qual, gain, adapted ftype)`, with the sender keyed by (instance, strip): one band
+      per command.
+    * **Controls** (`Equalizer._setup_ui`'s `strips_config`, one tuple of widget classes per band, passed to
+      `EqStrip(self, freq_class, gain_class, qual_class, ftype_class)`): a pan with a range is a control, a
+      pan without one (`DummyQualityFactorPan`) a value kept as read, and the filter button a menu of the wire
+      values its positions map to (`bind._adapt_ftype`), or a value kept as read where every position maps
+      to one value (the peak bands).
+    * **Pass filters** (`EqStrip._setup_events._ftype_handler`): at the button's position 3 the gain is
+      disabled and set to 0.
+    """
+    type_id = panel.type_id(cls)
+    request = requests[get_name]
+    returns = request["returns"]
+    num_parts, num_strips, max_instances = (cls.lookup(k) for k in ("num_parts", "num_strips", "max_instances"))
+    if not all(number(v) for v in (num_parts, num_strips, max_instances)) or returns.get("count") != max_instances // num_parts:
+        fail(f"studio {get_name}: count {returns.get('count')} for {max_instances} instances in {num_parts} parts")
+    reply = [list(f)[:2] for f in returns["fields"]]
+    if [f[0] for f in reply] != ["biquads", "enabled"] or not isinstance(reply[0][1], dict) or reply[0][1].get("count") != num_strips:
+        fail(f"studio {get_name}: reply {reply}")
+    band_fields = [list(f)[:2] for f in reply[0][1]["fields"]]
+    set_name = studio_set_name(requests, get_name)
+    declared = [list(f)[:2] for f in requests[set_name]["params"]["fields"]]
+    if [(n, WIRE_TYPES.get(t)) for n, t in declared[:3]] != [("type_id", "u8"), ("inst_id", "u8"), ("strip_id", "u8")] or [f[0] for f in declared[3:]] != [f[0] for f in band_fields]:
+        fail(f"studio {set_name}: {declared} against the reply's bands {band_fields}")
+    check_equalizer_io(panel)
+
+    # The widget classes of each band, by field.
+    strip = panel.find("EqStrip", cls.module)
+    # Read from the class body's code objects: a method with a closure (`super()`) is built by MAKE_CLOSURE on
+    # 3.5, which the evaluator does not model.
+    methods = {c.name: c for c in (strip.body.children if strip is not None else [])}
+    strip_init, strip_ui = methods.get("__init__"), methods.get("_setup_ui")
+    if strip_init is None or strip_ui is None:
+        fail("EqStrip: no __init__ or _setup_ui")
+    arguments = list(strip_ui.varnames[1:strip_ui.argcount])
+    if list(strip_init.varnames[2:strip_init.argcount]) != arguments:
+        fail(f"EqStrip.__init__ {strip_init.varnames} does not pass {arguments} in order")
+    controls = be.evaluate(strip_ui, panel.py, {}).get("controlw")
+    field_argument = {}
+    for field, built in (controls or {}).items():
+        call = be.receiver(built)
+        if not (isinstance(call, be.Call) and isinstance(call.func, be.Sym) and call.func.path in arguments):
+            fail(f"EqStrip.{field}: built from {built!r}")
+        field_argument[field] = arguments.index(call.func.path)
+    if sorted(field_argument) != sorted(f[0] for f in band_fields):
+        fail(f"EqStrip controls {sorted(field_argument)} against the bands' fields {band_fields}")
+    config = be.evaluate(be.function(cls.attrs.get("_setup_ui")), panel.py, {}).get("strips_config")
+    if not (isinstance(config, tuple) and len(config) == num_strips and all(isinstance(b, tuple) and len(b) == len(arguments) for b in config)):
+        fail(f"Equalizer.strips_config {config!r}")
+
+    adapt = eq_filter_values(panel)
+    pass_position = eq_pass_position(panel, strip)
+    displays = eq_displays(panel, cls.module)
+    bands = []
+    for index, classes in enumerate(config):
+        band = []
+        for field, wire in band_fields:
+            widget = panel.find(classes[field_argument[field]].path, cls.module)
+            if widget is None:
+                fail(f"Equalizer band {index} {field}: no class {classes[field_argument[field]]!r}")
+            band.append(eq_parameter(panel, field, wire, widget, adapt, index))
+        by_name = {q["name"]: q for q in band}
+        ftype = panel.find(classes[field_argument["ftype"]].path, cls.module)
+        names = ftype.lookup("button_values")
+        if "options" in by_name["ftype"] and len(names) > pass_position:
+            # The position the handler tests is a pass filter: the gain goes to 0 and cannot be changed there.
+            by_name["gain"]["off_when"] = {"name": "ftype", "values": [adapt(names[pass_position][0])]}
+        for field, rule in displays.items():
+            if "hidden" not in by_name[field]:
+                by_name[field].update(rule)
+        bands.append(band)
+    for band in bands:
+        for q in band:
+            if "control" not in q and "hidden" not in q:
+                q["control"] = "range"
+    return {
+        "type": type_id,
+        "name": cls.attrs["name"],
+        "class": cls.name,
+        "source": f"{cls.module}:{cls.name}, zenstudiotb_sync.pyc:sync_eqs, zenstudiotb_bind.pyc:bind_eq",
+        "set": set_name,
+        "get": get_name,
+        "get_ext3": type_id,
+        "reply_count": max_instances // num_parts,
+        "read_parts": num_parts,
+        "parameters": [],
+        "bands": {"param": "strip_id", "list": "biquads", "bands": bands},
+        "status": "full",
+    }
+
+
+def eq_parameter(panel: Panel, field: str, wire: str, widget: be.ClassDef, adapt: Any, index: int) -> dict[str, Any]:
+    if any(a.endswith("buttons.Button") for a in widget.ancestry()):
+        names = widget.lookup("button_values")
+        if not isinstance(names, list) or not all(isinstance(n, tuple) and isinstance(n[0], str) for n in names):
+            fail(f"Equalizer band {index} {field}: {widget.name} positions {names!r}")
+        values: dict[int, str] = {}
+        for name, _ in names:
+            values.setdefault(adapt(name), eq_filter_label(name))
+        default = adapt(names[0][0])
+        if len(values) == 1:
+            entry = parameter(field, wire, None, None, default, "Equalizer", "internal")
+        else:
+            entry = parameter(field, wire, min(values), max(values), default, "Equalizer")
+            entry["control"] = "menu"
+            entry["options"] = [[v, t] for v, t in values.items()]
+    else:
+        low, high, initial = panel.widget_range(widget)
+        if high is None or widget.lookup("max_value") is None:
+            # A pan with no range of its own (`DummyQualityFactorPan`): the value is shown greyed and sent as read.
+            entry = parameter(field, wire, None, None, initial, "Equalizer", "internal")
+        else:
+            entry = parameter(field, wire, low, high, initial, "Equalizer")
+    entry["label"] = EQ_LABELS[field]
+    return entry
+
+
+def eq_filter_label(name: str) -> str:
+    family = "LF" if name.startswith("low") else "HF" if name.startswith("high") else "LP" if name == "lpf" else "HP" if name == "hpf" else "peak"
+    return EQ_FILTER_LABELS[family]
+
+
+def if_chain(code: Any, py: tuple[int, int]) -> list[tuple[str, Any, Any]]:
+    """An `a if test else b if …` chain on one name, as (test, operand, result) with test `startswith` or
+    `==`, and a final ("else", None, result)."""
+    ins = [i for i in pyc_dis.disassemble(code, py) if i.opname != "EXTENDED_ARG"]
+    out: list[tuple[str, Any, Any]] = []
+    i = 0
+    while i < len(ins):
+        op = ins[i].opname
+        if op in ("LOAD_FAST", "LOAD_DEREF") and i + 5 < len(ins) and ins[i + 1].opname in ("LOAD_ATTR", "LOAD_METHOD") and code.names[ins[i + 1].arg] == "startswith":
+            operand, result = code.consts[ins[i + 2].arg], code.consts[ins[i + 5].arg]
+            out.append(("startswith", operand, result))
+            i += 6
+        elif op in ("LOAD_FAST", "LOAD_DEREF") and i + 4 < len(ins) and ins[i + 1].opname == "LOAD_CONST" and ins[i + 2].opname == "COMPARE_OP" and ins[i + 2].arg == 2:
+            out.append(("==", code.consts[ins[i + 1].arg], code.consts[ins[i + 4].arg]))
+            i += 5
+        elif op == "LOAD_CONST" and i + 1 < len(ins) and ins[i + 1].opname == "STORE_FAST" and out and out[-1][0] != "else":
+            out.append(("else", None, code.consts[ins[i].arg]))
+            break
+        else:
+            i += 1
+    return out
+
+
+def const_set(consts: Any) -> set[Any]:
+    """A code object's constants that can be compared (numbers and strings)."""
+    return {k for k in consts if isinstance(k, (int, float, str))}
+
+
+def find_code(path: Path, py: tuple[int, int], name: str) -> Any:
+    found = [c for c in walk(load_blob(str(path), py)) if c.name == name]
+    if len(found) != 1:
+        fail(f"{path.name}: {len(found)} code objects named {name}")
+    return found[0]
+
+
+def eq_filter_values(panel: Panel) -> Any:
+    """The filter button's position name to the wire's `ftype` (`zenstudiotb.bind`'s `_adapt_ftype`), checked
+    against the read's reverse (`zenstudiotb.sync.adapt_ftype`)."""
+    forward = if_chain(find_code(panel.extracted / "zenstudiotb_bind.pyc", panel.py, "_adapt_ftype"), panel.py)
+    reverse = if_chain(find_code(panel.extracted / "zenstudiotb_sync.pyc", panel.py, "adapt_ftype"), panel.py)
+    if len(forward) < 3 or forward[-1][0] != "else" or reverse[-1][0] != "else":
+        fail(f"_adapt_ftype chains {forward} / {reverse}")
+
+    def adapt(name: str) -> int:
+        for test, operand, result in forward:
+            if test == "else" or (test == "startswith" and name.startswith(operand)) or (test == "==" and name == operand):
+                return result
+        fail(f"_adapt_ftype: no value for {name}")
+
+    for test, value, name in reverse:
+        if test == "==" and adapt(name) != value:
+            fail(f"adapt_ftype: {value} reads back as {name}, which is sent as {adapt(name)}")
+    if adapt(reverse[-1][2]) in [v for t, v, _ in reverse if t == "=="]:
+        fail(f"adapt_ftype: its default {reverse[-1][2]} is sent as a value it names otherwise")
+    return adapt
+
+
+def eq_pass_position(panel: Panel, strip: be.ClassDef) -> int:
+    """The filter button position at which `_ftype_handler` disables the gain and sets it to 0."""
+    code = find_code(panel.extracted / "antelope_ui_afx_equalizer.pyc", panel.py, "_ftype_handler")
+    ins = [i for i in pyc_dis.disassemble(code, panel.py) if i.opname != "EXTENDED_ARG"]
+    if not (len(ins) > 3 and ins[0].opname == "LOAD_FAST" and code.varnames[ins[0].arg] == "value" and ins[1].opname == "LOAD_CONST" and ins[2].opname == "COMPARE_OP" and ins[2].arg == 2):
+        fail("_ftype_handler does not start `if value == <position>`")
+    if not {"set_enabled", "set_value"} <= set(code.names) or 0 not in code.consts:
+        fail(f"_ftype_handler: {code.names} {code.consts}")
+    return code.consts[ins[1].arg]
+
+
+def eq_displays(panel: Panel, module: str) -> dict[str, dict[str, Any]]:
+    """How the strip shows its values: gain and Q as value / 100 (`EqDisplay._update_value`, `round(value / 100,
+    2)`; `QualityFactorPan.value_to_text` `'{:.2f}'`), frequency in thousands above 1000 with a `k`
+    (`EqFreqDisplay._update_value`)."""
+    def consts(class_name: str, method: str) -> list[Any]:
+        cls = panel.find(class_name, module)
+        code = be.function(cls.attrs.get(method)) if cls is not None else None
+        if code is None:
+            fail(f"{class_name}.{method} not found")
+        return [k for c in walk(code) for k in c.consts]
+
+    if not {100, 2} <= const_set(consts("EqDisplay", "_update_value")):
+        fail("EqDisplay._update_value is not round(value / 100, 2)")
+    if not ({"{:.2f}", 100} <= const_set(consts("QualityFactorPan", "value_to_text"))):
+        fail("QualityFactorPan.value_to_text is not '{:.2f}' of value / 100")
+    freq = consts("EqFreqDisplay", "_update_value")
+    if not ({1000, "{}k", "{:.1f}"} <= const_set(freq)):
+        fail(f"EqFreqDisplay._update_value: {freq}")
+    return {"gain": {"scale": 100}, "qual": {"scale": 100, "decimals": 2}, "freq": {"kilo": True}}
+
+
+def check_equalizer_io(panel: Panel) -> None:
+    """What `sync_eqs` and `bind_eq` do, checked where it matters: two parts in ext3, one band per sender."""
+    sync = find_code(panel.extracted / "zenstudiotb_sync.pyc", panel.py, "sync_eqs")
+    if not ({"get_eq_configs", "ext3", 2} <= const_set(sync.consts) and "EQ_PARTS" in sync.varnames and "range" in sync.names):
+        fail(f"sync_eqs: {sync.consts} {sync.varnames}")
+    parts = [c for c in walk(sync) if c.name == "set_all"]
+    if len(parts) != 1 or 8 not in const_set(parts[0].consts):
+        fail(f"sync_eqs.set_all does not split the instances at 8: {[c.consts for c in parts]}")
+    bind = find_code(panel.extracted / "zenstudiotb_bind.pyc", panel.py, "bind_eq")
+    if not ({"set_eq_conf", "sender"} <= const_set(bind.consts) and {"strip_id"} <= set(bind.varnames)):
+        fail(f"bind_eq: {bind.consts} {bind.varnames}")
 
 
 def member_of(panel: Panel, type_id: int) -> str:
@@ -760,17 +1003,19 @@ def summary(effects: list[dict[str, Any]], names: dict[int, str], unsupported: d
         "full": sum(1 for e in effects if e["status"] == "full"),
         "partial": sum(1 for e in effects if e["status"] == "partial"),
         "unsupported": len(unsupported),
-        "with_display_rules": sum(1 for e in effects if any(k in p for p in e["parameters"] for k in ("unit", "scale", "options"))),
+        "with_display_rules": sum(1 for e in effects if any(k in p for p in e["parameters"] + [q for band in e.get("bands", {}).get("bands", []) for q in band] for k in ("unit", "scale", "options"))),
     }
 
 
 def render_ts(doc: dict[str, Any]) -> str:
     def parameter_ts(p: dict[str, Any]) -> str:
-        keys = ["name", "label", "wire", "min", "max", "default", "control", "options", "scale", "decimals", "unit", "hidden", "range_from"]
-        rename = {"range_from": "rangeFrom"}
+        keys = ["name", "label", "wire", "min", "max", "default", "control", "options", "scale", "decimals", "unit", "kilo", "hidden", "range_from", "off_when"]
+        rename = {"range_from": "rangeFrom", "off_when": "offWhen"}
         parts = []
         for k in keys:
-            if k in p:
+            if k == "off_when" and k in p:
+                parts.append(f"offWhen: {{ name: {json.dumps(p[k]['name'])}, values: {json.dumps(p[k]['values'])} }}")
+            elif k in p:
                 parts.append(f"{rename.get(k, k)}: {json.dumps(p[k])}")
         return "{ " + ", ".join(parts) + " }"
 
@@ -803,10 +1048,14 @@ def render_ts(doc: dict[str, Any]) -> str:
         "  readonly scale?: number;",
         "  readonly decimals?: number;",
         "  readonly unit?: string;",
+        "  /** Shown in thousands above 1000 with a k (5k, 11.3k), as the panel's frequency display does. */",
+        "  readonly kilo?: boolean;",
         "  /** Sent as read, with no control: a sidechain source, a stereo-link flag, an internal or unused field, or a switch whose control depends on the model (see `EffectDescription.layouts`). */",
         "  readonly hidden?: \"sidechain\" | \"link\" | \"internal\" | \"unused\" | \"model\";",
         "  /** Where the range came from when not this panel's own control (the Quadro's description of the same effect). */",
         "  readonly rangeFrom?: \"quadro\";",
+        "  /** While another field of the same band holds one of these values (a pass filter), this one is 0 and cannot be changed. */",
+        "  readonly offWhen?: { readonly name: string; readonly values: readonly number[] };",
         "}",
         "",
         "/** One control in a model's layout: the parameter it drives, and what the model changes about it (a switch's name, positions and range). */",
@@ -839,6 +1088,10 @@ def render_ts(doc: dict[str, Any]) -> str:
         "  readonly instanceParam?: string;",
         "  /** In the set command's order, after type_id and inst_id. */",
         "  readonly parameters: readonly EffectParameter[];",
+        "  /** Read in this many parts, part p in ext3 in place of the type, its entries being instances p * replyCount + k. */",
+        "  readonly readParts?: number;",
+        "  /** Set one band per command: `param` names the band, and each band has its own parameters, read from each entry's `list`. */",
+        "  readonly bands?: { readonly param: string; readonly list: string; readonly bands: readonly (readonly EffectParameter[])[] };",
         "  /** Which of the parameters show, by another parameter's value; absent when every control always shows. */",
         "  readonly layouts?: EffectLayouts;",
         "  /** partial: some parameters have no control and go back as read. */",
@@ -853,8 +1106,12 @@ def render_ts(doc: dict[str, Any]) -> str:
             params = ",\n".join(f"      {parameter_ts(p)}" for p in e["parameters"])
             instance = f", instanceParam: {json.dumps(e['instance_param'])}" if "instance_param" in e else ""
             lines.append(f"    [{e['type']}, {{ type: {e['type']}, name: {json.dumps(e['name'])}, set: {json.dumps(e['set'])}, get: {json.dumps(e['get'])}, replyCount: {e['reply_count']}{instance}, status: {json.dumps(e['status'])}, parameters: [")
-            lines.append(params)
-            if "layouts" in e:
+            if params:
+                lines.append(params)
+            if "bands" in e:
+                rows = ",\n".join("      [\n" + ",\n".join(f"        {parameter_ts(p)}" for p in band) + "\n      ]" for band in e["bands"]["bands"])
+                lines.append(f"    ], readParts: {e['read_parts']}, bands: {{ param: {json.dumps(e['bands']['param'])}, list: {json.dumps(e['bands']['list'])}, bands: [\n{rows},\n    ] }} }}],")
+            elif "layouts" in e:
                 layouts = e["layouts"]
                 models = ",\n".join(f"      [{model}, [{', '.join(layout_ts(c) for c in controls)}]]" for model, controls in layouts["models"].items())
                 lines.append(f"    ], layouts: {{ by: {json.dumps(layouts['by'])}, fields: {json.dumps(layouts['fields'])}, models: new Map<number, readonly EffectControlLayout[]>([\n{models},\n    ]) }} }}],")

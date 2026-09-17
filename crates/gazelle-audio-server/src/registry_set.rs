@@ -2,8 +2,8 @@
 //!
 //! The command surface differs by device model, so the server holds one registry per model
 //! and selects by application pid. Quadro exposes 199 in-scope commands (the shared 35 +
-//! 28 Quadro-only + a parameter set and get for each of 68 effect types); Studio+ exposes 115
-//! (the shared 35 + 8 Studio+-only + 36 effect types' pairs) (see `.agent/reference/devices.md`).
+//! 28 Quadro-only + a parameter set and get for each of 68 effect types); Studio+ exposes 117
+//! (the shared 35 + 8 Studio+-only + 37 effect types' pairs) (see `.agent/reference/devices.md`).
 
 use gazelle_audio_protocol::registry::{from_json_doc, Registry};
 use std::collections::HashMap;
@@ -96,7 +96,7 @@ mod tests {
         let q = set.for_pid(PID_QUADRO).expect("quadro registry");
         let s = set.for_pid(PID_STUDIO).expect("studio registry");
         assert_eq!(q.registry.len(), 199, "Quadro in-scope surface is 199 commands");
-        assert_eq!(s.registry.len(), 115, "Studio+ in-scope surface is 115 commands");
+        assert_eq!(s.registry.len(), 117, "Studio+ in-scope surface is 117 commands");
         assert_eq!(q.slug, "zenquadrosc_usb2");
         assert_eq!(s.slug, "zenstudiotb");
     }
@@ -120,7 +120,7 @@ mod tests {
         let studio = &set.for_pid(PID_STUDIO).unwrap().registry;
 
         assert_eq!(quadro.len(), 63 + 2 * 68, "shared 35 + Quadro-only 28 + 68 effect types' set and get");
-        assert_eq!(studio.len(), 43 + 2 * 36, "shared 35 + Studio+-only 8 + 36 effect types' set and get");
+        assert_eq!(studio.len(), 43 + 2 * 37, "shared 35 + Studio+-only 8 + 37 effect types' set and get");
         for name in STUDIO_ONLY {
             assert!(studio.get(name).is_some(), "Studio+ is missing {name}");
             assert!(quadro.get(name).is_none(), "Quadro unexpectedly has {name}");
