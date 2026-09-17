@@ -734,7 +734,7 @@ async fn surfaces_round_trip_and_are_validated() {
         ("blank name", json!({"version": 1, "surfaces": [{"id": "s1", "name": " "}]}), "surface 's1': it needs a name"),
         ("mix outside 0..3", json!({"version": 1, "surfaces": [{"id": "s1", "name": "A", "mixes": {"loopback-0": 4}}]}), "surface 's1': the mix for loopback-0 is outside 0..3"),
         ("repeated strip id", surface(json!([{"id": "a", "kind": "label", "text": ""}, {"id": "a", "kind": "label", "text": ""}])), "surface 's1': strip 'a': the id is used twice"),
-        ("unknown kind", surface(json!([{"id": "a", "kind": "fader", "device_id": "loopback-0"}])), "surface 's1': strip 'a': kind must be one of channel, master, input, output, label, not \"fader\""),
+        ("unknown kind", surface(json!([{"id": "a", "kind": "fader", "device_id": "loopback-0"}])), "surface 's1': strip 'a': kind must be one of channel, master, input, output, port, label, not \"fader\""),
         ("no device", surface(json!([{"id": "a", "kind": "master"}])), "surface 's1': strip 'a': a master strip needs a device_id"),
         ("channel without a channel", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0"}])), "surface 's1': strip 'a': a channel strip needs a channel id"),
         ("pinned mix outside 0..3", surface(json!([{"id": "a", "kind": "channel", "device_id": "loopback-0", "channel": "c", "mix": 4}])), "surface 's1': strip 'a': mix 4 is outside 0..3"),
@@ -755,6 +755,74 @@ async fn surfaces_round_trip_and_are_validated() {
     }
     let (_, body) = get(app, "/api/v1/workspace").await;
     assert_eq!(body["surfaces"][0]["strips"].as_array().map(Vec::len), Some(11), "rejected saves change nothing");
+}
+
+/// Digital cables (workspace spec §4.5) are declared connections from one device's S/PDIF or ADAT
+/// output to another's input of the same kind. They never route anything; the server checks their
+/// kinds and, for attached devices, that the channels exist. A surface can show a device's digital
+/// output as a port strip.
+#[tokio::test]
+async fn cables_and_port_strips_round_trip_and_are_validated() {
+    let app = app();
+    let end = |device: &str, port: &str, first: u32| json!({"device_id": device, "port": port, "first": first});
+    let cable = |from: Value, to: Value, channels: u32| json!({"id": "c1", "from": from, "to": to, "channels": channels});
+    let document = |cables: Value| json!({"version": 1, "cables": cables});
+    let good = json!([
+        {"id": "adat", "from": end("loopback-1", "ADAT_OUT", 0), "to": end("loopback-0", "ADAT_IN", 0), "channels": 8},
+        {"id": "adat2", "from": end("loopback-1", "ADAT_OUT", 8), "to": end("usb:gone", "ADAT_IN", 8), "channels": 8},
+        {"id": "spdif", "from": end("loopback-0", "SPDIF_OUT", 0), "to": end("loopback-1", "SPDIF_IN", 0), "channels": 2}
+    ]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(good.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["cables"], good);
+    let (_, plain) = get(crate::app(), "/api/v1/workspace").await;
+    assert_eq!(plain["cables"], json!([]), "a new workspace has no cables");
+
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(json!([cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "ADAT_IN", 0), 8), cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 2)]))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["message"], "bad value: cable 'c1': the id is used twice");
+
+    let broken = [
+        ("an input as the sender", cable(end("loopback-1", "ADAT_IN", 0), end("loopback-0", "ADAT_IN", 0), 8), "cable 'c1': from must be SPDIF_OUT or ADAT_OUT, not \"ADAT_IN\""),
+        ("an output as the receiver", cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "SPDIF_OUT", 0), 2), "cable 'c1': to must be SPDIF_IN or ADAT_IN, not \"SPDIF_OUT\""),
+        ("S/PDIF into ADAT", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "ADAT_IN", 0), 2), "cable 'c1': SPDIF_OUT cannot feed ADAT_IN"),
+        ("a device into itself", cable(end("loopback-1", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 2), "cable 'c1': a cable joins two devices"),
+        ("no channels", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 0), "cable 'c1': it needs 1..2 channels, not 0"),
+        ("three S/PDIF channels", cable(end("loopback-0", "SPDIF_OUT", 0), end("loopback-1", "SPDIF_IN", 0), 3), "cable 'c1': it needs 1..2 channels, not 3"),
+        ("nine on one optical cable", cable(end("loopback-1", "ADAT_OUT", 0), end("loopback-0", "ADAT_IN", 0), 9), "cable 'c1': it needs 1..8 channels, not 9"),
+        ("the Quadro has no ADAT out", cable(end("loopback-0", "ADAT_OUT", 0), end("loopback-1", "ADAT_IN", 0), 8), "cable 'c1': the quadro has no ADAT_OUT"),
+        ("past the Quadro's eight ADAT inputs", cable(end("loopback-1", "ADAT_OUT", 8), end("loopback-0", "ADAT_IN", 4), 8), "cable 'c1': the quadro's ADAT_IN has channels 0..7, not 4..11"),
+        ("one past the Quadro's last ADAT input", cable(end("loopback-1", "ADAT_OUT", 8), end("loopback-0", "ADAT_IN", 1), 8), "cable 'c1': the quadro's ADAT_IN has channels 0..7, not 1..8"),
+        ("past the Studio+'s sixteen ADAT outputs", cable(end("loopback-1", "ADAT_OUT", 12), end("loopback-0", "ADAT_IN", 0), 8), "cable 'c1': the studio's ADAT_OUT has channels 0..15, not 12..19"),
+    ];
+    for (why, bad, message) in broken {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(json!([bad]))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"), "{why}");
+    }
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["cables"], good, "rejected saves change nothing");
+
+    let surface = |strip: Value| json!({"version": 1, "surfaces": [{"id": "s", "name": "S", "strips": [strip]}]});
+    for strip in [json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "SPDIF_OUT"}), json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 8})] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(strip.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{strip}: {body}");
+        assert_eq!(body["surfaces"][0]["strips"][0], strip);
+    }
+    let broken_ports = [
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0"}), "a port strip needs a port"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "ADAT_IN"}), "port must be SPDIF_OUT or ADAT_OUT, not \"ADAT_IN\""),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "ADAT_OUT"}), "the quadro has no ADAT_OUT"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 4}), "an ADAT port starts at a multiple of 8, not 4"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 16}), "the studio's ADAT_OUT has channels 0..15, not 16..23"),
+        (json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "SPDIF_OUT", "first": 2}), "the studio's SPDIF_OUT has channels 0..1, not 2..3"),
+    ];
+    for (strip, message) in broken_ports {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(strip.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{strip}: {body}");
+        assert_eq!(body["error"]["message"], format!("bad value: surface 's': strip 'p': {message}"), "{strip}");
+    }
 }
 
 #[tokio::test]

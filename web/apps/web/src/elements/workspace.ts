@@ -1,6 +1,6 @@
 // <ga-workspace>: layout state shared by everyone using the server — device names and badge colours,
-// cross-device surfaces, and groups with their colour and collapsed state. Edits save automatically;
-// controls are disabled while disconnected.
+// cross-device surfaces, declared digital cables, and groups with their colour and collapsed state.
+// Edits save automatically; controls are disabled while disconnected.
 //
 // Backup: Export downloads the workspace as a dated JSON file. Import reads a chosen file, checks
 // its shape, says what it holds and asks before replacing; the server's own validation then
@@ -8,7 +8,9 @@
 // A workspace is layout only, so importing one sends nothing to a device.
 
 import { h } from "../core/dom.ts";
-import { displayName, type Group } from "../store/store.ts";
+import { effect, untracked } from "../core/signal.ts";
+import { portName, portWidth } from "../store/cables.ts";
+import { displayName, type DigitalPort, type Group } from "../store/store.ts";
 import { readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
@@ -23,6 +25,7 @@ export function describeSummary(summary: WorkspaceSummary): string {
     count(summary.mixers, "mixer layout", "mixer layouts"),
     count(summary.layouts, "saved layout", "saved layouts"),
     count(summary.surfaces, "surface", "surfaces"),
+    count(summary.cables, "cable", "cables"),
   ].filter((part) => part !== undefined);
   if (parts.length === 0) return "nothing: an empty workspace";
   return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
@@ -60,6 +63,13 @@ export class GaWorkspace extends GaElement {
       .surface-name { flex: 0 1 200px; min-width: 120px; }
       .summary { flex: 1; min-width: 0; font-size: 11px; }
       .open { color: var(--ga-accent); }
+      .cables { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+      .cable { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 0; border-top: 1px solid var(--ga-border-subtle); }
+      .cable:first-child { border-top: 0; }
+      .cable-label { font-size: 12px; }
+      .health { flex: 1; min-width: 0; font-size: 11px; }
+      .warn { color: var(--ga-notice-warning, var(--ga-text-primary)); }
+      .channels { width: 3.5em; }
     `),
   ];
 
@@ -71,6 +81,7 @@ export class GaWorkspace extends GaElement {
     this.root.replaceChildren(
       h("ga-section", { heading: "Device names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"), h("th", {}, "Colour"))), names)),
       h("ga-section", { heading: "Surfaces" }, this.#surfaces()),
+      h("ga-section", { heading: "Digital cables" }, this.#cables()),
       h("ga-section", { heading: "Groups" }, groups),
       h("ga-section", { heading: "Backup" }, this.#backup()),
     );
@@ -244,6 +255,153 @@ export class GaWorkspace extends GaElement {
       );
     });
     return h("div", { class: "backup" }, list, h("div", { class: "actions" }, name, create));
+  }
+
+  /**
+   * Digital cables: each declared cable with what is wrong along it (from both devices' reports,
+   * followed while the page is open), removed behind a second click; and a form to declare one from
+   * a device's digital output to another's input. A cable routes nothing (§4.5).
+   */
+  #cables(): HTMLElement {
+    const store = useStore();
+    const list = h("ul", { class: "cables", "data-testid": "cables" });
+    const from = h("select", { "aria-label": "Cable from", "data-testid": "cable-from" });
+    const to = h("select", { "aria-label": "Cable to", "data-testid": "cable-to" });
+    const channels = h("input", { type: "number", min: 1, max: 8, value: 2, "aria-label": "Channels", class: "channels", "data-testid": "cable-channels" });
+    const declare = h("button", { type: "button", "data-testid": "cable-declare" }, "Declare cable");
+    const problem = h("p", { class: "problem", role: "alert", "data-testid": "cable-problem", hidden: true });
+
+    // Each port of each attached device, by its ADAT ports' eights ("ADAT out 9–16") or whole.
+    const ends = (side: "out" | "in") =>
+      store.devices.value.flatMap((device) =>
+        store.cables.portsOf(device.id, side).flatMap((port) => {
+          const width = portWidth(port);
+          const count = store.cables.portChannels(device.id, port);
+          return Array.from({ length: Math.ceil(count / width) }, (_, k) => ({
+            value: `${device.id}|${port}|${k * width}`,
+            label: `${displayName(device, store.workspace.value)} ${portName(port)}${count <= width ? "" : ` ${k * width + 1}–${Math.min(count, (k + 1) * width)}`}`,
+          }));
+        }),
+      );
+    const parse = (value: string) => {
+      const [device_id, port, first] = value.split("|");
+      return { device_id: device_id ?? "", port: port as DigitalPort, first: Number(first) };
+    };
+    // The receiving ports follow the sending port's kind, and the channels its width.
+    const matchTo = () => {
+      const sending = parse(from.value).port;
+      for (const option of to.options) option.hidden = option.value.split("|")[1] !== sending?.replace("_OUT", "_IN");
+      if (to.selectedOptions[0]?.hidden !== false) to.value = [...to.options].find((o) => !o.hidden)?.value ?? "";
+      channels.max = String(portWidth(sending ?? "SPDIF_OUT"));
+      channels.value = channels.max;
+    };
+    from.addEventListener("change", matchTo);
+    declare.addEventListener("click", () => {
+      problem.hidden = true;
+      try {
+        store.cables.declare(parse(from.value), parse(to.value), Number(channels.value));
+      } catch (error) {
+        problem.textContent = error instanceof Error ? error.message : String(error);
+        problem.hidden = false;
+      }
+    });
+
+    this.watch(() => {
+      const connected = store.connected.value;
+      const outs = ends("out");
+      const ins = ends("in");
+      const [fromValue, toValue] = [from.value, to.value];
+      from.replaceChildren(...outs.map((e) => h("option", { value: e.value }, e.label)));
+      to.replaceChildren(...ins.map((e) => h("option", { value: e.value }, e.label)));
+      if (outs.some((e) => e.value === fromValue)) from.value = fromValue;
+      if (ins.some((e) => e.value === toValue)) to.value = toValue;
+      untracked(matchTo);
+      from.disabled = to.disabled = channels.disabled = declare.disabled = !connected || outs.length === 0 || store.workspace.value === undefined;
+    });
+
+    // Both ends' reports are followed while the page shows a cable, for its warnings.
+    const watching = new Map<string, () => void>();
+    const rows: (() => void)[] = [];
+    let rendered = "";
+    this.onDisconnect(() => {
+      for (const off of watching.values()) off();
+      for (const dispose of rows.splice(0)) dispose();
+    });
+    this.watch(() => {
+      const cables = store.cables.list.value;
+      const connected = store.connected.value;
+      const attached = new Set(store.devices.value.filter((d) => d.family !== null).map((d) => d.id));
+      const devices = [...new Set(cables.flatMap((c) => [c.from.device_id, c.to.device_id]))].filter((id) => attached.has(id));
+      untracked(() => {
+        for (const [id, off] of watching) {
+          if (!devices.includes(id)) {
+            off();
+            watching.delete(id);
+          }
+        }
+        for (const id of devices) if (!watching.has(id)) watching.set(id, store.watchReport(id, "0x73"));
+      });
+      // Rows are rebuilt when the cables change; each row's warning follows the reports on its own, so a
+      // Remove waiting for its confirming click is not rebuilt away by every report.
+      const key = JSON.stringify([cables, connected, cables.map((c) => store.cables.label(c))]);
+      if (key === rendered) return;
+      rendered = key;
+      untracked(() => {
+        for (const dispose of rows.splice(0)) dispose();
+        if (cables.length === 0) {
+          list.replaceChildren(h("li", { class: "placeholder" }, "No cables declared. Say which digital output is plugged into which input, and surfaces can say where a signal comes from and warn when the clocks disagree."));
+          return;
+        }
+        list.replaceChildren(
+          ...cables.map((cable) => {
+            const health = h("span", { class: "health", "data-testid": `cable-health-${cable.id}` });
+            rows.push(
+              effect(() => {
+                const problems = store.cables.health(cable);
+                health.classList.toggle("warn", problems.length > 0);
+                health.classList.toggle("muted", problems.length === 0);
+                health.textContent = problems.length === 0 ? "Nothing wrong reported" : `⚠ ${problems.join(" ")}`;
+              }),
+            );
+            let armed: ReturnType<typeof setTimeout> | undefined;
+            const remove = h("button", {
+              type: "button",
+              "data-testid": `cable-remove-${cable.id}`,
+              title: "Remove this cable (click twice); nothing changes on the devices",
+              disabled: !connected,
+              "on:click": () => {
+                if (armed !== undefined) {
+                  clearTimeout(armed);
+                  store.cables.remove(cable.id);
+                  return;
+                }
+                remove.textContent = "Confirm";
+                armed = setTimeout(() => {
+                  armed = undefined;
+                  remove.textContent = "Remove";
+                }, 3000);
+              },
+            }, "Remove");
+            return h(
+              "li",
+              { class: "cable", "data-testid": `cable-row-${cable.id}` },
+              h("span", { class: "cable-label" }, store.cables.label(cable)),
+              health,
+              remove,
+            );
+          }),
+        );
+      });
+    });
+
+    return h(
+      "div",
+      { class: "backup" },
+      list,
+      h("div", { class: "actions" }, from, h("span", { "aria-hidden": "true" }, "→"), to, h("label", { class: "note" }, "Channels ", channels), declare),
+      problem,
+      h("p", { class: "note" }, "A cable only says what is plugged in. It routes nothing and changes no clock; set those on each device."),
+    );
   }
 
   /** Export and import. The chosen file and its confirmation live only as long as the page. */

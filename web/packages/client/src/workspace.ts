@@ -93,10 +93,33 @@ export interface Workspace {
   device_colors?: Record<string, string>;
   /** Cross-device mix surfaces; older servers omit it. */
   surfaces?: Surface[];
+  /** Digital connections between devices, as declared; older servers omit it. */
+  cables?: Cable[];
+}
+
+/** A device's digital port, by its topology type. */
+export type DigitalPort = "SPDIF_OUT" | "ADAT_OUT" | "SPDIF_IN" | "ADAT_IN";
+
+/** One end of a cable: a device's port and the first channel of it the cable carries. */
+export interface CableEnd {
+  device_id: string;
+  port: DigitalPort;
+  first: number;
+}
+
+/**
+ * A cable the user says joins one device's S/PDIF or ADAT output to another's input of the same
+ * kind. It routes nothing; it tells the app where a digital input's signal comes from.
+ */
+export interface Cable {
+  id: string;
+  from: CableEnd;
+  to: CableEnd;
+  channels: number;
 }
 
 /** What a surface strip shows. */
-export type SurfaceStripKind = "channel" | "master" | "input" | "output" | "label";
+export type SurfaceStripKind = "channel" | "master" | "input" | "output" | "port" | "label";
 
 /** A hardware input: its kind and a channel within it, from 0. */
 export interface InputRef {
@@ -120,6 +143,10 @@ export interface SurfaceStrip {
   input?: InputRef;
   output?: number;
   text?: string;
+  /** A `port` strip's digital output. */
+  port?: "SPDIF_OUT" | "ADAT_OUT";
+  /** A port strip's first channel: 0, or 8 for a second ADAT port. */
+  first?: number;
 }
 
 /** A user-built row of strips from any devices (workspace spec §4), each strip naming its device. */

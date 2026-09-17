@@ -83,6 +83,22 @@ test("strips are added with their own ids, checked for their kind, moved and rem
   assert.deepEqual(surfaces.surface(id)?.strips.map((s) => s.id), [label, vox, out, pre]);
 });
 
+test("a port strip shows a device's digital output, checked as the server checks it", async () => {
+  const { store } = setup();
+  await store.start();
+  const surfaces = store.surfaces;
+  const id = surfaces.create("Ports") as string;
+  const spdif = surfaces.addStrip(id, { kind: "port", device_id: "loopback-0", port: "SPDIF_OUT" }) as string;
+  const adat = surfaces.addStrip(id, { kind: "port", device_id: "loopback-1", port: "ADAT_OUT", first: 8 }) as string;
+  assert.deepEqual(surfaces.surface(id)?.strips.map((s) => s.id), [spdif, adat]);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-0" }), /a port strip needs a port/);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-0", port: "ADAT_IN" as never }), /port must be SPDIF_OUT or ADAT_OUT/);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-0", port: "ADAT_OUT" }), /the quadro has no ADAT_OUT/);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-1", port: "ADAT_OUT", first: 4 }), /multiple of 8, not 4/);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-1", port: "ADAT_OUT", first: 16 }), /channels 0\.\.15, not 16\.\.23/);
+  assert.throws(() => surfaces.addStrip(id, { kind: "port", device_id: "loopback-1", port: "SPDIF_OUT", first: 2 }), /channels 0\.\.1, not 2\.\.3/);
+});
+
 test("each device on a surface has one selected mix, which a strip may pin instead", async () => {
   const { store } = setup();
   await store.start();
@@ -126,8 +142,9 @@ test("the devices a surface shows are listed in strip order, and each has a badg
   // Until one is chosen, a device's colour is the theme palette's, by its place among the devices.
   const palette = store.theme.value.palette;
   assert.equal(surfaces.deviceColor("loopback-0"), palette[0]);
-  assert.equal(surfaces.deviceColor("loopback-1"), palette[1]);
+  assert.equal(surfaces.deviceColor("loopback-1"), palette[4], "half the palette apart (of nine), so two devices do not look alike");
   assert.equal(surfaces.deviceColor("usb:gone"), palette[0], "a device not attached still gets a colour");
+  assert.equal(surfaces.deviceColor("usb:odd"), palette[8], "the third device, half the palette on again");
   assert.notEqual(surfaces.deviceColor("loopback-0"), surfaces.deviceColor("loopback-1"), "two devices are told apart");
 
   assert.equal(surfaces.setDeviceColor("loopback-1", "#3fae6a"), true);
@@ -136,7 +153,7 @@ test("the devices a surface shows are listed in strip order, and each has a badg
   for (const bad of ["green", "#3fae6", "#3fae6g", "3fae6a0"]) assert.throws(() => surfaces.setDeviceColor("loopback-1", bad), RangeError, bad);
   assert.equal(surfaces.setDeviceColor("loopback-1", undefined), true);
   assert.deepEqual(store.workspace.value?.device_colors, {});
-  assert.equal(surfaces.deviceColor("loopback-1"), palette[1]);
+  assert.equal(surfaces.deviceColor("loopback-1"), palette[4]);
 });
 
 test("without a connection nothing is edited", async () => {

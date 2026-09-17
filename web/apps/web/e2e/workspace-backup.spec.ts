@@ -37,6 +37,7 @@ const SEED = {
   layouts: [{ id: "lay", name: "Tracking", family: "studio", mixer: { mixes: [], groups: [], channels: [] } }],
   device_colors: { "loopback-1": "#3e9fd6" },
   surfaces: [{ id: "s-drums", name: "Drum tracking", mixes: { "loopback-0": 1 }, strips: [{ id: "a", kind: "input", device_id: "loopback-1", input: { kind: "preamp", channel: 0 } }, { id: "b", kind: "channel", device_id: "loopback-0", channel: "c-kick" }] }],
+  cables: [{ id: "c-adat", from: { device_id: "loopback-1", port: "ADAT_OUT", first: 0 }, to: { device_id: "loopback-0", port: "ADAT_IN", first: 0 }, channels: 8 }],
 };
 
 /** Records every command the page sends to a device. */
@@ -77,8 +78,8 @@ test("an exported workspace imports back exactly, after confirming, without touc
 
   const confirm = page.getByTestId("workspace-import-confirm");
   await expect(confirm).toContainText(download.suggestedFilename());
-  await expect(confirm).toContainText("2 device names, 1 group, 1 link, 1 mixer layout, 1 saved layout and 1 surface");
-  expect(await serverWorkspace(), "nothing is replaced before confirming").toEqual({ version: 1, groups: [], links: [], aliases: {}, mixers: {}, layouts: [], device_colors: {}, surfaces: [] });
+  await expect(confirm).toContainText("2 device names, 1 group, 1 link, 1 mixer layout, 1 saved layout, 1 surface and 1 cable");
+  expect(await serverWorkspace(), "nothing is replaced before confirming").toEqual({ version: 1, groups: [], links: [], aliases: {}, mixers: {}, layouts: [], device_colors: {}, surfaces: [], cables: [] });
 
   await page.getByTestId("workspace-import-replace").click();
   await expect(page.getByTestId("workspace-import-status")).toHaveText(`Imported ${download.suggestedFilename()}.`);

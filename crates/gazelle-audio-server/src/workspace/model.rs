@@ -40,6 +40,9 @@ pub struct Workspace {
     /// Cross-device mix surfaces (workspace spec §4). Additive like `mixers`.
     #[serde(default)]
     pub surfaces: Vec<Surface>,
+    /// Digital connections between devices, as the user declares them (workspace spec §4.5).
+    #[serde(default)]
+    pub cables: Vec<Cable>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
     /// so an export always imports back whole (workspace spec, Q7).
     #[serde(flatten)]
@@ -70,6 +73,7 @@ impl Default for Workspace {
             layouts: Vec::new(),
             device_colors: BTreeMap::new(),
             surfaces: Vec::new(),
+            cables: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -115,9 +119,41 @@ pub struct SurfaceStrip {
     pub output: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// A digital output for a `port` strip: one of [`CABLE_SENDS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<String>,
+    /// A port strip's first channel: 0, or 8 for the Studio+'s second ADAT port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first: Option<u32>,
 }
 
-pub const STRIP_KINDS: &[&str] = &["channel", "master", "input", "output", "label"];
+pub const STRIP_KINDS: &[&str] = &["channel", "master", "input", "output", "port", "label"];
+
+/// A cable the user says joins one device's digital output to another's input. It is a fact about
+/// the room, not a setting: it never routes, clocks or links anything, and only lets the app say
+/// where a digital input's signal comes from and warn when the two ends disagree.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Cable {
+    pub id: String,
+    pub from: CableEnd,
+    pub to: CableEnd,
+    /// How many channels it carries, from each end's `first`.
+    pub channels: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CableEnd {
+    pub device_id: DeviceId,
+    /// One of [`CABLE_SENDS`] at the sending end, [`CABLE_RECEIVES`] at the receiving end.
+    pub port: String,
+    /// The first channel of the port the cable carries.
+    #[serde(default)]
+    pub first: u32,
+}
+
+/// Digital outputs a cable can leave from, and the inputs they feed, in the same order.
+pub const CABLE_SENDS: &[&str] = &["SPDIF_OUT", "ADAT_OUT"];
+pub const CABLE_RECEIVES: &[&str] = &["SPDIF_IN", "ADAT_IN"];
 
 /// A hardware input: one of [`INPUT_KINDS`] and a channel within it, from 0.
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -37,7 +37,7 @@ export interface SurfacesContext {
 /** A strip before it has an id. */
 export type NewStrip = Omit<SurfaceStrip, "id">;
 
-const KINDS: readonly SurfaceStrip["kind"][] = ["channel", "master", "input", "output", "label"];
+const KINDS: readonly SurfaceStrip["kind"][] = ["channel", "master", "input", "output", "port", "label"];
 /** Each input kind's routing source type in the topology. */
 export const INPUT_TYPES = { preamp: "PREAMP", line: "LINE_IN", adat: "ADAT_IN", spdif: "SPDIF_IN" } as const;
 /** Mixes per device, in both families; the server's MIXER_COUNT. */
@@ -140,14 +140,16 @@ export class SurfacesModel {
 
   /**
    * A device's badge colour: the one chosen for it, else the theme palette's by its place among
-   * the attached devices, so two devices differ until someone chooses. Reactive.
+   * the attached devices, half the palette apart (neighbouring palette colours are alike: red and
+   * crimson), so two devices differ until someone chooses. Reactive.
    */
   deviceColor(deviceId: string): string | undefined {
     const chosen = this.#context.colors.value[deviceId];
     if (chosen !== undefined) return chosen;
     const palette = this.#context.palette.value;
     const at = Math.max(0, this.#context.deviceIds.value.indexOf(deviceId));
-    return palette.length === 0 ? undefined : palette[at % palette.length];
+    const step = Math.max(1, Math.floor(palette.length / 2));
+    return palette.length === 0 ? undefined : palette[(at * step) % palette.length];
   }
 
   /** Chooses a device's badge colour (`#rrggbb`), or clears it back to the palette's. */
@@ -185,6 +187,18 @@ export class SurfacesModel {
     if (strip.kind === "output") {
       if (strip.output === undefined) throw new RangeError("an output strip needs an output");
       if (model !== undefined && (!Number.isInteger(strip.output) || strip.output < 0 || strip.output >= model.outputs)) throw new RangeError(`the ${model.family} has outputs 0..${model.outputs - 1}, not ${strip.output}`);
+    }
+    if (strip.kind === "port") {
+      if (strip.port === undefined) throw new RangeError("a port strip needs a port");
+      if (strip.port !== "SPDIF_OUT" && strip.port !== "ADAT_OUT") throw new RangeError(`port must be SPDIF_OUT or ADAT_OUT, not ${JSON.stringify(strip.port)}`);
+      const width = strip.port === "ADAT_OUT" ? 8 : 2;
+      const first = strip.first ?? 0;
+      if (!Number.isInteger(first) || first < 0 || first % width !== 0) throw new RangeError(`an ${strip.port === "ADAT_OUT" ? "ADAT" : "S/PDIF"} port starts at a multiple of ${width}, not ${first}`);
+      if (model !== undefined) {
+        const channels = model.topology.outputs.filter((g) => g.type === strip.port).reduce((sum, g) => sum + g.channels, 0);
+        if (channels === 0) throw new RangeError(`the ${model.family} has no ${strip.port}`);
+        if (first + width > channels) throw new RangeError(`the ${model.family}'s ${strip.port} has channels 0..${channels - 1}, not ${first}..${first + width - 1}`);
+      }
     }
   }
 

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::model::{Cable, ChannelLink, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
 use crate::workspace::topology;
 use crate::AppState;
 
@@ -45,6 +45,7 @@ pub async fn put_workspace(
     // not know keeps what it names, to be drawn "not connected".
     let families: HashMap<DeviceId, String> = state.devices.descriptors().into_iter().filter_map(|d| Some((d.id, d.family?))).collect();
     check_surfaces(&workspace.surfaces, &families)?;
+    check_cables(&workspace.cables, &families)?;
     state.store.save(&workspace)?;
     Ok(Json(workspace))
 }
@@ -109,8 +110,67 @@ fn check_strip(strip: &SurfaceStrip, families: &HashMap<DeviceId, String>) -> Re
                 _ => Ok(()),
             }
         }
+        "port" => {
+            let port = strip.port.as_deref().ok_or("a port strip needs a port")?;
+            if !CABLE_SENDS.contains(&port) {
+                return Err(format!("port must be {}, not {port:?}", CABLE_SENDS.join(" or ")));
+            }
+            let first = strip.first.unwrap_or(0);
+            let width = topology::port_width(port);
+            if first % width != 0 {
+                return Err(format!("an {} port starts at a multiple of {width}, not {first}", if port == "ADAT_OUT" { "ADAT" } else { "S/PDIF" }));
+            }
+            check_port_range(family, port, first, width)
+        }
         _ => Ok(()),
     }
+}
+
+/// That a model (when known) has `port` and its channels `first..first + count`.
+fn check_port_range(family: Option<&str>, port: &str, first: u32, count: u32) -> Result<(), String> {
+    let Some((family, channels)) = family.and_then(|f| Some((f, topology::port_channels(f, port)?))) else {
+        return Ok(());
+    };
+    if channels == 0 {
+        return Err(format!("the {family} has no {port}"));
+    }
+    if first + count > channels {
+        return Err(format!("the {family}'s {port} has channels 0..{}, not {first}..{}", channels - 1, first + count - 1));
+    }
+    Ok(())
+}
+
+/// Cables go from a digital output to an input of the same kind on another device, carrying as
+/// many channels as one cable can and no more than either end has.
+fn check_cables(cables: &[Cable], families: &HashMap<DeviceId, String>) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    for cable in cables {
+        let bad = |message: String| ServerError::BadValue(format!("cable '{}': {message}", cable.id));
+        if !ids.insert(cable.id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        let (from, to) = (cable.from.port.as_str(), cable.to.port.as_str());
+        let Some(kind) = CABLE_SENDS.iter().position(|&p| p == from) else {
+            return Err(bad(format!("from must be {}, not {from:?}", CABLE_SENDS.join(" or "))));
+        };
+        if !CABLE_RECEIVES.contains(&to) {
+            return Err(bad(format!("to must be {}, not {to:?}", CABLE_RECEIVES.join(" or "))));
+        }
+        if CABLE_RECEIVES[kind] != to {
+            return Err(bad(format!("{from} cannot feed {to}")));
+        }
+        if cable.from.device_id == cable.to.device_id {
+            return Err(bad("a cable joins two devices".into()));
+        }
+        let most = topology::port_width(from);
+        if !(1..=most).contains(&cable.channels) {
+            return Err(bad(format!("it needs 1..{most} channels, not {}", cable.channels)));
+        }
+        for end in [&cable.from, &cable.to] {
+            check_port_range(families.get(&end.device_id).map(String::as_str), &end.port, end.first, cable.channels).map_err(bad)?;
+        }
+    }
+    Ok(())
 }
 
 /// Saved layouts need a unique id, a name, a known model and a mixer the hardware can hold.

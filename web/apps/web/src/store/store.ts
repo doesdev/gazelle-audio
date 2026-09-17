@@ -15,7 +15,7 @@
 //   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
 //   pages are rebuilt on every change of address and read it back when they are.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
@@ -24,6 +24,7 @@ import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
+import { CablesModel } from "./cables.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -38,7 +39,7 @@ export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
+export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
 export type { NewStrip } from "./surfaces.ts";
 
 /** The most recent command the mixer sent, with the bytes the server reported. */
@@ -657,6 +658,29 @@ export class Store {
       const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
       return family === undefined || family === null ? undefined : { family, topology: topologies[family], outputs: family === "quadro" ? 4 : 5 };
     },
+  });
+
+  /** Digital cables between devices: where a digital input's signal comes from, and what is wrong along one (workspace spec §4.5). */
+  readonly cables: CablesModel = new CablesModel({
+    cables: computed(() => this.#workspace.value?.cables ?? []),
+    edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, cables: update([...(workspace.cables ?? [])]) })),
+    model: (deviceId) => {
+      const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+      return family === undefined || family === null ? undefined : { family, topology: topologies[family] };
+    },
+    routing: (deviceId) => this.routing(deviceId),
+    mixName: (deviceId, mix) => this.channels(deviceId).mixName(mix),
+    mixerChannels: (deviceId) => (this.topology(deviceId) === undefined ? [] : this.channels(deviceId).layout.value.channels),
+    deviceName: (deviceId) => {
+      const device = this.#devices.value.find((d) => d.id === deviceId);
+      return device === undefined ? deviceId : displayName(device, this.#workspace.value);
+    },
+    clock: (deviceId) => {
+      const card = this.deviceCard(deviceId);
+      return card?.clock === undefined ? undefined : { rate: card.clock.rate, locked: card.clock.locked };
+    },
+    inputLevel: (deviceId, source) => this.inputMeter(deviceId, source)?.level.value,
+    rateNames: SAMPLE_RATES,
   });
 
   #knownInputs(deviceId: string): InputsModel | undefined {

@@ -53,6 +53,25 @@ pub fn output_ids(family: &str) -> Option<u32> {
     }
 }
 
+/// Channels of a digital port (`SPDIF_OUT`, `ADAT_OUT`, `SPDIF_IN`, `ADAT_IN`) on a model: outputs
+/// from the routing destinations, inputs from the sources.
+pub fn port_channels(family: &str, port: &str) -> Option<u32> {
+    if port.ends_with("_OUT") {
+        output_channels(family, port)
+    } else {
+        input_channels(family, port)
+    }
+}
+
+/// Channels one cable or port strip carries: a stereo pair for S/PDIF, eight for an ADAT port.
+pub fn port_width(port: &str) -> u32 {
+    if port.starts_with("ADAT") {
+        8
+    } else {
+        2
+    }
+}
+
 /// The topology type of a workspace input kind (`preamp`, `line`, `adat`, `spdif`).
 pub fn input_type(kind: &str) -> Option<&'static str> {
     match kind {

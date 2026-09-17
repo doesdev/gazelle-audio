@@ -18,6 +18,8 @@ export interface WorkspaceSummary {
   mixers: number;
   /** Saved layouts. */
   layouts: number;
+  /** Declared digital cables. */
+  cables: number;
   /** Cross-device surfaces. */
   surfaces: number;
   /** Every device id the file mentions, sorted. */
@@ -54,7 +56,7 @@ export function readWorkspaceFile(text: string, readableVersion: number): Worksp
   const version = parsed["version"];
   if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return { ok: false, problem: "has no version number, so it is not a Gazelle workspace" };
   if (version > readableVersion) return { ok: false, problem: `was written by a newer Gazelle (workspace version ${version}); this server reads version ${readableVersion}` };
-  for (const part of ["groups", "links", "layouts", "surfaces"]) {
+  for (const part of ["groups", "links", "layouts", "surfaces", "cables"]) {
     if (part in parsed && !Array.isArray(parsed[part])) return { ok: false, problem: `has ${part} that are not a list` };
   }
   for (const part of ["aliases", "mixers", "device_colors"]) {
@@ -88,5 +90,7 @@ function summarise(document: Record<string, unknown>): WorkspaceSummary {
     if (isMap(surface["mixes"])) for (const id of Object.keys(surface["mixes"])) devices.add(id);
     if (Array.isArray(surface["strips"])) for (const strip of surface["strips"]) if (isMap(strip) && typeof strip["device_id"] === "string") devices.add(strip["device_id"]);
   }
-  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, surfaces: surfaces.length, devices: [...devices].sort() };
+  const cables = list("cables");
+  for (const cable of cables) for (const end of isMap(cable) ? [cable["from"], cable["to"]] : []) if (isMap(end) && typeof end["device_id"] === "string") devices.add(end["device_id"]);
+  return { names: aliases.length, groups: countGroups(list("groups")), links: links.length, mixers: mixers.length, layouts: list("layouts").length, surfaces: surfaces.length, cables: cables.length, devices: [...devices].sort() };
 }

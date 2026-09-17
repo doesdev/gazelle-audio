@@ -1,7 +1,9 @@
 // <ga-surface surface-id="…">: a cross-device mix surface (workspace spec §4, §5), at #/surface/<id>.
 // A bar holds one mix menu per device whose channels or masters are on it (the user's answer to Q8:
 // one selected mix per device, which a strip may pin instead), each device's clock, and a picker to
-// add a strip: a device, a kind, and an item. Below, the strips in a row that scrolls sideways,
+// add a strip: a device, a kind, and an item, or both ends of a declared cable at once (the sender's
+// port and the receiver's inputs). Each cable between devices on the surface has a line saying what
+// is wrong along it, if anything (clock, lock, signal). Below, the strips in a row that scrolls sideways,
 // each with its device's badge (`ga-surface-strip`) and small tools: a grip to drag it elsewhere
 // (as the Mixer page's channels move), ‹ › for the keyboard, a mix pin for channels and masters, and
 // × to take it off the surface, which asks for a second click. Taking a strip off changes nothing on
@@ -10,7 +12,8 @@
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
 import { meterDeflection } from "../store/mixer.ts";
-import { displayName, SAMPLE_RATES, type NewStrip, type SurfaceStrip } from "../store/store.ts";
+import { portName, portWidth } from "../store/cables.ts";
+import { displayName, SAMPLE_RATES, type Cable, type NewStrip, type SurfaceStrip } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
@@ -19,7 +22,9 @@ import { keepScroll } from "./view-state.ts";
 /** How long a first click on × waits for its confirmation. */
 const ARM_MS = 3000;
 
-const KIND_LABELS: Record<SurfaceStrip["kind"], string> = { channel: "Mixer channel", master: "Mix master", input: "Input", output: "Output", label: "Label" };
+/** What the picker adds: a strip of a kind, or both ends of a cable. */
+type PickerKind = SurfaceStrip["kind"] | "cable";
+const KIND_LABELS: Record<PickerKind, string> = { channel: "Mixer channel", master: "Mix master", input: "Input", output: "Output", port: "Digital out", cable: "Both ends of a cable", label: "Label" };
 const INPUT_LABELS = { preamp: "Preamp", line: "Line", adat: "ADAT", spdif: "S/PDIF" } as const;
 
 export class GaSurface extends GaElement {
@@ -35,6 +40,10 @@ export class GaSurface extends GaElement {
       .dot { width: 10px; height: 10px; border-radius: 2px; background: var(--device-colour, var(--ga-border-strong)); }
       .clocks { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--ga-text-secondary); }
       .clock { display: flex; align-items: center; gap: 4px; }
+      .health { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 11px; }
+      .health:empty { display: none; }
+      .health li { color: var(--ga-text-secondary); }
+      .health .warn { color: var(--ga-notice-warning, var(--ga-text-primary)); }
       .add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
       .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
       .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
@@ -51,7 +60,7 @@ export class GaSurface extends GaElement {
         background: var(--ga-surface-inset);
       }
       .slot { display: flex; flex-direction: column; flex: 0 0 96px; gap: 2px; min-width: 0; min-height: 0; }
-      .slot[data-kind="input"], .slot[data-kind="output"] { flex-basis: 156px; }
+      .slot[data-kind="input"], .slot[data-kind="output"], .slot[data-kind="port"] { flex-basis: 156px; }
       .slot[data-kind="label"] { flex-basis: 56px; }
       .slot[data-dragging] { opacity: 0.5; }
       .slot ga-surface-strip { flex: 1 1 auto; }
@@ -75,11 +84,12 @@ export class GaSurface extends GaElement {
     const title = h("h2", { class: "name", "data-testid": "surface-name" });
     const mixes = h("div", { class: "bar", "aria-label": "Mixes" });
     const clocks = h("div", { class: "clocks", "data-testid": "surface-clocks" });
+    const health = h("ul", { class: "health", "data-testid": "surface-cables" });
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
     const strips = h("div", { class: "strips", "data-testid": "surface-strips" });
     const indicator = h("div", { class: "drop", hidden: true });
     const missing = h("p", { class: "placeholder", hidden: true }, "This surface does not exist; it may have been deleted. ", h("a", { href: href({ page: "workspace" }) }, "Surfaces are on the Workspace page."));
-    const content = h("div", { class: "content" }, h("div", { class: "bar" }, title, mixes, h("span", { class: "spacer" }), lastSent), clocks, this.#picker(surfaceId), strips);
+    const content = h("div", { class: "content" }, h("div", { class: "bar" }, title, mixes, h("span", { class: "spacer" }), lastSent), clocks, health, this.#picker(surfaceId), strips);
     this.root.replaceChildren(missing, content);
 
     this.watch(() => {
@@ -140,6 +150,24 @@ export class GaSurface extends GaElement {
           const text = clock === undefined || card?.reporting !== true ? "clock not reported yet" : `${SAMPLE_RATES[clock.rate] ?? "—"}, ${sources[clock.source] ?? "—"}, ${clock.locked ? "locked" : "not locked"}`;
           const colour = surfaces.deviceColor(id);
           return h("span", { class: "clock", "data-testid": `clock-${id}`, style: colour === undefined ? "" : `--device-colour: ${colour}` }, h("span", { class: "dot", "aria-hidden": "true" }), `${entry === undefined ? id : displayName(entry, store.workspace.value)}: ${text}`);
+        }),
+      );
+    });
+
+    // Each cable between two devices on the surface, and what is wrong along it (display only).
+    this.watch(() => {
+      const devices = surfaces.devicesOf(surfaceId);
+      const cables = store.cables.list.value.filter((c) => devices.includes(c.from.device_id) && devices.includes(c.to.device_id));
+      health.replaceChildren(
+        ...cables.map((cable) => {
+          const problems = store.cables.health(cable);
+          return h(
+            "li",
+            { "data-testid": `cable-health-${cable.id}` },
+            store.cables.label(cable),
+            ": ",
+            problems.length === 0 ? h("span", {}, "nothing wrong reported") : h("span", { class: "warn", role: "status" }, `⚠ ${problems.join(" ")}`),
+          );
         }),
       );
     });
@@ -283,23 +311,42 @@ export class GaSurface extends GaElement {
     );
   }
 
+  /**
+   * Both ends of a cable, side by side: the sender's port strip (the ADAT port holding the cable's
+   * first channel) and one input strip per channel it brings into the receiver.
+   */
+  #addCableEnds(surfaceId: string, cable: Cable): void {
+    const store = useStore();
+    const width = portWidth(cable.from.port);
+    const strips: NewStrip[] = [{ kind: "port", device_id: cable.from.device_id, port: cable.from.port as "SPDIF_OUT" | "ADAT_OUT", first: Math.floor(cable.from.first / width) * width }];
+    const kind = cable.to.port === "ADAT_IN" ? "adat" : "spdif";
+    for (let i = 0; i < cable.channels; i++) strips.push({ kind: "input", device_id: cable.to.device_id, input: { kind, channel: cable.to.first + i } });
+    try {
+      for (const strip of strips) store.surfaces.addStrip(surfaceId, strip);
+    } catch (error) {
+      store.reportError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   /** "+ Strip": a device, a kind, and an item of that kind on that device. */
   #picker(surfaceId: string): HTMLElement {
     const store = useStore();
     const device = h("select", { "aria-label": "Strip device", "data-testid": "strip-device" });
-    const kind = h("select", { "aria-label": "Strip kind", "data-testid": "strip-kind" }, (Object.keys(KIND_LABELS) as SurfaceStrip["kind"][]).map((k) => h("option", { value: k }, KIND_LABELS[k])));
+    const kind = h("select", { "aria-label": "Strip kind", "data-testid": "strip-kind" }, (Object.keys(KIND_LABELS) as PickerKind[]).map((k) => h("option", { value: k }, KIND_LABELS[k])));
     const item = h("select", { "aria-label": "Strip item", "data-testid": "strip-item" });
     const text = h("input", { type: "text", placeholder: "Label text", "aria-label": "Label text", "data-testid": "strip-text" });
     const add = h("button", { type: "button", "data-testid": "strip-add" }, "+ Strip");
 
     const fill = () => {
       const deviceId = device.value;
-      const chosen = kind.value as SurfaceStrip["kind"];
+      const chosen = kind.value as PickerKind;
       text.hidden = chosen !== "label";
       item.hidden = chosen === "label";
-      device.disabled = chosen === "label" || !store.connected.peek();
+      device.disabled = chosen === "label" || chosen === "cable" || !store.connected.peek();
       const options: HTMLOptionElement[] = [];
-      if (store.topology(deviceId) !== undefined) {
+      if (chosen === "cable") {
+        for (const cable of store.cables.list.peek()) options.push(h("option", { value: cable.id }, store.cables.label(cable)));
+      } else if (store.topology(deviceId) !== undefined) {
         if (chosen === "channel") {
           const channels = store.channels(deviceId);
           for (const c of channels.layout.peek().channels) options.push(h("option", { value: c.id }, channels.displayName(c)));
@@ -313,21 +360,37 @@ export class GaSurface extends GaElement {
           for (const group of inputs.digital) for (let i = 0; i < group.count; i++) options.push(h("option", { value: `${group.kind}:${i}` }, `${INPUT_LABELS[group.kind]} ${i + 1}`));
         } else if (chosen === "output") {
           for (const output of store.outputs(deviceId).outputs) options.push(h("option", { value: String(output.id) }, output.name));
+        } else if (chosen === "port") {
+          for (const port of store.cables.portsOf(deviceId, "out") as ("SPDIF_OUT" | "ADAT_OUT")[]) {
+            const width = portWidth(port);
+            const channels = store.cables.portChannels(deviceId, port);
+            for (let first = 0; first + width <= channels; first += width) options.push(h("option", { value: `${port}:${first}` }, channels <= width ? portName(port) : `${portName(port)} ${first + 1}–${first + width}`));
+          }
         }
       }
-      item.replaceChildren(...(options.length > 0 ? options : [h("option", { value: "", disabled: true }, chosen === "channel" ? "No channels: set some up on the Mixer page" : "Nothing to add")]));
-      add.disabled = !store.connected.peek() || (chosen !== "label" && (options.length === 0 || store.topology(deviceId) === undefined));
+      const empty = chosen === "channel" ? "No channels: set some up on the Mixer page" : chosen === "cable" ? "No cables: declare one on the Workspace page" : "Nothing to add";
+      item.replaceChildren(...(options.length > 0 ? options : [h("option", { value: "", disabled: true }, empty)]));
+      add.disabled = !store.connected.peek() || (chosen !== "label" && (options.length === 0 || (chosen !== "cable" && store.topology(deviceId) === undefined)));
     };
     device.addEventListener("change", fill);
     kind.addEventListener("change", fill);
 
     add.addEventListener("click", () => {
-      const chosen = kind.value as SurfaceStrip["kind"];
+      const chosen = kind.value as PickerKind;
+      if (chosen === "cable") {
+        const cable = store.cables.list.peek().find((c) => c.id === item.value);
+        if (cable !== undefined) this.#addCableEnds(surfaceId, cable);
+        return;
+      }
       let strip: NewStrip;
       if (chosen === "label") strip = { kind: "label", text: text.value.trim() };
       else if (chosen === "channel") strip = { kind: "channel", device_id: device.value, channel: item.value };
       else if (chosen === "master") strip = item.value === "" ? { kind: "master", device_id: device.value } : { kind: "master", device_id: device.value, mix: Number(item.value) };
       else if (chosen === "output") strip = { kind: "output", device_id: device.value, output: Number(item.value) };
+      else if (chosen === "port") {
+        const [port, first] = item.value.split(":");
+        strip = { kind: "port", device_id: device.value, port: port as "SPDIF_OUT", first: Number(first) };
+      }
       else {
         const [input, channel] = item.value.split(":");
         strip = { kind: "input", device_id: device.value, input: { kind: input as "preamp", channel: Number(channel) } };
@@ -346,8 +409,9 @@ export class GaSurface extends GaElement {
       const current = device.value;
       device.replaceChildren(...known.map((d) => h("option", { value: d.id }, displayName(d, workspace))));
       if (known.some((d) => d.id === current)) device.value = current;
-      // The channels a device has change as its layout does.
+      // The channels a device has change as its layout does, and the cables as they are declared.
       for (const d of known) void store.channels(d.id).layout.value;
+      void store.cables.list.value;
       untracked(fill);
     });
 
