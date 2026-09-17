@@ -83,6 +83,8 @@ test("choosing an effect opens its editor, which reads that instance once and sh
   await expect(page.getByTestId("param-threshold")).toHaveAttribute("aria-valuetext", "60");
   await expect(page.getByTestId("param-attack")).toHaveAttribute("aria-valuetext", "25.0", { timeout: 1000 });
   await expect(page.getByTestId("param-gain")).toHaveAttribute("aria-valuetext", "-12");
+  // -24..12 is not centred on zero, so its bar fills from the left like any other.
+  await expect(page.getByTestId("param-gain").locator(".fill")).toHaveAttribute("style", /left: 0%/);
   await expect(editor.locator("[data-testid^='param-']")).toHaveCount(6);
   await expect.poll(of(sent, "get_powergate_conf")).toEqual([{ id: 2 }]);
 
@@ -193,7 +195,8 @@ test.describe("on a phone", () => {
     await page.getByTestId("edit-0-1").tap();
     const editor = page.getByTestId("effect-editor");
     await expect(page.getByTestId("param-knee")).toBeVisible();
-    await editor.scrollIntoViewIfNeeded();
+    // It opens below every chain, so it is brought into view.
+    await expect(editor.getByRole("heading")).toBeInViewport();
     const box = await editor.boundingBox();
     expect(box?.width ?? 999).toBeLessThanOrEqual(375);
     const sideways = await page.evaluate(() => {

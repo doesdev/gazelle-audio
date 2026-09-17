@@ -147,15 +147,21 @@ export class GaEffects extends GaElement {
 
     // The chosen effect's editor, rebuilt when the chains are read again or another effect is chosen.
     const editor = h("div", { class: "editor-slot" });
+    let shown: { chain: number; position: number } | undefined;
     this.watch(() => {
       const chosen = this.#chosen.value;
       const slot = chosen === undefined ? undefined : effects.chains.value?.[chosen.chain]?.slots.find((s) => s.position === chosen.position);
       if (chosen === undefined || slot === undefined) {
         editor.replaceChildren();
+        shown = undefined;
         return;
       }
       const disposers: (() => void)[] = [];
       editor.replaceChildren(untracked(() => this.#editor(effects, chosen.chain, slot, disposers)));
+      // Newly chosen, not merely read again: bring it into view, since on a phone (or with the Studio+'s
+      // sixteen chains) it opens well below the effect that was chosen.
+      if (shown !== chosen) editor.firstElementChild?.scrollIntoView?.({ block: "nearest" });
+      shown = chosen;
       return () => disposers.forEach((dispose) => dispose());
     });
 
@@ -386,7 +392,8 @@ export class GaEffects extends GaElement {
         disposers.push(
           this.#effect(() => {
             const value = current();
-            bar.show(max === min ? 0 : (value - min) / (max - min), formatParameter(parameter, value), value, min < 0 && max > 0);
+            // Filled from the middle only when zero is the middle (a symmetrical range such as -5..5).
+            bar.show(max === min ? 0 : (value - min) / (max - min), formatParameter(parameter, value), value, min < 0 && min === -max);
           }),
         );
         return bar.element;
