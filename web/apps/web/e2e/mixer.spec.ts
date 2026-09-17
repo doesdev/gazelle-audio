@@ -669,3 +669,84 @@ test("the wheel over a pan moves it a step at a time, up for right, and keeps th
   await page.mouse.click(box.x + box.width * ((41.4 - 2) / 60), box.y + box.height / 2);
   await expect(pan).toHaveAttribute("aria-valuetext", "R 30%");
 });
+
+/** A frame the page sends over the WebSocket, as far as the chain stub reads it. */
+interface WsFrame {
+  id?: number;
+  device_id?: string;
+  command?: string;
+  ext3?: number;
+  args?: Record<string, number | string>;
+}
+
+/**
+ * Answers the Quadro's chain and AFX IN routing reads as a device would, so a strip fed by AFX OUT
+ * has something to meter in dry run: chain 1 holds one effect, chain 3 is empty, and AFX IN 3 takes
+ * PREAMP 1. A chain written with `set_afx_order` is what the stub then reports, as a device does.
+ */
+async function answerChains(page: Page): Promise<void> {
+  const chains: Record<number, [number, number][]> = { 0: [[39, 2]] };
+  const free = { 39: 14, 1: 15, 3: 4 };
+  const MUTE = 10;
+  const afxIn = (slot: number) => (slot === 2 ? { in_periph_id: 0, in_chann: 0 } : { in_periph_id: MUTE, in_chann: 0 });
+  const replies: Record<string, (frame: WsFrame) => unknown> = {
+    get_afx_strip_order: (frame) => ({ entries: [{ slots: Array.from({ length: 8 }, (_, i) => ({ type: chains[frame.ext3 ?? -1]?.[i]?.[0] ?? 0, inst: chains[frame.ext3 ?? -1]?.[i]?.[1] ?? 0 })) }] }),
+    get_afx_links: () => ({ entries: Array.from({ length: 7 }, () => ({ linked: 0 })) }),
+    get_afx_available_instances: () => ({ entries: Object.entries(free).map(([type_id, inst_count]) => ({ type_id: Number(type_id), inst_count })) }),
+    get_afx_remaining_featured_instances: () => ({ entries: Object.entries(free).map(([type_id]) => ({ type_id: Number(type_id), inst_count: 16 })) }),
+  };
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const upstream = socket.connectToServer();
+    socket.onMessage((message) => {
+      const frame: WsFrame = typeof message === "string" ? (JSON.parse(message) as WsFrame) : {};
+      if (frame.command === "set_afx_order" && typeof frame.args?.["slots"] === "string") {
+        const hex = frame.args["slots"];
+        const written: [number, number][] = [];
+        for (let i = 0; i + 3 < hex.length; i += 4) {
+          const type = Number.parseInt(hex.slice(i, i + 2), 16);
+          if (type !== 0) written.push([type, Number.parseInt(hex.slice(i + 2, i + 4), 16)]);
+        }
+        chains[Number(frame.args["ch_id"])] = written;
+      }
+      // AFX IN is the Quadro's destination group 7; every other read goes to the server as usual.
+      const reply = frame.device_id === "loopback-0" ? (frame.command === "get_routing" && frame.ext3 === 7 ? () => ({ bank_configs: Array.from({ length: 32 }, (_, i) => afxIn(i)) }) : replies[frame.command ?? ""]) : undefined;
+      if (reply === undefined) return upstream.send(message);
+      socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: frame.command, sent_hex: "74", sent_len: 16, dry_run: false, response: reply(frame), response_error: null } }));
+    });
+  });
+}
+
+test("a strip on an empty AFX OUT chain meters the source routed into the chain, and follows the chain as it is edited", async ({ page }) => {
+  await answerChains(page);
+  // Slot 6 on AFX OUT 3 (an empty chain fed by PREAMP 1), slot 7 on AFX OUT 1 (a chain with an effect).
+  await layout({
+    "loopback-0": {
+      channels: [
+        { id: "a", name: "Through", slot: 6, source: { group: 5, channel: 2 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Chain", slot: 7, source: { group: 5, channel: 0 }, main_mix: 0, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const through = page.getByTestId("meter-6");
+  const loaded = page.getByTestId("meter-7");
+  // An empty chain passes its input through, so the strip meters what feeds AFX IN 3 and says so.
+  await expect(through).toHaveAttribute("title", "Through an empty chain from PREAMP 1");
+  await expect(loaded).toHaveAttribute("title", /last effect/);
+  const bar = channelIn(page, 6).locator("ga-strip .mask");
+  const first = await bar.evaluate((el) => (el as HTMLElement).style.height);
+  await expect.poll(() => bar.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+
+  // Inserting the first effect into the chain hands the meter to it; removing it gives it back.
+  await page.locator('ga-header a[data-page="effects"]').click();
+  await page.getByTestId("chain-add-2").selectOption("39");
+  await expect(page.getByTestId("slot-2-0")).toContainText("PowerGate");
+  await page.locator('ga-header a[data-page="mixer"]').click();
+  await expect(page.getByTestId("meter-6")).toHaveAttribute("title", /last effect/);
+
+  await page.locator('ga-header a[data-page="effects"]').click();
+  await page.getByTestId("remove-2-0").click();
+  await expect(page.getByTestId("chain-2")).toContainText("No effects");
+  await page.locator('ga-header a[data-page="mixer"]').click();
+  await expect(page.getByTestId("meter-6")).toHaveAttribute("title", "Through an empty chain from PREAMP 1");
+});

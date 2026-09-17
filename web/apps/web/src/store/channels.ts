@@ -64,6 +64,17 @@ export type OutputFeed =
   | { state: "none"; sources: readonly string[] };
 
 /** What a channel's strip shows in one mix (`ChannelsModel.strip`). */
+/**
+ * What a routing source is called: its group's name and, for a group of several channels, the
+ * channel's number from 1. Shared with the store, which names an effect chain's source the same
+ * way in a strip's title.
+ */
+export function sourceLabel(topology: Topology, source: RouteSource): string {
+  const group = topology.inputs[source.group];
+  if (group === undefined) return `Source ${source.group}:${source.channel + 1}`;
+  return group.channels > 1 ? `${group.name} ${source.channel + 1}` : group.name;
+}
+
 export interface ChannelStrip {
   label: string;
   /** Its group's, its own or its input's colour (`channelColor`), or undefined for the theme palette's. */
@@ -232,9 +243,7 @@ export class ChannelsModel {
   }
 
   sourceLabel(source: RouteSource): string {
-    const group = this.#context.topology.inputs[source.group];
-    if (group === undefined) return `Source ${source.group}:${source.channel + 1}`;
-    return group.channels > 1 ? `${group.name} ${source.channel + 1}` : group.name;
+    return sourceLabel(this.#context.topology, source);
   }
 
   /**

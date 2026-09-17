@@ -6,7 +6,7 @@ import { GazelleError } from "gazelle-audio-client";
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
-import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, type EffectMeter, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -745,12 +745,30 @@ test("a refused import leaves the workspace as it was and says why", async () =>
   assert.equal(client.puts.length, puts);
 });
 
-/** A client that answers the chain reads with `chains`, chain index to `[type, inst]` pairs. */
-function withChains(chains: Readonly<Record<string, readonly (readonly [number, number][])[]>>): FakeClient {
+/** A chain as these tests write one: the `[type, inst]` pair of each loaded slot, in order. */
+type ChainTable = Record<string, (readonly [number, number])[][]>;
+/** One destination group's routing as these tests write it: per slot, `[source group, channel]`. */
+type RouteTable = Record<string, Record<number, (readonly [number, number])[]>>;
+
+/**
+ * A client that answers the chain reads with `chains` and `get_routing` with `routes` (both are
+ * held, so a test may change either and read it again), and that keeps what `set_afx_order` writes,
+ * as the device does.
+ */
+function withChains(chains: ChainTable, routes: RouteTable = {}): FakeClient {
   const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
   const slots = (loaded: readonly (readonly [number, number])[] = []) => Array.from({ length: 8 }, (_, i) => ({ type: loaded[i]?.[0] ?? 0, inst: loaded[i]?.[1] ?? 0 }));
   client.respond = async (call) => {
     const table = chains[call.deviceId] ?? [];
+    if (call.command === "set_afx_order") {
+      const hex = String(call.args?.["slots"] ?? "");
+      const bytes = Array.from({ length: hex.length / 2 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+      const written: (readonly [number, number])[] = [];
+      for (let i = 0; i + 1 < bytes.length; i += 2) if (bytes[i] !== 0) written.push([bytes[i] as number, bytes[i + 1] as number]);
+      table[Number(call.args?.["ch_id"] ?? 0)] = written;
+      chains[call.deviceId] = table;
+    }
+    const routed = (destination: number) => ({ bank_configs: Array.from({ length: 32 }, (_, i) => routes[call.deviceId]?.[destination]?.[i] ?? [MUTE_SOURCE[call.deviceId === "loopback-0" ? "quadro" : "studio"], 0]).map(([source, channel]) => ({ in_periph_id: source, in_chann: channel })) });
     const response =
       call.command === "get_afx_strip_order"
         ? { entries: [{ slots: slots(table[Number(call.options?.["ext3"] ?? 0)]) }] }
@@ -758,11 +776,18 @@ function withChains(chains: Readonly<Record<string, readonly (readonly [number, 
           ? { entries: Array.from({ length: 16 }, (_, i) => ({ slots: slots(table[i]) })) }
           : call.command === "get_afx_links"
             ? { entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }
-            : null;
+            : call.command === "get_routing"
+              ? routed(Number(call.options?.["ext3"] ?? 0))
+              : null;
     return { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 1, dry_run: false, response, response_error: null };
   };
   return client;
 }
+
+/** Topology positions these tests name by hand, checked against `refs/schemas/*_topology.json`. */
+const AFX_OUT_SOURCE = { quadro: 5, studio: 6 };
+const AFX_IN_DESTINATION = { quadro: 7, studio: 9 };
+const MUTE_SOURCE = { quadro: 10, studio: 11 };
 
 test("effect meters come from 0x83: the Quadro's two bytes per loaded effect in chain order, the Studio+'s by chain and slot", async () => {
   // Quadro: chain 0 holds two effects, chain 1 one, chain 2 none. Its report is those effects'
@@ -799,7 +824,7 @@ test("effect meters come from 0x83: the Quadro's two bytes per loaded effect in 
   for (const stop of listen) stop();
 });
 
-test("a strip fed by AFX OUT meters the last effect in that chain; an empty chain shows no meter and says why", async () => {
+test("a strip fed by AFX OUT meters the last effect in that chain", async () => {
   const client = withChains({ "loopback-0": [[[3, 0], [9, 0]]], "loopback-1": [] });
   const { store, frames } = setup(client);
   await store.start();
@@ -814,15 +839,143 @@ test("a strip fed by AFX OUT meters the last effect in that chain; an empty chai
   assert.equal(chain1.level.value, 40, "the chain's output is as far as the device meters it: its last effect");
   assert.match(chain1.note.value, /last effect/);
 
+  // An empty chain passes its input through, so it is metered by what feeds AFX IN; here nothing
+  // has read that routing, which the title says (the empty chain's cases are tested below).
   const empty = store.inputMeter("loopback-0", { group: 5, channel: 3 });
   assert.ok(empty);
   assert.equal(empty.level.value, undefined);
-  assert.match(empty.note.value, /no effects/);
+  assert.match(empty.note.value, /what feeds it has not been read/);
 
   // A chain nobody has read is not known to be empty, and says so.
   const unread = store.inputMeter("loopback-1", { group: 6, channel: 0 });
   assert.ok(unread);
   assert.equal(unread.level.value, undefined);
   assert.match(unread.note.value, /not been read/);
+  stop();
+});
+
+test("an AFX OUT strip on an empty chain meters the source routed into the chain, and says where from", async () => {
+  // An empty chain passes its input straight through (the user, on the hardware, 2026-09-18), so
+  // the strip carries audio and meters whatever routing feeds AFX IN k.
+  const routes: RouteTable = {
+    // AFX IN 2 takes PREAMP 2, AFX IN 3 another chain's output, AFX IN 4 a mixer output, AFX IN 5 MUTE.
+    "loopback-0": { 7: [[10, 0], [0, 1], [5, 0], [6, 0]] },
+  };
+  const client = withChains({ "loopback-0": [[[3, 0]]], "loopback-1": [] }, routes);
+  const { store, frames } = setup(client);
+  await store.start();
+  await store.effects("loopback-0").readChainsOnce();
+  await store.readRoutes("loopback-0", [AFX_IN_DESTINATION.quadro]);
+  const listen = [store.watchReport("loopback-0", "0x83"), store.watchReport("loopback-0", "0x73")];
+  const afxOut = (chain: number) => store.inputMeter("loopback-0", { group: AFX_OUT_SOURCE.quadro, channel: chain });
+
+  client.cyclic.get("loopback-0|0x83")?.({ afx_meters: [{ data: Uint8Array.of(12, 3, 96, 96, 96, 96) }] });
+  client.cyclic.get("loopback-0|0x73")?.({ peaks_preamp: Uint8Array.of(90, 24, 96, 96) });
+  for (const frame of frames.splice(0)) frame();
+
+  const loaded = afxOut(0);
+  assert.ok(loaded);
+  assert.equal(loaded.level.value, 12, "a chain with an effect is still metered by its last effect");
+  assert.match(loaded.note.value, /last effect/);
+
+  const through = afxOut(1);
+  assert.ok(through);
+  assert.equal(through.level.value, 24, "an empty chain meters the input routed into it");
+  assert.equal(through.note.value, "Through an empty chain from PREAMP 2");
+  assert.equal(store.inputMeter("loopback-0", { group: 0, channel: 1 })?.level.value, 24, "the same input, metered the same way");
+
+  // A source the status report does not meter: another chain's output, or a mixer output.
+  const fromChain = afxOut(2);
+  assert.ok(fromChain);
+  assert.equal(fromChain.level.value, undefined);
+  assert.equal(fromChain.note.value, "Through an empty chain from AFX OUT 1, which the device reports no meter for");
+  const fromMixer = afxOut(3);
+  assert.ok(fromMixer);
+  assert.equal(fromMixer.level.value, undefined);
+  assert.match(fromMixer.note.value, /LOOPBACK HP1 1, which the device reports no meter for/);
+
+  const muted = afxOut(4);
+  assert.ok(muted);
+  assert.equal(muted.level.value, undefined);
+  assert.equal(muted.note.value, "This chain is empty and nothing is routed into it, so there is nothing to meter");
+
+  // A chain nobody has read is not known to be empty, and says so before routing comes into it.
+  const unreadChain = store.inputMeter("loopback-1", { group: AFX_OUT_SOURCE.studio, channel: 0 });
+  assert.ok(unreadChain);
+  assert.match(unreadChain.note.value, /not been read/);
+  for (const stop of listen) stop();
+});
+
+test("an empty chain whose routing has not been read says so rather than metering nothing", async () => {
+  const client = withChains({ "loopback-0": [[]] }, {});
+  const { store } = setup(client);
+  await store.start();
+  await store.effects("loopback-0").readChainsOnce();
+  const meter = store.inputMeter("loopback-0", { group: AFX_OUT_SOURCE.quadro, channel: 0 });
+  assert.ok(meter);
+  assert.equal(meter.level.value, undefined);
+  assert.equal(meter.note.value, "This chain is empty, and what feeds it has not been read");
+});
+
+test("an AFX OUT strip's meter follows the chain and the routing as they change", async () => {
+  const routes: RouteTable = { "loopback-0": { 7: [[0, 0]] } };
+  const chains: ChainTable = { "loopback-0": [[]] };
+  const client = withChains(chains, routes);
+  const { store, frames } = setup(client);
+  await store.start();
+  const effects = store.effects("loopback-0");
+  await effects.readChainsOnce();
+  await store.readRoutes("loopback-0", [AFX_IN_DESTINATION.quadro]);
+  const listen = [store.watchReport("loopback-0", "0x83"), store.watchReport("loopback-0", "0x73")];
+  const report = () => {
+    client.cyclic.get("loopback-0|0x83")?.({ afx_meters: [{ data: Uint8Array.of(12, 3, 96, 96, 96, 96) }] });
+    client.cyclic.get("loopback-0|0x73")?.({ peaks_preamp: Uint8Array.of(30, 24, 18, 96) });
+    for (const frame of frames.splice(0)) frame();
+  };
+  report();
+
+  const meter = store.inputMeter("loopback-0", { group: AFX_OUT_SOURCE.quadro, channel: 0 });
+  assert.ok(meter);
+  assert.equal(meter.level.value, 30, "empty: the preamp routed into it");
+
+  // The first effect inserted takes the meter over; removing the last gives it back.
+  assert.equal(effects.addEffect(0, 3), true);
+  await flush();
+  report();
+  assert.equal(meter.level.value, 12, "loaded: the chain's last effect");
+  assert.match(meter.note.value, /last effect/);
+  assert.equal(effects.removeEffect(0, 0), true);
+  await flush();
+  report();
+  assert.equal(meter.level.value, 30, "empty again: back to the routed source");
+
+  // Re-routing AFX IN 1 moves the meter with it.
+  routes["loopback-0"] = { 7: [[0, 2]] };
+  await store.routing("loopback-0").load(AFX_IN_DESTINATION.quadro);
+  report();
+  assert.equal(meter.level.value, 18);
+  assert.equal(meter.note.value, "Through an empty chain from PREAMP 3");
+  for (const stop of listen) stop();
+});
+
+test("a Studio+ AFX OUT strip on an empty chain meters its source, and clips with it", async () => {
+  const routes: RouteTable = { "loopback-1": { 9: [[1, 3]] } };
+  const client = withChains({ "loopback-1": [] }, routes);
+  const { store, frames } = setup(client);
+  await store.start();
+  await store.effects("loopback-1").readChainsOnce();
+  await store.readRoutes("loopback-1", [AFX_IN_DESTINATION.studio]);
+  const stop = store.watchReport("loopback-1", "0x73");
+  const meter = store.inputMeter("loopback-1", { group: AFX_OUT_SOURCE.studio, channel: 0 });
+  assert.ok(meter);
+
+  client.cyclic.get("loopback-1|0x73")?.({ peaks_line: Uint8Array.of(96, 96, 96, 0, 96, 96, 96, 96) });
+  for (const frame of frames.splice(0)) frame();
+  assert.equal(meter.level.value, 0);
+  assert.equal(meter.note.value, "Through an empty chain from LINE IN 4");
+  assert.equal(meter.clipped.value, true, "the source's clip light is the strip's");
+  meter.clearClip();
+  assert.equal(meter.clipped.value, false);
+  assert.equal((meter as EffectMeter).reduction.value, undefined, "no effect, so no gain reduction");
   stop();
 });

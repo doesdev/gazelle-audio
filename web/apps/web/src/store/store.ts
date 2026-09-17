@@ -17,7 +17,7 @@
 
 import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
-import { ChannelsModel, emptyLayout } from "./channels.ts";
+import { ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
@@ -174,10 +174,12 @@ export interface EffectMeter extends InputMeter {
 const EFFECT_METER_REPORT = "0x83";
 
 /**
- * The topology input type a mixer strip is fed from when it carries an effect chain's output. The
- * channel is the chain index in both models.
+ * The topology input type a mixer strip is fed from when it carries an effect chain's output, and
+ * the destination type routing feeds that chain through. The channel is the chain index in both
+ * models, so AFX OUT k is what chain k plays and AFX IN k is what it processes.
  */
 const AFX_OUT = "AFX_OUT";
+const AFX_IN = "AFX_IN";
 
 /** What a strip's meter shows, by default: the input's level before the fader. */
 const INPUT_METER_NOTE = "The input's level, before the fader";
@@ -1110,19 +1112,63 @@ export class Store {
     return this.#effectMeterAt(deviceId, family, at, `${deviceId}|effect|${chain}|${position}`, note);
   }
 
-  /** The meter of a chain's last effect: the chain's output, as far as the device reports it. */
+  /**
+   * The meter of a mixer strip fed by AFX OUT k: what that strip actually carries.
+   *
+   * A chain with effects is metered by its **last effect**, the chain's output as far as the device
+   * reports it. An **empty chain passes its input straight through** (the user, at the hardware,
+   * 2026-09-18: a mix carrying a preamp and an AFX OUT fed from that preamp is about 6 dB louder),
+   * so the strip is carrying audio and is metered by whatever routing feeds **AFX IN k**, on the
+   * ordinary input path (`INPUT_METER_FIELDS`), as if the strip sat on that input. A source with no
+   * meter of its own -- MUTE, another chain's output, a mixer output, or an input the status report
+   * does not meter -- shows none, and the title says which it is (P85). Routing is what was read
+   * once (P97); nothing is sent to make any of this work.
+   */
   #chainMeter(deviceId: string, family: "quadro" | "studio", chain: number): EffectMeter {
+    const key = `${deviceId}|chain|${chain}`;
+    const existing = this.#chainMeters.get(key);
+    if (existing !== undefined) return existing;
     const at = computed(() => {
       const slots = this.effects(deviceId).chains.value?.[chain]?.slots;
       return slots === undefined || slots.length === 0 ? undefined : { chain, position: slots.length - 1 };
     });
-    const note = computed(() => {
-      if (at.value !== undefined) return "The chain's last effect, which is as far as the device meters it";
-      return this.effects(deviceId).chains.value?.[chain]?.known === true
-        ? "This chain has no effects, so the device reports no meter for it"
-        : "This chain has not been read, so nothing is known to meter";
-    });
-    return this.#effectMeterAt(deviceId, family, at, `${deviceId}|chain|${chain}`, note);
+    const effect = this.#effectMeterAt(deviceId, family, at, key, computed(() => "The chain's last effect, which is as far as the device meters it"));
+    // Only while the chain is empty: with an effect loaded the chain's own meter is the answer.
+    const through = computed(() => (at.value === undefined ? this.#chainInput(deviceId, chain) : undefined));
+    const source = computed(() => through.value?.meter);
+    const meter: EffectMeter = {
+      level: computed(() => (at.value !== undefined ? effect.level.value : source.value?.level.value)),
+      reduction: computed(() => (at.value !== undefined ? effect.reduction.value : undefined)),
+      clipped: computed(() => (at.value !== undefined ? effect.clipped.value : source.value?.clipped.value === true)),
+      clearClip: () => (at.peek() !== undefined ? effect.clearClip() : through.peek()?.meter?.clearClip()),
+      note: computed(() => (at.value !== undefined ? effect.note.value : (through.value?.note ?? ""))),
+    };
+    this.#chainMeters.set(key, meter);
+    return meter;
+  }
+
+  readonly #chainMeters = new Map<string, EffectMeter>();
+
+  /**
+   * What an empty chain passes through: the meter of the input routing feeds AFX IN k, with what to
+   * say about it in the strip's title. Reading it is reactive, so the strip follows a re-route.
+   */
+  #chainInput(deviceId: string, chain: number): { note: string; meter?: InputMeter } {
+    const topology = this.topology(deviceId);
+    if (topology === undefined) return { note: "This device's model is not known, so nothing is metered" };
+    if (this.effects(deviceId).chains.value?.[chain]?.known !== true) return { note: "This chain has not been read, so nothing is known to meter" };
+    const destination = topology.outputs.findIndex((group) => group.type === AFX_IN);
+    if (destination < 0) return { note: "This model has no effect inputs to follow" };
+    const routing = this.routing(deviceId);
+    const slot = routing.destination(destination).value?.[chain];
+    if (slot === undefined) return { note: "This chain is empty, and what feeds it has not been read" };
+    if (slot.source === routing.mute) return { note: "This chain is empty and nothing is routed into it, so there is nothing to meter" };
+    const source = { group: slot.source, channel: slot.channel };
+    const label = sourceLabel(topology, source);
+    // An effect chain fed by another chain's output would recur, and neither is in the status
+    // report anyway: both, and every other unmetered input, say so rather than showing a bar.
+    const meter = topology.inputs[slot.source]?.type === AFX_OUT ? undefined : this.inputMeter(deviceId, source);
+    return meter === undefined ? { note: `Through an empty chain from ${label}, which the device reports no meter for` } : { note: `Through an empty chain from ${label}`, meter };
   }
 
   /**
