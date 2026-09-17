@@ -65,8 +65,7 @@ export class GaOutputs extends GaElement {
       .destinations button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .note-inline { font-size: 11px; color: var(--ga-text-muted); }
       .hard-mute { font-size: 11px; font-weight: 700; }
-      .in-cr { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; cursor: pointer; }
-      .in-cr input { margin: 0; }
+      .in-cr[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .hard-mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
       @media (max-width: 480px) {
         .output { grid-template-columns: 1fr auto; }
@@ -143,19 +142,24 @@ export class GaOutputs extends GaElement {
   #inControlRoom(deviceId: string, output: OutputInfo): HTMLElement {
     const store = useStore();
     const shown = store.controlRoomOutputs(deviceId);
-    const box = h("input", {
-      type: "checkbox",
-      "data-testid": `out-in-cr-${output.id}`,
-      "aria-label": `${output.name} in the Control Room`,
-      "on:change": () => {
-        if (!store.setInControlRoom(deviceId, output.id, box.checked)) box.checked = shown.peek().includes(output.id);
+    // A toggle beside Mute and Dim, drawn as they are (the user, 2026-09-18).
+    const button = h(
+      "button",
+      {
+        type: "button",
+        class: "in-cr",
+        "data-testid": `out-in-cr-${output.id}`,
+        "aria-label": `${output.name} in the Control Room`,
+        title: `Show ${output.name} in the Control Room panel`,
+        "on:click": () => store.setInControlRoom(deviceId, output.id, !shown.peek().includes(output.id)),
       },
-    });
+      "CR",
+    );
     this.watch(() => {
-      box.checked = shown.value.includes(output.id);
-      box.disabled = !store.connected.value;
+      button.setAttribute("aria-pressed", String(shown.value.includes(output.id)));
+      button.disabled = !store.connected.value;
     });
-    return h("label", { class: "in-cr", title: `Show ${output.name} in the Control Room panel` }, box, "In Control Room");
+    return button;
   }
 
   #trim(outputs: OutputsModel, trim: TrimInfo): HTMLElement {

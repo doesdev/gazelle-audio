@@ -180,18 +180,23 @@ test("the Outputs page chooses which outputs the Quadro's Control Room shows, sa
   const shown = () => panel(page).locator('[data-testid^="cr-output-"]').evaluateAll((groups) => groups.map((g) => (g as HTMLElement).dataset["testid"]));
   // Monitor, HP1 and HP2 until chosen.
   for (const [id, on] of [[0, true], [1, true], [2, true], [3, false]] as const) {
-    await expect(page.getByTestId(`out-in-cr-${id}`)).toBeChecked({ checked: on });
+    await expect(page.getByTestId(`out-in-cr-${id}`)).toHaveAttribute("aria-pressed", String(on));
   }
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
-  await expect(page.getByTestId("output-3").getByLabel("Line out in the Control Room")).not.toBeChecked();
+  // A toggle button beside Mute and Dim, as they are (the user, 2026-09-18), not a checkbox.
+  const lineOut = page.getByTestId("output-3").getByRole("button", { name: "Line out in the Control Room" });
+  await expect(lineOut).toHaveText("CR");
+  await expect(lineOut).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("output-3").locator('input[type="checkbox"]')).toHaveCount(0);
+  await expect(page.getByTestId("output-3").locator(".toggles > *").evaluateAll((els) => els.map((e) => e.textContent))).resolves.toEqual(["Mute", "Dim", "CR"]);
   const before = frames.length;
 
   // Line out joins, after HP2 in the device's order, with its volume, mute and dim.
-  await page.getByTestId("out-in-cr-3").check();
+  await page.getByTestId("out-in-cr-3").click();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2", "cr-output-3"]);
   await expect(panel(page).getByTestId("cr-output-3")).toContainText("Line out");
   await expect.poll(controlRoomSaved).toEqual({ "loopback-0": { outputs: [0, 1, 2, 3] } });
-  await page.getByTestId("out-in-cr-1").uncheck();
+  await page.getByTestId("out-in-cr-1").click();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-2", "cr-output-3"]);
   await expect.poll(controlRoomSaved).toEqual({ "loopback-0": { outputs: [0, 2, 3] } });
   await page.waitForTimeout(300);
@@ -210,7 +215,7 @@ test("the Outputs page chooses which outputs the Quadro's Control Room shows, sa
   // Kept across a reload, and per device: the Studio+ still has the default.
   await page.reload();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-2", "cr-output-3"]);
-  await expect(page.getByTestId("out-in-cr-1")).not.toBeChecked();
+  await expect(page.getByTestId("out-in-cr-1")).toHaveAttribute("aria-pressed", "false");
   await page.goto(`${server.url}/#/outputs/loopback-1`);
   await expect(panel(page)).toContainText("Zen Studio+");
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
@@ -222,7 +227,7 @@ test("the Studio+ Control Room can show Reamp and Line out, without dim, and eve
   await page.goto(`${server.url}/#/outputs/loopback-1`);
   const shown = () => panel(page).locator('[data-testid^="cr-output-"]').evaluateAll((groups) => groups.map((g) => (g as HTMLElement).dataset["testid"]));
   await expect.poll(shown, "in the device's order, not the stored one").toEqual(["cr-output-0", "cr-output-4"]);
-  await expect(page.getByTestId("out-in-cr-4")).toBeChecked();
+  await expect(page.getByTestId("out-in-cr-4")).toHaveAttribute("aria-pressed", "true");
   await expect(panel(page).getByTestId("cr-output-4")).toContainText("Reamp");
   await expect(panel(page).getByTestId("cr-dim-4")).toHaveCount(0);
   const volume = panel(page).getByTestId("cr-volume-4");
@@ -232,9 +237,9 @@ test("the Studio+ Control Room can show Reamp and Line out, without dim, and eve
   await panel(page).getByTestId("cr-mute-4").click();
   await expect(lastSent(page)).toContainText(studio("set_mute", { 17: 4, 18: 1 }));
 
-  await page.getByTestId("out-in-cr-3").check();
+  await page.getByTestId("out-in-cr-3").click();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-3", "cr-output-4"]);
-  for (const id of [0, 3, 4]) await page.getByTestId(`out-in-cr-${id}`).uncheck();
+  for (const id of [0, 3, 4]) await page.getByTestId(`out-in-cr-${id}`).click();
   await expect.poll(shown).toEqual([]);
   await expect.poll(controlRoomSaved).toEqual({ "loopback-1": { outputs: [] } });
   // Talkback is the Studio+'s whatever outputs are shown.
