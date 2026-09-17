@@ -117,6 +117,39 @@ const INPUT_PEAKS: Readonly<Record<"quadro" | "studio", readonly string[]>> = {
   studio: ["peaks_preamp", "peaks_line", "peaks_spdif", "peaks_adat"],
 };
 
+/**
+ * The status report field that meters each kind of input, by the topology's input type. The Quadro's
+ * mixer meters stay on Mix 1's inputs whatever `set_peak_source` asks (hardware, 2026-09-16), so a
+ * channel is metered at its input: the signal arriving, before any fader. An input type missing
+ * here reports no meter of its own (the Studio+'s USB and Thunderbolt playback and effect returns
+ * only reach its selectable meter bank).
+ */
+const INPUT_METER_FIELDS: Readonly<Record<"quadro" | "studio", Readonly<Record<string, string>>>> = {
+  quadro: { PREAMP: "peaks_preamp", COM_PLAY: "peaks_usb_play", USB_PLAY: "peaks_usb_play2", ADAT_IN: "peaks_adat", SPDIF_IN: "peaks_spdif" },
+  studio: { PREAMP: "peaks_preamp", LINE_IN: "peaks_line", ADAT_IN: "peaks_adat", SPDIF_IN: "peaks_spdif" },
+};
+
+/** One input's meter: its latest peak byte (dB below full scale) and a clip light that latches. */
+export interface InputMeter {
+  level: ReadonlySignal<number | undefined>;
+  clipped: ReadonlySignal<boolean>;
+  clearClip(): void;
+}
+
+/** One stereo output's meter, from the fixed output fields only the Quadro reports. */
+export interface OutputMeter {
+  name: string;
+  left: ReadonlySignal<number | undefined>;
+  right: ReadonlySignal<number | undefined>;
+}
+
+const QUADRO_OUTPUT_METERS: readonly (readonly [name: string, field: string])[] = [
+  ["Monitor", "peaks_monitor"],
+  ["HP1", "peaks_hp1"],
+  ["HP2", "peaks_hp2"],
+  ["Line out", "line_out"],
+];
+
 /** A device at a glance, for its card in the devices panel. */
 export interface DeviceCard {
   /** Whether the device's status report has arrived yet. */
@@ -823,6 +856,60 @@ export class Store {
   }
 
   readonly #inputLevels = new Map<string, ReadonlySignal<"quiet" | "signal" | "clip">>();
+
+  /**
+   * The meter of one input, by its routing source, or undefined when that input reports none. One
+   * per input, shared by every strip fed from it. Its report is only followed while something
+   * watches it, as the Mixer page does.
+   */
+  inputMeter(deviceId: string, source: RouteSource): InputMeter | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    const type = topologies[family].inputs[source.group]?.type;
+    const fieldName = type === undefined ? undefined : INPUT_METER_FIELDS[family][type];
+    if (fieldName === undefined) return undefined;
+    const key = `${deviceId}|${fieldName}|${source.channel}`;
+    const existing = this.#inputMeters.get(key);
+    if (existing !== undefined) return existing;
+    const field = this.field(deviceId, "0x73", fieldName);
+    const level = computed(() => {
+      const bytes = field.value;
+      return (bytes instanceof Uint8Array || Array.isArray(bytes)) && source.channel < bytes.length ? Number((bytes as ArrayLike<number>)[source.channel]) : undefined;
+    });
+    const clipped = signal(false);
+    // Made on first use, often inside a watch: untracked, so it stands on its own.
+    untracked(() =>
+      effect(() => {
+        if (level.value === 0) clipped.value = true;
+      }),
+    );
+    const meter: InputMeter = { level, clipped, clearClip: () => (clipped.value = false) };
+    this.#inputMeters.set(key, meter);
+    return meter;
+  }
+
+  readonly #inputMeters = new Map<string, InputMeter>();
+
+  /** The output meters a device reports, or undefined for a model that reports none of its own. */
+  outputMeters(deviceId: string): readonly OutputMeter[] | undefined {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family !== "quadro") return undefined;
+    const existing = this.#outputMeters.get(deviceId);
+    if (existing !== undefined) return existing;
+    const meters = QUADRO_OUTPUT_METERS.map(([name, fieldName]): OutputMeter => {
+      const field = this.field(deviceId, "0x73", fieldName);
+      const side = (i: number) =>
+        computed(() => {
+          const bytes = field.value;
+          return (bytes instanceof Uint8Array || Array.isArray(bytes)) && i < bytes.length ? Number((bytes as ArrayLike<number>)[i]) : undefined;
+        });
+      return { name, left: side(0), right: side(1) };
+    });
+    this.#outputMeters.set(deviceId, meters);
+    return meters;
+  }
+
+  readonly #outputMeters = new Map<string, readonly OutputMeter[]>();
 
   /** Sets the sample rate by index into [`SAMPLE_RATES`]. */
   setSampleRate(deviceId: string, index: number): boolean {

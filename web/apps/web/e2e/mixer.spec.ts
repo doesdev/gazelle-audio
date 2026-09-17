@@ -319,26 +319,26 @@ test("dragging a channel's fader coalesces and ends on the final level", async (
   test.info().annotations.push({ type: "coalescing", description: `${sent().length} set_mixer frames for ${moves} pointer moves` });
 });
 
-test("meters show the metered mix and links send set_stereo_link", async ({ page }) => {
+test("a strip meters its channel's input; an input with no meter of its own shows none; links send set_stereo_link", async ({ page }) => {
   const frames = recordFrames(page);
-  await layout({ "loopback-1": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }, { id: "b", name: "", slot: 1, source: { group: 0, channel: 1 }, main_mix: 1, sends: [] }] } });
+  // Studio+: slot 0 on PREAMP 1 (group 0), slot 1 on USB PLAY 1 (group 3, which reports no meter).
+  await layout({ "loopback-1": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }, { id: "b", name: "", slot: 1, source: { group: 3, channel: 0 }, main_mix: 0, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-1`);
-  const metered = page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask');
-  const first = await metered.evaluate((el) => (el as HTMLElement).style.height);
-  await expect.poll(() => metered.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
-  await expect(page.locator('ga-channel[data-channel-slot="1"] ga-strip .mask')).toHaveAttribute("style", /height: 100%/);
-  await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 0)).toBe(true);
+  const preampMeter = page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask');
+  const first = await preampMeter.evaluate((el) => (el as HTMLElement).style.height);
+  await expect.poll(() => preampMeter.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+  const usbMeter = page.locator('ga-channel[data-channel-slot="1"] ga-strip');
+  await expect(usbMeter.locator(".mask")).toHaveAttribute("style", /height: 100%/);
+  await expect(usbMeter.locator('[data-testid="meter-1"]')).toHaveAttribute("title", /no meter/);
+  // Nothing points the device's meter bank: the Quadro ignores it, and nothing here reads it.
+  await page.waitForTimeout(500);
+  expect(frames.filter((f) => f.command === "set_peak_source")).toEqual([]);
 
+  // A channel not in the selected mix shows no meter either; in its mix it meters again.
   await page.getByTestId("mix-select").selectOption("1");
-  await expect.poll(() => frames.some((f) => f.command === "set_peak_source" && f.args?.["bank_id"] === 1 && f.args?.["source_id"] === 1)).toBe(true);
-  // Now the second channel is in the selected mix and the first is not: meters follow the mix.
-  await expect(page.locator('ga-channel[data-channel-slot="0"] ga-strip .mask')).toHaveAttribute("style", /height: 100%/);
-
-  // A strip's controls, its link badge among them, work where the channel is in the selected mix:
-  // back in Mix 1, add the second channel there, then link the two.
+  await expect(preampMeter).toHaveAttribute("style", /height: 100%/);
   await page.getByTestId("mix-select").selectOption("0");
-  await page.getByTestId("in-mix-1").click();
-  await expect(page.getByTestId("in-mix-1")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("in-mix-1")).toHaveText("Main mix");
 
   // Linking channels uses the same badges and bar as the Inputs page; slots 1 and 2 are a device pair.
   await page.getByTestId("mixer-link-0").click();

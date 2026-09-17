@@ -105,11 +105,10 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
 
   await page.goto(`${server.url}/#/mixer/loopback-1`);
   await expect.poll(() => count("get_mixer")).toBe(4);
-  await expect.poll(() => count("set_peak_source")).toBe(1);
 
   await page.getByTestId("mix-select").selectOption("2");
-  await expect.poll(() => count("set_peak_source")).toBe(2);
   await page.waitForTimeout(500);
+  expect(count("set_peak_source"), "strips meter their inputs, so no meter bank is pointed").toBe(0);
   expect(count("get_mixer"), "a new mix does not rebuild the page and read every mix again").toBe(4);
 
   await open(page, "workspace");
@@ -119,10 +118,9 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
   expect(sent.slice(before)).toEqual([]);
 
   // Coming back reads no mix, nor the device's link flags that follow a read (P80): the store has
-  // them from the first visit. The meters are pointed at the page's mix again, and where each mix
-  // plays is read again (routing is read fresh by design, P80).
+  // them from the first visit. Where each mix plays is read again (routing is read fresh by design, P80).
   await open(page, "mixer");
-  await expect.poll(() => count("set_peak_source")).toBe(3);
+  await expect(page.locator("ga-mixer")).toBeVisible();
   await page.waitForTimeout(1000);
   expect(sent.slice(before).filter((c) => c.startsWith("get_") && c !== "get_routing"), "a second visit re-reads no mix").toEqual([]);
 });

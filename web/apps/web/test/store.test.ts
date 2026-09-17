@@ -509,3 +509,58 @@ test("a device card sums up the status report: power, preset, clock, and whether
   assert.equal(studio?.input, "clip");
   for (const stop of listen) stop();
 });
+
+test("input meters come from each input's own peak field, per model; an input without one has no meter", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = [store.watchReport("loopback-0", "0x73"), store.watchReport("loopback-1", "0x73")];
+  const report = (id: string, fields: Record<string, unknown>) => {
+    client.cyclic.get(`${id}|0x73`)?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  const bytes = (n: number, at: Record<number, number>) => Uint8Array.from({ length: n }, (_, i) => at[i] ?? 96);
+
+  // Quadro: PREAMP is topology group 0, USB 1 PLAY group 1. Its mixer meters stay on Mix 1's inputs
+  // whatever is asked of them (hardware, 2026-09-16), so a channel is metered at its input instead.
+  const preamp2 = store.inputMeter("loopback-0", { group: 0, channel: 1 });
+  assert.ok(preamp2);
+  assert.equal(store.inputMeter("loopback-0", { group: 0, channel: 1 }), preamp2, "one meter per input, shared by every strip on it");
+  const usb4 = store.inputMeter("loopback-0", { group: 1, channel: 3 });
+  report("loopback-0", { peaks_preamp: bytes(4, { 1: 5 }), peaks_usb_play: bytes(18, { 3: 40 }) });
+  assert.equal(preamp2.level.value, 5);
+  assert.equal(usb4?.level.value, 40);
+
+  // A byte of 0 is full scale: the clip light latches until it is cleared.
+  assert.equal(preamp2.clipped.value, false);
+  report("loopback-0", { peaks_preamp: bytes(4, { 1: 0 }) });
+  report("loopback-0", { peaks_preamp: bytes(4, { 1: 30 }) });
+  assert.equal(preamp2.clipped.value, true);
+  preamp2.clearClip();
+  assert.equal(preamp2.clipped.value, false);
+
+  // Studio+: LINE IN is group 1; USB PLAY (group 3) has no meter field of its own.
+  const line3 = store.inputMeter("loopback-1", { group: 1, channel: 2 });
+  report("loopback-1", { peaks_line: bytes(8, { 2: 12 }) });
+  assert.equal(line3?.level.value, 12);
+  assert.equal(store.inputMeter("loopback-1", { group: 3, channel: 0 }), undefined);
+  for (const stop of listen) stop();
+});
+
+test("output meters: the Quadro reports Monitor, HP1, HP2 and Line Out; the Studio+ has no fixed output meters", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const stop = store.watchReport("loopback-0", "0x73");
+  const meters = store.outputMeters("loopback-0");
+  assert.deepEqual(meters?.map((m) => m.name), ["Monitor", "HP1", "HP2", "Line out"]);
+  client.cyclic.get("loopback-0|0x73")?.({ peaks_monitor: Uint8Array.of(96, 96), peaks_hp1: Uint8Array.of(96, 96), peaks_hp2: Uint8Array.of(10, 11), line_out: Uint8Array.of(12, 13) });
+  for (const frame of frames.splice(0)) frame();
+  const lineOut = meters?.[3];
+  assert.deepEqual([lineOut?.left.value, lineOut?.right.value], [12, 13]);
+  assert.deepEqual([meters?.[0]?.left.value, meters?.[0]?.right.value], [96, 96]);
+  assert.equal(store.outputMeters("loopback-1"), undefined);
+  stop();
+});

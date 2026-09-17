@@ -26,8 +26,6 @@ const PAN_SNAP = [27, 38] as const;
 export const SEND_MAX = 95;
 /** Scale marks in dB below full scale. */
 export const METER_MARKS = [0, 5, 10, 15, 20, 30, 40, 60] as const;
-/** Quadro meter sources for mixers 1–3: MONITOR, HP2, LINE_OUT (mixer 4's is not known). */
-const QUADRO_METER_SOURCES = [15, 12, 19] as const;
 
 export function levelDb(level: number): number {
   return level === 0 ? 0 : -level;
@@ -107,8 +105,6 @@ export class MixerModel {
   readonly channels: number;
   /** Studio+ strips have a send; Quadro's do not. */
   readonly hasSend: boolean;
-  /** Whether choosing this mixer can point the device's meters at it. */
-  readonly meterSourceSelectable: boolean;
   readonly #known = signal(false);
   readonly #needsRead = signal(true);
   /** Bumped by `forget()`, so a read begun before it neither counts nor holds back the next. */
@@ -117,8 +113,6 @@ export class MixerModel {
   readonly #context: MixerContext;
   readonly #strips: Signal<StripState>[];
   readonly #master = signal<StripState>(DEFAULT_STRIP);
-  readonly #clips: Signal<boolean>[];
-  readonly #meters = new Map<number, ReadonlySignal<number | undefined>>();
 
   constructor(context: MixerContext) {
     this.#context = context;
@@ -126,9 +120,7 @@ export class MixerModel {
     this.index = context.index;
     this.channels = context.topology.mixers.channels;
     this.hasSend = context.topology.mixers.command === "set_mixer_cfg";
-    this.meterSourceSelectable = context.family === "studio" || context.index < QUADRO_METER_SOURCES.length;
     this.#strips = Array.from({ length: this.channels }, () => signal(DEFAULT_STRIP));
-    this.#clips = Array.from({ length: this.channels }, () => signal(false));
   }
 
   /** True once the device's state has been read; until then values are defaults. */
@@ -200,51 +192,13 @@ export class MixerModel {
     return this.#signal(id);
   }
 
-  /** The latest peak byte for a strip (dB below full scale), or undefined before a report. */
-  meter(strip: number): ReadonlySignal<number | undefined> {
-    this.#check(strip);
-    let meter = this.#meters.get(strip);
-    if (meter === undefined) {
-      const peaks = this.#context.field("peaks_mixer");
-      meter = computed(() => {
-        const bytes = peaks.value;
-        return bytes instanceof Uint8Array && strip < bytes.length ? bytes[strip] : undefined;
-      });
-      this.#meters.set(strip, meter);
-    }
-    return meter;
-  }
-
-  clipped(strip: number): ReadonlySignal<boolean> {
-    this.#check(strip);
-    return this.#clips[strip] as Signal<boolean>;
-  }
-
-  clearClip(strip: number): void {
-    this.#check(strip);
-    (this.#clips[strip] as Signal<boolean>).value = false;
-  }
-
-  /** Follows the meters (latching clips) and points the device's meters at this mixer. Returns a disposer. */
+  /**
+   * Follows the device's report while a page shows this mixer. Returns a disposer. It points no
+   * meter bank: strips meter their inputs (the store's `inputMeter`), because the Quadro keeps its
+   * mixer meters on Mix 1's inputs whatever `set_peak_source` asks (hardware, 2026-09-16).
+   */
   activate(): () => void {
-    const stopWatching = this.#context.watch();
-    const peaks = this.#context.field("peaks_mixer");
-    const stopClips = effect(() => {
-      const bytes = peaks.value;
-      if (!(bytes instanceof Uint8Array)) return;
-      batch(() => {
-        for (let i = 0; i < Math.min(bytes.length, this.channels); i++) if (bytes[i] === 0) (this.#clips[i] as Signal<boolean>).value = true;
-      });
-    });
-    if (this.#context.family === "studio") {
-      void this.#context.invoke("set_peak_source", { bank_id: 1, source_id: this.index }, {});
-    } else if (this.meterSourceSelectable) {
-      void this.#context.invoke("set_peak_source", { bank_id: 0, source_id: QUADRO_METER_SOURCES[this.index] as number }, {});
-    }
-    return () => {
-      stopClips();
-      stopWatching();
-    };
+    return this.#context.watch();
   }
 
   setLevel(id: StripId, level: number): void {

@@ -78,3 +78,18 @@ test("each card shows the device's clock, power, preset and input level from its
     await expect(it.locator(".input")).toHaveAttribute("data-level", /^(quiet|signal|clip)$/);
   }
 });
+
+test("the right panel meters the device's outputs: Monitor, HP1, HP2 and Line out on the Quadro; the Studio+ reports none", async ({ page }) => {
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  const meters = page.locator("ga-output-meters");
+  await expect(meters.locator("[data-output]")).toHaveCount(4);
+  await expect(meters.locator("[data-output]").locator(".output-name")).toHaveText(["Monitor", "HP1", "HP2", "Line out"]);
+  // The loopback's report bytes cycle, so the meter moves.
+  const bar = meters.locator('[data-output="Line out"] .mask').first();
+  const first = await bar.evaluate((el) => (el as HTMLElement).style.width);
+  await expect.poll(() => bar.evaluate((el) => (el as HTMLElement).style.width)).not.toBe(first);
+
+  await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
+  await expect(meters.locator("[data-output]")).toHaveCount(0);
+  await expect(meters).toContainText("reports no output meters");
+});

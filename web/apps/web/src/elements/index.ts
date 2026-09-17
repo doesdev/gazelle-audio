@@ -11,6 +11,7 @@ import { GaHeader } from "./header.ts";
 import { GaInputs } from "./inputs-page.ts";
 import { GaOutputs } from "./outputs-page.ts";
 import { GaControlRoom, GaMonitor } from "./control-room.ts";
+import { GaOutputMeters } from "./output-meters.ts";
 import { GaMixer } from "./mixer-page.ts";
 import { GaStrip } from "./strip.ts";
 import { GaNotices } from "./notices.ts";
@@ -30,6 +31,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-inputs", GaInputs],
   ["ga-outputs", GaOutputs],
   ["ga-control-room", GaControlRoom],
+  ["ga-output-meters", GaOutputMeters],
   ["ga-monitor", GaMonitor],
   ["ga-strip", GaStrip],
   ["ga-channel", GaChannel],

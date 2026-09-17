@@ -84,7 +84,7 @@ export class GaApp extends GaElement {
           h(
             "div",
             { class: "content" },
-            h("ga-section", { heading: "Meter" }, h("p", { class: "placeholder" }, "The main output meter arrives with the mixer.")),
+            h("ga-section", { heading: "Meter" }, h("ga-output-meters")),
             h("ga-section", { heading: "Control Room" }, h("ga-control-room")),
           ),
         ),

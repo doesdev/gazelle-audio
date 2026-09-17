@@ -1,9 +1,11 @@
-// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"]>: one
+// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel]>: one
 // mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+), pan,
 // mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
 // readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
 // panels' own scales). `label` names the strip; `inactive` disables its controls (a channel with no
-// input or main mix); `meter="off"` blanks its meter when the device is metering another mix.
+// input or main mix); `meter="off"` blanks its meter (a channel not in the selected mix). The meter
+// shows the channel's input, named by `input-group` and `input-channel`: the signal arriving, before
+// the fader, since the Quadro's mixer meters cannot be moved off Mix 1 (hardware, 2026-09-16).
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
@@ -117,6 +119,9 @@ export class GaStrip extends GaElement {
     const testId = id === "master" ? "master" : String(id);
     const inactive = this.hasAttribute("inactive");
     const metered = this.getAttribute("meter") !== "off";
+    const inputGroup = this.getAttribute("input-group");
+    const inputMeter =
+      inputGroup === null ? undefined : store.inputMeter(deviceId, { group: Number(inputGroup), channel: Number(this.getAttribute("input-channel") ?? "0") });
     const enabled = () => store.connected.peek() && !inactive;
     const state = mixer.strip(id);
 
@@ -161,7 +166,7 @@ export class GaStrip extends GaElement {
         });
       }
 
-      const clip = h("button", { class: "clip", type: "button", "aria-label": `${label} clip; select to clear`, "on:click": () => mixer.clearClip(id) });
+      const clip = h("button", { class: "clip", type: "button", "aria-label": `${label} clip; select to clear`, "on:click": () => inputMeter?.clearClip() });
       const mask = h("div", { class: "mask" });
       const meter = h(
         "div",
@@ -188,15 +193,16 @@ export class GaStrip extends GaElement {
         pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
       });
       this.watch(() => {
-        // The device meters one mix at a time; another mix's peaks would be the wrong channel's.
-        const byte = metered ? mixer.meter(id).value : undefined;
+        const byte = metered ? inputMeter?.level.value : undefined;
         const deflection = byte === undefined ? 0 : meterDeflection(byte);
         mask.style.height = `${100 - deflection}%`;
         peakReadout.textContent = byte === undefined ? "—" : byte > 60 ? "< -60" : byte === 0 ? "0" : `-${byte}`;
       });
-      if (!metered) meter.title = "The meters are showing another mix";
+      if (!metered) meter.title = "This channel is not in the selected mix";
+      else if (inputMeter === undefined) meter.title = "This input reports no meter";
+      else meter.title = "The input's level, before the fader";
       this.watch(() => {
-        clip.toggleAttribute("data-on", mixer.clipped(id).value);
+        clip.toggleAttribute("data-on", inputMeter?.clipped.value === true);
       });
       this.watch(() => {
         const colours = Math.max(1, store.theme.value.palette.length);

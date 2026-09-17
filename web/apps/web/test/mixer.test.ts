@@ -105,40 +105,16 @@ test("a mixer channel link sends level, mute and solo to every member in the sam
   ], "relative: the Studio+ strip moves by the same step, in the same mix");
 });
 
-test("activating a mixer points the meters at it where the source is known, and meters latch clips", async () => {
-  const { client, frames, store } = setup();
-  const studio = store.mixer("loopback-1", 3);
-  const stopStudio = studio.activate();
-  const quadroFirst = store.mixer("loopback-0", 0);
-  const stopQuadro = quadroFirst.activate();
-  const quadroFourth = store.mixer("loopback-0", 3);
-  const stopFourth = quadroFourth.activate();
+test("activating a mixer follows the device's report and points no meter bank: strips meter their inputs (hardware, 2026-09-16)", async () => {
+  const { client, store } = setup();
+  const stopStudio = store.mixer("loopback-1", 3).activate();
+  const stopQuadro = store.mixer("loopback-0", 0).activate();
   await flush();
-  assert.deepEqual(sent(client, "set_peak_source").map((c) => [c.deviceId, c.args]), [
-    ["loopback-1", { bank_id: 1, source_id: 3 }],
-    ["loopback-0", { bank_id: 0, source_id: 15 }],
-  ]);
-  assert.equal(quadroFourth.meterSourceSelectable, false, "Quadro mixer 4's meter source is not known");
-
-  const report = client.cyclic.get("loopback-1|0x73");
-  assert.ok(report);
-  const peaks = new Uint8Array(32).fill(60);
-  peaks[2] = 0;
-  peaks[5] = 18;
-  report({ peaks_mixer: peaks });
-  frames.shift()?.();
-  assert.deepEqual([studio.meter(5).value, studio.meter(2).value], [18, 0]);
-  assert.deepEqual([studio.clipped(2).value, studio.clipped(5).value], [true, false]);
-  peaks[2] = 30;
-  report({ peaks_mixer: new Uint8Array(peaks) });
-  frames.shift()?.();
-  assert.equal(studio.clipped(2).value, true, "clip stays latched");
-  studio.clearClip(2);
-  assert.equal(studio.clipped(2).value, false);
-
+  // The Quadro ignored every set_peak_source tried on it and kept metering Mix 1's inputs.
+  assert.deepEqual(sent(client, "set_peak_source"), []);
+  assert.equal(client.cyclic.size, 2, "each active mixer follows its device's report");
   stopStudio();
   stopQuadro();
-  stopFourth();
   assert.equal(client.cyclic.size, 0, "deactivating stops following the reports");
 });
 
