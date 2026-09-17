@@ -6,7 +6,8 @@
 // The sidebar docks to the right unless moved, and folds to its rail; its side, whether it is
 // folded and each section's collapse are remembered per browser (the user, 2026-09-16). At phone
 // width it is a drawer over the page instead, opened from the header and closed by Escape, a tap
-// outside it, or a new address; it always starts closed there.
+// outside it, or a new address; it always starts closed there. While it is open it holds focus:
+// the page behind is inert and Tab and Shift+Tab go round the drawer's own controls.
 //
 // A page is built for each change of what is shown: page and device (decision P71). The device
 // an address names is remembered as the selected one; an address that names none shows the one
@@ -148,18 +149,28 @@ export class GaApp extends GaElement {
     );
     const backdrop = h("div", { class: "backdrop", "aria-hidden": "true", "on:click": () => closeDrawer(false) });
 
-    this.root.replaceChildren(
-      h("ga-header", {}, menu),
-      h("div", { class: "zones" }, main, sidebar, backdrop),
-      // The dock styles its own zone, so on the Mixer page, where it hides, the footer takes no room.
-      h("footer", { "aria-label": "Mixer" }, h("ga-mixer-dock")),
-      h("ga-notices"),
-    );
+    const header = h("ga-header", {}, menu);
+    // The dock styles its own zone, so on the Mixer page, where it hides, the footer takes no room.
+    const footer = h("footer", { "aria-label": "Mixer" }, h("ga-mixer-dock"));
+    this.root.replaceChildren(header, h("div", { class: "zones" }, main, sidebar, backdrop), footer, h("ga-notices"));
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && drawer.peek()) {
+      if (!drawer.peek()) return;
+      if (event.key === "Escape") {
         event.preventDefault();
         closeDrawer(true);
+      } else if (event.key === "Tab") {
+        // At either end of the drawer, Tab goes round to the other end instead of to the browser.
+        const stops = tabStops(sidebar);
+        const first = stops[0];
+        const last = stops.at(-1);
+        if (first === undefined || last === undefined) return;
+        const current = deepActiveElement();
+        const outside = current === undefined || !composedContains(sidebar, current);
+        if (outside || current === (event.shiftKey ? first : last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
       }
     };
     document.addEventListener("keydown", onKey);
@@ -174,6 +185,8 @@ export class GaApp extends GaElement {
       const open = drawer.value;
       this.toggleAttribute("drawer-open", open);
       menu.setAttribute("aria-expanded", String(open));
+      // Behind an open drawer nothing can be reached; the notices stay live so a failure is still heard.
+      for (const behind of [header, main, footer]) behind.inert = open;
       if (open) close.focus();
     });
     // A new address closes the drawer: picking a device card or a page is done with it.
@@ -240,6 +253,35 @@ export class GaApp extends GaElement {
       });
     });
   }
+}
+
+/** The elements Tab stops at within `root`, in order, through shadow roots and slots. */
+function tabStops(root: Element): HTMLElement[] {
+  const stops: HTMLElement[] = [];
+  const visit = (element: Element) => {
+    if (element instanceof HTMLElement) {
+      if (element.inert || element.hidden) return;
+      const link = element instanceof HTMLAnchorElement && !element.hasAttribute("href") && !element.hasAttribute("tabindex");
+      if (element.tabIndex >= 0 && !link && !element.matches(":disabled") && element.checkVisibility({ visibilityProperty: true })) stops.push(element);
+    }
+    const children = element instanceof HTMLSlotElement ? element.assignedElements({ flatten: true }) : Array.from((element.shadowRoot ?? element).children);
+    for (const child of children) visit(child);
+  };
+  visit(root);
+  return stops;
+}
+
+/** The focused element, inside whichever shadow roots hold it. */
+function deepActiveElement(): Element | undefined {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active ?? undefined;
+}
+
+/** Whether `node` is `ancestor` or within it, counting a shadow root as within its host. */
+function composedContains(ancestor: Node, node: Node): boolean {
+  for (let at: Node | null = node; at !== null; at = at instanceof ShadowRoot ? at.host : at.parentNode) if (at === ancestor) return true;
+  return false;
 }
 
 function pageFor(page: Page, id: string | undefined): HTMLElement {
