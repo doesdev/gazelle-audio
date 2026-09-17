@@ -24,6 +24,7 @@ fn app() -> axum::Router {
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir: None,
+        show_window: None,
     }))
 }
 

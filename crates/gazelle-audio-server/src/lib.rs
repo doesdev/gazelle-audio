@@ -14,6 +14,7 @@
 pub mod config;
 pub mod device;
 pub mod error;
+pub mod handover;
 pub mod http;
 pub mod logging;
 pub mod notice;
@@ -40,6 +41,14 @@ pub struct AppState {
     pub backend: String,
     /// Where user theme JSON files for the web UI live; `None` lists no user themes.
     pub themes_dir: Option<std::path::PathBuf>,
+    /// Brings the desktop window to the front. `None` on a headless server — no window feature,
+    /// `--no-window`, or a window that could not be created — and a second launch is told so
+    /// rather than left wondering (`handover`).
+    pub show_window: Option<ShowWindow>,
 }
+
+/// Asks the desktop window to show itself. Called from an HTTP handler on a worker thread, so the
+/// window's own thread is reached through whatever the implementation posts to it.
+pub type ShowWindow = Arc<dyn Fn() + Send + Sync>;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

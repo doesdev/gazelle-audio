@@ -12,7 +12,7 @@ pub mod boot;
 #[cfg(windows)]
 mod windows;
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -158,12 +158,7 @@ pub struct Status {
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
 /// open `0.0.0.0`, so it gets the loopback address of the same family.
 pub fn ui_url(address: SocketAddr) -> String {
-    let ip = match address.ip() {
-        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        ip => ip,
-    };
-    format!("http://{}/", SocketAddr::new(ip, address.port()))
+    format!("http://{}/", crate::handover::reachable(address))
 }
 
 /// A device as the menu names it: its model, or its USB ids when the model is unknown.

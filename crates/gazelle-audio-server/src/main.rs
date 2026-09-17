@@ -95,8 +95,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
-    let (listener, app, devices, hotplug) = runtime.block_on(prepare(args))?;
+    // The port is taken before anything else is opened, so a second launch that is about to hand
+    // over never takes a USB handle or a workspace file on its way out.
+    let listener = match runtime.block_on(tokio::net::TcpListener::bind(args.bind)) {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => return second_instance(args.bind, &e),
+        Err(e) => return Err(Box::new(e)),
+    };
     let address = listener.local_addr()?;
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address))?;
 
     // Quit in the tray and Ctrl-C both end the server the same way.
     let quit = Arc::new(Notify::new());
@@ -139,11 +146,14 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// Everything up to a bound listener: devices attached, workspace store chosen, routes built. For
-/// the USB backend, also the scanner that keeps attaching and detaching devices from then on.
+/// Everything behind the bound listener: devices attached, workspace store chosen, routes built.
+/// For the USB backend, also the scanner that keeps attaching and detaching devices from then on.
+///
+/// `address` is what the listener really bound, which with port 0 is not what was asked for.
 async fn prepare(
     args: &Args,
-) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
+    address: SocketAddr,
+) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
     let pids: Vec<u16> = args
@@ -186,18 +196,19 @@ async fn prepare(
         force_dry_run: args.dry_run,
         backend: format!("{:?}", args.backend).to_lowercase(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
+        // No window is created yet; a second launch is told this one is headless.
+        show_window: None,
     };
 
     let app = http::router(state);
     #[cfg(feature = "web-ui")]
     let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
-    let listener = tokio::net::TcpListener::bind(args.bind).await?;
 
     // The bound address, not `args.bind`: with port 0 this log line is how another process (the
     // web client's integration tests) finds the server.
     tracing::info!(
         "listening on http://{} — backend={:?} devices={} dry_run={}",
-        listener.local_addr()?,
+        address,
         args.backend,
         devices.len(),
         args.dry_run
@@ -219,7 +230,24 @@ async fn prepare(
         );
     }
 
-    Ok((listener, app, devices, hotplug))
+    Ok((app, devices, hotplug))
+}
+
+/// The port is already taken. If a Gazelle holds it, hand it the window and go quietly; the
+/// person double-clicked the app again, and what they want is the window they already have
+/// (`handover`). Anything else on the port is the error it always was.
+fn second_instance(bind: SocketAddr, error: &std::io::Error) -> Result<(), Box<dyn std::error::Error>> {
+    match gazelle_audio_server::handover::hand_over(bind) {
+        Ok(gazelle_audio_server::handover::Outcome::Shown) => {
+            tracing::info!("Gazelle is already running on {bind}; brought its window to the front");
+            Ok(())
+        }
+        Ok(gazelle_audio_server::handover::Outcome::Headless(reason)) => {
+            tracing::info!("Gazelle is already running on {bind}, and {reason}");
+            Ok(())
+        }
+        Err(why) => Err(format!("{bind} is in use ({error}), and what is listening there is not Gazelle: {why}").into()),
+    }
 }
 
 /// Serve until Ctrl-C or Quit, then stop the device workers.
@@ -242,7 +270,7 @@ async fn serve(
         }
         devices.shutdown_all();
     };
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await
+    http::serve_with_shutdown(listener, app, shutdown).await
 }
 
 /// What the tray is told about this server, including the arguments a boot entry repeats.

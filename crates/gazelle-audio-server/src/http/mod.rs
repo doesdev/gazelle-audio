@@ -4,6 +4,7 @@ pub mod commands;
 pub mod devices;
 pub mod health;
 pub mod themes;
+pub mod window;
 pub mod workspace;
 
 use axum::routing::{get, post};
@@ -28,6 +29,27 @@ pub fn router(state: AppState) -> Router {
             get(workspace::get_workspace).put(workspace::put_workspace),
         )
         .route("/api/v1/themes", get(themes::list_themes))
+        .route("/api/v1/window/show", post(window::show))
         .route("/api/v1/ws", get(crate::ws::ws_handler))
         .with_state(state)
+}
+
+/// Serve until the shutdown signal, with each connection's peer address available to handlers.
+///
+/// Every server in the project goes through this, so `/api/v1/window/show` can always see who is
+/// asking: without the peer it refuses, which would otherwise be a silent, confusing refusal of a
+/// handover from the same machine.
+pub async fn serve(listener: tokio::net::TcpListener, app: Router) -> std::io::Result<()> {
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await
+}
+
+/// As [`serve`], stopping when `shutdown` resolves.
+pub async fn serve_with_shutdown(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .with_graceful_shutdown(shutdown)
+        .await
 }
