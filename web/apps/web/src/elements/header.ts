@@ -74,7 +74,8 @@ export class GaHeader extends GaElement {
     this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, picker, h("slot", { name: "menu" })));
 
     this.watch(() => {
-      const current = route.value.page;
+      // A surface is opened from the Workspace page, so that tab stays marked while one is shown.
+      const current = route.value.page === "surface" ? "workspace" : route.value.page;
       for (const link of links) link.toggleAttribute("aria-current", link.dataset["page"] === current);
       for (const link of links) if (link.dataset["page"] === current) link.setAttribute("aria-current", "page");
     });

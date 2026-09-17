@@ -6,9 +6,44 @@ import { h } from "../core/dom.ts";
 import { formatVolume, TRIM_LABELS, VOLUME_MAX, type OutputInfo, type OutputsModel, type TrimInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import type { ControlHost } from "./inputs-page.ts";
 
 /** The vendor panels' starting volume, which a reset returns to. */
 const VOLUME_RESET = 30;
+
+/** The styles of an output's row, for any element that shows one. */
+export const OUTPUT_CONTROL_STYLES = `
+  .output {
+    display: grid;
+    grid-template-columns: minmax(72px, 110px) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    background: var(--ga-surface-raised);
+  }
+  .name { font-family: "Josefin Sans Variable", system-ui, sans-serif; font-size: 13px; font-weight: 600; }
+  .volume {
+    position: relative;
+    height: 22px;
+    border: 1px solid var(--ga-border-subtle);
+    border-radius: 3px;
+    background: var(--ga-surface-inset);
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+  }
+  .volume:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
+  .volume .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
+  .volume .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .volume[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
+  .toggles { display: flex; gap: 4px; }
+  .toggles button { min-width: 44px; font-size: 11px; font-weight: 700; }
+  .mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
+  .dim[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+  .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .mono { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-inverse); background: var(--ga-accent); }
+`;
 
 export class GaOutputs extends GaElement {
   static override styles = [
@@ -20,36 +55,7 @@ export class GaOutputs extends GaElement {
       .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
       .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
       .rows { display: grid; gap: 6px; max-width: 640px; }
-      .output {
-        display: grid;
-        grid-template-columns: minmax(72px, 110px) minmax(0, 1fr) auto;
-        align-items: center;
-        gap: 10px;
-        padding: 6px 8px;
-        border-radius: 3px;
-        background: var(--ga-surface-raised);
-      }
-      .name { font-family: "Josefin Sans Variable", system-ui, sans-serif; font-size: 13px; font-weight: 600; }
-      .volume {
-        position: relative;
-        height: 22px;
-        border: 1px solid var(--ga-border-subtle);
-        border-radius: 3px;
-        background: var(--ga-surface-inset);
-        cursor: ew-resize;
-        touch-action: none;
-        outline: none;
-      }
-      .volume:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
-      .volume .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
-      .volume .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
-      .volume[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
-      .toggles { display: flex; gap: 4px; }
-      .toggles button { min-width: 44px; font-size: 11px; font-weight: 700; }
-      .mute[aria-pressed="true"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
-      .dim[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
-      .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-      .mono { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-inverse); background: var(--ga-accent); }
+      ${OUTPUT_CONTROL_STYLES}
       h2 { margin: 8px 0 6px; }
       .settings { display: grid; gap: 6px; max-width: 640px; }
       .setting { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
@@ -93,7 +99,7 @@ export class GaOutputs extends GaElement {
           "on:click": () => outputs.setHardMute(!outputs.hardMute.peek()),
         }, "Hard mute");
     const note = h("p", { class: "note" });
-    const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => this.#row(outputs, output, enabled)));
+    const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => outputRow({ watch: (fn) => this.watch(fn), onDisconnect: (fn) => this.onDisconnect(fn) }, outputs, output, enabled)));
 
     const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
     const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
@@ -128,36 +134,6 @@ export class GaOutputs extends GaElement {
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("button[data-control]")) button.disabled = !connected;
       for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!connected));
     });
-  }
-
-  #row(outputs: OutputsModel, output: OutputInfo, enabled: () => boolean): HTMLElement {
-    const state = outputs.state(output.id);
-    const fill = h("div", { class: "fill" });
-    const value = h("span", { class: "value" });
-    const volume = h(
-      "div",
-      { class: "volume", role: "slider", tabindex: 0, "aria-label": `${output.name} volume`, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": `out-volume-${output.id}` },
-      fill,
-      value,
-    );
-    bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled });
-    const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
-    const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
-    // Mono is reported (Quadro) but has no command, so it is a badge, not a button.
-    const mono = h("span", { class: "mono", "data-testid": `out-mono-${output.id}`, title: "The device reports this output in mono", hidden: true }, "MONO");
-
-    this.watch(() => {
-      const s = state.value;
-      fill.style.width = `${((VOLUME_MAX - Math.min(VOLUME_MAX, Math.max(0, s.volume))) / VOLUME_MAX) * 100}%`;
-      value.textContent = formatVolume(s.volume);
-      volume.setAttribute("aria-valuenow", String(-s.volume));
-      volume.setAttribute("aria-valuetext", formatVolume(s.volume));
-      mute.setAttribute("aria-pressed", String(s.mute));
-      dim?.setAttribute("aria-pressed", String(s.dim));
-      mono.hidden = !s.mono;
-    });
-
-    return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name-cell" }, h("span", { class: "name" }, output.name), mono), volume, h("div", { class: "toggles" }, mute, dim));
   }
 
   #trim(outputs: OutputsModel, trim: TrimInfo): HTMLElement {
@@ -209,6 +185,37 @@ export class GaOutputs extends GaElement {
       ),
     );
   }
+}
+
+/** One output's row: its volume (dB of attenuation), mute, the Quadro's dim, and the mono the Quadro reports. */
+export function outputRow(host: ControlHost, outputs: OutputsModel, output: OutputInfo, enabled: () => boolean): HTMLElement {
+  const state = outputs.state(output.id);
+  const fill = h("div", { class: "fill" });
+  const value = h("span", { class: "value" });
+  const volume = h(
+    "div",
+    { class: "volume", role: "slider", tabindex: 0, "aria-label": `${output.name} volume`, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": `out-volume-${output.id}` },
+    fill,
+    value,
+  );
+  bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled });
+  const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
+  const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
+  // Mono is reported (Quadro) but has no command, so it is a badge, not a button.
+  const mono = h("span", { class: "mono", "data-testid": `out-mono-${output.id}`, title: "The device reports this output in mono", hidden: true }, "MONO");
+
+  host.watch(() => {
+    const s = state.value;
+    fill.style.width = `${((VOLUME_MAX - Math.min(VOLUME_MAX, Math.max(0, s.volume))) / VOLUME_MAX) * 100}%`;
+    value.textContent = formatVolume(s.volume);
+    volume.setAttribute("aria-valuenow", String(-s.volume));
+    volume.setAttribute("aria-valuetext", formatVolume(s.volume));
+    mute.setAttribute("aria-pressed", String(s.mute));
+    dim?.setAttribute("aria-pressed", String(s.dim));
+    mono.hidden = !s.mono;
+  });
+
+  return h("div", { class: "output", "data-testid": `output-${output.id}` }, h("span", { class: "name-cell" }, h("span", { class: "name" }, output.name), mono), volume, h("div", { class: "toggles" }, mute, dim));
 }
 
 declare global {

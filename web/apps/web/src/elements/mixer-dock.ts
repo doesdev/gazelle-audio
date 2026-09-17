@@ -6,7 +6,13 @@
 // stays at the right. A mix with no channel set up is one short line pointing to the Mixer page,
 // without its master: there is nothing in it to ride, and a fader needs the full row's height.
 //
-// On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full.
+// Its Show menu can put a cross-device surface there instead (workspace spec §4.7): the surface's
+// strips at dock width, each with its device's badge (`ga-surface-strip compact`), so the Quadro's cue
+// faders stay in reach on the Studio+'s Inputs page. The choice is kept per browser, and falls back
+// to the device in view once the surface is deleted.
+//
+// On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full;
+// a surface in the dock is hidden, likewise, on that surface's own page.
 // While hidden or collapsed it follows nothing: the report watch, the mix reads and the strips are
 // released, as they are when another device comes into view. Whether it is collapsed is kept per
 // browser; until someone chooses, it starts collapsed at phone width, where open it would take a
@@ -43,6 +49,7 @@ export class GaMixerDock extends GaElement {
         background: var(--ga-surface-inset);
       }
       .strips ga-strip { flex: 0 0 44px; }
+      .strips ga-surface-strip { min-height: 0; }
       .master { position: sticky; right: 0; display: flex; margin-left: auto; padding: 0 4px 0 6px; background: var(--ga-surface-inset); box-shadow: -8px 0 8px -4px rgb(0 0 0 / 0.5); }
       .master ga-strip { flex: 0 0 48px; }
       /* Nothing to show is one line, not a row of strip height. */
@@ -56,7 +63,8 @@ export class GaMixerDock extends GaElement {
     const store = useStore();
     const device = h("span", { class: "device muted" });
     const mixSelect = h("select", { "aria-label": "Dock mix", "data-testid": "dock-mix-select" });
-    const actions = h("div", { class: "actions", slot: "actions" }, device, mixSelect);
+    const sourceSelect = h("select", { "aria-label": "Dock shows", "data-testid": "dock-source-select", "on:change": () => store.setMixerDockSurface(sourceSelect.value === "" ? undefined : sourceSelect.value) });
+    const actions = h("div", { class: "actions", slot: "actions" }, sourceSelect, device, mixSelect);
     const strips = h("div", { class: "strips", "data-testid": "dock-strips" });
     const section = h("ga-section", { heading: "Mixer" }, actions, strips) as GaSection;
     section.collapsed = store.mixerDockCollapsed.peek();
@@ -127,23 +135,60 @@ export class GaMixerDock extends GaElement {
       return own;
     };
 
+    // A surface: its strips at dock width, rebuilt when its strips or their order change.
+    const followSurface = (surfaceId: string): (() => void)[] => {
+      let rendered = "";
+      return [
+        effect(() => {
+          const surface = store.surfaces.surface(surfaceId);
+          device.textContent = surface?.name ?? "";
+          const ids = (surface?.strips ?? []).map((s) => s.id);
+          const key = JSON.stringify(ids);
+          if (key === rendered) return;
+          rendered = key;
+          untracked(() =>
+            strips.replaceChildren(
+              ...(ids.length === 0
+                ? [h("p", { class: "placeholder empty" }, `${surface?.name ?? "This surface"} has no strips yet. `, h("a", { href: href({ page: "surface", id: surfaceId }) }, "Add some on the surface."))]
+                : ids.map((id) => h("ga-surface-strip", { "surface-id": surfaceId, "strip-id": id, compact: "" }))),
+            ),
+          );
+        }),
+      ];
+    };
+
+    this.watch(() => {
+      const chosen = store.mixerDockSurface.value;
+      sourceSelect.replaceChildren(h("option", { value: "" }, "This device"), ...store.surfaces.list.value.map((surface) => h("option", { value: surface.id }, surface.name)));
+      sourceSelect.value = chosen ?? "";
+      sourceSelect.disabled = !store.connected.value;
+    });
+
     let shown: string | undefined;
     this.watch(() => {
       const current = route.value;
-      const onMixer = current.page === "mixer";
+      const surface = store.mixerDockSurface.value;
+      // Hidden where the page already shows the same strips in full.
+      const repeated = surface === undefined ? current.page === "mixer" : current.page === "surface" && current.id === surface;
       const collapsed = store.mixerDockCollapsed.value;
       const known = store.devices.value.filter((d) => d.family !== null);
       const id = known.find((d) => d.id === current.id)?.id ?? store.deviceInView(true);
-      this.hidden = onMixer;
-      // Collapsed, the Mix menu is not filled in, so its bar shows no empty menu.
-      actions.hidden = id === undefined || collapsed;
-      const key = onMixer || collapsed ? "" : `device:${id ?? ""}`;
+      this.hidden = repeated;
+      // Collapsed, the menus are not filled in, so its bar shows no empty menu.
+      actions.hidden = collapsed || (surface === undefined && id === undefined && store.surfaces.list.value.length === 0);
+      mixSelect.hidden = surface !== undefined || id === undefined;
+      device.hidden = surface === undefined && id === undefined;
+      const key = repeated || collapsed ? "" : surface !== undefined ? `surface:${surface}` : `device:${id ?? ""}`;
       if (key === shown) return;
       shown = key;
       untracked(() => {
         release();
         section.collapsed = collapsed;
         if (key === "") return;
+        if (surface !== undefined) {
+          held = followSurface(surface);
+          return;
+        }
         if (id === undefined) {
           showMessage("No device with a known mixer is connected.");
           return;

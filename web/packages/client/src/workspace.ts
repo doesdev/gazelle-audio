@@ -89,6 +89,73 @@ export interface Workspace {
   mixers: Record<string, DeviceMixer>;
   /** Mixer layouts the user saved, per device model; older servers omit it. */
   layouts?: SavedLayout[];
+  /** Device id → its badge colour, `#rrggbb`; older servers omit it. */
+  device_colors?: Record<string, string>;
+  /** Cross-device mix surfaces; older servers omit it. */
+  surfaces?: Surface[];
+  /** Digital connections between devices, as declared; older servers omit it. */
+  cables?: Cable[];
+}
+
+/** A device's digital port, by its topology type. */
+export type DigitalPort = "SPDIF_OUT" | "ADAT_OUT" | "SPDIF_IN" | "ADAT_IN";
+
+/** One end of a cable: a device's port and the first channel of it the cable carries. */
+export interface CableEnd {
+  device_id: string;
+  port: DigitalPort;
+  first: number;
+}
+
+/**
+ * A cable the user says joins one device's S/PDIF or ADAT output to another's input of the same
+ * kind. It routes nothing; it tells the app where a digital input's signal comes from.
+ */
+export interface Cable {
+  id: string;
+  from: CableEnd;
+  to: CableEnd;
+  channels: number;
+}
+
+/** What a surface strip shows. */
+export type SurfaceStripKind = "channel" | "master" | "input" | "output" | "port" | "label";
+
+/** A hardware input: its kind and a channel within it, from 0. */
+export interface InputRef {
+  kind: "preamp" | "line" | "adat" | "spdif";
+  channel: number;
+}
+
+/**
+ * One strip on a surface. A `channel` names a mixer channel of its device's layout and may pin a
+ * `mix`; a `master` names a mix, or follows the surface's mix for its device without one; an `input`
+ * a hardware input; an `output` an output id as `set_volume` numbers it; a `label` only `text`.
+ */
+export interface SurfaceStrip {
+  /** Unique within its surface. */
+  id: string;
+  kind: SurfaceStripKind;
+  device_id?: string;
+  /** A `MixerChannel` id. */
+  channel?: string;
+  mix?: number;
+  input?: InputRef;
+  output?: number;
+  text?: string;
+  /** A `port` strip's digital output. */
+  port?: "SPDIF_OUT" | "ADAT_OUT";
+  /** A port strip's first channel: 0, or 8 for a second ADAT port. */
+  first?: number;
+}
+
+/** A user-built row of strips from any devices (workspace spec §4), each strip naming its device. */
+export interface Surface {
+  id: string;
+  name: string;
+  /** Device id → the mix its channel strips show. */
+  mixes: Record<string, number>;
+  strips: SurfaceStrip[];
 }
 
 /** A mixer layout saved by name, which any device of `family` can start from. */

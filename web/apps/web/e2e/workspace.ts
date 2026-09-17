@@ -11,6 +11,9 @@ export interface WorkspaceParts {
   aliases?: Record<string, string>;
   mixers?: Record<string, unknown>;
   layouts?: unknown[];
+  device_colors?: Record<string, string>;
+  surfaces?: unknown[];
+  cables?: unknown[];
 }
 
 /** Replaces the server's workspace with these parts; anything not given is empty. */

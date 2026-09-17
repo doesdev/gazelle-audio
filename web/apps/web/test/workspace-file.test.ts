@@ -59,10 +59,13 @@ test("a read file is summarised for the confirmation, with every device it names
       links: [{ id: "l", kind: "preamp", mode: "absolute", members: [{ device_id: "loopback-0", channel: 0 }, { device_id: "serial-7", channel: 1 }] }],
       mixers: { "loopback-1": { mixes: [], groups: [], channels: [] } },
       layouts: [{ id: "a", name: "A", family: "quadro", mixer: { mixes: [], groups: [], channels: [] } }],
+      device_colors: { "serial-5": "#000000" },
+      surfaces: [{ id: "s", name: "S", mixes: { "loopback-0": 1 }, strips: [{ id: "x", kind: "master", device_id: "serial-3" }, { id: "y", kind: "label", text: "" }] }],
+      cables: [{ id: "c", from: { device_id: "serial-1", port: "ADAT_OUT", first: 0 }, to: { device_id: "loopback-0", port: "ADAT_IN", first: 0 }, channels: 8 }],
     }),
     1,
   );
   assert.equal(read.ok, true);
   if (!read.ok) return;
-  assert.deepEqual(read.summary, { names: 2, groups: 2, links: 1, mixers: 1, layouts: 1, devices: ["loopback-0", "loopback-1", "serial-7", "serial-9"] });
+  assert.deepEqual(read.summary, { names: 2, groups: 2, links: 1, mixers: 1, layouts: 1, surfaces: 1, cables: 1, devices: ["loopback-0", "loopback-1", "serial-1", "serial-3", "serial-5", "serial-7", "serial-9"] });
 });

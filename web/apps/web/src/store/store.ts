@@ -15,7 +15,7 @@
 //   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
 //   pages are rebuilt on every change of address and read it back when they are.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Topology, type Workspace } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
@@ -24,6 +24,8 @@ import { LinksModel } from "./links.ts";
 import { OutputsModel } from "./outputs.ts";
 import { MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
+import { SurfacesModel } from "./surfaces.ts";
+import { CablesModel } from "./cables.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -36,9 +38,11 @@ export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
 export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
+export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
-export type { ChannelRef, DeviceDescriptor, DeviceMixer, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Topology, Workspace };
+export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
+export type { NewStrip } from "./surfaces.ts";
 
 /** The most recent command the mixer sent, with the bytes the server reported. */
 export interface SentCommand {
@@ -326,6 +330,9 @@ export class Store {
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
   readonly #clipAutoClear: Signal<number | null>;
   readonly #mixerDockCollapsed: Signal<boolean>;
+  readonly #mixerDockSurface: Signal<string | null>;
+  /** The surface the mixer dock shows, while it exists; undefined for the device in view. */
+  readonly mixerDockSurface: ReadonlySignal<string | undefined>;
   readonly #clipLights = new Set<ClipLight>();
   readonly #selectedMix = new Map<string, ReadonlySignal<number>>();
   readonly #views = new Map<string, Signal<unknown>>();
@@ -355,6 +362,12 @@ export class Store {
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
     this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
+    this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
+    // A surface deleted here or elsewhere hands the dock back to the device in view.
+    this.mixerDockSurface = computed(() => {
+      const id = this.#mixerDockSurface.value;
+      return id !== null && (this.#workspace.value?.surfaces ?? []).some((s) => s.id === id) ? id : undefined;
+    });
     this.themeCatalog = computed(() => {
       const { themes, problems } = resolveThemes([...this.#themeSources, ...this.#userThemes.value]);
       return { themes: [...themes.values()], problems: [...problems, ...this.#userThemeProblems.value] };
@@ -646,6 +659,43 @@ export class Store {
       const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
       return family === undefined || family === null ? undefined : Array.from({ length: topologies[family].mixers.count }, (_, m) => this.mixer(deviceId, m));
     },
+  });
+
+  /** Cross-device mix surfaces and each device's badge colour (workspace spec §4). */
+  readonly surfaces: SurfacesModel = new SurfacesModel({
+    surfaces: computed(() => this.#workspace.value?.surfaces ?? []),
+    edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, surfaces: update([...(workspace.surfaces ?? [])]) })),
+    colors: computed(() => this.#workspace.value?.device_colors ?? {}),
+    editColors: (update) => this.editWorkspace((workspace) => ({ ...workspace, device_colors: update({ ...(workspace.device_colors ?? {}) }) })),
+    deviceIds: computed(() => this.#devices.value.map((d) => d.id)),
+    palette: computed(() => this.theme.value.palette),
+    model: (deviceId) => {
+      const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+      return family === undefined || family === null ? undefined : { family, topology: topologies[family], outputs: family === "quadro" ? 4 : 5 };
+    },
+  });
+
+  /** Digital cables between devices: where a digital input's signal comes from, and what is wrong along one (workspace spec §4.5). */
+  readonly cables: CablesModel = new CablesModel({
+    cables: computed(() => this.#workspace.value?.cables ?? []),
+    edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, cables: update([...(workspace.cables ?? [])]) })),
+    model: (deviceId) => {
+      const family = this.#devices.value.find((d) => d.id === deviceId)?.family;
+      return family === undefined || family === null ? undefined : { family, topology: topologies[family] };
+    },
+    routing: (deviceId) => this.routing(deviceId),
+    mixName: (deviceId, mix) => this.channels(deviceId).mixName(mix),
+    mixerChannels: (deviceId) => (this.topology(deviceId) === undefined ? [] : this.channels(deviceId).layout.value.channels),
+    deviceName: (deviceId) => {
+      const device = this.#devices.value.find((d) => d.id === deviceId);
+      return device === undefined ? deviceId : displayName(device, this.#workspace.value);
+    },
+    clock: (deviceId) => {
+      const card = this.deviceCard(deviceId);
+      return card?.clock === undefined ? undefined : { rate: card.clock.rate, locked: card.clock.locked };
+    },
+    inputLevel: (deviceId, source) => this.inputMeter(deviceId, source)?.level.value,
+    rateNames: SAMPLE_RATES,
   });
 
   #knownInputs(deviceId: string): InputsModel | undefined {
@@ -1010,6 +1060,13 @@ export class Store {
     if (this.#mixerDockCollapsed.peek() !== collapsed) this.#mixerDockCollapsed.value = collapsed;
   }
 
+  /** Shows a surface in the mixer dock (remembered per browser), or the device in view again (undefined). False for a surface that does not exist. */
+  setMixerDockSurface(surfaceId: string | undefined): boolean {
+    if (surfaceId !== undefined && !(this.#workspace.peek()?.surfaces ?? []).some((s) => s.id === surfaceId)) return false;
+    this.#mixerDockSurface.value = surfaceId ?? null;
+    return true;
+  }
+
   /** How long clip lights stay lit once a clip ends, in ms, or null to hold them until cleared. Remembered. */
   get clipAutoClear(): ReadonlySignal<number | null> {
     return this.#clipAutoClear;
@@ -1298,7 +1355,8 @@ export class Store {
       return undefined;
     } catch (error) {
       if (pending) this.#saveTimer = this.#timers.setTimeout(() => void this.#save(), SAVE_DEBOUNCE_MS);
-      // The server answers a document it cannot deserialise in plain text, so the client knows only the status.
+      // A server from before workspace spec phase 1 answers a document it cannot deserialise in plain
+      // text, so the client knows only the status; newer ones say which part in a `bad_value`.
       if (error instanceof GazelleError && /^http_4\d\d$/.test(error.code)) return "The server could not read it as a workspace: a part of it is missing or has the wrong type.";
       return `The server refused it: ${message(error)}`;
     } finally {

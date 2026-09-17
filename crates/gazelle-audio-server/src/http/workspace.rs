@@ -1,12 +1,15 @@
 //! Workspace read and replace.
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::Json;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{ChannelLink, DeviceMixer, Group, Workspace, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS};
+use crate::workspace::model::{Cable, ChannelLink, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::topology;
 use crate::AppState;
 
 pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspace>, ServerError> {
@@ -15,16 +18,159 @@ pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspa
 
 pub async fn put_workspace(
     State(state): State<AppState>,
-    Json(workspace): Json<Workspace>,
+    document: Result<Json<Workspace>, JsonRejection>,
 ) -> Result<Json<Workspace>, ServerError> {
+    // A document that is not a workspace is refused like any other bad value, in the JSON error body
+    // and naming the part that is wrong: axum's own rejection is plain text, which a page cannot show.
+    let Json(workspace) = document.map_err(|rejection| {
+        let text = rejection.body_text();
+        let reason = text.split_once(": ").map_or(text.as_str(), |(_, reason)| reason);
+        ServerError::BadValue(format!("not a workspace: {reason}"))
+    })?;
+    if !(1..=WORKSPACE_VERSION).contains(&workspace.version) {
+        return Err(ServerError::BadValue(format!("workspace version {} is not one this server reads ({WORKSPACE_VERSION})", workspace.version)));
+    }
     check_colours(&workspace.groups)?;
     check_links(&workspace.links)?;
     for (device, mixer) in &workspace.mixers {
         check_mixer(mixer).map_err(|m| ServerError::BadValue(format!("mixer for {device}: {m}")))?;
     }
     check_layouts(&workspace.layouts)?;
+    for (device, colour) in &workspace.device_colors {
+        if !valid_colour(colour) {
+            return Err(ServerError::BadValue(format!("device {device}: color must be #rrggbb, got {colour:?}")));
+        }
+    }
+    // Indexes are checked against the models of the devices attached now; a device the server does
+    // not know keeps what it names, to be drawn "not connected".
+    let families: HashMap<DeviceId, String> = state.devices.descriptors().into_iter().filter_map(|d| Some((d.id, d.family?))).collect();
+    check_surfaces(&workspace.surfaces, &families)?;
+    check_cables(&workspace.cables, &families)?;
     state.store.save(&workspace)?;
     Ok(Json(workspace))
+}
+
+/// Surfaces need unique ids and a name, mixes the devices have, and strips whose parts fit their
+/// kind and, for an attached device, its model.
+fn check_surfaces(surfaces: &[Surface], families: &HashMap<DeviceId, String>) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    for surface in surfaces {
+        let bad = |message: String| ServerError::BadValue(format!("surface '{}': {message}", surface.id));
+        if !ids.insert(surface.id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        if surface.name.trim().is_empty() {
+            return Err(bad("it needs a name".into()));
+        }
+        if let Some((device, _)) = surface.mixes.iter().find(|(_, &mix)| mix >= MIXER_COUNT) {
+            return Err(bad(format!("the mix for {device} is outside 0..{}", MIXER_COUNT - 1)));
+        }
+        let mut strips = HashSet::new();
+        for strip in &surface.strips {
+            let bad_strip = |message: String| bad(format!("strip '{}': {message}", strip.id));
+            if !strips.insert(strip.id.as_str()) {
+                return Err(bad_strip("the id is used twice".into()));
+            }
+            check_strip(strip, families).map_err(bad_strip)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_strip(strip: &SurfaceStrip, families: &HashMap<DeviceId, String>) -> Result<(), String> {
+    let kind = strip.kind.as_str();
+    if !STRIP_KINDS.contains(&kind) {
+        return Err(format!("kind must be one of {}, not {kind:?}", STRIP_KINDS.join(", ")));
+    }
+    if kind == "label" {
+        return if strip.text.is_some() { Ok(()) } else { Err("a label strip needs text".into()) };
+    }
+    let device = strip.device_id.as_ref().ok_or_else(|| format!("a {kind} strip needs a device_id"))?;
+    let family = families.get(device).map(String::as_str);
+    if let Some(mix) = strip.mix.filter(|&mix| mix >= MIXER_COUNT) {
+        return Err(format!("mix {mix} is outside 0..{}", MIXER_COUNT - 1));
+    }
+    match kind {
+        "channel" if strip.channel.as_deref().is_none_or(str::is_empty) => Err("a channel strip needs a channel id".into()),
+        "input" => {
+            let input = strip.input.as_ref().ok_or("an input strip needs an input")?;
+            let Some(kind) = topology::input_type(&input.kind) else {
+                return Err(format!("input kind must be one of {}, not {:?}", INPUT_KINDS.join(", "), input.kind));
+            };
+            match family.and_then(|f| Some((f, topology::input_channels(f, kind)?))) {
+                Some((family, 0)) => Err(format!("the {family} has no {} inputs", input.kind)),
+                Some((family, count)) if input.channel >= count => Err(format!("the {family} has {} inputs 0..{}, not {}", input.kind, count - 1, input.channel)),
+                _ => Ok(()),
+            }
+        }
+        "output" => {
+            let output = strip.output.ok_or("an output strip needs an output")?;
+            match family.and_then(|f| Some((f, topology::output_ids(f)?))) {
+                Some((family, count)) if output >= count => Err(format!("the {family} has outputs 0..{}, not {output}", count - 1)),
+                _ => Ok(()),
+            }
+        }
+        "port" => {
+            let port = strip.port.as_deref().ok_or("a port strip needs a port")?;
+            if !CABLE_SENDS.contains(&port) {
+                return Err(format!("port must be {}, not {port:?}", CABLE_SENDS.join(" or ")));
+            }
+            let first = strip.first.unwrap_or(0);
+            let width = topology::port_width(port);
+            if first % width != 0 {
+                return Err(format!("an {} port starts at a multiple of {width}, not {first}", if port == "ADAT_OUT" { "ADAT" } else { "S/PDIF" }));
+            }
+            check_port_range(family, port, first, width)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// That a model (when known) has `port` and its channels `first..first + count`.
+fn check_port_range(family: Option<&str>, port: &str, first: u32, count: u32) -> Result<(), String> {
+    let Some((family, channels)) = family.and_then(|f| Some((f, topology::port_channels(f, port)?))) else {
+        return Ok(());
+    };
+    if channels == 0 {
+        return Err(format!("the {family} has no {port}"));
+    }
+    if first + count > channels {
+        return Err(format!("the {family}'s {port} has channels 0..{}, not {first}..{}", channels - 1, first + count - 1));
+    }
+    Ok(())
+}
+
+/// Cables go from a digital output to an input of the same kind on another device, carrying as
+/// many channels as one cable can and no more than either end has.
+fn check_cables(cables: &[Cable], families: &HashMap<DeviceId, String>) -> Result<(), ServerError> {
+    let mut ids = HashSet::new();
+    for cable in cables {
+        let bad = |message: String| ServerError::BadValue(format!("cable '{}': {message}", cable.id));
+        if !ids.insert(cable.id.as_str()) {
+            return Err(bad("the id is used twice".into()));
+        }
+        let (from, to) = (cable.from.port.as_str(), cable.to.port.as_str());
+        let Some(kind) = CABLE_SENDS.iter().position(|&p| p == from) else {
+            return Err(bad(format!("from must be {}, not {from:?}", CABLE_SENDS.join(" or "))));
+        };
+        if !CABLE_RECEIVES.contains(&to) {
+            return Err(bad(format!("to must be {}, not {to:?}", CABLE_RECEIVES.join(" or "))));
+        }
+        if CABLE_RECEIVES[kind] != to {
+            return Err(bad(format!("{from} cannot feed {to}")));
+        }
+        if cable.from.device_id == cable.to.device_id {
+            return Err(bad("a cable joins two devices".into()));
+        }
+        let most = topology::port_width(from);
+        if !(1..=most).contains(&cable.channels) {
+            return Err(bad(format!("it needs 1..{most} channels, not {}", cable.channels)));
+        }
+        for end in [&cable.from, &cable.to] {
+            check_port_range(families.get(&end.device_id).map(String::as_str), &end.port, end.first, cable.channels).map_err(bad)?;
+        }
+    }
+    Ok(())
 }
 
 /// Saved layouts need a unique id, a name, a known model and a mixer the hardware can hold.
