@@ -9,7 +9,7 @@
 import { h } from "../core/dom.ts";
 import { effect as effectOf, untracked } from "../core/signal.ts";
 import { formatReverbLevel, formatRoomSize, REVERB_LEVEL_MAX, REVERB_LEVEL_MIN, REVERB_LEVEL_UNITY, REVERB_RETURN_MAX, REVERB_SEND_MAX, type EffectChain, type EffectsModel } from "../store/effects.ts";
-import { formatPan, PAN_CENTRE, PAN_MAX, PAN_MIN } from "../store/mixer.ts";
+import { formatPan, PAN_CENTRE, PAN_MAX, PAN_MIN, stepPan } from "../store/mixer.ts";
 import { formatVolume } from "../store/outputs.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -312,6 +312,7 @@ export class GaEffects extends GaElement {
         up: 1,
         page: 5,
         reset: PAN_CENTRE,
+        stepFrom: stepPan,
         get: () => effects.sends.peek()?.entries[i]?.pan ?? PAN_CENTRE,
         set: (v) => effects.setSend(channel, { pan: v }),
         enabled: () => enabled() && effects.sends.peek() !== undefined,

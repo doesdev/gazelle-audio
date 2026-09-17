@@ -580,10 +580,14 @@ test("Mono on a mix master centres its channels' pans, keeps pan moves for later
   await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   const pan = page.getByTestId("pan-6");
+  // Centred, the label reads C and the centre ticks go; off centre they show.
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await expect(pan).toHaveAttribute("data-centred", "");
   await pan.focus();
   await pan.press("Home");
   const panSent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 7).map((f) => f.args?.["pan"]);
   await expect.poll(() => panSent().at(-1)).toBe(2);
+  await expect(pan).not.toHaveAttribute("data-centred");
 
   const mono = page.getByTestId("mix-mono-0");
   await mono.click();
@@ -592,10 +596,40 @@ test("Mono on a mix master centres its channels' pans, keeps pan moves for later
   const count = panSent().length;
   await pan.focus();
   await pan.press("ArrowRight");
-  await expect(pan).toHaveAttribute("aria-valuetext", "-29");
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 97%");
   expect(panSent().length).toBe(count);
 
   await mono.click();
   await expect(mono).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => panSent().at(-1)).toBe(3);
+});
+
+test("the wheel over a pan moves it a step at a time, up for right, and keeps the page still (the user, 2026-09-17)", async ({ page }) => {
+  const frames = recordFrames(page);
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const pan = page.getByTestId("pan-6");
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await page.evaluate(() => window.addEventListener("wheel", (event) => ((window as unknown as { wheelKept: boolean }).wheelKept = event.defaultPrevented)));
+  await pan.hover();
+  // Out of the centre detent (27..38) in one step, back into it, and out the other side.
+  await page.mouse.wheel(0, -100);
+  await expect(pan).toHaveAttribute("aria-valuetext", "R 23%");
+  await page.mouse.wheel(0, 100);
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await page.mouse.wheel(0, 100);
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 20%");
+  await page.mouse.wheel(0, 100);
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 23%");
+  expect(await page.evaluate(() => (window as unknown as { wheelKept?: boolean }).wheelKept), "the page did not scroll").toBe(true);
+  const panSent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 7).map((f) => f.args?.["pan"]);
+  await expect.poll(() => panSent().at(-1)).toBe(25);
+  // The keys walk through the detent the same way: L 20%, into it (C), and out the other side.
+  await pan.focus();
+  await pan.press("ArrowRight");
+  await expect(pan).toHaveAttribute("aria-valuetext", "L 20%");
+  await pan.press("ArrowRight");
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await pan.press("ArrowRight");
+  await expect(pan).toHaveAttribute("aria-valuetext", "R 23%");
 });

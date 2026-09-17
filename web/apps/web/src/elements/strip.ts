@@ -12,7 +12,7 @@
 
 import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
-import { faderPosition, formatLevel, formatPan, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
+import { faderPosition, formatLevel, formatPan, stepPan, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
@@ -58,7 +58,9 @@ export class GaStrip extends GaElement {
         touch-action: none;
       }
       .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--ga-accent); opacity: 0.75; }
-      .bar .centre { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--ga-border-strong); }
+      /* Short ticks at the edges only, so the centre mark never strikes through the value; at centre the value says "C" and the ticks go. */
+      .bar .centre { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: linear-gradient(var(--ga-border-strong) 0 2px, transparent 2px calc(100% - 2px), var(--ga-border-strong) calc(100% - 2px)); }
+      .bar[data-centred] .centre { display: none; }
       .bar .value { position: absolute; inset: 0; font-size: 9px; line-height: 13px; text-align: center; pointer-events: none; font-variant-numeric: tabular-nums; }
       /* The fader takes the height left under the channel head; its floor keeps it usable in short windows. */
       .level-area { display: grid; grid-template-columns: 16px 22px 1fr; gap: 3px; flex: 1; min-height: 100px; }
@@ -178,7 +180,7 @@ export class GaStrip extends GaElement {
         const panValue = h("span", { class: "value" });
         const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
         // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
-        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
+        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, stepFrom: stepPan, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
         top.push(pan);
         this.watch(() => {
           const monoPan = mixer.monoPan(id);
@@ -189,6 +191,7 @@ export class GaStrip extends GaElement {
           pan.setAttribute("aria-valuenow", String(shownPan - PAN_CENTRE));
           pan.setAttribute("aria-valuetext", formatPan(shownPan));
           pan.toggleAttribute("data-mono", monoPan !== undefined);
+          pan.toggleAttribute("data-centred", shownPan === PAN_CENTRE);
           pan.title = monoPan === undefined ? "" : "This mix is mono: the channel is centred, and returns to this pan when mono is turned off";
         });
       }
