@@ -6,7 +6,8 @@
 //! with contents sized to the command's `returns` layout, holding what a fresh device plausibly
 //! reports: zeros where zero is the natural default (0 dB, no emulation, nothing assigned), every
 //! licence bit set in `get_feature_mask` (P77: a zero mask would grey every microphone), and the
-//! few non-zero defaults listed in [`default_reply`].
+//! few non-zero defaults listed in [`default_reply`]. An effect's parameter read answers the panel's
+//! starting values, which its schema carries as the reply fields' defaults.
 //!
 //! A handful of reads follow their `set_*` command, where the set's parameters map straight onto
 //! the reply: panning law, mic emulations, reverb config and returns, and Thunderbolt latency.
@@ -17,7 +18,7 @@
 use std::collections::HashMap;
 
 use gazelle_audio_protocol::field::Field;
-use gazelle_audio_protocol::payload::Payload;
+use gazelle_audio_protocol::payload::{Payload, PayloadValues};
 use gazelle_audio_protocol::registry::Registry;
 use gazelle_audio_protocol::wire::WireError;
 use gazelle_audio_transport::{Device, RawPacket, Report};
@@ -49,9 +50,25 @@ fn entry_size(fields: &[Field]) -> Option<usize> {
     }
 }
 
+/// Each entry of a reply that is one `entries` struct array, filled from its fields' declared
+/// defaults (zero where a field has none), when any field declares one. The effect parameter reads
+/// carry the panels' starting values this way (`refs/schemas/afx_parameters.json`).
+fn declared_defaults(returns: &[Field]) -> Option<Vec<u8>> {
+    let [Field::StructArray { name, fields, count }] = returns else { return None };
+    let declares = fields.iter().any(|f| matches!(f, Field::Scalar { default: Some(_), .. }));
+    if name != "entries" || !declares {
+        return None;
+    }
+    let entry = Payload::new(None, fields.clone()).ok()?.to_bytes(&PayloadValues::default()).ok()?;
+    Some(entry.repeat(*count))
+}
+
 /// What a fresh device reports for `name`: zeros of the layout's length, except where a zero would
 /// be implausible or unhelpful.
 fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
+    if let Some(bytes) = declared_defaults(returns).filter(|bytes| bytes.len() == layout_len(returns)) {
+        return bytes;
+    }
     let mut bytes = vec![0; layout_len(returns)];
     match name {
         // Every feature reported available, so every page can be tried (the emulator only).

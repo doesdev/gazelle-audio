@@ -88,7 +88,8 @@ fn every_read_in_both_registries_answers_a_reply_of_its_layout_length() {
             }
         }
     }
-    assert_eq!(checked, 26 + 12, "every read of both models");
+    // Quadro: 26 reads and 68 effect types' parameter reads; Studio+: 12 and 36.
+    assert_eq!(checked, 26 + 68 + 12 + 36, "every read of both models");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -229,6 +230,39 @@ async fn routing_starts_from_an_identity_like_routing() {
     let studio_mix = read("loopback-1", 10).await;
     assert_eq!(&studio_mix[..7], &[(0, 0), (0, 1), (0, 2), (0, 3), (3, 0), (3, 1), (11, 0)]);
     assert_eq!(studio_mix.len(), 32);
+}
+
+/// An effect's parameter read answers the panel's starting values (`afx_parameters.json`, carried as
+/// the reply fields' defaults): one instance on the Quadro, every instance on the Studio+.
+#[tokio::test]
+async fn effect_parameter_reads_answer_the_panels_starting_values() {
+    let app = app(false);
+    let q = "/api/v1/devices/loopback-0/command";
+    let s = "/api/v1/devices/loopback-1/command";
+
+    let gate = json!({"enabled": 1, "threshold": 90, "range": 0, "attack": 100, "decay": 50, "hold": 0, "gain": 0});
+    assert_eq!(post(&app, &format!("{q}/get_powergate_conf"), json!({"id": 3})).await["response"]["entries"], json!([gate]));
+
+    let studio = post(&app, &format!("{s}/get_powergate_configs"), json!({})).await;
+    let entries = studio["response"]["entries"].as_array().unwrap().clone();
+    assert_eq!(entries.len(), 16, "every instance");
+    let mut with_link = gate.clone();
+    with_link["linked"] = json!(0);
+    assert!(entries.iter().all(|e| *e == with_link), "{entries:?}");
+
+    // The Studio+ starts an X903 where its panel resets one (antelope.ui.afx.defaults), not at its widgets' values.
+    assert_eq!(
+        post(&app, &format!("{s}/get_dbx_903_configs"), json!({})).await["response"]["entries"][15],
+        json!({"enabled": 1, "threshold": 100, "ratio": 0, "output": 50, "linked": 0})
+    );
+    // The Quadro's own starting values for the same effect differ.
+    assert_eq!(
+        post(&app, &format!("{q}/get_X903_conf"), json!({"id": 0})).await["response"]["entries"][0],
+        json!({"enabled": 1, "threshold": 82, "ratio": 50, "output": 50})
+    );
+    // A sidechain source has no starting value: it reads 0.
+    let brainiac = post(&app, &format!("{q}/get_Brainiac_conf"), json!({"id": 1})).await;
+    assert_eq!((brainiac["response"]["entries"][0]["ratio"].clone(), brainiac["response"]["entries"][0]["sideSource"].clone()), (json!(8), json!(0)));
 }
 
 /// Decision 0012: a dry run sends nothing and so reads nothing, whatever the loopback would answer.
