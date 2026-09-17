@@ -28,7 +28,7 @@ export interface ChannelsContext {
   layout: ReadonlySignal<DeviceMixer | undefined>;
   /** Changes the layout (starting from an empty one); false when the workspace is not loaded. */
   edit(update: (layout: DeviceMixer) => DeviceMixer): boolean;
-  routing: Pick<RoutingModel, "route" | "load" | "destination" | "mute">;
+  routing: Pick<RoutingModel, "route" | "load" | "destination" | "mute" | "needsRead">;
   notify(text: string): void;
   /** Every saved layout in the workspace, of any model. */
   saved: ReadonlySignal<readonly SavedLayout[]>;
@@ -50,6 +50,18 @@ export interface OutputPair {
   channel: number;
   label: string;
 }
+
+/**
+ * What feeds a hardware output (`ChannelsModel.outputFeed`): not known until its routing is read
+ * (`unread`), or read without a reply, as in a dry run (`unknown`); the mixes whose left and right
+ * one of its pairs takes, with the other pairs those mixes play in (`mixes`); or no mix, with the
+ * sources it takes instead, none when it is muted in routing (`none`).
+ */
+export type OutputFeed =
+  | { state: "unread" }
+  | { state: "unknown" }
+  | { state: "mixes"; mixes: readonly number[]; others: readonly string[] }
+  | { state: "none"; sources: readonly string[] };
 
 /** What a channel's strip shows in one mix (`ChannelsModel.strip`). */
 export interface ChannelStrip {
@@ -79,6 +91,7 @@ export class ChannelsModel {
   readonly #mixSources: readonly number[];
   readonly #pairs: readonly OutputPair[];
   readonly #outputs = new Map<number, ReadonlySignal<readonly OutputPair[]>>();
+  readonly #feeds = new Map<number, ReadonlySignal<OutputFeed>>();
 
   constructor(context: ChannelsContext) {
     this.#context = context;
@@ -150,6 +163,32 @@ export class ChannelsModel {
       this.#outputs.set(mix, outputs);
     }
     return outputs;
+  }
+
+  /**
+   * What feeds an output destination (any group but a mixer input): the mixes it plays, and where
+   * else they play among the groups read so far, or the sources it takes instead. Reactive.
+   */
+  outputFeed(destination: number): ReadonlySignal<OutputFeed> {
+    const group = this.#context.topology.outputs[destination];
+    if (group === undefined || group.type === "MIXER_IN") throw new RangeError(`destination ${destination} is not an output`);
+    let feed = this.#feeds.get(destination);
+    if (feed === undefined) {
+      feed = computed((): OutputFeed => {
+        const slots = this.#context.routing.destination(destination).value;
+        if (slots === undefined) return this.#context.routing.needsRead(destination).value ? { state: "unread" } : { state: "unknown" };
+        const mixes = Array.from({ length: this.mixCount }, (_, mix) => mix).filter((mix) => this.mixOutputs(mix).value.some((pair) => pair.destination === destination));
+        if (mixes.length > 0) {
+          const others = this.#pairs.filter((pair) => pair.destination !== destination && mixes.some((mix) => this.mixOutputs(mix).value.includes(pair))).map((pair) => pair.label);
+          return { state: "mixes", mixes, others };
+        }
+        const mute = this.#context.routing.mute;
+        const sources = [...new Set(slots.filter((slot) => slot.source !== mute).map((slot) => this.sourceLabel({ group: slot.source, channel: slot.channel })))];
+        return { state: "none", sources };
+      }, sameFeed);
+      this.#feeds.set(destination, feed);
+    }
+    return feed;
   }
 
   /** Sends a mix to an output pair (its left and right), or mutes that pair. */
@@ -563,6 +602,10 @@ export interface ChannelColorContext {
  * Pure, so any view of a channel (strip, dock) colours it alike; read it in an effect over the
  * layout and theme to follow them.
  */
+function sameFeed(a: OutputFeed, b: OutputFeed): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function channelColor(channel: MixerChannel, context: ChannelColorContext): { color: string | undefined; from: ChannelColorSource } {
   const group = channel.group === undefined ? undefined : context.groups.find((g) => g.id === channel.group)?.color;
   if (group !== undefined) return { color: group, from: "group" };

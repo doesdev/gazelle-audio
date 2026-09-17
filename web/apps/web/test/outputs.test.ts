@@ -24,21 +24,25 @@ function setup() {
 
 const quadroVolume = (volume: number, mute = 0, dim = 0, mono = 0) => ({ volume, mute, dim_on: dim, mono, trim: 0 });
 
-test("each family's outputs and ids follow its panel: Quadro monitor, HP1, HP2, line out with dim; Studio+ adds reamp, without dim", () => {
+test("each family's outputs and ids follow its panel: Quadro monitor, HP1, HP2, line out with dim; Studio+ adds reamp, without dim; each is fed by its routing destination", () => {
   const { store } = setup();
   assert.deepEqual(store.outputs("loopback-0").outputs, [
-    { id: 0, name: "Monitor", dim: true },
-    { id: 1, name: "HP1", dim: true },
-    { id: 2, name: "HP2", dim: true },
-    { id: 3, name: "Line out", dim: true },
+    { id: 0, name: "Monitor", dim: true, group: "MONITOR0" },
+    { id: 1, name: "HP1", dim: true, group: "HEADPHONES0" },
+    { id: 2, name: "HP2", dim: true, group: "HEADPHONES1" },
+    { id: 3, name: "Line out", dim: true, group: "LINE_OUT0" },
   ]);
-  assert.deepEqual(store.outputs("loopback-1").outputs.map((o) => [o.id, o.name, o.dim]), [
-    [0, "Monitor", false],
-    [1, "HP1", false],
-    [2, "HP2", false],
-    [3, "Line out", false],
-    [4, "Reamp", false],
+  assert.deepEqual(store.outputs("loopback-1").outputs.map((o) => [o.id, o.name, o.dim, o.group]), [
+    [0, "Monitor", false, "MONITOR0"],
+    [1, "HP1", false, "HEADPHONES0"],
+    [2, "HP2", false, "HEADPHONES1"],
+    [3, "Line out", false, "LINE_OUT0"],
+    [4, "Reamp", false, "REAMP0"],
   ]);
+  for (const deviceId of ["loopback-0", "loopback-1"]) {
+    const destinations = store.topology(deviceId)?.outputs ?? [];
+    for (const output of store.outputs(deviceId).outputs) assert.ok(destinations.some((g) => g.id === output.group), `${deviceId} routes to ${output.group}`);
+  }
   assert.throws(() => store.outputs("usb:1"), /no known model/);
   assert.equal(store.outputs("loopback-0"), store.outputs("loopback-0"), "one model per device");
 });

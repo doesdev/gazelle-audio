@@ -36,6 +36,8 @@ export interface OutputInfo {
   name: string;
   /** Whether the output has a dim control (the Quadro's do). */
   dim: boolean;
+  /** The routing destination group that feeds it, by its topology id. */
+  group: string;
 }
 
 export interface OutputState {
@@ -68,6 +70,8 @@ export interface TalkState {
 }
 
 const NAMES = ["Monitor", "HP1", "HP2", "Line out", "Reamp"] as const;
+/** Each output's routing destination, by topology group id, in output id order. */
+const GROUPS = ["MONITOR0", "HEADPHONES0", "HEADPHONES1", "LINE_OUT0", "REAMP0"] as const;
 const STUDIO_FIELDS = ["monitor", "hp1", "hp2", "line_out", "reamp"] as const;
 const TRIMS: readonly TrimInfo[] = [
   { id: 0, name: "Monitor" },
@@ -119,7 +123,7 @@ export class OutputsModel {
     this.deviceId = context.deviceId;
     this.family = context.family;
     const quadro = context.family === "quadro";
-    this.outputs = NAMES.slice(0, quadro ? 4 : 5).map((name, id) => ({ id, name, dim: quadro }));
+    this.outputs = NAMES.slice(0, quadro ? 4 : 5).map((name, id) => ({ id, name, dim: quadro, group: GROUPS[id] as string }));
     this.trims = TRIMS.slice(0, quadro ? 2 : 3);
     this.talkback = quadro ? undefined : { destinations: TALKBACK_DESTINATIONS };
     this.hasHardMute = quadro;

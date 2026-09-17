@@ -1,14 +1,20 @@
 // <ga-control-room>: the right zone's Control Room panel (decisions P56, P57). It shows the device on
 // the current page, or the one last selected (P71), as a <ga-monitor device-id="…">, with what the
 // user chose for it (2026-09-16): the outputs chosen on the Outputs page (Monitor, HP1 and HP2 until
-// then; kept per device in the workspace), each with volume, mute and (Quadro) dim and a mono badge
-// where the device reports one; on the Studio+, talkback: the hold-to-talk button, its
-// level and where it goes; and a mono switch for the device's selected mix. Outputs and talkback use
-// the same OutputsModel as the Outputs page, and mono the same ChannelsModel as the mix masters, so
-// they all stay in step.
+// then; kept per device in the workspace), each with volume, mute, (Quadro) dim, Mono for the mix that
+// feeds it, and a mono badge where the device reports one; on the Studio+, talkback: the hold-to-talk
+// button, its level and where it goes. Outputs and talkback use the same OutputsModel as the Outputs
+// page, and mono the same ChannelsModel as the mix masters, so they all stay in step.
+//
+// Mono (P57, per output since 2026-09-17): neither model can make an output mono, so an output's Mono
+// sums the mix routed to it, which every other output playing that mix hears too; the button names
+// them. Which mix feeds an output is known once its routing is read (P97). The panel reads nothing on
+// its own, so until then the button reads the routing first; an output no mix feeds (or several do)
+// has it disabled, with the reason as its title.
 
 import { h } from "../core/dom.ts";
-import { formatVolume, VOLUME_MAX } from "../store/outputs.ts";
+import type { OutputFeed } from "../store/channels.ts";
+import { formatVolume, VOLUME_MAX, type OutputInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { route } from "./router.ts";
@@ -71,7 +77,6 @@ export class GaMonitor extends GaElement {
     const store = useStore();
     const deviceId = this.getAttribute("device-id") ?? "";
     const outputs = store.outputs(deviceId);
-    const channels = store.channels(deviceId);
     this.onDisconnect(outputs.activate());
     const enabled = () => store.connected.peek();
     const model = store.devices.peek().find((d) => d.id === deviceId)?.model ?? deviceId;
@@ -99,8 +104,9 @@ export class GaMonitor extends GaElement {
       const volume = slider(`${output.name} volume`, `cr-volume-${id}`, () => state.peek().volume, (v) => outputs.setVolume(id, v));
       const mute = h("button", { type: "button", class: "mute", "data-testid": `cr-mute-${id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(id, !state.peek().mute) }, "Mute");
       const dim = output.dim ? h("button", { type: "button", class: "dim", "data-testid": `cr-dim-${id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(id, !state.peek().dim) }, "Dim") : undefined;
-      // Mono is reported (Quadro) but has no command, so it is a badge; the switch below is the mix's.
+      // Mono is reported (Quadro) but has no command, so it is a badge; the button sums the mix that feeds the output.
       const mono = h("span", { class: "badge", title: `The device reports ${output.name} in mono`, hidden: true }, "MONO");
+      const sum = this.#mono(output);
       this.watch(() => {
         const s = state.value;
         volume.show(s.volume);
@@ -108,7 +114,7 @@ export class GaMonitor extends GaElement {
         dim?.setAttribute("aria-pressed", String(s.dim));
         mono.hidden = !s.mono;
       });
-      return [h("div", { class: "group", "data-testid": `cr-output-${id}` }, h("div", { class: "head" }, h("span", { class: "label" }, output.name), mono, h("span", { class: "spacer" }), h("div", { class: "buttons" }, mute, dim)), volume.element)];
+      return [h("div", { class: "group", "data-testid": `cr-output-${id}` }, h("div", { class: "head" }, h("span", { class: "label" }, output.name), mono, sum.caption, h("span", { class: "spacer" }), h("div", { class: "buttons" }, mute, dim, sum.button)), volume.element)];
     });
 
     // Talkback: the Studio+ only. The Quadro's panel has no talkback commands, so it shows nothing of it.
@@ -135,43 +141,107 @@ export class GaMonitor extends GaElement {
       );
     }
 
-    // Mono (P57) for the mix chosen on the Mixer page. The pans it keeps to restore must be the
-    // device's, so the mixes are read first if nothing has read them yet (a read is kept, P80).
-    const mono = h("button", {
-      type: "button",
-      class: "mono",
-      "data-testid": "cr-mono",
-      "on:click": async () => {
-        const mix = channels.meteredMix.peek();
-        const on = !channels.isMono(mix);
-        if (store.mixesToRead(deviceId)) await store.readMixes(deviceId);
-        channels.setMono(mix, on);
-      },
-    }, "Mono");
-    const mixCaption = h("span", { class: "caption", "data-testid": "cr-mono-mix" });
-    this.watch(() => {
-      const mix = channels.meteredMix.value;
-      const name = channels.layout.value.mixes[mix]?.name;
-      const label = `Mix ${mix + 1}`;
-      mixCaption.textContent = name ? `${label}: ${name}` : label;
-      mono.setAttribute("aria-pressed", String(channels.isMono(mix)));
-      mono.setAttribute("aria-label", `${label} mono`);
-      mono.title = `Sum ${label} to mono: pans its channels to centre, and restores them when turned off. The mix is the one chosen on the Mixer page.`;
-    });
-
     this.root.replaceChildren(
       h("div", { class: "device", title: model }, model),
       ...rows,
       ...(talkback === undefined ? [] : [talkback]),
-      h("div", { class: "group" }, h("div", { class: "head" }, mono, mixCaption)),
     );
 
     this.watch(() => {
       const connected = store.connected.value;
-      for (const button of this.root.querySelectorAll("button")) button.disabled = !connected;
+      // Mono buttons also depend on what feeds their output, so they follow the connection themselves.
+      for (const button of this.root.querySelectorAll<HTMLButtonElement>("button:not(.mono)")) button.disabled = !connected;
       for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!connected));
     });
   }
+
+  /**
+   * An output's Mono button and the caption saying what feeds it. The button sums the one mix routed
+   * to the output (P57), naming the other outputs that play it; with no mix, or several, it is
+   * disabled and its title says why. Until the output's routing is read it reads every output's
+   * routing first (once, P97), then the mixes if unread, since the pans mono keeps must be the device's.
+   */
+  #mono(output: OutputInfo): { button: HTMLButtonElement; caption: HTMLElement } {
+    const store = useStore();
+    const deviceId = this.getAttribute("device-id") ?? "";
+    const channels = store.channels(deviceId);
+    const topology = store.topology(deviceId);
+    const destination = topology?.outputs.findIndex((g) => g.id === output.group) ?? -1;
+    const feed = destination < 0 ? undefined : channels.outputFeed(destination);
+    const button = h("button", { type: "button", class: "mono", "data-testid": `cr-mono-${output.id}` }, "Mono");
+    const caption = h("span", { class: "caption", "data-testid": `cr-feed-${output.id}` });
+    const mixLabel = (mix: number) => {
+      const name = channels.layout.value.mixes[mix]?.name;
+      return name ? `Mix ${mix + 1}: ${name}` : `Mix ${mix + 1}`;
+    };
+    // A pair's label in the device's words ("HP1", "USB REC 1/2"), with the panel's own names for its outputs.
+    const outputs = store.outputs(deviceId).outputs;
+    const pairName = (label: string) => {
+      for (const o of outputs) {
+        const group = topology?.outputs.find((g) => g.id === o.group)?.name;
+        if (group !== undefined && (label === group || label.startsWith(`${group} `))) return `${o.name}${label.slice(group.length)}`;
+      }
+      return label;
+    };
+
+    button.addEventListener("click", async () => {
+      if (feed === undefined) return;
+      if (feed.peek().state === "unread") await store.readRoutes(deviceId, [...new Set(channels.outputPairs().map((p) => p.destination))]);
+      const now = feed.peek();
+      if (now.state !== "mixes" || now.mixes.length !== 1) return;
+      const mix = now.mixes[0] as number;
+      const on = !channels.isMono(mix);
+      if (store.mixesToRead(deviceId)) await store.readMixes(deviceId);
+      channels.setMono(mix, on);
+    });
+
+    this.watch(() => {
+      const state: OutputFeed = feed?.value ?? { state: "unknown" };
+      const connected = store.connected.value;
+      let usable = false;
+      let pressed = false;
+      let label = `${output.name} mono`;
+      switch (state.state) {
+        case "unread":
+          usable = true;
+          caption.textContent = "";
+          button.title = `Reads the routing first, to find the mix that feeds ${output.name}, then sums that mix to mono.`;
+          break;
+        case "unknown":
+          caption.textContent = "";
+          button.title = `The routing to ${output.name} could not be read, so the mix that feeds it is not known.`;
+          break;
+        case "none":
+          caption.textContent = state.sources.length === 0 ? "Muted" : list(state.sources);
+          button.title = `No mix feeds ${output.name}: ${state.sources.length === 0 ? "it is muted in routing" : `it plays ${list(state.sources)}`}, so there is no mix to sum to mono.`;
+          break;
+        case "mixes": {
+          const mixes = state.mixes.map(mixLabel);
+          caption.textContent = list(mixes);
+          if (state.mixes.length > 1) {
+            button.title = `${output.name} plays ${list(mixes)}: sum each to mono with the Mono on its master, on the Mixer page.`;
+            break;
+          }
+          const others = state.others.map(pairName);
+          usable = true;
+          pressed = channels.isMono(state.mixes[0] as number);
+          button.title = `Sums ${mixes[0]} to mono${others.length > 0 ? `, so ${list(others)} ${others.length === 1 ? "goes" : "go"} mono too` : ""}: pans its channels to centre, and restores them when turned off.`;
+          label = `${output.name} mono (${mixes[0]}${others.length > 0 ? `, also ${list(others)}` : ""})`;
+          break;
+        }
+      }
+      button.disabled = !connected || !usable;
+      button.setAttribute("aria-pressed", String(pressed));
+      button.setAttribute("aria-label", label);
+      caption.title = caption.textContent ?? "";
+    });
+    return { button, caption };
+  }
+}
+
+/** "A", "A and B", "A, B and C". */
+function list(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 declare global {

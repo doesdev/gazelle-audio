@@ -1,11 +1,11 @@
 // The Control Room in dry run: trims and a read-only mono badge on the Outputs page and Studio+
 // talkback there (decision P56), and the right zone's Control Room panel, which follows the device
-// on the page: Monitor, HP1 and HP2, talkback on the Studio+, and mono for the device's selected
-// mix. Expected bytes are the protocol crate's ground-truth vectors with the payload
+// on the page: the outputs chosen on the Outputs page, talkback on the Studio+, and mono for the mix
+// that feeds each output. Expected bytes are the protocol crate's ground-truth vectors with the payload
 // fields set: a one-byte payload header, then the fields from byte 17 (set_trim_config's two-byte
 // header puts trim_id at 18).
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -267,51 +267,148 @@ function recordFrames(page: Page): Frame[] {
 const monoMixes = async (deviceId: string) =>
   (((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { mixes?: { mono?: unknown }[] }> }).mixers[deviceId]?.mixes ?? []).map((m) => m?.mono !== undefined);
 
-test("the panel's mono switch acts on the device's selected mix and says which mix", async ({ page }) => {
-  const frames = recordFrames(page);
-  await putWorkspace(server, {
-    mixers: { "loopback-1": { mixes: [{}, { name: "Cue" }], channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } },
+
+type Slot = [number, number];
+type RoutedFrame = Frame & { id?: number; device_id?: string; ext3?: number };
+
+/**
+ * Answers `get_routing` for the groups given (device → destination → slots, MUTE elsewhere) as a
+ * device would; the dry-run server answers no reads. Every frame the page sends is recorded, in order.
+ */
+async function answerRouting(page: Page, groups: Record<string, Record<number, Record<number, Slot>>>): Promise<RoutedFrame[] & { drop(): Promise<void> }> {
+  const sockets: WebSocketRoute[] = [];
+  const frames = Object.assign([] as RoutedFrame[], { drop: async () => sockets.at(-1)?.close() });
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    sockets.push(socket);
+    const upstream = socket.connectToServer();
+    socket.onMessage((message) => {
+      const frame: RoutedFrame = typeof message === "string" ? (JSON.parse(message) as RoutedFrame) : {};
+      frames.push(frame);
+      const routed = frame.command === "get_routing" ? groups[frame.device_id ?? ""]?.[frame.ext3 ?? -1] : undefined;
+      if (routed === undefined) return upstream.send(message);
+      const mute = frame.device_id === "loopback-0" ? 10 : 11;
+      const bank_configs = Array.from({ length: 32 }, (_, slot) => ({ in_periph_id: routed[slot]?.[0] ?? mute, in_chann: routed[slot]?.[1] ?? 0 }));
+      socket.send(JSON.stringify({ type: "rpc_response", id: frame.id, result: { device_id: frame.device_id, command: "get_routing", sent_hex: "74", sent_len: 16, dry_run: false, response: { bank_idx: frame.ext3, bank_configs }, response_error: null } }));
+    });
   });
-  await page.goto(`${server.url}/#/inputs/loopback-1`);
-  const mono = panel(page).getByTestId("cr-mono");
-  await expect(panel(page).getByTestId("cr-mono-mix")).toHaveText("Mix 1");
-  await expect(mono).toHaveAttribute("aria-pressed", "false");
+  return frames;
+}
 
-  // Choose Mix 2 on the Mixer page, then leave it: the panel follows the choice.
-  await page.goto(`${server.url}/#/mixer/loopback-1`);
-  await page.getByTestId("mix-select").selectOption("1");
-  await page.goto(`${server.url}/#/inputs/loopback-1`);
-  await expect(panel(page).getByTestId("cr-mono-mix")).toHaveText("Mix 2: Cue");
+// Studio+ sources: USB PLAY 3, MIX1 L/R 7, MIX2 L/R 8. Destinations: LINE OUT 0, HP1 1, HP2 2, MONITOR 3, REAMP 4, USB REC 6.
+// Mix 1 plays in Monitor, HP1 and USB REC 1/2; Mix 2 in HP2 and Reamp (not shown in the panel); Line out plays USB PLAY 1/2.
+const MIX1: Record<number, Slot> = { 0: [7, 0], 1: [7, 1] };
+const STUDIO_ROUTING = { "loopback-1": { 3: MIX1, 1: MIX1, 6: { 0: [7, 0], 1: [7, 1] } as Record<number, Slot>, 2: { 0: [8, 0], 1: [8, 1] } as Record<number, Slot>, 0: { 0: [3, 0], 1: [3, 1] } as Record<number, Slot>, 4: { 0: [8, 0], 1: [8, 1] } as Record<number, Slot> } };
 
-  const panSent = () => frames.filter((f) => f.command === "set_mixer_cfg" && f.args?.["channel"] === 1).map((f) => [f.args?.["mixer_id"], f.args?.["pan"]]);
-  await mono.click();
-  await expect(mono).toHaveAttribute("aria-pressed", "true");
-  await expect.poll(() => panSent().at(-1)).toEqual([1, 32]);
-  await expect.poll(() => monoMixes("loopback-1")).toEqual([false, true]);
-
-  await page.goto(`${server.url}/#/mixer/loopback-1`);
-  await expect(page.getByTestId("mix-mono-1"), "the mix master shows the same mono").toHaveAttribute("aria-pressed", "true");
-  await page.goto(`${server.url}/#/inputs/loopback-1`);
-  await panel(page).getByTestId("cr-mono").click();
-  await expect(panel(page).getByTestId("cr-mono")).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => monoMixes("loopback-1")).toEqual([false, false]);
-  expect(panSent().every(([mix]) => mix === 1), "only the selected mix's pans are sent").toBe(true);
-});
-
-test("before the Mixer page has read the mixes, the panel's mono reads them before keeping the pans", async ({ page }) => {
-  const frames = recordFrames(page);
-  await putWorkspace(server, { mixers: { "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
+test("each Control Room output fed by a mix has a Mono button for that mix, naming the outputs that share it; an output no mix feeds has it disabled with the reason", async ({ page }) => {
+  const frames = await answerRouting(page, STUDIO_ROUTING);
+  await putWorkspace(server, {
+    mixers: { "loopback-1": { mixes: [{}, { name: "Cue" }], channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }] } },
+    control_room: { "loopback-1": { outputs: [0, 1, 2, 3] } },
+  });
   // The mixer dock reads the mixes when it is open; collapsed, it reads nothing, leaving the panel on its own.
   await page.addInitScript(() => localStorage.setItem("gazelle.layout.mixerDock", "true"));
-  await page.goto(`${server.url}/#/inputs/loopback-0`);
-  await expect(panel(page).getByTestId("cr-mono-mix")).toHaveText("Mix 1");
+  await page.goto(`${server.url}/#/inputs/loopback-1`);
+  await expect(panel(page).getByTestId("cr-mono-mix"), "the selected-mix switch is gone").toHaveCount(0);
+  await expect(panel(page).getByTestId("cr-mono")).toHaveCount(0);
+  const mono = (id: number) => panel(page).getByTestId(`cr-mono-${id}`);
+  for (const id of [0, 1, 2, 3]) {
+    await expect(mono(id), "beside Mute").toHaveText("Mono");
+    await expect(mono(id), "until the routing is read, which mix is not known").toBeEnabled();
+    await expect(mono(id)).toHaveAttribute("aria-pressed", "false");
+  }
+  await expect(mono(0)).toHaveAttribute("title", /Reads the routing first/);
   await page.waitForTimeout(300);
-  expect(frames.filter((f) => f.command === "get_mixer"), "the panel reads nothing on its own").toEqual([]);
-  await panel(page).getByTestId("cr-mono").click();
+  expect(frames.filter((f) => f.command === "get_routing" || f.command === "get_mixer"), "the panel reads nothing on its own").toEqual([]);
+
+  // Monitor plays Mix 1: its Mono reads the routing and the mixes, then centres Mix 1's pans.
+  await mono(0).click();
+  await expect(mono(0)).toHaveAttribute("aria-pressed", "true");
+  const panSent = () => frames.filter((f) => f.command === "set_mixer_cfg" && f.args?.["channel"] === 1).map((f) => [f.args?.["mixer_id"], f.args?.["pan"]]);
+  await expect.poll(panSent).toEqual([[0, 32]]);
+  const routingRead = frames.findIndex((f) => f.command === "get_routing" && f.ext3 === 3);
+  const mixesRead = frames.findIndex((f) => f.command === "get_mixer");
+  const centred = frames.findIndex((f) => f.command === "set_mixer_cfg");
+  expect(routingRead, "Monitor's routing is read").toBeGreaterThan(-1);
+  expect(mixesRead, "the mixes are read").toBeGreaterThan(-1);
+  expect(Math.max(routingRead, mixesRead), "both before the pans are kept and centred").toBeLessThan(centred);
+  await expect.poll(() => monoMixes("loopback-1")).toEqual([true, false]);
+
+  // HP1 plays the same mix, so it is mono too, and each names the other; USB REC 1/2 plays it as well.
+  await expect(mono(1)).toHaveAttribute("aria-pressed", "true");
+  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono, so HP1 and USB REC 1/2 go mono too: pans its channels to centre, and restores them when turned off.");
+  await expect(mono(1)).toHaveAttribute("title", "Sums Mix 1 to mono, so Monitor and USB REC 1/2 go mono too: pans its channels to centre, and restores them when turned off.");
+  await expect(mono(0)).toHaveAttribute("aria-label", "Monitor mono (Mix 1, also HP1 and USB REC 1/2)");
+  await expect(panel(page).getByTestId("cr-feed-0")).toHaveText("Mix 1");
+  // HP2 plays the named Mix 2, which is not mono; so does Reamp, which the panel does not show.
+  await expect(mono(2)).toBeEnabled();
+  await expect(mono(2)).toHaveAttribute("aria-pressed", "false");
+  await expect(mono(2)).toHaveAttribute("title", "Sums Mix 2: Cue to mono, so Reamp goes mono too: pans its channels to centre, and restores them when turned off.");
+  await expect(panel(page).getByTestId("cr-feed-2")).toHaveText("Mix 2: Cue");
+  // Line out plays USB straight: no mix to sum.
+  await expect(mono(3)).toBeDisabled();
+  await expect(mono(3)).toHaveAttribute("title", "No mix feeds Line out: it plays USB PLAY 1 and USB PLAY 2, so there is no mix to sum to mono.");
+  await expect(panel(page).getByTestId("cr-feed-3")).toHaveText("USB PLAY 1 and USB PLAY 2");
+
+  // The mix master agrees.
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  await expect(page.getByTestId("mix-mono-0"), "the mix master shows the same mono").toHaveAttribute("aria-pressed", "true");
+  await expect(panel(page).getByTestId("cr-mono-1"), "the routing read is kept").toHaveAttribute("aria-pressed", "true");
+
+  // HP1's Mono ends Mix 1's mono for Monitor too, restoring the pan it kept, and touches no other mix.
+  await mono(1).click();
+  await expect(mono(0)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("mix-mono-0")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => monoMixes("loopback-1")).toEqual([false, false]);
+  await expect.poll(() => panSent().length).toBe(2);
+  expect(panSent().every(([mix]) => mix === 0), "only Mix 1's pans are sent").toBe(true);
+
+  // Coming back from a dropped connection enables the controls again, but not a Mono with no mix to sum.
+  await frames.drop();
+  await expect(panel(page).getByTestId("cr-mute-0")).toBeDisabled();
+  await expect(mono(0)).toBeDisabled();
+  await expect(page.getByTestId("connection")).toHaveText("Connected", { timeout: 15_000 });
+  await expect(panel(page).getByTestId("cr-mute-0")).toBeEnabled();
+  await expect(mono(0)).toBeEnabled();
+  await expect(mono(3)).toBeDisabled();
+});
+
+test("on the Quadro, Mono reads the routing and the mixes before keeping the pans; an output whose routing gets no reply says so", async ({ page }) => {
+  // Quadro: MONITOR is destination 3, fed by mix 1 (LOOPBACK HP1, source 6). HP1 (1) is not answered.
+  const frames = await answerRouting(page, { "loopback-0": { 3: { 0: [6, 0], 1: [6, 1] }, 0: {}, 2: {} } });
+  await putWorkspace(server, { mixers: { "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
+  await page.addInitScript(() => localStorage.setItem("gazelle.layout.mixerDock", "true"));
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  const mono = (id: number) => panel(page).getByTestId(`cr-mono-${id}`);
+  await expect(mono(0)).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect(frames.filter((f) => f.command === "get_routing" || f.command === "get_mixer"), "the panel reads nothing on its own").toEqual([]);
+
+  await mono(0).click();
   const centred = () => frames.findIndex((f) => f.command === "set_mixer" && f.args?.["channel"] === 7);
   await expect.poll(centred).toBeGreaterThan(-1);
-  const read = frames.findIndex((f) => f.command === "get_mixer");
-  expect(read, "the mixes are read").toBeGreaterThan(-1);
-  expect(read, "before the pans are kept and centred").toBeLessThan(centred());
+  const routingRead = frames.findIndex((f) => f.command === "get_routing" && f.ext3 === 3);
+  const mixesRead = frames.findIndex((f) => f.command === "get_mixer");
+  expect(routingRead, "the routing is read").toBeGreaterThan(-1);
+  expect(routingRead, "before the mixes").toBeLessThan(mixesRead);
+  expect(mixesRead, "and both before the pans are kept and centred").toBeLessThan(centred());
   expect(frames[centred()]?.args).toMatchObject({ mixer_id: 0, pan: 32 });
+  await expect(mono(0)).toHaveAttribute("aria-pressed", "true");
+  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono: pans its channels to centre, and restores them when turned off.");
+
+  await expect(mono(1)).toBeDisabled();
+  await expect(mono(1)).toHaveAttribute("title", "The routing to HP1 could not be read, so the mix that feeds it is not known.");
+  await expect(mono(2)).toBeDisabled();
+  await expect(mono(2)).toHaveAttribute("title", "No mix feeds HP2: it is muted in routing, so there is no mix to sum to mono.");
+  await expect(panel(page).getByTestId("cr-feed-2")).toHaveText("Muted");
+});
+
+test("an output the Studio+ plays from two mixes has Mono disabled, naming both", async ({ page }) => {
+  await answerRouting(page, { "loopback-1": { 0: { 0: [7, 0], 1: [7, 1], 2: [8, 0], 3: [8, 1] } } });
+  await putWorkspace(server, { control_room: { "loopback-1": { outputs: [3] } } });
+  await page.goto(`${server.url}/#/outputs/loopback-1`);
+  const mono = panel(page).getByTestId("cr-mono-3");
+  await mono.click();
+  await expect(mono).toBeDisabled();
+  await expect(mono).toHaveAttribute("title", "Line out plays Mix 1 and Mix 2: sum each to mono with the Mono on its master, on the Mixer page.");
+  await expect(panel(page).getByTestId("cr-feed-3")).toHaveText("Mix 1 and Mix 2");
 });
