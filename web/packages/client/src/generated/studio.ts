@@ -47,12 +47,358 @@ export interface StudioCommands {
       }>;
     };
   };
+  get_altec_436c_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 6 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        threshold: number;
+        /** u8, 0..255; default 50 */
+        release: number;
+        /** u8, 0..255; default 0 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_api_550_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 11 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255; default 2 */
+        low_freq: number;
+        /** u8, 0..255; default 5 */
+        low_gain: number;
+        /** u8, 0..255; default 2 */
+        mid_freq: number;
+        /** u8, 0..255; default 5 */
+        mid_gain: number;
+        /** u8, 0..255; default 2 */
+        high_freq: number;
+        /** u8, 0..255; default 5 */
+        high_gain: number;
+        /** u8, 0..255; default 0 */
+        low_shelf: number;
+        /** u8, 0..255; default 0 */
+        high_shelf: number;
+        /** u8, 0..255; default 0 */
+        bandpass: number;
+      }>;
+    };
+  };
+  get_api_550b_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 12 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255; default 2 */
+        low_freq: number;
+        /** u8, 0..255; default 5 */
+        low_gain: number;
+        /** u8, 0..255; default 2 */
+        lmid_freq: number;
+        /** u8, 0..255; default 5 */
+        lmid_gain: number;
+        /** u8, 0..255; default 2 */
+        hmid_freq: number;
+        /** u8, 0..255; default 5 */
+        hmid_gain: number;
+        /** u8, 0..255; default 2 */
+        high_freq: number;
+        /** u8, 0..255; default 5 */
+        high_gain: number;
+        /** u8, 0..255; default 0 */
+        low_shelf: number;
+        /** u8, 0..255; default 0 */
+        high_shelf: number;
+      }>;
+    };
+  };
+  get_ba6a_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 5 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 1 */
+        attack: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_compressor_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 19 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u32, 0..4294967295; default 10000 */
+        attack: number;
+        /** u32, 0..4294967295; default 10000 */
+        release: number;
+        /** u16, 0..65535; default 65535 */
+        taw: number;
+        /** u16, 0..65535; default 100 */
+        ratio: number;
+        /** u16, 0..65535; default 0 */
+        gain: number;
+        /** u8, 0..255; default 0 */
+        ctrl: number;
+        /** u8, 0..255; default 24 */
+        threshold: number;
+        /** u8, 0..255; default 0 */
+        knee: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_dbx_160_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 5 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 100 */
+        threshold: number;
+        /** u8, 0..255; default 0 */
+        compression: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_dbx_903_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 5 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 100 */
+        threshold: number;
+        /** u8, 0..255; default 0 */
+        ratio: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_guitar_amp_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 4 × struct of 17 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        model: number;
+        /** u8, 0..255; default 50 */
+        gain: number;
+        /** u8, 0..255; default 50 */
+        bass: number;
+        /** u8, 0..255; default 50 */
+        mid: number;
+        /** u8, 0..255; default 0 */
+        midfreq: number;
+        /** u8, 0..255; default 50 */
+        treble: number;
+        /** u8, 0..255; default 0 */
+        density: number;
+        /** u8, 0..255; default 50 */
+        presence: number;
+        /** u8, 0..255; default 50 */
+        volume: number;
+        /** u8, 0..255; default 50 */
+        boost: number;
+        /** u8, 0..255; default 0 */
+        mode1: number;
+        /** u8, 0..255; default 0 */
+        mode2: number;
+        /** u8, 0..255; default 0 */
+        mode3: number;
+        /** u8, 0..255; default 0 */
+        mode4: number;
+        /** u8, 0..255; default 0 */
+        mode5: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_gyratec_x_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 8 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 50 */
+        attack: number;
+        /** u8, 0..255; default 50 */
+        release: number;
+        /** u8, 0..255; default 50 */
+        ratio: number;
+        /** u8, 0..255; default 50 */
+        threshold: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_harrison_32c_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 1 */
+        low_cut_enable: number;
+        /** u8, 0..255; default 0 */
+        low_cut: number;
+        /** u8, 0..255; default 1 */
+        hi_cut_enable: number;
+        /** u8, 0..255; default 100 */
+        hi_cut: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 0 */
+        lf_freq: number;
+        /** u8, 0..255; default 0 */
+        lf_switch: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 0 */
+        lmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 0 */
+        hmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 0 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_switch: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_helios69_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 8 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        bass_freq: number;
+        /** u8, 0..255; default 0 */
+        bass_gain: number;
+        /** u8, 0..255; default 5 */
+        high_gain: number;
+        /** u8, 0..255; default 4 */
+        mid_freq: number;
+        /** u8, 0..255; default 0 */
+        mid_gain: number;
+        /** u8, 0..255; default 0 */
+        mid_pk: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+      }>;
+    };
+  };
+  get_lang_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 11 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 3 */
+        lf_boost_freq: number;
+        /** u8, 0..255; default 0 */
+        lf_boost_gain: number;
+        /** u8, 0..255; default 1 */
+        lf_drop_freq: number;
+        /** u8, 0..255; default 0 */
+        lf_drop_gain: number;
+        /** u8, 0..255; default 50 */
+        hf_bandwidth: number;
+        /** u8, 0..255; default 4 */
+        hf_boost_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_boost_gain: number;
+        /** u8, 0..255; default 3 */
+        hf_drop_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_drop_gain: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
   get_lines_links: {
     params: Record<string, never>;
     returns: {
       /** 4 × struct of 1 byte */
       entries: Array<{
         /** u8, 0..255 */
+        linked: number;
+      }>;
+    };
+  };
+  get_liverpool_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        threshold: number;
+        /** u8, 0..255; default 5 */
+        attack: number;
+        /** u8, 0..255; default 0 */
+        recovery: number;
+        /** u8, 0..255; default 2 */
+        output: number;
+        /** u8, 0..255; default 0 */
         linked: number;
       }>;
     };
@@ -85,6 +431,200 @@ export interface StudioCommands {
       }>;
     };
   };
+  get_neumann_pev_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 6 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        low_gain: number;
+        /** u8, 0..255; default 0 */
+        pres_gain: number;
+        /** u8, 0..255; default 3 */
+        pres_freq: number;
+        /** u8, 0..255; default 0 */
+        high_gain: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_neumann_w492_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 15 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 1 */
+        low_cut: number;
+        /** u8, 0..255; default 50 */
+        low_gain: number;
+        /** u8, 0..255; default 50 */
+        low_freq: number;
+        /** u8, 0..255; default 1 */
+        low_on: number;
+        /** u8, 0..255; default 50 */
+        lmid_gain: number;
+        /** u8, 0..255; default 50 */
+        lmid_freq: number;
+        /** u8, 0..255; default 1 */
+        lmid_on: number;
+        /** u8, 0..255; default 50 */
+        hmid_gain: number;
+        /** u8, 0..255; default 50 */
+        hmid_freq: number;
+        /** u8, 0..255; default 1 */
+        hmid_on: number;
+        /** u8, 0..255; default 50 */
+        high_gain: number;
+        /** u8, 0..255; default 50 */
+        high_freq: number;
+        /** u8, 0..255; default 1 */
+        high_on: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_neumann_w495_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 9 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 1 */
+        low_freq: number;
+        /** u8, 0..255; default 0 */
+        low_gain: number;
+        /** u8, 0..255; default 5 */
+        mid_freq: number;
+        /** u8, 0..255; default 0 */
+        mid_gain: number;
+        /** u8, 0..255; default 1 */
+        mid_q: number;
+        /** u8, 0..255; default 1 */
+        high_freq: number;
+        /** u8, 0..255; default 0 */
+        high_gain: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_neve_1023_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 10 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255; default 0 */
+        high_freq: number;
+        /** u8, 0..255; default 50 */
+        high_gain: number;
+        /** u8, 0..255; default 0 */
+        peak_freq: number;
+        /** u8, 0..255; default 50 */
+        peak_gain: number;
+        /** u8, 0..255; default 0 */
+        low_freq: number;
+        /** u8, 0..255; default 50 */
+        low_gain: number;
+        /** u8, 0..255; default 0 */
+        high_pass: number;
+        /** u8, 0..255; default 0 */
+        phase_inv: number;
+      }>;
+    };
+  };
+  get_neve_1073_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 9 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255; default 8 */
+        high_shelf: number;
+        /** u8, 0..255; default 0 */
+        peak_freq: number;
+        /** u8, 0..255; default 8 */
+        peak_gain: number;
+        /** u8, 0..255; default 0 */
+        low_freq: number;
+        /** u8, 0..255; default 8 */
+        low_gain: number;
+        /** u8, 0..255; default 0 */
+        high_pass: number;
+        /** u8, 0..255; default 0 */
+        phase_inv: number;
+      }>;
+    };
+  };
+  get_neve_1084_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 12 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255; default 0 */
+        high_freq: number;
+        /** u8, 0..255; default 50 */
+        high_gain: number;
+        /** u8, 0..255; default 0 */
+        peak_freq: number;
+        /** u8, 0..255; default 50 */
+        peak_gain: number;
+        /** u8, 0..255; default 0 */
+        low_freq: number;
+        /** u8, 0..255; default 50 */
+        low_gain: number;
+        /** u8, 0..255; default 0 */
+        high_pass: number;
+        /** u8, 0..255; default 0 */
+        low_pass: number;
+        /** u8, 0..255; default 0 */
+        hi_q: number;
+        /** u8, 0..255; default 0 */
+        phase_inv: number;
+      }>;
+    };
+  };
+  get_powergate_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 11 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 90 */
+        threshold: number;
+        /** u8, 0..255; default 0 */
+        range: number;
+        /** u16, 0..65535; default 100 */
+        attack: number;
+        /** u16, 0..65535; default 50 */
+        decay: number;
+        /** u16, 0..65535; default 0 */
+        hold: number;
+        /** i8, -128..127; default 0 */
+        gain: number;
+        /** u8, 0..255 */
+        linked: number;
+      }>;
+    };
+  };
   get_preamps_links: {
     params: Record<string, never>;
     returns: {
@@ -92,6 +632,68 @@ export interface StudioCommands {
       entries: Array<{
         /** u8, 0..255 */
         linked: number;
+      }>;
+    };
+  };
+  get_pultec_eqp_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 9 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        low_freq: number;
+        /** u8, 0..255; default 0 */
+        low_boost: number;
+        /** u8, 0..255; default 0 */
+        low_atten: number;
+        /** u8, 0..255; default 0 */
+        high_freq: number;
+        /** u8, 0..255; default 0 */
+        high_boost: number;
+        /** u8, 0..255; default 0 */
+        high_atten: number;
+        /** u8, 0..255; default 0 */
+        bandwidth: number;
+        /** u8, 0..255; default 0 */
+        atten_sel: number;
+      }>;
+    };
+  };
+  get_pultec_hlf_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 3 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        low_shelf: number;
+        /** u8, 0..255; default 10 */
+        high_shelf: number;
+      }>;
+    };
+  };
+  get_pultec_meq_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        low_freq: number;
+        /** u8, 0..255; default 0 */
+        low_gain: number;
+        /** u8, 0..255; default 0 */
+        mid_freq: number;
+        /** u8, 0..255; default 0 */
+        mid_gain: number;
+        /** u8, 0..255; default 0 */
+        hi_freq: number;
+        /** u8, 0..255; default 0 */
+        hi_gain: number;
       }>;
     };
   };
@@ -146,6 +748,292 @@ export interface StudioCommands {
       }>;
     };
   };
+  get_ssl_black_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        lf_cut: number;
+        /** u8, 0..255; default 0 */
+        hf_cut: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 50 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_bell: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 50 */
+        hmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hmf_qual: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 50 */
+        lmf_freq: number;
+        /** u8, 0..255; default 50 */
+        lmf_qual: number;
+        /** u8, 0..255; default 0 */
+        lf_bell: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 50 */
+        lf_freq: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_ssl_brown_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        lf_cut: number;
+        /** u8, 0..255; default 0 */
+        hf_cut: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 50 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_bell: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 50 */
+        hmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hmf_qual: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 50 */
+        lmf_freq: number;
+        /** u8, 0..255; default 50 */
+        lmf_qual: number;
+        /** u8, 0..255; default 0 */
+        lf_bell: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 50 */
+        lf_freq: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_ssl_orange_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        lf_cut: number;
+        /** u8, 0..255; default 0 */
+        hf_cut: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 50 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_bell: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 50 */
+        hmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hmf_qual: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 50 */
+        lmf_freq: number;
+        /** u8, 0..255; default 50 */
+        lmf_qual: number;
+        /** u8, 0..255; default 0 */
+        lf_bell: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 50 */
+        lf_freq: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_ssl_pink_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        lf_cut: number;
+        /** u8, 0..255; default 0 */
+        hf_cut: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 50 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_bell: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 50 */
+        hmf_freq: number;
+        /** u8, 0..255; default 50 */
+        hmf_qual: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 50 */
+        lmf_freq: number;
+        /** u8, 0..255; default 50 */
+        lmf_qual: number;
+        /** u8, 0..255; default 0 */
+        lf_bell: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 50 */
+        lf_freq: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_staylevin_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 6 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 2 */
+        release: number;
+        /** u8, 0..255; default 0 */
+        attack: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_studer_089_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 8 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        lf_cut: number;
+        /** u8, 0..255; default 0 */
+        hf_cut: number;
+        /** i8, -128..127; default 0 */
+        lf_shelf: number;
+        /** i8, -128..127; default 0 */
+        hf_shelf: number;
+        /** u8, 0..255; default 50 */
+        mf_gain: number;
+        /** u8, 0..255; default 0 */
+        mf_freq: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_studer_169_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        hpf_switch: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 50 */
+        mf_gain: number;
+        /** u8, 0..255; default 0 */
+        mf_freq: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_studer_900_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 16 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 0 */
+        low_cut: number;
+        /** u8, 0..255; default 100 */
+        hi_cut: number;
+        /** u8, 0..255; default 50 */
+        lf_gain: number;
+        /** u8, 0..255; default 0 */
+        lf_freq: number;
+        /** u8, 0..255; default 0 */
+        lf_switch: number;
+        /** u8, 0..255; default 50 */
+        lmf_gain: number;
+        /** u8, 0..255; default 0 */
+        lmf_freq: number;
+        /** u8, 0..255; default 0 */
+        lmf_switch: number;
+        /** u8, 0..255; default 50 */
+        hmf_gain: number;
+        /** u8, 0..255; default 0 */
+        hmf_freq: number;
+        /** u8, 0..255; default 0 */
+        hmf_switch: number;
+        /** u8, 0..255; default 50 */
+        hf_gain: number;
+        /** u8, 0..255; default 0 */
+        hf_freq: number;
+        /** u8, 0..255; default 0 */
+        hf_switch: number;
+        /** i8, -128..127; default 0 */
+        level: number;
+      }>;
+    };
+  };
+  get_summit_100a_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 6 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        attack: number;
+        /** u8, 0..255; default 0 */
+        release: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
   get_tb_latency: {
     params: Record<string, never>;
     returns: {
@@ -159,6 +1047,92 @@ export interface StudioCommands {
       latency_adjust_in: number;
       /** i32, -2147483648..2147483647 */
       latency_adjust_out: number;
+    };
+  };
+  get_tube_176_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 0 */
+        ratio: number;
+        /** u8, 0..255; default 50 */
+        attack: number;
+        /** u8, 0..255; default 50 */
+        release: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_tubechild670_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 6 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 50 */
+        input: number;
+        /** u8, 0..255; default 50 */
+        threshold: number;
+        /** u8, 0..255; default 2 */
+        time_const: number;
+        /** u8, 0..255; default 50 */
+        output: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_uad_1176_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 30 */
+        input: number;
+        /** u8, 0..255; default 30 */
+        output: number;
+        /** u8, 0..255; default 66 */
+        attack: number;
+        /** u8, 0..255; default 66 */
+        release: number;
+        /** u8, 0..255; default 1 */
+        ratio: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
+    };
+  };
+  get_uad_1178_configs: {
+    params: Record<string, never>;
+    returns: {
+      /** 16 × struct of 7 bytes */
+      entries: Array<{
+        /** u8, 0..255; default 1 */
+        enabled: number;
+        /** u8, 0..255; default 44 */
+        input: number;
+        /** u8, 0..255; default 44 */
+        output: number;
+        /** u8, 0..255; default 50 */
+        attack: number;
+        /** u8, 0..255; default 50 */
+        release: number;
+        /** u8, 0..255; default 1 */
+        ratio: number;
+        /** u8, 0..255; default 0 */
+        linked: number;
+      }>;
     };
   };
   preset_recall: {
@@ -204,10 +1178,133 @@ export interface StudioCommands {
     };
     returns: null;
   };
+  set_altec_436c_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_api_550_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      mid_freq: number;
+      /** u8, 0..255 */
+      mid_gain: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      low_shelf: number;
+      /** u8, 0..255 */
+      high_shelf: number;
+      /** u8, 0..255 */
+      bandpass: number;
+    };
+    returns: null;
+  };
+  set_api_550b_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      lmid_freq: number;
+      /** u8, 0..255 */
+      lmid_gain: number;
+      /** u8, 0..255 */
+      hmid_freq: number;
+      /** u8, 0..255 */
+      hmid_gain: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      low_shelf: number;
+      /** u8, 0..255 */
+      high_shelf: number;
+    };
+    returns: null;
+  };
+  set_ba6a_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
   set_brightness: {
     params: {
       /** u8, 0..255 */
       brightness: number;
+    };
+    returns: null;
+  };
+  set_compressor_cfg: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u32, 0..4294967295 */
+      attack: number;
+      /** u32, 0..4294967295 */
+      release: number;
+      /** u16, 0..65535 */
+      taw: number;
+      /** u16, 0..65535 */
+      ratio: number;
+      /** u16, 0..65535 */
+      gain: number;
+      /** u8, 0..255 */
+      ctrl: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      knee: number;
+      /** u8, 0..255 */
+      linked: number;
     };
     returns: null;
   };
@@ -220,12 +1317,222 @@ export interface StudioCommands {
     };
     returns: null;
   };
+  set_dbx_160_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      compression: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_dbx_903_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      ratio: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_guitar_amp_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      model: number;
+      /** u8, 0..255 */
+      gain: number;
+      /** u8, 0..255 */
+      bass: number;
+      /** u8, 0..255 */
+      mid: number;
+      /** u8, 0..255 */
+      midfreq: number;
+      /** u8, 0..255 */
+      treble: number;
+      /** u8, 0..255 */
+      density: number;
+      /** u8, 0..255 */
+      presence: number;
+      /** u8, 0..255 */
+      volume: number;
+      /** u8, 0..255 */
+      boost: number;
+      /** u8, 0..255 */
+      mode1: number;
+      /** u8, 0..255 */
+      mode2: number;
+      /** u8, 0..255 */
+      mode3: number;
+      /** u8, 0..255 */
+      mode4: number;
+      /** u8, 0..255 */
+      mode5: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_gyratec_x_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      ratio: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_harrison_32c_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_cut_enable: number;
+      /** u8, 0..255 */
+      low_cut: number;
+      /** u8, 0..255 */
+      hi_cut_enable: number;
+      /** u8, 0..255 */
+      hi_cut: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** u8, 0..255 */
+      lf_switch: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_switch: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_helios_69_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      bass_freq: number;
+      /** u8, 0..255 */
+      bass_gain: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      mid_freq: number;
+      /** u8, 0..255 */
+      mid_gain: number;
+      /** u8, 0..255 */
+      mid_pk: number;
+      /** i8, -128..127 */
+      gain: number;
+    };
+    returns: null;
+  };
+  set_lang_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_boost_freq: number;
+      /** u8, 0..255 */
+      lf_boost_gain: number;
+      /** u8, 0..255 */
+      lf_drop_freq: number;
+      /** u8, 0..255 */
+      lf_drop_gain: number;
+      /** u8, 0..255 */
+      hf_bandwidth: number;
+      /** u8, 0..255 */
+      hf_boost_freq: number;
+      /** u8, 0..255 */
+      hf_boost_gain: number;
+      /** u8, 0..255 */
+      hf_drop_freq: number;
+      /** u8, 0..255 */
+      hf_drop_gain: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
   set_line_gain: {
     params: {
       /** u8, 0..255 */
       id: number;
       /** i8, -128..127 */
       gain: number;
+    };
+    returns: null;
+  };
+  set_liverpool_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      recovery: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
     };
     returns: null;
   };
@@ -257,6 +1564,170 @@ export interface StudioCommands {
     };
     returns: null;
   };
+  set_neumann_pev_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      low_gain: number;
+      /** u8, 0..255 */
+      pres_gain: number;
+      /** u8, 0..255 */
+      pres_freq: number;
+      /** i8, -128..127 */
+      high_gain: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_neumann_w492_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_cut: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_on: number;
+      /** u8, 0..255 */
+      lmid_gain: number;
+      /** u8, 0..255 */
+      lmid_freq: number;
+      /** u8, 0..255 */
+      lmid_on: number;
+      /** u8, 0..255 */
+      hmid_gain: number;
+      /** u8, 0..255 */
+      hmid_freq: number;
+      /** u8, 0..255 */
+      hmid_on: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_on: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_neumann_w495_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      mid_freq: number;
+      /** u8, 0..255 */
+      mid_gain: number;
+      /** u8, 0..255 */
+      mid_q: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_neve_1023_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      gain: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      peak_freq: number;
+      /** u8, 0..255 */
+      peak_gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      high_pass: number;
+      /** u8, 0..255 */
+      phase_inv: number;
+    };
+    returns: null;
+  };
+  set_neve_1073_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      gain: number;
+      /** u8, 0..255 */
+      high_shelf: number;
+      /** u8, 0..255 */
+      peak_freq: number;
+      /** u8, 0..255 */
+      peak_gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      high_pass: number;
+      /** u8, 0..255 */
+      phase_inv: number;
+    };
+    returns: null;
+  };
+  set_neve_1084_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** i8, -128..127 */
+      gain: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_gain: number;
+      /** u8, 0..255 */
+      peak_freq: number;
+      /** u8, 0..255 */
+      peak_gain: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      high_pass: number;
+      /** u8, 0..255 */
+      low_pass: number;
+      /** u8, 0..255 */
+      hi_q: number;
+      /** u8, 0..255 */
+      phase_inv: number;
+    };
+    returns: null;
+  };
   set_none: {
     params: Record<string, never>;
     returns: null;
@@ -274,6 +1745,27 @@ export interface StudioCommands {
     params: {
       /** u8, 0..255 */
       power: number;
+    };
+    returns: null;
+  };
+  set_powergate_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      range: number;
+      /** u16, 0..65535 */
+      attack: number;
+      /** u16, 0..65535 */
+      decay: number;
+      /** u16, 0..65535 */
+      hold: number;
+      /** i8, -128..127 */
+      gain: number;
     };
     returns: null;
   };
@@ -310,6 +1802,65 @@ export interface StudioCommands {
       id: number;
       /** u8, 0..255 */
       pretype: number;
+    };
+    returns: null;
+  };
+  set_pultec_eqp_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_boost: number;
+      /** u8, 0..255 */
+      low_atten: number;
+      /** u8, 0..255 */
+      high_freq: number;
+      /** u8, 0..255 */
+      high_boost: number;
+      /** u8, 0..255 */
+      high_atten: number;
+      /** u8, 0..255 */
+      bandwidth: number;
+      /** u8, 0..255 */
+      atten_sel: number;
+    };
+    returns: null;
+  };
+  set_pultec_hlf_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_shelf: number;
+      /** u8, 0..255 */
+      high_shelf: number;
+    };
+    returns: null;
+  };
+  set_pultec_meq_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_freq: number;
+      /** u8, 0..255 */
+      low_gain: number;
+      /** u8, 0..255 */
+      mid_freq: number;
+      /** u8, 0..255 */
+      mid_gain: number;
+      /** u8, 0..255 */
+      hi_freq: number;
+      /** u8, 0..255 */
+      hi_gain: number;
     };
     returns: null;
   };
@@ -387,12 +1938,289 @@ export interface StudioCommands {
     };
     returns: null;
   };
+  set_ssl_black_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_cut: number;
+      /** u8, 0..255 */
+      hf_cut: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_bell: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hmf_qual: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      lmf_qual: number;
+      /** u8, 0..255 */
+      lf_bell: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_ssl_brown_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_cut: number;
+      /** u8, 0..255 */
+      hf_cut: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_bell: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hmf_qual: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      lmf_qual: number;
+      /** u8, 0..255 */
+      lf_bell: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_ssl_orange_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_cut: number;
+      /** u8, 0..255 */
+      hf_cut: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_bell: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hmf_qual: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      lmf_qual: number;
+      /** u8, 0..255 */
+      lf_bell: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_ssl_pink_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_cut: number;
+      /** u8, 0..255 */
+      hf_cut: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_bell: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hmf_qual: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      lmf_qual: number;
+      /** u8, 0..255 */
+      lf_bell: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_staylevin_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
   set_stereo_link: {
     params: {
       /** u8, 0..255 */
       periph_id: number;
       /** u8, 0..255 */
       channel_id: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_studer_089_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      lf_cut: number;
+      /** u8, 0..255 */
+      hf_cut: number;
+      /** i8, -128..127 */
+      lf_shelf: number;
+      /** i8, -128..127 */
+      hf_shelf: number;
+      /** u8, 0..255 */
+      mf_gain: number;
+      /** u8, 0..255 */
+      mf_freq: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_studer_169_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      hpf_switch: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      mf_gain: number;
+      /** u8, 0..255 */
+      mf_freq: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_studer_900_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      low_cut: number;
+      /** u8, 0..255 */
+      hi_cut: number;
+      /** u8, 0..255 */
+      lf_gain: number;
+      /** u8, 0..255 */
+      lf_freq: number;
+      /** u8, 0..255 */
+      lf_switch: number;
+      /** u8, 0..255 */
+      lmf_gain: number;
+      /** u8, 0..255 */
+      lmf_freq: number;
+      /** u8, 0..255 */
+      lmf_switch: number;
+      /** u8, 0..255 */
+      hmf_gain: number;
+      /** u8, 0..255 */
+      hmf_freq: number;
+      /** u8, 0..255 */
+      hmf_switch: number;
+      /** u8, 0..255 */
+      hf_gain: number;
+      /** u8, 0..255 */
+      hf_freq: number;
+      /** u8, 0..255 */
+      hf_switch: number;
+      /** i8, -128..127 */
+      level: number;
+    };
+    returns: null;
+  };
+  set_summit_100a_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      input: number;
       /** u8, 0..255 */
       linked: number;
     };
@@ -449,6 +2277,88 @@ export interface StudioCommands {
       id: number;
       /** u8, 0..255 */
       trim_idx: number;
+    };
+    returns: null;
+  };
+  set_tube_176_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      ratio: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_tubechild670_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      threshold: number;
+      /** u8, 0..255 */
+      time_const: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_uad_1176_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      ratio: number;
+      /** u8, 0..255 */
+      linked: number;
+    };
+    returns: null;
+  };
+  set_uad_1178_conf: {
+    params: {
+      /** u8, 0..255 */
+      type_id: number;
+      /** u8, 0..255 */
+      inst_id: number;
+      /** u8, 0..255 */
+      input: number;
+      /** u8, 0..255 */
+      output: number;
+      /** u8, 0..255 */
+      attack: number;
+      /** u8, 0..255 */
+      release: number;
+      /** u8, 0..255 */
+      ratio: number;
+      /** u8, 0..255 */
+      linked: number;
     };
     returns: null;
   };
@@ -636,44 +2546,116 @@ export const studioSchema = {
     "get_afx_available_instances": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_count", "scalar": "u8" }] },
     "get_afx_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 8, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_afx_order": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "struct_array", "name": "slots", "count": 8, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] }] }] },
+    "get_altec_436c_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_api_550_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "bandpass", "scalar": "u8", "default": 0 }] }] },
+    "get_api_550b_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "lmid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "lmid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "hmid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "hmid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 0 }] }] },
+    "get_ba6a_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_compressor_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "attack", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "release", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "taw", "scalar": "u16", "default": 65535 }, { "kind": "scalar", "name": "ratio", "scalar": "u16", "default": 100 }, { "kind": "scalar", "name": "gain", "scalar": "u16", "default": 0 }, { "kind": "scalar", "name": "ctrl", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 24 }, { "kind": "scalar", "name": "knee", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_dbx_160_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "compression", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_dbx_903_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_guitar_amp_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 4, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "model", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "bass", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mid", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "midfreq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "treble", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "density", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "presence", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "volume", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "boost", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mode1", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode2", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode3", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode4", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mode5", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_gyratec_x_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_harrison_32c_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut_enable", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_cut_enable", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_helios69_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "bass_freq", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "bass_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8", "default": 4 }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mid_pk", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }] }] },
+    "get_lang_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_boost_freq", "scalar": "u8", "default": 3 }, { "kind": "scalar", "name": "lf_boost_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_drop_freq", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_drop_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_bandwidth", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_boost_freq", "scalar": "u8", "default": 4 }, { "kind": "scalar", "name": "hf_boost_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_drop_freq", "scalar": "u8", "default": 3 }, { "kind": "scalar", "name": "hf_drop_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
     "get_lines_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 4, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_liverpool_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "recovery", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_mixer": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 33, "fields": [{ "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "send", "scalar": "u8" }] }] },
     "get_mixer_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 64, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_neumann_pev_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "pres_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "pres_freq", "scalar": "u8", "default": 3 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_neumann_w492_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "low_on", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lmid_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmid_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmid_on", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "hmid_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmid_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmid_on", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "high_on", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_neumann_w495_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mid_q", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_neve_1023_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "high_pass", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8", "default": 0 }] }] },
+    "get_neve_1073_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 8 }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8", "default": 8 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 8 }, { "kind": "scalar", "name": "high_pass", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8", "default": 0 }] }] },
+    "get_neve_1084_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "high_pass", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_pass", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_q", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8", "default": 0 }] }] },
+    "get_powergate_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 90 }, { "kind": "scalar", "name": "range", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "attack", "scalar": "u16", "default": 100 }, { "kind": "scalar", "name": "decay", "scalar": "u16", "default": 50 }, { "kind": "scalar", "name": "hold", "scalar": "u16", "default": 0 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
     "get_preamps_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 6, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_pultec_eqp_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_boost", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_atten", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_boost", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_atten", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "bandwidth", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "atten_sel", "scalar": "u8", "default": 0 }] }] },
+    "get_pultec_hlf_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 10 }] }] },
+    "get_pultec_meq_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_gain", "scalar": "u8", "default": 0 }] }] },
     "get_reverb_config": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "mixer_id", "scalar": "u8" }, { "kind": "scalar", "name": "room_size", "scalar": "u8" }, { "kind": "scalar", "name": "color", "scalar": "u8" }, { "kind": "scalar", "name": "predelay", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8" }, { "kind": "scalar", "name": "early_ref_gain", "scalar": "u8" }, { "kind": "scalar", "name": "late_ref_delay", "scalar": "u8" }, { "kind": "scalar", "name": "richness", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_time", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_level", "scalar": "u8" }, { "kind": "scalar", "name": "on", "scalar": "u8" }] },
     "get_routing": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "bank_idx", "scalar": "u8" }, { "kind": "struct_array", "name": "bank_configs", "count": 32, "fields": [{ "kind": "scalar", "name": "in_periph_id", "scalar": "u8" }, { "kind": "scalar", "name": "in_chann", "scalar": "u8" }] }] },
     "get_spdifs_links": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "linked", "scalar": "u8" }] }] },
+    "get_ssl_black_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_ssl_brown_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_ssl_orange_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_ssl_pink_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_staylevin_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_studer_089_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_shelf", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "hf_shelf", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "mf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_studer_169_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "hpf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "mf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_studer_900_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "low_cut", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "lmf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hmf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "level", "scalar": "i8", "default": 0 }] }] },
+    "get_summit_100a_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_tb_latency": { "reportId": "0xE2", "params": [], "returns": [{ "kind": "scalar", "name": "mode", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_out", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_in", "scalar": "i32" }, { "kind": "scalar", "name": "latency_adjust_out", "scalar": "i32" }] },
+    "get_tube_176_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_tubechild670_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "time_const", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_uad_1176_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 30 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 30 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 66 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 66 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
+    "get_uad_1178_configs": { "reportId": "0x74", "params": [], "returns": [{ "kind": "struct_array", "name": "entries", "count": 16, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 44 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 44 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "preset_recall": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },
     "preset_save": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "preset_idx", "scalar": "u8" }], "returns": null },
     "set_adat_gain": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
     "set_afx_bypass": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "enabled", "scalar": "u8" }], "returns": null },
     "set_afx_order": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "ch_id", "scalar": "u8" }, { "kind": "elem_array", "name": "slots", "count": 8, "elem": { "kind": "struct_array", "name": "", "count": 1, "fields": [{ "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "inst", "scalar": "u8" }] } }], "returns": null },
+    "set_altec_436c_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_api_550_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8" }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8" }, { "kind": "scalar", "name": "bandpass", "scalar": "u8" }], "returns": null },
+    "set_api_550b_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8" }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8" }], "returns": null },
+    "set_ba6a_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_brightness": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "brightness", "scalar": "u8" }], "returns": null },
+    "set_compressor_cfg": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u32" }, { "kind": "scalar", "name": "release", "scalar": "u32" }, { "kind": "scalar", "name": "taw", "scalar": "u16" }, { "kind": "scalar", "name": "ratio", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "u16" }, { "kind": "scalar", "name": "ctrl", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "knee", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_config_feature": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "feature", "scalar": "u8" }, { "kind": "scalar", "name": "status", "scalar": "u8" }], "returns": null },
+    "set_dbx_160_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "compression", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_dbx_903_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_guitar_amp_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "model", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "u8" }, { "kind": "scalar", "name": "bass", "scalar": "u8" }, { "kind": "scalar", "name": "mid", "scalar": "u8" }, { "kind": "scalar", "name": "midfreq", "scalar": "u8" }, { "kind": "scalar", "name": "treble", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8" }, { "kind": "scalar", "name": "presence", "scalar": "u8" }, { "kind": "scalar", "name": "volume", "scalar": "u8" }, { "kind": "scalar", "name": "boost", "scalar": "u8" }, { "kind": "scalar", "name": "mode1", "scalar": "u8" }, { "kind": "scalar", "name": "mode2", "scalar": "u8" }, { "kind": "scalar", "name": "mode3", "scalar": "u8" }, { "kind": "scalar", "name": "mode4", "scalar": "u8" }, { "kind": "scalar", "name": "mode5", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_gyratec_x_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_harrison_32c_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut_enable", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hi_cut_enable", "scalar": "u8" }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_helios_69_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "bass_freq", "scalar": "i8" }, { "kind": "scalar", "name": "bass_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_pk", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
+    "set_lang_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_boost_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_boost_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_drop_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_drop_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_bandwidth", "scalar": "u8" }, { "kind": "scalar", "name": "hf_boost_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_boost_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_drop_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_drop_gain", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
     "set_line_gain": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
+    "set_liverpool_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "recovery", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_mixer_cfg": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "mixer_id", "scalar": "u8" }, { "kind": "scalar", "name": "channel", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "pan", "scalar": "u8", "bitWidth": 6 }, { "kind": "scalar", "name": "mute", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "solo", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "send", "scalar": "u8" }], "returns": null },
     "set_mute": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "mute", "scalar": "u8" }], "returns": null },
+    "set_neumann_pev_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "i8" }, { "kind": "scalar", "name": "pres_gain", "scalar": "u8" }, { "kind": "scalar", "name": "pres_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "i8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_neumann_w492_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_on", "scalar": "u8" }, { "kind": "scalar", "name": "lmid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmid_on", "scalar": "u8" }, { "kind": "scalar", "name": "hmid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmid_on", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_on", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_neumann_w495_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_q", "scalar": "u8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_neve_1023_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8" }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_pass", "scalar": "u8" }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8" }], "returns": null },
+    "set_neve_1073_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8" }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8" }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_pass", "scalar": "u8" }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8" }], "returns": null },
+    "set_neve_1084_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_gain", "scalar": "u8" }, { "kind": "scalar", "name": "peak_freq", "scalar": "u8" }, { "kind": "scalar", "name": "peak_gain", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "high_pass", "scalar": "u8" }, { "kind": "scalar", "name": "low_pass", "scalar": "u8" }, { "kind": "scalar", "name": "hi_q", "scalar": "u8" }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8" }], "returns": null },
     "set_none": { "reportId": "0x70", "params": [], "returns": null },
     "set_peak_source": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "bank_id", "scalar": "u8" }, { "kind": "scalar", "name": "source_id", "scalar": "u8" }], "returns": null },
     "set_power": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "power", "scalar": "u8" }], "returns": null },
+    "set_powergate_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "range", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u16" }, { "kind": "scalar", "name": "decay", "scalar": "u16" }, { "kind": "scalar", "name": "hold", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
     "set_pre_gain": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
     "set_pre_phantom": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "phantom", "scalar": "u8" }], "returns": null },
     "set_pre_phaseinv": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "phase_inv", "scalar": "u8" }], "returns": null },
     "set_pre_type": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "pretype", "scalar": "u8" }], "returns": null },
+    "set_pultec_eqp_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_boost", "scalar": "u8" }, { "kind": "scalar", "name": "low_atten", "scalar": "u8" }, { "kind": "scalar", "name": "high_freq", "scalar": "u8" }, { "kind": "scalar", "name": "high_boost", "scalar": "u8" }, { "kind": "scalar", "name": "high_atten", "scalar": "u8" }, { "kind": "scalar", "name": "bandwidth", "scalar": "u8" }, { "kind": "scalar", "name": "atten_sel", "scalar": "u8" }], "returns": null },
+    "set_pultec_hlf_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8" }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8" }], "returns": null },
+    "set_pultec_meq_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_freq", "scalar": "u8" }, { "kind": "scalar", "name": "low_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8" }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hi_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hi_gain", "scalar": "u8" }], "returns": null },
     "set_reverb_config": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "mixer_id", "scalar": "u8" }, { "kind": "scalar", "name": "room_size", "scalar": "u8" }, { "kind": "scalar", "name": "color", "scalar": "u8" }, { "kind": "scalar", "name": "predelay", "scalar": "u8" }, { "kind": "scalar", "name": "density", "scalar": "u8", "bitWidth": 8, "default": 100 }, { "kind": "scalar", "name": "early_ref_gain", "scalar": "u8" }, { "kind": "scalar", "name": "late_ref_delay", "scalar": "u8" }, { "kind": "scalar", "name": "richness", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_time", "scalar": "u8" }, { "kind": "scalar", "name": "reverb_level", "scalar": "u8" }, { "kind": "scalar", "name": "on", "scalar": "u8" }], "returns": null },
     "set_routing": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "bank_idx", "scalar": "u8" }, { "kind": "elem_array", "name": "bank_configs", "count": 32, "elem": { "kind": "array", "name": "", "elem": "u8", "count": 2 } }], "returns": null },
     "set_samp_rate": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "srate_idx", "scalar": "u8" }], "returns": null },
     "set_sine_gen": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "freq_left", "scalar": "u8", "bitWidth": 2 }, { "kind": "scalar", "name": "freq_right", "scalar": "u8", "bitWidth": 2 }, { "kind": "scalar", "name": "level", "scalar": "u8", "bitWidth": 2 }, { "kind": "scalar", "name": "mute_left", "scalar": "u8", "bitWidth": 1 }, { "kind": "scalar", "name": "mute_right", "scalar": "u8", "bitWidth": 1 }], "returns": null },
     "set_spdif_gain": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "gain", "scalar": "i8" }], "returns": null },
     "set_spdif_src": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "spdif_src", "scalar": "u8" }], "returns": null },
+    "set_ssl_black_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_ssl_brown_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_ssl_orange_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_ssl_pink_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_qual", "scalar": "u8" }, { "kind": "scalar", "name": "lf_bell", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_staylevin_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_stereo_link": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "periph_id", "scalar": "u8" }, { "kind": "scalar", "name": "channel_id", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_studer_089_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "lf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hf_cut", "scalar": "u8" }, { "kind": "scalar", "name": "lf_shelf", "scalar": "i8" }, { "kind": "scalar", "name": "hf_shelf", "scalar": "i8" }, { "kind": "scalar", "name": "mf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_studer_169_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "hpf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "mf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_studer_900_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "low_cut", "scalar": "u8" }, { "kind": "scalar", "name": "hi_cut", "scalar": "u8" }, { "kind": "scalar", "name": "lf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "lmf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hmf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "hf_gain", "scalar": "u8" }, { "kind": "scalar", "name": "hf_freq", "scalar": "u8" }, { "kind": "scalar", "name": "hf_switch", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "i8" }], "returns": null },
+    "set_summit_100a_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_sync_source": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "src_index", "scalar": "u8" }], "returns": null },
     "set_talk": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "on", "scalar": "u8" }], "returns": null },
     "set_tb_latency": { "reportId": "0xE0", "params": [{ "kind": "scalar", "name": "mode", "scalar": "i32" }, { "kind": "scalar", "name": "buffer_adjust_in", "scalar": "i32", "bitWidth": 32, "default": 0 }, { "kind": "scalar", "name": "buffer_adjust_out", "scalar": "i32", "bitWidth": 32, "default": 0 }, { "kind": "scalar", "name": "latency_adjust_in", "scalar": "i32", "bitWidth": 32, "default": 0 }, { "kind": "scalar", "name": "latency_adjust_out", "scalar": "i32", "bitWidth": 32, "default": 0 }], "returns": null },
     "set_tbk_enable": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "enabled", "scalar": "u8" }], "returns": null },
     "set_tbk_vol": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "volume", "scalar": "u8" }], "returns": null },
     "set_trim": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "trim_idx", "scalar": "u8" }], "returns": null },
+    "set_tube_176_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_tubechild670_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "time_const", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_uad_1176_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
+    "set_uad_1178_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_volume": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }, { "kind": "scalar", "name": "volume", "scalar": "u8" }], "returns": null },
   },
   "cyclic": {

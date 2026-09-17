@@ -66,8 +66,9 @@ fn studio_commands_match_ground_truth() {
 #[test]
 fn loads_all_in_scope_commands() {
     let reg = load_registry();
-    // The recovered in-scope surface is 63 commands (shared 35 + Quadro-only 28).
-    assert_eq!(reg.len(), 63, "expected 63 in-scope commands");
+    // The recovered in-scope surface is 63 commands (shared 35 + Quadro-only 28), plus a set and a
+    // get for each of the 68 effect types whose parameters are decoded (afx_parameters.json).
+    assert_eq!(reg.len(), 63 + 2 * 68, "expected 199 in-scope commands");
 }
 
 /// Load the ground-truth 0x73 cyclic report bytes and expected decoded values.
