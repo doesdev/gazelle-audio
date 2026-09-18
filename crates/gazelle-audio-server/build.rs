@@ -7,6 +7,13 @@
 //! The updater needs two things only the build knows: the **target triple**, so it can ask a
 //! release for the asset built for this platform, and whether `GAZELLE_UPDATE_PUBKEY` was set,
 //! so a change of signing key rebuilds rather than being cached.
+//!
+//! On Windows it also hands the linker a COFF object carrying `assets/gazelle.ico`, so both
+//! binaries show the app's own icon in Explorer, the taskbar, the Start Menu shortcut, the
+//! Add/Remove Programs entry and the window. See `build/resource.rs`.
+
+#[path = "build/resource.rs"]
+mod resource;
 
 use std::path::PathBuf;
 
@@ -33,4 +40,26 @@ fn main() {
         out
     };
     println!("cargo:rustc-env=GAZELLE_WEB_DIST={}", folder.display());
+
+    embed_the_icon(&manifest);
+}
+
+/// Put the icon resource in every binary this package builds — both of them.
+///
+/// `rustc-link-arg-bins` reaches the two `bin` targets and nothing else, which is what is
+/// wanted: a test executable has no use for an icon. A failure here is a warning rather than a
+/// broken build — the app runs perfectly well with the default executable icon — and a release
+/// that quietly lost it is caught by `tests/icon.rs` instead.
+fn embed_the_icon(manifest: &std::path::Path) {
+    let ico = manifest.join("assets/gazelle.ico");
+    println!("cargo:rerun-if-changed={}", ico.display());
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let object = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("gazelle-icon.o");
+    match resource::write_object(&ico, &object, &arch) {
+        Ok(()) => println!("cargo:rustc-link-arg-bins={}", object.display()),
+        Err(e) => println!("cargo:warning=the icon was not embedded: {e}"),
+    }
 }
