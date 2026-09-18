@@ -1,9 +1,11 @@
 //! What the server has to say about itself, beyond the device list.
 //!
-//! There is one such thing so far, and it is the commonest way the app looks broken when it is
-//! not: Antelope's own Manager Service opens the interfaces exclusively while it runs, so a
-//! `--backend usb` server started beside it attaches nothing (`reference/usb-access.md`). An
-//! empty device list is the one thing that must not be all the app says then.
+//! Both of them so far are about an empty device list, which is the one thing that must never be
+//! all the app says. Antelope's own Manager Service opens the interfaces exclusively while it
+//! runs, so a USB server started beside it attaches nothing (`reference/usb-access.md`) — the
+//! commonest way the app looks broken when it is not. And with the USB backend the default
+//! (decision `0018`), a first run with nothing plugged in is empty for the ordinary reason, which
+//! is worth saying too.
 //!
 //! The rule is a pure function of what the server can see, evaluated wherever it is asked for
 //! rather than tracked: a device attaching, or the service stopping, changes the answer at once.
@@ -36,10 +38,36 @@ pub fn service_conflict(backend: &str, devices: usize, service_running: bool) ->
     })
 }
 
+/// The code of [`nothing_attached`]'s notice.
+pub const NO_DEVICE: &str = "no-device-attached";
+
+/// Nothing is attached, and Antelope's service is not the reason.
+///
+/// This became worth saying when `--backend usb` became the default (decision `0018`): before
+/// then an empty device list meant the person had asked for hardware, so they knew what they were
+/// looking at. Now it is what someone sees on first run with nothing plugged in, and an app with
+/// no explanation for its own emptiness looks broken.
+pub fn nothing_attached(backend: &str, devices: usize, service_running: bool) -> Option<Notice> {
+    (backend == "usb" && devices == 0 && !service_running).then(|| Notice {
+        code: NO_DEVICE,
+        message: "No Antelope interface is attached, so there is nothing to control yet. Plug one \
+                  in and it appears within a few seconds. To see the app without one, start the \
+                  server with --backend loopback."
+            .into(),
+    })
+}
+
 /// Everything true of the server right now. `service_running` is a parameter so the rule is tested
 /// without a service control manager; [`crate::tray::antelope_service_running`] supplies it.
+///
+/// The two device notices are alternatives — "nothing is attached" and "something is attached and
+/// Antelope's service is holding it" are answers to the same question, and the second is the more
+/// useful one whenever it applies.
 pub fn current(backend: &str, devices: usize, service_running: bool) -> Vec<Notice> {
-    service_conflict(backend, devices, service_running).into_iter().collect()
+    service_conflict(backend, devices, service_running)
+        .or_else(|| nothing_attached(backend, devices, service_running))
+        .into_iter()
+        .collect()
 }
 
 #[cfg(test)]
@@ -61,8 +89,22 @@ mod tests {
     }
 
     #[test]
-    fn current_is_the_notices_that_apply() {
+    fn nothing_attached_and_nothing_holding_it_says_so_rather_than_showing_an_empty_app() {
+        let notice = nothing_attached("usb", 0, false).expect("no device, no service");
+        assert_eq!(notice.code, NO_DEVICE);
+        assert!(notice.message.contains("loopback"), "it offers the way to see the UI anyway: {}", notice.message);
+        // The service being up is the other notice's business, and it is the more useful one.
+        assert_eq!(nothing_attached("usb", 0, true), None);
+        assert_eq!(nothing_attached("usb", 1, false), None);
+        // The loopback always has its devices; an empty list there is not this.
+        assert_eq!(nothing_attached("loopback", 0, false), None);
+    }
+
+    #[test]
+    fn current_is_the_notices_that_apply_and_never_both_reasons_at_once() {
         assert_eq!(current("usb", 0, true), vec![service_conflict("usb", 0, true).unwrap()]);
+        assert_eq!(current("usb", 0, false), vec![nothing_attached("usb", 0, false).unwrap()]);
+        assert!(current("usb", 2, false).is_empty(), "devices are attached: nothing to say");
         assert!(current("loopback", 0, true).is_empty());
     }
 }

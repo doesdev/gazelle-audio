@@ -381,15 +381,15 @@ async fn prepare(
     // The bound address, not `args.bind`: with port 0 this log line is how another process (the
     // web client's integration tests) finds the server.
     tracing::info!(
-        "listening on http://{} — backend={:?} devices={} dry_run={}",
+        "listening on http://{} — backend={} devices={} dry_run={}",
         address,
-        args.backend,
+        args.backend.name(),
         devices.len(),
         args.dry_run
     );
-    // A USB run that attached nothing while Antelope's service holds the devices is the one case
-    // that looks like a working app with nothing plugged in. The scanner's warning is general; this
-    // one names the reason, and the UI shows the same text (`notice`).
+    // A USB run that attached nothing is the one case that looks like a working app with nothing
+    // in it. The scanner's warning is general; these name the reason — Antelope's service holding
+    // the devices, or simply nothing plugged in — and the UI shows the same text (`notice`).
     for notice in gazelle_audio_server::notice::current(
         &args.backend.name(),
         devices.len(),
