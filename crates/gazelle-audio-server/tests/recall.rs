@@ -277,6 +277,9 @@ async fn the_flag_alone_is_not_enough_and_a_run_that_is_not_dry_still_refuses() 
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("is not built"), "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("hardware session"), "{refused}");
+    // The gate is the workspace spec's section 10, what the hardware session must confirm (P137).
+    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("§10"), "{refused}");
+    assert!(!refused["error"]["message"].as_str().unwrap_or_default().contains("§6"), "{refused}");
 }
 
 #[tokio::test]

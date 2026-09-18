@@ -353,3 +353,35 @@ fn the_loopback_backend_still_runs_under_the_guard() {
     let response = http_get(port, "/api/v1/health");
     assert!(response.contains("\"backend\":\"loopback\""), "{response}");
 }
+
+/// What `--help` says for one option: its line and the description after it, up to the next
+/// option, as one line. `--help` prints and exits before any backend is opened.
+fn help_for(option: &str) -> String {
+    let output = Command::new(BIN).args(["--backend", "loopback", "--help"]).env(no_hardware::VAR, "1").output().unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout).into_owned();
+    let mut found: Vec<&str> = Vec::new();
+    for line in help.lines().map(str::trim).skip_while(|l| !l.starts_with(&format!("{option} ")) && *l != option) {
+        if !found.is_empty() && line.starts_with("--") {
+            break;
+        }
+        found.push(line);
+    }
+    assert!(!found.is_empty(), "{option} is not in --help:\n{help}");
+    found.join(" ")
+}
+
+/// The texts the documentation overhaul found wrong (P137), checked against what the code does.
+#[test]
+fn the_help_says_what_the_options_really_do() {
+    // `ask` takes its default, yes, when nobody is at a terminal to answer.
+    let start = help_for("--start");
+    assert!(start.contains("from Explorer or a script starts it"), "{start}");
+    // The default comes from the config folder, wherever `--workspace` points.
+    let snapshots = help_for("--snapshots-dir");
+    assert!(!snapshots.contains("beside the workspace file"), "{snapshots}");
+    assert!(snapshots.contains("config folder") && snapshots.contains("--workspace"), "{snapshots}");
+    // The recall gate is the workspace spec's section 10.
+    let recall = help_for("--enable-recall");
+    assert!(recall.contains("§10") && !recall.contains("§6"), "{recall}");
+}
