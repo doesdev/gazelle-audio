@@ -10,8 +10,8 @@
 //! a crate such as `embed-resource` or `winresource`. That is a build dependency **and** an
 //! external tool that has to be found on every machine that builds a release; `rc.exe` is not on
 //! `PATH` here, it lives under a versioned Windows Kits directory. What the tool produces,
-//! though, is a COFF object holding two sections — the resource directory and the resource
-//! bytes — and that is about two hundred lines of plain structure writing. So this writes it,
+//! though, is a COFF object holding two sections (the resource directory and the resource
+//! bytes), and that is about two hundred lines of plain structure writing. So this writes it,
 //! with no new dependency, no tool lookup, and byte-identical output on any machine.
 //!
 //! The layout is the one `cvtres` emits, and the linker's `$`-suffix ordering is what makes it
@@ -26,7 +26,7 @@
 //! named `1`. The group is what `LoadIcon`/`ExtractIcon` and the shell ask for, and **the
 //! lowest-numbered group icon is the one Explorer shows for the file**, which is why it is 1.
 //! The group's entries are the `.ico` directory's, with the 4-byte file offset replaced by the
-//! 2-byte resource id — that substitution is the entire difference between the two formats.
+//! 2-byte resource id. That substitution is the entire difference between the two formats.
 
 use std::path::Path;
 
@@ -100,7 +100,7 @@ fn icon_id(index: usize) -> u16 {
 }
 
 /// The machine and relocation type for a target architecture, or `None` where this has not been
-/// worked out — in which case the build embeds nothing rather than emitting a bad object.
+/// worked out, in which case the build embeds nothing rather than emitting a bad object.
 pub fn machine(arch: &str) -> Option<(u16, u16)> {
     match arch {
         // IMAGE_FILE_MACHINE_AMD64, IMAGE_REL_AMD64_ADDR32NB
@@ -181,7 +181,7 @@ pub fn coff(images: &[Image], arch: &str) -> Result<Vec<u8>, String> {
             languages_at += 16 + 8;
         }
     }
-    // Level 3: one language each, pointing at the data entry — a leaf, so no high bit.
+    // Level 3: one language each, pointing at the data entry. A leaf, so no high bit.
     for (index, _) in resources.iter().enumerate() {
         write_directory(&mut directory, 1);
         write_entry(&mut directory, LANGUAGE, (entries_at + 16 * index) as u32, false);
@@ -291,8 +291,8 @@ fn write_section_symbol(out: &mut Vec<u8>, name: &[u8; 8], section: i16, length:
 
 /// Write the object beside the build's other outputs and say where it is, or say why not.
 ///
-/// The caller decides what to do with a failure. Embedding nothing is not fatal — the app runs
-/// without an icon — but it is never silent.
+/// The caller decides what to do with a failure. Embedding nothing is not fatal (the app runs
+/// without an icon), but it is never silent.
 pub fn write_object(ico: &Path, out: &Path, arch: &str) -> Result<(), String> {
     let bytes = std::fs::read(ico).map_err(|e| format!("reading {}: {e}", ico.display()))?;
     let images = read_ico(&bytes)?;

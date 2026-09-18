@@ -7,8 +7,8 @@
 //!
 //! So the harnesses also set one environment variable, and a server that sees it refuses the USB
 //! backend outright and says why. It is the simplest guard that catches the mistake **where the
-//! mistake would do harm** — in the server itself, whatever spawned it and however it was
-//! spawned, before a device is opened — rather than at each of the places that must remember
+//! mistake would do harm**: in the server itself, whatever spawned it and however it was
+//! spawned, before a device is opened, rather than at each of the places that must remember
 //! something.
 
 /// The variable. Set to anything but `0`, `false` or the empty string, no server started under it
@@ -27,7 +27,7 @@ pub fn forbidden(value: Option<&str>) -> bool {
 pub fn refusal(backend: &str, value: Option<&str>) -> Option<String> {
     (backend == "usb" && forbidden(value)).then(|| {
         format!(
-            "{VAR} is set, so this server will not open real devices — and --backend is usb, \
+            "{VAR} is set, so this server will not open real devices, but --backend is usb, \
              which is now the default (decision 0018). Pass --backend loopback to run against the \
              emulator, or unset {VAR} to drive the hardware deliberately."
         )

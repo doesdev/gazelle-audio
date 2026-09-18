@@ -34,7 +34,7 @@ test("the served page lists both loopback devices under the safety header", asyn
   await expect(page.getByTestId("backend")).toHaveText("loopback");
   await expect(page.getByTestId("dry-run")).toBeVisible();
   await expect(page.getByTestId("connection")).toHaveText("Connected");
-  await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("—");
+  await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("…");
 });
 
 test("a renamed device keeps its name after a reload", async ({ page }) => {
@@ -155,7 +155,7 @@ test("the Devices page sets the clock source and sample rate, and shows the meas
   await expect.poll(() => frames.filter((f) => f.command === "set_samp_rate").map((f) => f.args?.["srate_idx"])).toEqual([2]);
 
   // The measured rate and lock come from the device's report, whatever the loopback is sending.
-  await expect(page.getByTestId("clock-measured")).not.toHaveText("—");
+  await expect(page.getByTestId("clock-measured")).toContainText("kHz");
 });
 
 test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the Quadro has none", async ({ page }) => {

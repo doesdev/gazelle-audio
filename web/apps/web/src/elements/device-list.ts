@@ -119,10 +119,10 @@ export class GaDeviceList extends GaElement {
       return card;
     }
 
-    const rate = h("span", { class: "rate" }, "—");
+    const rate = h("span", { class: "rate" }, "…");
     const lock = h("span", { class: "lock" }, "NO LOCK");
-    const power = h("span", { class: "power" }, "—");
-    const preset = h("span", { class: "preset" }, "—");
+    const power = h("span", { class: "power" }, "…");
+    const preset = h("span", { class: "preset" }, "…");
     const input = h("span", { class: "input", "data-level": "quiet", role: "img", "aria-label": "Inputs: quiet" });
     card.append(input, h("span", { class: "clock" }, rate, lock), h("span", { class: "state" }, power, h("span", { "aria-hidden": "true" }, "·"), preset));
 
@@ -133,12 +133,12 @@ export class GaDeviceList extends GaElement {
         if (state === undefined) return;
         const clock = state.clock;
         // The measured rate while there is one, else the rate the device is set to.
-        rate.textContent = clock === undefined ? "—" : clock.hz > 0 ? `${(clock.hz / 1000).toFixed(1)} kHz` : (SAMPLE_RATES[clock.rate] ?? "—");
+        rate.textContent = clock === undefined ? "…" : clock.hz > 0 ? `${(clock.hz / 1000).toFixed(1)} kHz` : (SAMPLE_RATES[clock.rate] ?? "?");
         lock.textContent = clock?.locked === true ? "LOCKED" : "NO LOCK";
         lock.toggleAttribute("data-locked", clock?.locked === true);
-        power.textContent = state.power === undefined ? "—" : state.power ? "On" : "Standby";
+        power.textContent = state.power === undefined ? "…" : state.power ? "On" : "Standby";
         power.toggleAttribute("data-standby", state.power === false);
-        preset.textContent = state.preset === undefined ? "—" : `Preset ${state.preset}`;
+        preset.textContent = state.preset === undefined ? "…" : `Preset ${state.preset}`;
         input.setAttribute("data-level", state.input);
         input.setAttribute("aria-label", `Inputs: ${state.input === "quiet" ? "quiet" : state.input === "signal" ? "signal" : "clipped"}`);
       }),

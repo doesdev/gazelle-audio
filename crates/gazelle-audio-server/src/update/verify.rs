@@ -2,7 +2,7 @@
 //!
 //! The hash says the file arrived whole and unchanged; only the signature says the release
 //! source is the one we trust. Neither alone is enough, so both are run and a failure of either
-//! is fatal to the download — `update/mod.rs` deletes the file and reports.
+//! is fatal to the download; `update/mod.rs` deletes the file and reports.
 
 use std::io::Read;
 use std::path::Path;
@@ -45,8 +45,8 @@ pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
 /// `verify_strict` rather than `verify`: it rejects small-order and non-canonical keys and
 /// signatures, so one signature cannot be made to verify under two keys.
 ///
-/// Every way this can go wrong is one thing to the person looking — the download could not be
-/// verified — so they all carry [`Summary::Unverified`], and which of them it was stays in the
+/// Every way this can go wrong is one thing to the person looking (the download could not be
+/// verified), so they all carry [`Summary::Unverified`], and which of them it was stays in the
 /// detail, where whoever is diagnosing it can read it.
 pub fn verify_signature(public_key_hex: &str, message: &[u8], signature: &[u8]) -> Result<(), Failure> {
     let key_bytes = super::release::from_hex(public_key_hex.trim())

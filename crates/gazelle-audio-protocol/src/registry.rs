@@ -76,7 +76,7 @@ pub struct CyclicReport {
     ///
     /// Only the Quadro's 0x83 carries it: its `afx_meters` is declared `ubyte * 304`, a buffer,
     /// while the device sends two bytes per loaded effect, chain by chain, then the mic emulation
-    /// meters — four bytes in all when nothing is loaded. Every field before the last is still
+    /// meters: four bytes in all when nothing is loaded. Every field before the last is still
     /// decoded strictly, and a report with no marker is refused when it is short, as before.
     pub variable_tail: bool,
 }

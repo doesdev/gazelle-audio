@@ -77,11 +77,11 @@ export class GaDeviceStatus extends GaElement {
     } else {
       this.onDisconnect(store.watchReport(id, STATUS_REPORT));
       for (const [fieldName, label, format] of LIVE_FIELDS) {
-        const readout = h("span", { class: "readout", "data-field": fieldName }, "—");
+        const readout = h("span", { class: "readout", "data-field": fieldName }, "…");
         live.append(...field(label, readout));
         this.watch(() => {
           const value = store.field(id, STATUS_REPORT, fieldName).value;
-          readout.textContent = value === undefined ? "—" : format(value);
+          readout.textContent = value === undefined ? "…" : format(value);
         });
       }
     }
@@ -217,7 +217,7 @@ export class GaDeviceStatus extends GaElement {
         clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const lock = h("span", { class: "lock" }, "NO LOCK");
-      const measured = h("span", { class: "readout", "data-testid": "clock-measured" }, "—");
+      const measured = h("span", { class: "readout", "data-testid": "clock-measured" }, "…");
       // The Studio+'s S/PDIF sample-rate converter: with it on, a digital input at another rate or on
       // another clock is converted rather than having to be the clock. A switch, as the panel's is.
       const spdifSrc = store.hasSpdifSrc(id)
@@ -255,7 +255,7 @@ export class GaDeviceStatus extends GaElement {
         if (state === undefined) return;
         if (this.root.activeElement !== source) source.value = String(Math.min(clock.sources.length - 1, Math.max(0, state.source)));
         if (this.root.activeElement !== rate) rate.value = String(state.rate);
-        measured.textContent = state.hz > 0 ? `${(state.hz / 1000).toFixed(1)} kHz` : "—";
+        measured.textContent = state.hz > 0 ? `${(state.hz / 1000).toFixed(1)} kHz` : "none";
         lock.textContent = state.locked ? "LOCKED" : "NO LOCK";
         lock.toggleAttribute("data-locked", state.locked);
       });

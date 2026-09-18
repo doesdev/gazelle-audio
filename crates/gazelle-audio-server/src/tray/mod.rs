@@ -202,7 +202,7 @@ pub struct Status {
     pub log_file: bool,
     /// Whether devices can come and go, so a rescan means something (the USB backend).
     pub can_rescan: bool,
-    /// What the updater has to say, or `None` when there is no updater — a non-loopback bind,
+    /// What the updater has to say, or `None` when there is no updater: a non-loopback bind,
     /// where update control is deliberately not offered.
     pub update: Option<UpdateMenu>,
 
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn a_staged_update_offers_a_restart_and_stops_offering_a_check() {
         let items = menu(&with_update(UpdateMenu {
-            line: "Update 0.2.0 is ready — restart to use it".into(),
+            line: "Update 0.2.0 is ready (restart to use it)".into(),
             available: None,
             staged: Some("0.2.0".into()),
         }));
@@ -542,7 +542,7 @@ mod tests {
             &Item::Action { command: Command::RestartToUpdate, label: "Restart to update to 0.2.0".into(), enabled: true, checked: None, default: false }
         );
         assert!(matches!(action(&items, Command::CheckUpdates), Item::Action { enabled: false, .. }));
-        assert_eq!(infos(&items).last(), Some(&"Update 0.2.0 is ready — restart to use it"));
+        assert_eq!(infos(&items).last(), Some(&"Update 0.2.0 is ready (restart to use it)"));
     }
 
     #[test]
@@ -559,7 +559,7 @@ mod tests {
         assert!(!items.iter().any(|i| matches!(i, Item::Action { default: true, command, .. } if *command != Command::Open)));
     }
 
-    /// A tray menu is one narrow column, read at a glance. Nothing in it may run long — and
+    /// A tray menu is one narrow column, read at a glance. Nothing in it may run long, and
     /// nothing may leak a path, a URL beyond the one address the user needs, or an error's own
     /// text (P-entry `update-messages`).
     #[test]

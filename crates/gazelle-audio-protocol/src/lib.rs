@@ -15,7 +15,7 @@
 
 /// Absolute path to the recovered command registry, resolved at compile time.
 ///
-/// Single source of truth for this path — tests in every crate reference this
+/// Single source of truth for this path: tests in every crate reference this
 /// constant rather than re-deriving `../..` chains, which were previously
 /// inconsistent and cwd-fragile.
 pub const QUADRO_COMMANDS_PATH: &str =
@@ -230,7 +230,7 @@ impl Command {
                     let value = if matches!(ty, Scalar::I8 | Scalar::I16 | Scalar::I32) {
                         // `read_le_int` zero-extends, so a signed field must be
                         // sign-extended from its own width. Without this an i8 of 0xFF
-                        // decodes as 255 and an i32 of -1 as 4294967295 — which is live
+                        // decodes as 255 and an i32 of -1 as 4294967295, which is live
                         // for get_tb_latency's latency/buffer adjust fields.
                         Value::I64(sign_extend(raw, n * 8))
                     } else {

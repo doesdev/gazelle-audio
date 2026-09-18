@@ -358,7 +358,7 @@ fn entry_lines(title: &str, entry: &Option<FieldEntry>, lines: &mut Vec<String>)
     };
     lines.push(format!("- Channel: {}", channel_ref_text(&e.channel)));
     lines.push(format!("- Template: `{}`", short_template(&e.template)));
-    lines.push(format!("- Field: byte {}, bits {}–{}", e.field.byte, e.field.bits[0], e.field.bits[1]));
+    lines.push(format!("- Field: byte {}, bits {} to {}", e.field.byte, e.field.bits[0], e.field.bits[1]));
     lines.push(format!("- Encoding: {}", encoding_text(&e.encoding)));
     lines.push(format!("- Confidence: {:.2}", e.confidence));
     if !e.sequence.is_empty() {

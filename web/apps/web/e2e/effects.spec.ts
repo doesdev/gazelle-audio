@@ -206,7 +206,7 @@ test("on the loopback, not in dry run, chains read back loaded and the reverb fo
     await expect(page.getByTestId("slot-0-1")).toContainText("FET-A76");
     // The effect meters come from the loopback's own 0x83, shaped as the Quadro's.
     await expect(page.getByTestId("meter-0-0")).toBeVisible();
-    await expect(page.getByTestId("meter-0-0")).not.toContainText("GR —");
+    await expect(page.getByTestId("meter-0-0")).not.toContainText("GR …");
     const on = page.getByTestId("reverb-on");
     await expect(on).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("effects-note")).toHaveText("");

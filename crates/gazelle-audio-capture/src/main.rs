@@ -383,9 +383,9 @@ async fn mcp_stdio(args: McpStdioArgs) -> Result<(), BoxError> {
 
 /// A Ctrl-C listener, created once and kept alive for the whole of `serve`. Both
 /// `tokio::signal::unix::signal` and `tokio::signal::windows::ctrl_c` install the OS-level
-/// handler synchronously when called — unlike the `tokio::signal::ctrl_c()` convenience
+/// handler synchronously when called, unlike the `tokio::signal::ctrl_c()` convenience
 /// wrapper, which is an async fn and (per its docs) only registers on its returned future's
-/// first poll — and both can be `recv()`-ed more than once. Creating one of these up front,
+/// first poll; and both can be `recv()`-ed more than once. Creating one of these up front,
 /// before any of the blocking work below runs, means a signal arriving during that work is
 /// captured (recorded by the OS-level handler this installs) instead of falling through to the
 /// default disposition, which would kill the process outright.
@@ -415,7 +415,7 @@ impl SigintListener {
 }
 
 async fn serve(args: ServeArgs) -> Result<(), BoxError> {
-    // Registered before any of the blocking work below (hub discovery, the Enter wait) runs —
+    // Registered before any of the blocking work below (hub discovery, the Enter wait) runs;
     // see `SigintListener`'s doc comment for why that ordering matters.
     let mut ctrl_c = SigintListener::new()?;
     let args = Arc::new(args);
@@ -459,14 +459,14 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // From here on a Ctrl-C can arrive at any point: while a hub is being discovered, while
     // waiting for Enter, while `start_probe` is already spawning the capture thread, or once
     // the probe is running. Before this point nothing has been started (no capture thread, no
-    // marks appended), so there is nothing yet to clean up — but `ctrl_c` (registered above,
+    // marks appended), so there is nothing yet to clean up. But `ctrl_c` (registered above,
     // before any of that blocking work ran) has already installed the OS-level handler, so a
     // Ctrl-C here is captured and queued, not left to the default disposition (which would kill
     // the process); it is just not *observed* (via `ctrl_c.recv()`) until Phase 1a's `select!`,
     // below.
 
     // Phase 1a: prepare the capture source. `build_source` (specifically USBPcap hub discovery)
-    // runs on a blocking thread rather than directly in this async task — partly so it cannot
+    // runs on a blocking thread rather than directly in this async task, partly so it cannot
     // stall the runtime, but importantly so `select!` can actually observe `ctrl_c` while it
     // runs instead of being stuck inside `build_source`'s own, fully synchronous call stack.
     // Discovery has its own bounded (~3s-per-hub) watchdog and, on Windows, its own child
@@ -490,8 +490,8 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
     // Phase 1b: wait for the operator to press Enter (skipped with `--no-wait`). Unlike phase
     // 1a, reading stdin can block indefinitely (a helper launched with no terminal, a
     // held-open pipe, ...), so there is nothing here worth waiting for: a Ctrl-C exits at once
-    // rather than risk hanging on `tokio::main`'s runtime teardown, which — since dropping the
-    // runtime waits for outstanding `spawn_blocking` tasks — would otherwise wait forever for
+    // rather than risk hanging on `tokio::main`'s runtime teardown, which (since dropping the
+    // runtime waits for outstanding `spawn_blocking` tasks) would otherwise wait forever for
     // that blocked read to return.
     if !args.no_wait {
         println!("open the panel, then press Enter to start the probe");
@@ -560,7 +560,7 @@ async fn serve(args: ServeArgs) -> Result<(), BoxError> {
 
 /// Waits for `handle`, but exits the process immediately (rather than swallow a second signal)
 /// if another Ctrl-C arrives first: a blocking task can't be cancelled, only waited out, and
-/// the operator should not be stuck if it — or the capture source it is stopping — hangs.
+/// the operator should not be stuck if it (or the capture source it is stopping) hangs.
 async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>, ctrl_c: &mut SigintListener) -> Result<T, tokio::task::JoinError> {
     tokio::select! {
         result = handle => result,
@@ -573,7 +573,7 @@ async fn wait_or_force_exit<T>(handle: &mut tokio::task::JoinHandle<T>, ctrl_c: 
 
 /// Ctrl-C arrived while `start_probe` was already spawning the capture thread: there is no way
 /// to cancel that blocking call, only wait for it, then stop what it started (a probe is now
-/// running only if it succeeded — if it failed there is nothing to abandon, and its error is
+/// running only if it succeeded; if it failed there is nothing to abandon, and its error is
 /// surfaced as-is).
 async fn abandon_after_start(
     start_handle: &mut tokio::task::JoinHandle<Result<(), ControlError>>,
@@ -584,16 +584,16 @@ async fn abandon_after_start(
     abandon(controller, ctrl_c).await
 }
 
-/// Cancels the running probe. `Controller::abandon_probe` now always runs `finish_capture` —
-/// stopping the source and joining the capture thread — once the run is no longer `Running`,
+/// Cancels the running probe. `Controller::abandon_probe` now always runs `finish_capture`
+/// (stopping the source and joining the capture thread) once the run is no longer `Running`,
 /// even when appending the abandon mark itself fails (final review F2), so a returned `Err`
 /// here means only that the mark, or `finish_capture`'s own descriptor-metadata update, failed
-/// to land — not that the capture was left unstopped or unjoined. That's still surfaced (rather
+/// to land, not that the capture was left unstopped or unjoined. That's still surfaced (rather
 /// than swallowed), along with a task panic, since either means the shutdown was not fully clean
 /// and `serve` should exit non-zero so the operator can see it.
 ///
 /// `StepError::NotRunning` is not such a failure: it means Ctrl-C raced the probe's own natural
-/// completion (final review F4) — `finished` (in `serve`, above) already observed a terminal
+/// completion (final review F4): `finished` (in `serve`, above) already observed a terminal
 /// status through the same controller, so there is nothing left to abandon. Treat that as a
 /// clean exit rather than reporting a shutdown failure.
 async fn abandon(controller: &Controller, ctrl_c: &mut SigintListener) -> Result<(), BoxError> {
@@ -716,14 +716,14 @@ mod tests {
 
     /// Final review F4: if Ctrl-C wins `serve`'s `select!` right as the probe finishes on its
     /// own, `abandon_probe` sees a run that has already left `Running` and returns
-    /// `StepError::NotRunning` — not a real shutdown failure. `abandon` (above) must treat that
+    /// `StepError::NotRunning`, which is not a real shutdown failure. `abandon` (above) must treat that
     /// specific error as a clean exit, matched on the actual `ControlError` variant, rather than
     /// reporting "could not abandon the probe cleanly" and exiting non-zero.
     ///
     /// This drives the exact code path the race would hit (`abandon_probe` called when the run
     /// is no longer `Running`) without needing to reproduce the `select!` race's timing from
     /// outside the process, which an external, process-level test (`tests/cli.rs`) cannot do
-    /// deterministically — see the final fix report for why no such test is added there.
+    /// deterministically; see the final fix report for why no such test is added there.
     #[tokio::test]
     async fn abandon_treats_a_not_running_probe_as_a_clean_exit() {
         let dir = tempfile::tempdir().unwrap();

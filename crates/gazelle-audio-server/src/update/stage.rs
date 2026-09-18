@@ -2,8 +2,8 @@
 //!
 //! Windows will not let an executable be overwritten or deleted while a process is running from
 //! it, but it **will** let it be renamed: the open image keeps running from the renamed file.
-//! So staging is two renames — the running binary to `<name>.old`, the verified download to
-//! `<name>` — and the swap is finished before anyone restarts. The next successful start
+//! So staging is two renames (the running binary to `<name>.old`, the verified download to
+//! `<name>`), and the swap is finished before anyone restarts. The next successful start
 //! deletes the `.old`, by which time nothing holds it.
 //!
 //! The process is never restarted from here. The user restarts, from the tray or by hand.
@@ -49,8 +49,8 @@ pub fn stage(verified: &Path, target: &Path) -> io::Result<()> {
 
 /// Delete the binary a previous update displaced, if one is there and nothing holds it.
 ///
-/// Returns whether a file was removed. Failure is not an error worth stopping a start for — the
-/// file is inert, and the next start tries again — so it is reported to the caller to log.
+/// Returns whether a file was removed. Failure is not an error worth stopping a start for (the
+/// file is inert, and the next start tries again), so it is reported to the caller to log.
 pub fn clean_old(target: &Path) -> Result<bool, io::Error> {
     let old = old_path(target);
     match std::fs::remove_file(&old) {

@@ -613,7 +613,7 @@ export class GaEffects extends GaElement {
       this.#effect(() => {
         clip.toggleAttribute("data-on", meter.clipped.value);
         const gr = meter.reduction.value;
-        reduction.textContent = gr === undefined ? "GR —" : `GR ${gr}`;
+        reduction.textContent = gr === undefined ? "GR …" : `GR ${gr}`;
       }),
     );
     return h("span", { class: "effect-meter", "data-testid": `meter-${chain}-${slot.position}`, title: "The effect's level, dB below full scale, and the gain reduction the device reports, in its own steps" }, bar, clip, reduction);
@@ -736,7 +736,7 @@ export class GaEffects extends GaElement {
       });
       return h("div", { class: "send" }, h("span", { class: "label" }, `Ch ${channel}`), level.element, pan.element);
     });
-    return h("section", {}, h("h2", {}, "Reverb sends"), h("p", { class: "note" }, "How much of each of mix 1's channels 1–16 goes to the reverb, and where it sits in it, as the vendor panel offers."), h("div", { class: "sends" }, rows));
+    return h("section", {}, h("h2", {}, "Reverb sends"), h("p", { class: "note" }, "How much of each of mix 1's channels 1 to 16 goes to the reverb, and where it sits in it, as the vendor panel offers."), h("div", { class: "sends" }, rows));
   }
 }
 

@@ -137,8 +137,8 @@ export class GaMixerDock extends GaElement {
     };
 
     // A surface: its strips at dock width, rebuilt when its strips or their order change. The
-    // surface strip is not loaded with the app (`lazy.ts`) — it belongs to the surface page, which
-    // most sessions never open — so the dock asks for it the first time it shows one, and says so
+    // surface strip is not loaded with the app (`lazy.ts`): it belongs to the surface page, which
+    // most sessions never open. So the dock asks for it the first time it shows one, and says so
     // in the row meanwhile. It is only ever fetched once, whichever asks first.
     const followSurface = (surfaceId: string): (() => void)[] => {
       let rendered = "";

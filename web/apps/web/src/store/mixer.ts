@@ -1,5 +1,5 @@
 // One device mixer (spec §10 row 4). Values and commands follow what the vendor panels do
-// (reference/devices.md, "Mixer and meter value scales"; decisions P26–P30):
+// (reference/devices.md, "Mixer and meter value scales"; decisions P26 to P30):
 // - level is dB of attenuation, 0..90 on a linear fader, shown 0 dB … −90 dB;
 // - pan is 2..62 with 32 as centre (27..38 snaps to it), shown −30…+30;
 // - Studio+ `send` is dB of attenuation, 0 (loudest) to 95, where 95 reads -inf on the panel: one

@@ -77,7 +77,7 @@ const EQ_BANDS: [(u16, u16, i16, u8); 5] = [(100, 0, 0, 0), (100, 50, 0, 2), (20
 /// the one the hardware probe inserted, P114) and a FET-A76 (type 9, a compressor, so its gain
 /// reduction has something to report). Both models carry both types. The same chain answers every
 /// chain: a read has one reply per command, not one per `ext3`, so every chain looks alike and
-/// every chain uses instance 0 — test data, not a device simulator.
+/// every chain uses instance 0. This is test data, not a device simulator.
 pub const LOOPBACK_CHAIN: &[(u8, u8)] = &[(3, 0), (9, 0)];
 
 /// Slots a chain holds in either model's reply to a chain read.

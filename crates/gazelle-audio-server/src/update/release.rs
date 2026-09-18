@@ -1,5 +1,5 @@
-//! What a release is, how one is read out of the release source's answer, and which one — if
-//! any — is newer than what is running.
+//! What a release is, how one is read out of the release source's answer, and which one (if
+//! any) is newer than what is running.
 //!
 //! Nothing here touches the network or the disk, so every rule below is a unit test.
 
@@ -48,8 +48,8 @@ pub fn binary_asset_name(stem: &str, target: &str) -> String {
     format!("{stem}-{target}{suffix}")
 }
 
-/// Read the release source's answer. Entries that do not parse — a tag that is not a version, a
-/// missing asset list — are skipped rather than failing the whole check, so one bad release
+/// Read the release source's answer. Entries that do not parse (a tag that is not a version, a
+/// missing asset list) are skipped rather than failing the whole check, so one bad release
 /// cannot stop the app updating.
 pub fn parse_releases(json: &serde_json::Value) -> Vec<Release> {
     let Some(entries) = json.as_array() else { return Vec::new() };

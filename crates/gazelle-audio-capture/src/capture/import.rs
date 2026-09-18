@@ -38,7 +38,7 @@ fn format_err(e: pcap_file::PcapError) -> CaptureError {
 /// final narrowing back to `u64` can fail, and both are checked. Fix round 1: an earlier version
 /// multiplied by `1_000_000_000` in `u64` *before* shifting, which overflowed for realistic
 /// epoch-scale timestamps at ordinary binary exponents (4, 10, 20, 30, ...) even though the
-/// true nanosecond value fit easily in a `u64` — computing in `u128` and narrowing only once,
+/// true nanosecond value fit easily in a `u64`. Computing in `u128` and narrowing only once,
 /// at the end, avoids that.
 pub fn epb_units_to_ns(raw: u64, tsresol: u8) -> Result<u64, CaptureError> {
     let bad = || CaptureError::Format(format!("if_tsresol {tsresol} out of range for raw timestamp {raw}"));

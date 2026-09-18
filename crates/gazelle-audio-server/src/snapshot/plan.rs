@@ -8,14 +8,14 @@
 //!
 //! The order, and why:
 //!
-//! 1. **Silence the outputs** — the Quadro's hard mute, the Studio+'s five output mutes, as the
+//! 1. **Silence the outputs**: the Quadro's hard mute, the Studio+'s five output mutes, as the
 //!    vendor panel does around a session restore.
 //! 2. **Clock**, which interrupts everything and has to settle before anything is judged by ear.
 //! 3. **Device settings**, then **DC coupling**, both while silenced: DC on an output reaches
 //!    whatever is connected.
 //! 4. **Inputs**, in the panels' own order: 48V *off* first, then type (it sets the gain range),
 //!    then gains, phase, mic emulation, and **48V *on* last**, still silenced, for its thump.
-//! 5. **Routing**, one destination group at a time — each `set_routing` replaces 32 slots.
+//! 5. **Routing**, one destination group at a time, since each `set_routing` replaces 32 slots.
 //! 6. **Mixer**, quieter first: a strip whose level is being cut moves before one being raised.
 //! 7. **Output volumes and trims**, still silenced.
 //! 8. **Restore**: dim, the mutes the snapshot had, and the hard mute off **last**.
@@ -502,7 +502,7 @@ fn covers(unreadable: &str, path: &str) -> bool {
 }
 
 /// A gain array is one captured value and one command per channel, so the paths that name it fan
-/// out here — and only where the two sides' bytes actually differ.
+/// out here, and only where the two sides' bytes actually differ.
 fn expand(target: Target, _family: &str, change: &Change) -> Vec<Target> {
     let Target::Gains { kind } = target else { return vec![target] };
     let bytes = |value: Option<&Json>| value.and_then(Json::as_str).and_then(|text| crate::value::from_hex(text).ok()).unwrap_or_default();

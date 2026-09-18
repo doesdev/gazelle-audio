@@ -62,7 +62,7 @@ test("Quadro preamps send type, gain, a confirmed 48V and phase, with the panels
 
   await page.getByTestId("pre-phase-3").click();
   await expect(lastSent(page)).toContainText(quadro("set_pre_phase_inv", 3, 1));
-  await expect(page.getByTestId("adat-gain-0")).toHaveText("—", { timeout: 1000 });
+  await expect(page.getByTestId("adat-gain-0")).toHaveText("…", { timeout: 1000 });
 });
 
 /** Records each set_pre_gain the page sends, as "device:id". */
@@ -158,7 +158,7 @@ test("read-only digital gains show a filled bar, and preamps and digital inputs 
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.goto(`${reporting.url}/#/inputs/loopback-0`);
     const adat = page.getByTestId("adat-gain-0");
-    await expect(adat).not.toHaveText("—");
+    await expect(adat).not.toHaveText("…");
     await expect.poll(() => adat.locator(".fill").evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(0);
     await expect(adat).not.toHaveAttribute("role", "slider");
 
@@ -251,14 +251,14 @@ test("an Edge Duo covers two preamps and an Edge Quadro four, linked, with an em
   // An Edge Duo is one microphone on two preamps, so the second preamp's row steps aside.
   await page.getByTestId("mic-target-0").selectOption("1");
   await expect.poll(emulations).toEqual([0, 1]);
-  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1–2");
+  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1 and 2");
   await expect(page.getByTestId("mic-row-1")).toBeHidden();
   // Its preamps are linked, absolute, so their gain and 48V move together.
   await expect(page.getByTestId("pre-link-0")).toHaveAttribute("aria-pressed", "true");
 
   // The Edge Quadro is two heads on four preamps, and each head takes its own emulation.
   await page.getByTestId("mic-target-0").selectOption("4");
-  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1–4");
+  await expect(page.getByTestId("mic-row-0")).toContainText("Preamps 1 to 4");
   await expect(page.getByTestId("mic-row-2")).toBeHidden();
   await page.getByTestId("mic-model-0-top").selectOption("3");
   await expect.poll(() => frames.filter((f) => f.command === "set_mic_emulation").slice(-2).map((f) => [f.args?.["preamp_ch"], f.args?.["emu_model"]])).toEqual([

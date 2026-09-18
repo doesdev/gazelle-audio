@@ -12,7 +12,7 @@ fn dummy_frame(index: u64) -> RawFrame {
     RawFrame { ts_ns: 0, link_type: 249, index, orig_len: 0, byte_order: ByteOrder::Little, data: Vec::new() }
 }
 
-/// Stand-in for the `IoError(UnexpectedEof)` `pcap-file` yields on a truncated record — the
+/// Stand-in for the `IoError(UnexpectedEof)` `pcap-file` yields on a truncated record: the
 /// shape of error a killed USBPcapCMD leaves behind mid-write.
 fn truncated() -> CaptureError {
     CaptureError::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "truncated record"))

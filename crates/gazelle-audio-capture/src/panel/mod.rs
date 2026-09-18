@@ -42,7 +42,7 @@ pub fn router(app: PanelApp) -> Router {
 }
 
 /// Applies the Host check (spec §9) as the outermost layer over `router`, so it covers every
-/// route already present — including ones a caller merged in before calling this. Callers that
+/// route already present, including ones a caller merged in before calling this. Callers that
 /// merge additional routes onto `router`'s output must do so *before* calling this, since a
 /// layer added here cannot retroactively cover routes merged in afterward.
 pub fn with_host_check(router: Router, port: u16) -> Router {

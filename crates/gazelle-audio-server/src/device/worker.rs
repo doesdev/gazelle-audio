@@ -37,7 +37,7 @@ pub struct CommandOutcome {
     /// Why the response could not be decoded, when it could not be.
     ///
     /// Distinguishes "this command returns nothing" from "a response arrived and we
-    /// failed to read it" — collapsing both into `None` hides real decode failures.
+    /// failed to read it"; collapsing both into `None` hides real decode failures.
     pub response_error: Option<String>,
     pub dry_run: bool,
 }
@@ -203,7 +203,7 @@ fn handle_request(
     }
 
     // A command that declares no return gets no reply: the panels' captures show none for the
-    // `0x70` sets, and hardware session 2 confirmed it — every live write reported a timeout while
+    // `0x70` sets, and hardware session 2 confirmed it: every live write reported a timeout while
     // the device had in fact applied it. Waiting would also leave the reply the *next* request
     // expects behind this one. Cyclic traffic seen meanwhile is published by the next drain.
     if command.returns.is_empty() {

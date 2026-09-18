@@ -1,7 +1,7 @@
 //! Gazelle control server.
 //!
 //! **The backend is `usb` unless told otherwise** (decision `0018`): talking to the interfaces is
-//! what the app is for, attaching is read-only, and every write is still its own deliberate act —
+//! what the app is for, attaching is read-only, and every write is still its own deliberate act:
 //! `--dry-run` is off by default but always available. `--backend loopback` is the hardware-free
 //! emulator, which every test suite names explicitly, and a server started with
 //! `GAZELLE_NO_HARDWARE` set refuses `usb` outright (`no_hardware`).
@@ -49,7 +49,7 @@ struct Args {
     #[arg(long, default_value = gazelle_audio_server::config::DEFAULT_BIND)]
     bind: SocketAddr,
 
-    /// Transport backend. `usb` — the default — drives the attached interfaces; `loopback` is the
+    /// Transport backend. `usb`, the default, drives the attached interfaces; `loopback` is the
     /// hardware-free emulator, for trying the UI without an interface and for the test suites.
     /// Setting GAZELLE_NO_HARDWARE makes a server refuse `usb`, which is how the harnesses make
     /// sure they never open a real device.
@@ -61,7 +61,7 @@ struct Args {
     dry_run: bool,
 
     /// Allow the recall route to apply a snapshot to a device. Off by default, and off is not the
-    /// whole guard: the request must ask as well, and applying is not built yet — it waits for the
+    /// whole guard: the request must ask as well, and applying is not built yet. It waits for the
     /// hardware session in the workspace spec's §6.
     #[arg(long)]
     enable_recall: bool,
@@ -388,15 +388,15 @@ async fn prepare(
     // The bound address, not `args.bind`: with port 0 this log line is how another process (the
     // web client's integration tests) finds the server.
     tracing::info!(
-        "listening on http://{} — backend={} devices={} dry_run={}",
+        "listening on http://{} (backend={} devices={} dry_run={})",
         address,
         args.backend.name(),
         devices.len(),
         args.dry_run
     );
     // A USB run that attached nothing is the one case that looks like a working app with nothing
-    // in it. The scanner's warning is general; these name the reason — Antelope's service holding
-    // the devices, or simply nothing plugged in — and the UI shows the same text (`notice`).
+    // in it. The scanner's warning is general; these name the reason (Antelope's service holding
+    // the devices, or simply nothing plugged in) and the UI shows the same text (`notice`).
     for notice in gazelle_audio_server::notice::current(
         &args.backend.name(),
         devices.len(),
@@ -499,8 +499,8 @@ fn tray_context(
 
 /// Opens the desktop window, when this build has one and this run wants one.
 ///
-/// **A `--no-tray` run never has one.** That is the headless shape — a service, a test harness,
-/// the web suite's own server — and a window appearing in the middle of one would be a surprise.
+/// **A `--no-tray` run never has one.** That is the headless shape (a service, a test harness,
+/// the web suite's own server), and a window appearing in the middle of one would be a surprise.
 /// The desktop run is the tray and the window together. Nor is there one without the web UI to
 /// put in it.
 ///

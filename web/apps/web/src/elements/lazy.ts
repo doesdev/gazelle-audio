@@ -50,7 +50,7 @@ export function isReady(tag: string): boolean {
  *
  * Nothing here remembers a fetch, because the browser's module map already does: a file two callers
  * ask for at once is fetched once and both are given it, and one that has arrived is handed over
- * without going near the network. A cache of our own was written and then taken out — the mutation
+ * without going near the network. A cache of our own was written and then taken out: the mutation
  * that dropped it killed nothing. What is left to do is define what came back, and only the parts
  * of it nobody has defined yet: the surface page's chunk carries the surface strip, which the mixer
  * dock may have asked for in the same breath, and defining a tag twice throws.

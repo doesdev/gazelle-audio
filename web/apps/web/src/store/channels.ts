@@ -11,6 +11,7 @@
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
+import { channelSpan } from "./cables.ts";
 import { PAN_CENTRE } from "./mixer.ts";
 import type { MixerModel } from "./mixer.ts";
 import { PROFILES } from "./profiles.ts";
@@ -269,7 +270,7 @@ export class ChannelsModel {
     let slot = this.firstSlot;
     while (slot < SLOTS && used.has(slot)) slot++;
     if (slot >= SLOTS) {
-      const reserved = this.firstSlot > 0 ? ` (inputs 1–${this.firstSlot} carry the effect returns)` : "";
+      const reserved = this.firstSlot > 0 ? ` (inputs ${channelSpan(1, this.firstSlot)} carry the effect returns)` : "";
       this.#context.notify(`All ${SLOTS - this.firstSlot} mixer channels are in use${reserved}.`);
       return undefined;
     }

@@ -57,6 +57,7 @@ sys.path.insert(0, str(HERE))
 import bytecode_eval as be  # noqa: E402
 import pyc_dis  # noqa: E402
 from pyc_inspect import load_blob, walk  # noqa: E402
+from no_dashes import refuse_dashes  # noqa: E402
 
 QUADRO_PY = (3, 8)
 STUDIO_PY = (3, 5)
@@ -1157,12 +1158,13 @@ def main() -> int:
         doc[family] = {"summary": summary(effects, names, UNSUPPORTED[family]), "effects": effects, "unsupported": unsupported}
         print(f"{family}: {doc[family]['summary']}", file=sys.stderr)
 
+    json_text = refuse_dashes(json.dumps(doc, indent=1) + "\n", "afx_parameters.json")
     if args.json is not None:
-        args.json.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8", newline="\n")
+        args.json.write_text(json_text, encoding="utf-8", newline="\n")
     if args.ts is not None:
-        args.ts.write_text(render_ts(doc), encoding="utf-8", newline="\n")
+        args.ts.write_text(refuse_dashes(render_ts(doc), "effect-parameters-data.ts"), encoding="utf-8", newline="\n")
     if args.json is None and args.ts is None:
-        sys.stdout.write(json.dumps(doc, indent=1) + "\n")
+        sys.stdout.write(json_text)
     return 0
 
 

@@ -159,7 +159,7 @@ impl LoopbackDevice {
     /// A loopback that answers like a real device: `cmd + 1` with the request's `ext2`.
     ///
     /// Plain `new` echoes the request verbatim, which exercises framing but produces a
-    /// report no correlator should accept — the device's own rule
+    /// report no correlator should accept: the device's own rule
     /// (`_sanitize_response`) requires `cmd == report_id + 1`. Use this when the
     /// request/response round trip is what is under test.
     pub fn emulating(vid: u16, pid: u16, max_packet_size: usize) -> Self {
@@ -196,8 +196,8 @@ impl LoopbackDevice {
 
 impl Device for LoopbackDevice {
     fn send(&mut self, report: &Report) -> Result<bool, WireError> {
-        // A loopback "writes" nothing. A header-only report is valid — the `get_*` requests carry
-        // no payload — and before requests were sent plain they always arrived wrapped, so an
+        // A loopback "writes" nothing. A header-only report is valid (the `get_*` requests carry
+        // no payload), and before requests were sent plain they always arrived wrapped, so an
         // empty-contents check looked harmless and rejected them the moment they did.
         let _ = report;
         Ok(true)
@@ -336,7 +336,7 @@ pub fn build_report(cmd: u32, seq: u32, ext2: u32, ext3: u32, contents: &[u8]) -
 /// Split a report into the packets the device is written with.
 ///
 /// A report that fits in one packet is sent as itself: the vendor panel only wraps what does not
-/// fit, and hardware session 2 found the device silently ignores an 8052-wrapped small report — the
+/// fit, and hardware session 2 found the device silently ignores an 8052-wrapped small report: the
 /// write is accepted by the HID stack and nothing happens. Anything larger is split into 8052
 /// segments, which the device reassembles.
 pub fn segment_report(

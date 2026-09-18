@@ -28,8 +28,8 @@ use crate::update;
 
 /// What the app is called in the Start Menu, in Add/Remove Programs, and as the install folder.
 pub const APP_NAME: &str = "Gazelle";
-/// Who Add/Remove Programs says published it. Not a legal entity and not a signing identity —
-/// nothing here is signed (the shipping spec defers that) — just the name of the project.
+/// Who Add/Remove Programs says published it. Not a legal entity and not a signing identity
+/// (nothing here is signed; the shipping spec defers that), just the name of the project.
 pub const PUBLISHER: &str = "Gazelle";
 /// Where Add/Remove Programs' "publisher's website" link goes.
 pub const ABOUT_URL: &str = "https://github.com/doesdev/gazelle-audio";
@@ -57,7 +57,7 @@ pub struct Layout {
     pub programs: PathBuf,
     /// `%APPDATA%\Microsoft\Windows\Start Menu\Programs`.
     pub start_menu: PathBuf,
-    /// `%APPDATA%\gazelle` — workspace, layouts, themes, snapshots (P82).
+    /// `%APPDATA%\gazelle`: workspace, layouts, themes, snapshots (P82).
     pub config: Option<PathBuf>,
     /// `%LOCALAPPDATA%\gazelle\logs` (P78).
     pub logs: Option<PathBuf>,
@@ -195,7 +195,7 @@ pub fn install(ctx: &Context, source: &Path) -> Result<Installed, String> {
         let to = dir.join(from.file_name().unwrap_or_default());
         if to.exists() && ctx.still_in_use(&to) {
             return Err(format!(
-                "{} is running. Quit Gazelle first — right-click its tray icon and choose Quit — then run --install again.",
+                "{} is running. Quit Gazelle first (right-click its tray icon and choose Quit), then run --install again.",
                 to.display()
             ));
         }
@@ -284,7 +284,7 @@ pub fn repoint_boot(run_key: &dyn RunKey, launch: &Path) -> io::Result<Option<St
     Ok(Some(command))
 }
 
-/// Remove the shortcut, the registry entry and the installed files — and nothing else.
+/// Remove the shortcut, the registry entry and the installed files, and nothing else.
 ///
 /// Only the file names an install wrote are deleted, and only from `dir`; anything else in that
 /// folder is left, and the folder itself only goes when nothing is left in it. The config and
@@ -301,7 +301,7 @@ pub fn uninstall(ctx: &Context, dir: &Path, purge: bool) -> Result<Removed, Stri
     for path in &installed {
         if path.exists() && ctx.still_in_use(path) {
             return Err(format!(
-                "{} is running. Quit Gazelle first — right-click its tray icon and choose Quit — then uninstall again.",
+                "{} is running. Quit Gazelle first (right-click its tray icon and choose Quit), then uninstall again.",
                 path.display()
             ));
         }
@@ -369,7 +369,7 @@ pub fn installed_dir(ctx: &Context) -> PathBuf {
 /// copy is an ordinary run of the same program with [`relocated_arguments`], it does the whole
 /// uninstall itself rather than half of it, and its only wait is for the parent's image to be
 /// released ([`Waiting::for_the_parent_to_exit`]). The copy is left in the temp folder for
-/// Windows to clean up, since it cannot delete itself either — the one thing this leaves behind.
+/// Windows to clean up, since it cannot delete itself either: the one thing this leaves behind.
 ///
 /// `None` when the binary is not inside the folder being removed, which is the portable case: it
 /// can remove the install folder as it stands.
@@ -517,7 +517,7 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
         println!("  {} (--purge)", path.display());
     }
     for path in &removed.kept {
-        println!("Kept {} — remove it by hand, or uninstall with --purge.", path.display());
+        println!("Kept {}. Remove it by hand, or uninstall with --purge.", path.display());
     }
     Ok(())
 }
@@ -571,8 +571,8 @@ fn ask(question: &str, default_yes: bool) -> bool {
 /// Whether a binary at `path` is being run right now.
 ///
 /// Windows locks a running image against writing, so asking for write access is the question:
-/// a sharing violation means a process has it open as an image. Nothing else counts — a
-/// read-only file, or a file that is not there, is not "running" — because this answer is what
+/// a sharing violation means a process has it open as an image. Nothing else counts (a
+/// read-only file, or a file that is not there, is not "running") because this answer is what
 /// refuses an install, and a wrong yes would be an app that cannot be updated.
 pub fn image_in_use(path: &Path) -> bool {
     match std::fs::OpenOptions::new().write(true).open(path) {

@@ -96,7 +96,7 @@ test("channels take the lowest free slot, from input 7 on the Quadro and 1 on th
   assert.notEqual(first, second);
   for (let i = 0; i < 24; i++) assert.notEqual(quadro.add(), undefined);
   assert.equal(quadro.add(), undefined, "26 inputs are free on the Quadro");
-  assert.match(JSON.stringify(store.notices.value), /All 26 mixer channels are in use \(inputs 1–6 carry the effect returns\)/);
+  assert.match(JSON.stringify(store.notices.value), /All 26 mixer channels are in use \(inputs 1 to 6 carry the effect returns\)/);
 
   await quadro.remove(first as string);
   assert.equal(quadro.channel(quadro.add() as string)?.slot, 6, "a freed slot is reused");

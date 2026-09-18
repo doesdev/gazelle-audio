@@ -52,7 +52,7 @@ test("select a run of sources and click a cell: it fills from there with one wri
 
   await page.getByTestId("mute-row-1").click();
   await expect(lastSent(page)).toContainText(routingHex(1, {}));
-  await expect(page.getByTestId("dest-1-0")).toHaveText("—");
+  await expect(page.getByTestId("dest-1-0")).toHaveText("off");
 });
 
 test("dragging a source onto a cell routes it; Delete mutes a cell; mixer inputs are not edited here", async ({ page }) => {

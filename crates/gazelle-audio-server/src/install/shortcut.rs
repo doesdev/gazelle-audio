@@ -2,8 +2,8 @@
 //!
 //! A `.lnk` is the Shell Link Binary File Format (MS-SHLLINK): a fixed header, an optional
 //! `LinkInfo` naming the target, and a run of counted strings. Writing it directly rather than
-//! driving `IShellLink` costs about a hundred lines and buys two things. `windows-sys` — the only
-//! Windows crate here, and one the server already had through `hidapi` — carries no COM
+//! driving `IShellLink` costs about a hundred lines and buys two things. `windows-sys` (the only
+//! Windows crate here, and one the server already had through `hidapi`) carries no COM
 //! interfaces at all, so the alternative was a hand-rolled vtable call, which is *more* unsafe
 //! code than this and none of it testable. And a shortcut that is bytes is a shortcut a test can
 //! read back: [`target_of`] parses what [`shell_link`] wrote, and an integration test hands the
@@ -11,11 +11,11 @@
 //!
 //! The one piece not written here is the target's item ID list, which the shell builds
 //! ([`target_id_list`]). It is what `IShellLink::GetPath` reads, and a link without one has no
-//! target however complete its `LinkInfo` — found by that test, not by reading the format.
+//! target however complete its `LinkInfo`: found by that test, not by reading the format.
 //!
 //! The target path is written twice, ANSI and UTF-16, with a `LinkInfoHeaderSize` of `0x24` so
 //! readers know the Unicode copy is there. Without it a path holding a character the local code
-//! page cannot spell — a user folder named in Greek, say — would arrive mangled.
+//! page cannot spell (a user folder named in Greek, say) would arrive mangled.
 
 use std::path::Path;
 #[cfg(windows)]
@@ -159,7 +159,7 @@ fn string_data(out: &mut Vec<u8>, text: &str) {
 /// The target path a shell link names, read back out of its `LinkInfo`.
 ///
 /// Prefers the Unicode copy when the block carries one. Returns `None` for anything this module
-/// did not write — a link with a `LinkTargetIDList` and no `LinkInfo`, or a truncated file.
+/// did not write: a link with a `LinkTargetIDList` and no `LinkInfo`, or a truncated file.
 pub fn target_of(bytes: &[u8]) -> Option<String> {
     let u32_at = |at: usize| -> Option<u32> { bytes.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap())) };
     if u32_at(0)? != HEADER_SIZE as u32 || bytes.get(4..20)? != CLSID {
@@ -196,7 +196,7 @@ pub fn target_of(bytes: &[u8]) -> Option<String> {
 /// Built by `shell32`'s `ILCreateFromPathW` rather than by hand: an item ID list is a chain of
 /// shell-defined structures whose exact contents are the shell's business, and asking the shell
 /// for it is both shorter and correct by construction. `None` when the shell will not parse the
-/// path, and on any platform that has no shell — a link is then written with `LinkInfo` alone,
+/// path, and on any platform that has no shell; a link is then written with `LinkInfo` alone,
 /// which is all that can be offered there.
 #[cfg(windows)]
 pub fn target_id_list(target: &Path) -> Option<Vec<u8>> {

@@ -44,11 +44,11 @@ fn main() {
     embed_the_icon(&manifest);
 }
 
-/// Put the icon resource in every binary this package builds — both of them.
+/// Put the icon resource in every binary this package builds: both of them.
 ///
 /// `rustc-link-arg-bins` reaches the two `bin` targets and nothing else, which is what is
 /// wanted: a test executable has no use for an icon. A failure here is a warning rather than a
-/// broken build — the app runs perfectly well with the default executable icon — and a release
+/// broken build (the app runs perfectly well with the default executable icon), and a release
 /// that quietly lost it is caught by `tests/icon.rs` instead.
 fn embed_the_icon(manifest: &std::path::Path) {
     let ico = manifest.join("assets/gazelle.ico");

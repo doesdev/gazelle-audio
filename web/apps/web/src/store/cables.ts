@@ -27,6 +27,10 @@ const PORT_NAMES: Readonly<Record<DigitalPort, string>> = { SPDIF_OUT: "S/PDIF o
 /** A port's name as people say it: "ADAT out". */
 export const portName = (port: DigitalPort): string => PORT_NAMES[port];
 
+/** Channels `first` to `last`, counted from 1, as a label says them: "3", "1 and 2", "9 to 16". */
+export const channelSpan = (first: number, last: number): string =>
+  first === last ? `${first}` : last === first + 1 ? `${first} and ${last}` : `${first} to ${last}`;
+
 /** Channels one cable or port strip carries: a stereo pair for S/PDIF, eight for an ADAT port. */
 export const portWidth = (port: DigitalPort): number => (port.startsWith("ADAT") ? 8 : 2);
 
@@ -107,9 +111,9 @@ export class CablesModel {
     return this.#context.edit((cables) => cables.filter((c) => c.id !== id));
   }
 
-  /** "Drum rack ADAT out 1–8 → Zen Quadro ADAT in 1–8". Reactive. */
+  /** "Drum rack ADAT out 1 to 8 → Zen Quadro ADAT in 1 to 8". Reactive. */
   label(cable: Cable): string {
-    const end = (e: CableEnd) => `${this.#context.deviceName(e.device_id)} ${portName(e.port)} ${e.first + 1}–${e.first + cable.channels}`;
+    const end = (e: CableEnd) => `${this.#context.deviceName(e.device_id)} ${portName(e.port)} ${channelSpan(e.first + 1, e.first + cable.channels)}`;
     return `${end(cable.from)} → ${end(cable.to)}`;
   }
 

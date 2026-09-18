@@ -46,8 +46,8 @@ export interface PreampState {
 
 /**
  * A preamp's mic emulation: which Antelope microphone is on it and which microphone it is made to
- * sound like. `pattern` is the stereo pattern preset, which this does not set — a pair-wide feature
- * of the dual-capsule microphones — but which every change must carry back unchanged.
+ * sound like. `pattern` is the stereo pattern preset, which this does not set (a pair-wide feature
+ * of the dual-capsule microphones) but which every change must carry back unchanged.
  */
 export interface MicEmulationState {
   /** A value of `MIC_TARGETS`; 0 is no Antelope microphone. */
@@ -286,8 +286,8 @@ export class InputsModel {
 
   /**
    * Whether the device's licence covers an emulation; model 0, the microphone itself, stands for
-   * the microphone. True while the licence is unknown — a read that failed must not hide what the
-   * device may well have — and for "None", which needs nothing. Follows `loadLicence`.
+   * the microphone. True while the licence is unknown, since a read that failed must not hide what the
+   * device may well have, and for "None", which needs nothing. Follows `loadLicence`.
    */
   emulationLicensed(target: number, model: number): boolean {
     const mask = this.#licence.value;
@@ -342,7 +342,7 @@ export class InputsModel {
 
   /**
    * How many preamps a microphone occupies. The Edge Duo is one capsule with two membranes on two
-   * XLRs, and the Edge Quadro is two such heads on four — which is the only way its emulations work
+   * XLRs, and the Edge Quadro is two such heads on four, which is the only way its emulations work
    * (the Edge manual, and the panel's own `_regroup_link`: a link group of 4, 2, or 1).
    */
   emulationSpan(target: number): number {
@@ -414,7 +414,7 @@ export class InputsModel {
   }
 
   /**
-   * A head's polar pattern, or undefined for a microphone whose pattern means nothing — only the
+   * A head's polar pattern, or undefined for a microphone whose pattern means nothing. Only the
    * Edge Duo, Edge Quadro and Accord models carry one (`MicModelBaseWithPAngle`).
    */
   emulationPattern(index: number): PatternState | undefined {

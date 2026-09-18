@@ -21,7 +21,7 @@
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
 import { INPUT_TYPES } from "../store/surfaces.ts";
-import { portName, portWidth, type InputPort, type RouteChoice } from "../store/cables.ts";
+import { channelSpan, portName, portWidth, type InputPort, type RouteChoice } from "../store/cables.ts";
 import { displayName, type SurfaceStrip } from "../store/store.ts";
 import { channelStrip } from "./channel.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -145,7 +145,7 @@ export class GaSurfaceStrip extends GaElement {
       if (known && deviceId !== undefined && strip.kind === "port" && strip.port !== undefined) {
         const first = strip.first ?? 0;
         const width = Math.min(portWidth(strip.port), store.cables.portChannels(deviceId, strip.port) - first);
-        text = strip.port === "SPDIF_OUT" ? portName(strip.port) : `${portName(strip.port)} ${first + 1}–${first + width}`;
+        text = strip.port === "SPDIF_OUT" ? portName(strip.port) : `${portName(strip.port)} ${channelSpan(first + 1, first + width)}`;
         // The masters beside the port are rebuilt when the mixes feeding it change.
         shape.push(store.cables.feed(deviceId, strip.port, first).flatMap((pair) => (pair.mix === undefined ? [] : [[pair.mix, store.channels(deviceId).mixName(pair.mix)]])));
       }

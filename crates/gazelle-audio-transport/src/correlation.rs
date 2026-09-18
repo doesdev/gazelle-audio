@@ -3,7 +3,7 @@
 //! # Recovered, not inferred
 //!
 //! `HWDevice.request` and `HWDevice._sanitize_response` were **never recovered by
-//! uncompyle6** — both are stubbed with `Parse error at or near ...` in
+//! uncompyle6**; both are stubbed with `Parse error at or near ...` in
 //! `refs/decompiled/manager/antelope_dev_base.py`. An earlier version of this module
 //! matched responses by `seq`, which the project notes asserted but nothing verified.
 //!

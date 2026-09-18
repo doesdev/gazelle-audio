@@ -170,8 +170,8 @@ pub const RICH_DIP_REPORTS: u8 = 6;
 pub const RICH_CHECKSUM: usize = 15;
 
 /// A device shaped like the audio interfaces captured live on 2026-09-14: interrupt OUT commands on
-/// one endpoint told apart by their leading byte and a parameter id — a Set then a Commit per
-/// change, each with a sequence number, and a Focus message when a control is touched — and
+/// one endpoint told apart by their leading byte and a parameter id (a Set then a Commit per
+/// change, each with a sequence number, and a Focus message when a control is touched), and
 /// interrupt IN reports alternating between a status report (counter, meter, readback bytes,
 /// checksum) and a meters report of pure noise.
 pub struct RichDevice {

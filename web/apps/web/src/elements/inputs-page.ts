@@ -4,6 +4,7 @@
 // second click or Ctrl/Cmd+click, as the Quadro panel guards it; turning it off is one click.
 
 import { h } from "../core/dom.ts";
+import { channelSpan } from "../store/cables.ts";
 import { DIGITAL_GAIN, GAIN_RANGE, PREAMP_TYPES, type DigitalGroup, type InputsModel, type PreampType } from "../store/inputs.ts";
 import { bindControl, type ControlOptions } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -228,7 +229,7 @@ export class GaInputs extends GaElement {
       // The row shows the whole microphone, so it follows every channel of it: a head's model and
       // polar pattern live on their own channel's state, which this one would not otherwise read.
       for (const channel of channels) inputs.emulation(channel).value;
-      name.textContent = span === 1 ? `Preamp ${i + 1}` : `Preamps ${first + 1}–${first + span}`;
+      name.textContent = span === 1 ? `Preamp ${i + 1}` : `Preamps ${channelSpan(first + 1, first + span)}`;
       if (this.root.activeElement !== target) target.value = String(current.target);
       // What the device's licence does not cover stays listed, greyed, as the panel greys it; one
       // the device is already on still shows as selected.
@@ -444,7 +445,7 @@ export function digitalCell(host: ControlHost, inputs: InputsModel, group: Digit
     // A report outside the range (the loopback's test pattern) must not push the bar out of its cell.
     const shown = Math.min(DIGITAL_GAIN.max, Math.max(DIGITAL_GAIN.min, g));
     fill.style.width = `${((shown - DIGITAL_GAIN.min) / (DIGITAL_GAIN.max - DIGITAL_GAIN.min)) * 100}%`;
-    value.textContent = gainOf.value === undefined ? "—" : formatGain(g);
+    value.textContent = gainOf.value === undefined ? "…" : formatGain(g);
     gain.setAttribute("aria-valuenow", String(g));
   });
   return h("div", { class: "cell" }, heading, gain);

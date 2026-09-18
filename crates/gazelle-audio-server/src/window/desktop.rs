@@ -59,7 +59,7 @@ impl Window {
 
 /// Open the window on `url` and return a handle that brings it to the front.
 ///
-/// An error means there is no window and the server carries on headless — the likeliest reason on
+/// An error means there is no window and the server carries on headless. The likeliest reason on
 /// Windows is no WebView2 runtime, which Windows 11 ships but an old Windows 10 may not.
 pub fn open(url: String, state_path: PathBuf) -> Result<Arc<Window>, String> {
     // The event loop must be built on the thread that runs it, so the proxy comes back from there.
@@ -118,7 +118,7 @@ fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<U
         // Nobody is waiting for the window, so nobody wants it.
         return;
     }
-    tracing::info!("window open on {url} ({}x{}) — --no-window to run without one", saved.width, saved.height);
+    tracing::info!("window open on {url} ({}x{}); --no-window to run without one", saved.width, saved.height);
 
     let mut last_save = Instant::now();
     event_loop.run(move |event, _target, control_flow| {
@@ -172,7 +172,7 @@ fn save(window: &tao::window::Window, path: &Path) {
     }
 }
 
-/// The app's icon at [`ICON_SIZE`], or none if it cannot be made — a window with the system's
+/// The app's icon at [`ICON_SIZE`], or none if it cannot be made: a window with the system's
 /// default icon is better than no window.
 fn icon() -> Option<Icon> {
     let rgba: Vec<u8> = crate::icon::rgba(ICON_SIZE).into_iter().flatten().collect();

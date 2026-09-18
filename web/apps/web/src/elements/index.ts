@@ -1,7 +1,7 @@
 // Registers every element the app loads with it. Import once, before adding <ga-app> to the page.
 //
 // These are what the shell shows at once: the header, the sidebar's device list, meter and Control
-// Room, the mixer and its dock, and the notices. A page built by one route only is not here — it
+// Room, the mixer and its dock, and the notices. A page built by one route only is not here: it
 // comes with its route, from `lazy.ts`.
 
 import { GaApp } from "./app.ts";

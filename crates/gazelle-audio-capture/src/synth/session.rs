@@ -1,4 +1,4 @@
-//! Generates a complete session directory — parameters, marks, one capture — by running the
+//! Generates a complete session directory (parameters, marks, one capture) by running the
 //! real step state machine against simulated devices and a scripted operator on virtual time.
 
 use std::collections::HashMap;

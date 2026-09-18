@@ -130,8 +130,8 @@ impl SessionStore {
         Ok(())
     }
 
-    /// Every mark in order. A final line that is unterminated and does not parse — a write
-    /// torn by a crash — is skipped with a warning; any other bad line is an error.
+    /// Every mark in order. A final line that is unterminated and does not parse (a write
+    /// torn by a crash) is skipped with a warning; any other bad line is an error.
     pub fn marks(&self) -> Result<Vec<Mark>, SessionError> {
         let path = self.root.join("marks.jsonl");
         let text = fs::read_to_string(&path)?;
@@ -153,7 +153,7 @@ impl SessionStore {
         Ok(out)
     }
 
-    /// `p1`, `p2`, … — one more than the probes already started.
+    /// `p1`, `p2`, and so on: one more than the probes already started.
     pub fn next_probe_id(&self) -> Result<String, SessionError> {
         let started = self.marks()?.iter().filter(|m| matches!(m.kind, MarkKind::ProbeStarted { .. })).count();
         Ok(format!("p{}", started + 1))

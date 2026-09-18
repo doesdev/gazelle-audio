@@ -251,7 +251,8 @@ export class GaStrip extends GaElement {
         );
       } else {
         mask.style.height = "100%";
-        peakReadout.textContent = "—";
+        // Blank rather than a mark, holding the row's height; the meter's title says why it reads nothing.
+        peakReadout.textContent = "\u00a0";
       }
       if (!metered) meter.title = "This channel is not in the selected mix";
       else if (inputMeter === undefined) meter.title = "This input reports no meter";

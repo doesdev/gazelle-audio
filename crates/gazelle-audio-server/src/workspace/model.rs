@@ -5,7 +5,7 @@
 //! survives a reload and is shared between clients.
 //!
 //! Profiles (full device state: routing, levels, preamps, phantom) are deliberately **not**
-//! here — see `.agent/decisions/0011-json-profiles-behind-storage-trait.md`.
+//! here; see `.agent/decisions/0011-json-profiles-behind-storage-trait.md`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

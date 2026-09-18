@@ -12,7 +12,7 @@
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
 import { meterDeflection } from "../store/mixer.ts";
-import { portName, portWidth } from "../store/cables.ts";
+import { channelSpan, portName, portWidth } from "../store/cables.ts";
 import { displayName, SAMPLE_RATES, type Cable, type NewStrip, type SurfaceStrip } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -147,7 +147,7 @@ export class GaSurface extends GaElement {
           const clock = store.clockState(id);
           const card = store.deviceCard(id);
           const sources = store.clock(id)?.sources ?? [];
-          const text = clock === undefined || card?.reporting !== true ? "clock not reported yet" : `${SAMPLE_RATES[clock.rate] ?? "—"}, ${sources[clock.source] ?? "—"}, ${clock.locked ? "locked" : "not locked"}`;
+          const text = clock === undefined || card?.reporting !== true ? "clock not reported yet" : `${SAMPLE_RATES[clock.rate] ?? "?"}, ${sources[clock.source] ?? "?"}, ${clock.locked ? "locked" : "not locked"}`;
           const colour = surfaces.deviceColor(id);
           return h("span", { class: "clock", "data-testid": `clock-${id}`, style: colour === undefined ? "" : `--device-colour: ${colour}` }, h("span", { class: "dot", "aria-hidden": "true" }), `${entry === undefined ? id : displayName(entry, store.workspace.value)}: ${text}`);
         }),
@@ -364,7 +364,7 @@ export class GaSurface extends GaElement {
           for (const port of store.cables.portsOf(deviceId, "out") as ("SPDIF_OUT" | "ADAT_OUT")[]) {
             const width = portWidth(port);
             const channels = store.cables.portChannels(deviceId, port);
-            for (let first = 0; first + width <= channels; first += width) options.push(h("option", { value: `${port}:${first}` }, channels <= width ? portName(port) : `${portName(port)} ${first + 1}–${first + width}`));
+            for (let first = 0; first + width <= channels; first += width) options.push(h("option", { value: `${port}:${first}` }, channels <= width ? portName(port) : `${portName(port)} ${channelSpan(first + 1, first + width)}`));
           }
         }
       }

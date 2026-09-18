@@ -120,7 +120,7 @@ test("what a snapshot and a diff say in words", () => {
   assert.equal(describeSnapshot(summary([])), "no devices were attached");
 
   assert.equal(formatValue(64), "64");
-  assert.equal(formatValue(undefined), "—");
+  assert.equal(formatValue(undefined), "missing");
   assert.equal(formatValue([1, 2]), "[1,2]");
   assert.equal(describeChange({ path: "p", label: "l", kind: "changed", from: 64, to: 50 }), "64 → 50");
   assert.equal(describeChange({ path: "p", label: "l", kind: "only_in_snapshot", from: 2 }), "was 2, not set now");

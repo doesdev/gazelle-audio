@@ -3,7 +3,7 @@
 //
 // Every read and every write here is to the server's snapshot store or its capture, which only asks
 // the devices for their state. **Nothing in this file sends a setting to a device**, and taking or
-// comparing a snapshot changes nothing on one. Recall — putting a snapshot back — is phase 6 and
+// comparing a snapshot changes nothing on one. Recall (putting a snapshot back) is phase 6 and
 // waits for a hardware session (spec §2.3, decision 0012).
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
@@ -164,7 +164,7 @@ export class SnapshotsModel {
   /**
    * Asks the server what recall would send to put this snapshot back: an ordered list of commands
    * with their bytes and their guards. **Nothing is sent to a device**, here or on the server, and
-   * there is no way from this page to apply one — that waits for a session at the hardware
+   * there is no way from this page to apply one: that waits for a session at the hardware
    * (spec §2.3, decision 0012).
    */
   async prepareRecall(id: string, ask: RecallAsk = {}): Promise<RecallPlan | undefined> {
@@ -222,7 +222,7 @@ export function describeSnapshot(summary: SnapshotSummary): string {
 
 /** A captured value as one line: a number or string plainly, anything else as JSON. */
 export function formatValue(value: unknown): string {
-  if (value === undefined) return "—";
+  if (value === undefined) return "missing";
   if (value === null) return "none";
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (typeof value === "string") return value;
@@ -274,7 +274,7 @@ const EXCLUDED_TITLES: Record<RecallExcluded["kind"], string> = {
   unreadable: "Values that could not be read, on one side or the other",
   withheld: "Values held back until a session at the hardware",
   no_writer: "Values the devices report and no command sets",
-  unmapped: "Values with no writer mapped — a gap, not a decision",
+  unmapped: "Values with no writer mapped: a gap, not a decision",
   incomplete: "Values the snapshot does not hold completely enough to put back",
   not_chosen: "Devices left out of this plan",
 };

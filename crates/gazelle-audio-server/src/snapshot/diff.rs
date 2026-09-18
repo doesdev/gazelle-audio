@@ -2,7 +2,7 @@
 //!
 //! The diff is the part that has to be excellent: recall (phase 6) is only as trustworthy as the
 //! preview it shows before it writes anything, and a diff is useful on its own long before recall
-//! exists — "what did I change since the take?" is a question the app can otherwise not answer.
+//! exists: "what did I change since the take?" is a question the app can otherwise not answer.
 //!
 //! It is a plain function over two documents, so it needs no device and no hardware to test, and
 //! so recall can ask "what would change?" with exactly the same code the user was shown.

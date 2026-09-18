@@ -40,10 +40,10 @@ impl RunKey for NoRunKey {
 
 /// The arguments a boot entry carries over from the running server.
 ///
-/// Carried: what decides what the server serves and how safely — `--bind`, `--backend` when it is
+/// Carried: what decides what the server serves and how safely (`--bind`, `--backend` when it is
 /// not the default,
 /// `--dry-run`, `--workspace`, `--themes-dir`, `--no-web-ui`, and for the loopback backend its
-/// models and cyclic interval — and where it keeps its record, `--log-dir`. Not carried: `--no-persist`, which is for throwaway runs (a server
+/// models and cyclic interval) and where it keeps its record, `--log-dir`. Not carried: `--no-persist`, which is for throwaway runs (a server
 /// that starts at every login and forgets the user's layouts at every logoff is not what anyone
 /// is asking for), and `--no-tray`, which cannot be set on a server that has a tray to click.
 #[derive(Clone, Debug, PartialEq, Eq)]

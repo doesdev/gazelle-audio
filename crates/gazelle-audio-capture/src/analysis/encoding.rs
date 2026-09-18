@@ -1,5 +1,5 @@
 //! Encoding fit (spec §8 step 6): how a field's raw byte relates to the UI value. Models are tried
-//! in order — linear, signed two's complement, dB, monotonic table — and the first that
+//! in order (linear, signed two's complement, dB, monotonic table) and the first that
 //! reproduces every observed raw value after rounding wins. Non-numeric UI values get an enum.
 
 use serde::Serialize;

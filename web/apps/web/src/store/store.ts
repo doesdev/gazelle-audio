@@ -68,7 +68,7 @@ export const PRESET_SLOTS = 5;
 export const BRIGHTNESS_MAX = 100;
 
 /**
- * How much a centre-panned signal is attenuated, in `set_panning_law`'s index order — which is the
+ * How much a centre-panned signal is attenuated, in `set_panning_law`'s index order, which is the
  * Quadro settings dialog's own order, not ascending. The Studio+ has no such command. Every pan in
  * the mixer, and so the mono downmix built on them, is heard through whichever of these is set.
  */

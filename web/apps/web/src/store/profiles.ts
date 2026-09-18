@@ -54,14 +54,14 @@ export const PROFILES: Readonly<Record<"quadro" | "studio", readonly LayoutProfi
     {
       id: "tracking",
       name: "Tracking",
-      description: "Preamps 1–8 and the DAW return, in the monitors and a performer's cue mix.",
+      description: "Preamps 1 to 8 and the DAW return, in the monitors and a performer's cue mix.",
       mixes: ["Monitors", "Cue"],
       channels: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => channel(`Preamp ${i + 1}`, "PREAMP", i, 0, [1])).concat(daw("USB_PLAY", [1])),
     },
     {
       id: "drums",
       name: "Drums",
-      description: "A drum kit on preamps 1–8 with the DAW return, and a drummer's mix.",
+      description: "A drum kit on preamps 1 to 8 with the DAW return, and a drummer's mix.",
       mixes: ["Main", "Drummer"],
       channels: ["Kick", "Snare", "Hat", "Tom 1", "Tom 2", "Floor", "OH L", "OH R"].map((name, i) => channel(name, "PREAMP", i, 0, [1])).concat(daw("USB_PLAY", [1])),
     },

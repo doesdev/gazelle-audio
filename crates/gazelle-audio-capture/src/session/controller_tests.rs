@@ -41,7 +41,7 @@ fn source() -> (Box<dyn CaptureSource>, u64) {
 }
 
 /// A source whose frame iterator repeats `frames` on a loop until `StopHandle::stop()` is
-/// called, then ends — unlike `MemorySource`, whose frames run out on their own. Models a live
+/// called, then ends, unlike `MemorySource`, whose frames run out on their own. Models a live
 /// capture for the final review's F2 and F5: what actually happens once a stop signal has to
 /// interrupt an otherwise-endless stream, rather than a source that was always going to end.
 struct StoppableSource {
@@ -143,7 +143,7 @@ fn probe_runs_to_completion_and_records_everything() {
     assert_eq!((state.vid, state.pid, state.elevated, state.usbpcap_attached), (0x1234, 0xABCD, Some(false), Some(true)));
     assert_eq!(state.capture.source.as_deref(), Some("memory"));
     let p = probe(&c);
-    assert_eq!((p.step_index, p.kind, p.instruction.as_str()), (0, StepKind::Idle, "Do nothing — idle window"));
+    assert_eq!((p.step_index, p.kind, p.instruction.as_str()), (0, StepKind::Idle, "Do nothing (idle window)"));
     assert_eq!(p.progress, "repeat 1 of 1 · step 1 of 7");
 
     clock.advance(6_500_000_000);
@@ -270,9 +270,9 @@ fn a_failed_start_leaves_no_capture_file_and_a_retry_succeeds() {
 }
 
 /// Amendment: `running` reflects whether the capture thread is still alive, not merely whether
-/// a `JoinHandle` was ever stored — a source that exhausts its frames on its own finishes the
+/// a `JoinHandle` was ever stored: a source that exhausts its frames on its own finishes the
 /// thread while the probe itself is still running.
-/// A live source that stays running but never delivers a frame — the target's traffic is not
+/// A live source that stays running but never delivers a frame: the target's traffic is not
 /// reaching the capture (for example USBPcap is not in its driver stack).
 struct SilentSource;
 
@@ -365,7 +365,7 @@ fn running_is_false_once_the_capture_thread_finishes_on_its_own() {
 
 /// Fix round 1: a failure that surfaces after the source has started but before the capture
 /// thread is spawned (here, `marks.jsonl` refusing writes) must still stop the source and leave
-/// no capture file — not just a source that fails to start outright.
+/// no capture file, not just a source that fails to start outright.
 ///
 /// Unix-only: relies on a non-root user actually being denied a write-mode open on a file with
 /// its write bits cleared, which `set_readonly` gives on Unix but not on Windows.
@@ -393,7 +393,7 @@ fn a_failed_marks_append_stops_the_source_and_leaves_no_capture_file() {
 
 /// Fix round 2: `a_probe_never_reuses_a_capture_file` (above) checks the returned error when
 /// `create_capture` fails after the source has already started; this checks that the same
-/// failure leaves no side effects in the marks log — no `ProbeStarted` mark for the id (which
+/// failure leaves no side effects in the marks log: no `ProbeStarted` mark for the id (which
 /// would otherwise make `next_probe_id` permanently skip one) and no orphan entry, and that a
 /// retry once the obstacle is gone records exactly one `ProbeStarted`.
 #[test]
@@ -428,7 +428,7 @@ fn a_failed_create_capture_leaves_no_probe_started_mark_or_skipped_id() {
 
 /// Final review F2: `abandon`'s marks already move the run's in-memory status to `Abandoned`
 /// before `append_marks` is ever called, so a failure appending the very last mark (full disk, an
-/// AV lock, ...) must not skip `finish_capture` — the source still needs stopping and the thread
+/// AV lock, ...) must not skip `finish_capture`. The source still needs stopping and the thread
 /// still needs joining (so the pcapng gets `writer.finish()`ed and, on Windows, the underlying
 /// process actually stops), and the panel still needs to see the resulting state. Before the fix,
 /// the early `?` on `append_marks` returned before any of that ran.

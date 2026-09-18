@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+import { channelSpan } from "../src/store/cables.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
 
@@ -29,6 +30,12 @@ function answerRouting(client: FakeClient, routes: Record<string, Record<number,
 const adat = { from: { device_id: STUDIO, port: "ADAT_OUT", first: 0 }, to: { device_id: QUADRO, port: "ADAT_IN", first: 0 }, channels: 8 } as const;
 const spdif = { from: { device_id: QUADRO, port: "SPDIF_OUT", first: 0 }, to: { device_id: STUDIO, port: "SPDIF_IN", first: 0 }, channels: 2 } as const;
 
+test("a run of channels reads as words, never with a dash: one, a pair, or a range", () => {
+  assert.equal(channelSpan(3, 3), "3");
+  assert.equal(channelSpan(1, 2), "1 and 2");
+  assert.equal(channelSpan(9, 16), "9 to 16");
+});
+
 test("cables are declared between two devices' digital ports of one kind, checked as the server checks them, and removed", async () => {
   const { client, store } = setup();
   await store.start();
@@ -37,8 +44,8 @@ test("cables are declared between two devices' digital ports of one kind, checke
   const other = cables.declare(spdif.from, spdif.to, spdif.channels) as string;
   assert.notEqual(id, other);
   assert.deepEqual(store.workspace.value?.cables, [{ id, ...adat }, { id: other, ...spdif }]);
-  assert.equal(cables.label(cables.list.value[0]!), "Zen Studio+ ADAT out 1–8 → Zen Quadro ADAT in 1–8");
-  assert.equal(cables.label(cables.list.value[1]!), "Zen Quadro S/PDIF out 1–2 → Zen Studio+ S/PDIF in 1–2");
+  assert.equal(cables.label(cables.list.value[0]!), "Zen Studio+ ADAT out 1 to 8 → Zen Quadro ADAT in 1 to 8");
+  assert.equal(cables.label(cables.list.value[1]!), "Zen Quadro S/PDIF out 1 and 2 → Zen Studio+ S/PDIF in 1 and 2");
 
   assert.throws(() => cables.declare({ device_id: STUDIO, port: "ADAT_IN", first: 0 }, adat.to, 8), /from must be SPDIF_OUT or ADAT_OUT/);
   assert.throws(() => cables.declare(adat.from, { device_id: QUADRO, port: "SPDIF_OUT", first: 0 }, 2), /to must be SPDIF_IN or ADAT_IN/);

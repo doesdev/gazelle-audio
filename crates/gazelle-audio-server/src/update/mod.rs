@@ -26,12 +26,12 @@
 //!
 //! # TLS
 //!
-//! `ureq` with rustls and the ring provider — A35's crypto choice, a different client from
+//! `ureq` with rustls and the ring provider: A35's crypto choice, a different client from
 //! `drive`'s `reqwest` because reqwest 0.13's tree would lift this crate off the Rust 1.82
 //! floor. Certificates verify against ureq's bundled Mozilla roots rather than the OS trust
 //! store (`rustls-platform-verifier` also needs 1.85). That is stricter in the common case and
 //! weaker in one: an update check will not go through a TLS-inspecting corporate proxy. The
-//! check failing is harmless — the app says so and carries on — and nothing is ever applied
+//! check failing is harmless (the app says so and carries on) and nothing is ever applied
 //! without the signature, which the proxy cannot forge.
 
 pub mod release;
@@ -134,7 +134,7 @@ pub struct Failure {
 
 /// Report a failure: the whole story to the log, once, and the summary to whoever is looking.
 fn failed(failure: Failure) -> State {
-    tracing::warn!("update failed: {} — {}", failure.summary.as_str(), failure.detail);
+    tracing::warn!("update failed: {} ({})", failure.summary.as_str(), failure.detail);
     State::Failed { message: failure.summary.as_str().to_string(), detail: failure.detail }
 }
 
@@ -150,8 +150,8 @@ pub enum State {
     Downloading { version: String },
     /// Verified and in place; it runs after a restart.
     Staged { version: String },
-    /// `message` is the short summary the tray shows; `detail` is everything behind it — the
-    /// URL, the HTTP status, the underlying error — for the web UI and a support question.
+    /// `message` is the short summary the tray shows; `detail` is everything behind it (the
+    /// URL, the HTTP status, the underlying error) for the web UI and a support question.
     Failed { message: String, detail: String },
 }
 
@@ -164,7 +164,7 @@ impl State {
             State::UpToDate => "Updates: this is the newest version".into(),
             State::Available { version, .. } => format!("Update available: {version}"),
             State::Downloading { version } => format!("Downloading {version}…"),
-            State::Staged { version } => format!("Update {version} is ready — restart to use it"),
+            State::Staged { version } => format!("Update {version} is ready (restart to use it)"),
             State::Failed { message, .. } => format!("Update check failed: {message}"),
         }
     }
@@ -393,7 +393,7 @@ impl Updater {
             }
         }
         tracing::info!(
-            "update {} staged: {} — restart to use it",
+            "update {} staged: {} (restart to use it)",
             found.version,
             staged.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
         );
@@ -401,7 +401,7 @@ impl Updater {
     }
 
     /// Download one asset beside where it will live, check its hash against the sums file,
-    /// then — the first time round — check the sums file's signature. Only then is it moved
+    /// then, the first time round, check the sums file's signature. Only then is it moved
     /// into place. A failure anywhere deletes the download.
     fn fetch_one(
         &self,
@@ -526,7 +526,7 @@ pub fn is_offered(bind: std::net::IpAddr, no_update: bool, settings: &Settings) 
 
 /// Start the binary that is now in place, with the arguments this process was given, and let
 /// this one exit. Called **after** the server has stopped and given up its port and its USB
-/// handles — never while it is running.
+/// handles, never while it is running.
 pub fn relaunch() {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -568,7 +568,7 @@ pub fn spawn_background_checks(updater: Arc<Updater>) {
 }
 
 /// Tidy up after a previous update: delete the binaries it displaced. Called once at start, when
-/// nothing holds the old images any more. Never fatal — the files are inert, and a failure (a
+/// nothing holds the old images any more. Never fatal: the files are inert, and a failure (a
 /// virus scanner still reading one, say) is retried at the next start.
 pub fn clean_up_after_previous_update() {
     match std::env::current_exe() {
@@ -634,7 +634,7 @@ mod tests {
             siblings(&exe),
             [PathBuf::from(r"C:pps\gazelle\gazelle-audio-server.exe"), PathBuf::from(r"C:pps\gazelle\gazelle-audio-serverw.exe")]
         );
-        // Without an extension — everywhere but Windows — the names stay bare.
+        // Without an extension (everywhere but Windows) the names stay bare.
         assert_eq!(
             siblings(Path::new("/usr/local/bin/gazelle-audio-server")),
             [PathBuf::from("/usr/local/bin/gazelle-audio-server"), PathBuf::from("/usr/local/bin/gazelle-audio-serverw")]
@@ -682,7 +682,7 @@ mod tests {
         assert_eq!(State::Unknown.line(), "Updates: not checked yet");
         assert_eq!(State::UpToDate.line(), "Updates: this is the newest version");
         assert_eq!(State::Available { version: "0.2.0".into(), page: String::new() }.line(), "Update available: 0.2.0");
-        assert_eq!(State::Staged { version: "0.2.0".into() }.line(), "Update 0.2.0 is ready — restart to use it");
+        assert_eq!(State::Staged { version: "0.2.0".into() }.line(), "Update 0.2.0 is ready (restart to use it)");
         assert_eq!(
             failed_state(Summary::NoConnection.with("https://api.github.com/x: status 503")).line(),
             "Update check failed: no connection"

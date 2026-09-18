@@ -104,7 +104,7 @@ pub fn instruction(spec: &StepSpec, parameters: &[Parameter]) -> String {
     };
     let to = spec.to.as_deref().unwrap_or_default();
     match (spec.kind, spec.from.as_deref()) {
-        (StepKind::Idle, _) => "Do nothing — idle window".to_string(),
+        (StepKind::Idle, _) => "Do nothing (idle window)".to_string(),
         (StepKind::Set, Some(from)) => {
             format!("Set **{}** from **{from}** to **{to}**, then press Done", label(&spec.parameter))
         }
@@ -205,21 +205,21 @@ impl Controller {
 
     /// Starts the capture, then arms the first step.
     ///
-    /// Every fallible step that would otherwise need to be undone — starting the source,
+    /// Every fallible step that would otherwise need to be undone (starting the source,
     /// creating the capture file, building the pcapng writer around it, and recording the
-    /// `ProbeStarted`/`Armed` marks — happens before the capture thread is spawned, in that
+    /// `ProbeStarted`/`Armed` marks) happens before the capture thread is spawned, in that
     /// order, so the marks append is the *last* thing that can fail before the thread exists.
     /// On any failure up to and including the marks append, the source is stopped and any file
     /// this call created is removed (`create_capture` uses `create_new`, so removing it here is
-    /// always safe — the file did not exist before this call), so a failed call leaves neither a
+    /// always safe: the file did not exist before this call), so a failed call leaves neither a
     /// capture file nor a `ProbeStarted` mark behind, and a retry with the same probe id sees a
     /// clean slate: no skipped id (`next_probe_id` counts `ProbeStarted` marks), no orphan entry
     /// in `probe_timelines`. `ProbeRun::start` is called with `last_packet: None`, which is
     /// always correct here: no packets can have been read before the thread that reads them
     /// exists.
     ///
-    /// After the thread spawns, `self.publish` (below) can still fail — it re-reads
-    /// `session.json` via `store.info()` — but that is not a leak: `inner.active` is set
+    /// After the thread spawns, `self.publish` (below) can still fail (it re-reads
+    /// `session.json` via `store.info()`), but that is not a leak: `inner.active` is set
     /// immediately before `publish` runs, so the `Controller` already owns and tracks the
     /// running thread and the source's stop handle even if this call returns `Err`; a later
     /// `abandon_probe`/`operator`/`tick` can still reach and clean them up via `finish_capture`.
@@ -356,13 +356,13 @@ impl Controller {
         self.conclude(&mut inner, &marks, finished)
     }
 
-    /// Final review F2: once a run has left `Running` (`finished`), `finish_capture` — stopping
-    /// the source and joining the capture thread — must run regardless of whether `marks` (which
+    /// Final review F2: once a run has left `Running` (`finished`), `finish_capture` (stopping
+    /// the source and joining the capture thread) must run regardless of whether `marks` (which
     /// describe that transition) actually made it to disk: a full disk or an AV lock on
     /// `marks.jsonl` must not leave the source running and the thread unjoined (on Windows, the
     /// underlying process still running) just because the very last append failed. So: try the
     /// append, finish the capture if the run is done, publish the resulting state either way, and
-    /// only then surface whichever error happened — `finish_capture`'s takes priority, since it
+    /// only then surface whichever error happened. `finish_capture`'s takes priority, since it
     /// reflects the capture itself possibly still not being torn down, which matters more than a
     /// mark that failed to log an already-in-memory transition.
     fn conclude(&self, inner: &mut Inner, marks: &[Mark], finished: bool) -> Result<(), ControlError> {
@@ -409,7 +409,7 @@ fn finish_capture(inner: &mut Inner) -> Result<(), ControlError> {
         stop.stop();
     }
     if let Some(thread) = active.thread.take() {
-        // Final review F3: a join `Err` means the capture thread panicked — without this, the
+        // Final review F3: a join `Err` means the capture thread panicked. Without this, the
         // panel would show a clean stop (no `failure`) even though nothing after the panic point
         // ran, including `writer.finish()`.
         if thread.join().is_err() {

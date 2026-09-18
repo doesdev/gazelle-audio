@@ -74,7 +74,7 @@ impl RegistrySet {
 
     /// The registry for a device's application pid, if its model is known.
     ///
-    /// Returns `None` for an unrecognised model rather than guessing a surface — sending a
+    /// Returns `None` for an unrecognised model rather than guessing a surface. Sending a
     /// Quadro command set to an unknown device is exactly the sort of blind driving the
     /// project's risk posture forbids.
     pub fn for_pid(&self, pid: u16) -> Option<&ModelRegistry> {

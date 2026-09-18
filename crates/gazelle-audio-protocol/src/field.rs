@@ -6,13 +6,13 @@
 //! `REPORT_FORMAT` JSON:
 //!
 //! * scalar string: `"ubyte"`, `"byte"`, `"short"`, `"int32"`, `"uint16"`,
-//!   `"uint32"`, `"uint8"`, `"int8"` — optionally with a bit width, e.g.
+//!   `"uint32"`, `"uint8"`, `"int8"`, optionally with a bit width, e.g.
 //!   `["density","ubyte",8,100]`.
-//! * inline array string: `"ubyte * 2"` / `"ubyte*300"` — `count` elements of
+//! * inline array string: `"ubyte * 2"` / `"ubyte*300"`: `count` elements of
 //!   a fixed-width scalar, laid out contiguously.
-//! * nested struct: `{"fields": [[name, type], ...], "count": N}` — `N`
+//! * nested struct: `{"fields": [[name, type], ...], "count": N}`: `N`
 //!   consecutive copies of a packed sub-struct.
-//! * elem array: `{"elem_type": "ubyte * 2", "count": 32}` — 32 consecutive
+//! * elem array: `{"elem_type": "ubyte * 2", "count": 32}`: 32 consecutive
 //!   copies of a packed element (no per-element struct wrapper).
 //!
 //! The payload header (present when `payload_id` is not null) is:
@@ -40,7 +40,7 @@ impl Scalar {
             "byte" | "int8" | "i8" => Scalar::I8,
             "uint16" | "u16" | "ushort" => Scalar::U16,
             // The reference resolves type names via `ctypes.c_{name}`, so bare "short"
-            // is c_short — *signed*. Grouping it with uint16 made negative values decode
+            // is c_short, which is *signed*. Grouping it with uint16 made negative values decode
             // as large positives.
             "short" | "int16" | "i16" => Scalar::I16,
             "uint32" | "u32" => Scalar::U32,

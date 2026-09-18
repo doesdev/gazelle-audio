@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Prefer the USB serial number; fall back to a topology string. The fallback is not stable
 /// across a replug or a hub change, which matters because workspace layouts are keyed by
-/// this — so the descriptor carries `identity_stable` to let clients warn.
+/// this. So the descriptor carries `identity_stable` to let clients warn.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct DeviceId(pub String);
 

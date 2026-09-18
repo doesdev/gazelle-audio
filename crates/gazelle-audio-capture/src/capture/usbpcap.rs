@@ -218,7 +218,7 @@ fn exit_tool_error(stopped: bool, code: Option<i32>) -> Option<CaptureError> {
 /// Wraps a live source's frame iterator so that:
 /// - an error surfacing after `stop()` was requested (typically a truncated pcap record from
 ///   killing the process mid-write) ends the stream cleanly instead of propagating as an error;
-/// - once the stream ends on its own, `reap` (the only platform-specific part — `Child::wait` in
+/// - once the stream ends on its own, `reap` (the only platform-specific part: `Child::wait` in
 ///   the live backend) is called exactly once, and a non-zero, unrequested exit is reported as
 ///   one final `Err` before the stream truly ends.
 #[cfg_attr(not(windows), allow(dead_code, reason = "only constructed by cfg(windows) platform::start; exercised directly by usbpcap_tests.rs on every platform"))]
@@ -322,7 +322,7 @@ mod platform {
 
     /// winbase.h `CREATE_NEW_PROCESS_GROUP`. USBPcapCMD would otherwise share our console, so a
     /// console Ctrl-C reaches it directly (it may die before `stop()` sets `stopped`, so the
-    /// capture thread reads that as an unrequested exit — `CaptureError::Tool` — racing
+    /// capture thread reads that as an unrequested exit, `CaptureError::Tool`, racing
     /// `writer.finish()`). Running it in its own process group makes our own Ctrl-C handler
     /// (`main.rs`'s `serve`, via `stop()`) the only path that stops it.
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;

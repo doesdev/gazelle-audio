@@ -2,7 +2,7 @@
 //!
 //! Both of them so far are about an empty device list, which is the one thing that must never be
 //! all the app says. Antelope's own Manager Service opens the interfaces exclusively while it
-//! runs, so a USB server started beside it attaches nothing (`reference/usb-access.md`) — the
+//! runs, so a USB server started beside it attaches nothing (`reference/usb-access.md`): the
 //! commonest way the app looks broken when it is not. And with the USB backend the default
 //! (decision `0018`), a first run with nothing plugged in is empty for the ordinary reason, which
 //! is worth saying too.
@@ -60,7 +60,7 @@ pub fn nothing_attached(backend: &str, devices: usize, service_running: bool) ->
 /// Everything true of the server right now. `service_running` is a parameter so the rule is tested
 /// without a service control manager; [`crate::tray::antelope_service_running`] supplies it.
 ///
-/// The two device notices are alternatives — "nothing is attached" and "something is attached and
+/// The two device notices are alternatives. "Nothing is attached" and "something is attached and
 /// Antelope's service is holding it" are answers to the same question, and the second is the more
 /// useful one whenever it applies.
 pub fn current(backend: &str, devices: usize, service_running: bool) -> Vec<Notice> {

@@ -5,7 +5,7 @@
 //!    steps that reached it, different UI values have different raws, and every Set step votes
 //!    on whether it matched;
 //! 2. is not changed by a No-op step of P (one vote per No-op window showing the message);
-//! 3. is not changed by a Control step — if it is, the field is reported shared, not P's;
+//! 3. is not changed by a Control step (if it is, the field is reported shared, not P's);
 //! 4. is not changed during Idle (one vote per Idle window showing the message).
 //!
 //! The share of agreeing votes is the field's `consistency`.
@@ -187,7 +187,7 @@ fn judge(
         }
     }
 
-    // Rules 2–4, walking the steps in order with P's current raw value. No-op and Idle windows
+    // Rules 2 to 4, walking the steps in order with P's current raw value. No-op and Idle windows
     // that show the message vote; a Control change marks the field shared and moves the current
     // raw, since the device state really moved.
     let mut current: Option<u8> = None;

@@ -58,7 +58,7 @@ pub fn default_window_state_path(var: impl Fn(&str) -> Option<String>) -> PathBu
 /// environment names nowhere for it (the server then writes no log file).
 ///
 /// Logs are state, not configuration, so they do not follow `GAZELLE_CONFIG_DIR`: they go where
-/// each platform keeps such things, in a `gazelle` folder as the configuration does —
+/// each platform keeps such things, in a `gazelle` folder as the configuration does:
 /// `$XDG_STATE_HOME/gazelle/logs`, else `%LOCALAPPDATA%\gazelle\logs` (always set on Windows,
 /// including for a login entry, which has no `HOME`), else `$HOME/.local/state/gazelle/logs`.
 /// Never the working directory: a server started at login runs in a directory of the system's

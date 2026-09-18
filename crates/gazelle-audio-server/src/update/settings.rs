@@ -1,5 +1,5 @@
 //! What the user has said about updating, kept beside the workspace in the config directory
-//! (`%APPDATA%\gazelle\update.json` on Windows — P82).
+//! (`%APPDATA%\gazelle\update.json` on Windows; P82).
 //!
 //! The defaults are the quiet ones: **check, never download by itself**. A check costs one
 //! request and tells the user something they can act on; a download writes megabytes beside a
@@ -31,7 +31,7 @@ impl Channel {
 
 /// The GitHub repository releases are read from, `owner/name`.
 pub const DEFAULT_REPO: &str = "doesdev/gazelle-audio";
-/// The GitHub API root. Configurable so a private mirror — and the tests' local stand-in —
+/// The GitHub API root. Configurable so a private mirror (and the tests' local stand-in)
 /// can be used; a mirror still has to produce a signature the built-in key accepts.
 pub const DEFAULT_API_BASE: &str = "https://api.github.com";
 

@@ -12,7 +12,7 @@
 //! `data` never holds more than `min(len_cap, length)` bytes, and is further capped to
 //! whatever is physically present in the frame so decoding never reads past its end.
 //! `payload_dropped` is `data.len() < data_len`, matching [`UsbEvent::payload_dropped`]'s
-//! contract and USBPcap's use of its own declared length — this holds even for a
+//! contract and USBPcap's use of its own declared length. This holds even for a
 //! doubly-corrupted frame where `len_cap`/`length` both overstate what is present.
 
 use super::{ByteOrder, DecodeError};
@@ -99,7 +99,7 @@ pub fn decode(frame: &RawFrame) -> Result<Option<UsbEvent>, DecodeError> {
         data_len: length,
         data: payload[..captured].to_vec(),
         // Fix round 1: must reflect what was actually decoded into `data`, not just
-        // len_cap vs length — a doubly-corrupted frame where both declared fields
+        // len_cap vs length: a doubly-corrupted frame where both declared fields
         // overstate what's physically present must still report a drop.
         payload_dropped: (captured as u64) < length as u64,
     }))

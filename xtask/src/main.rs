@@ -13,7 +13,7 @@
 //!
 //! The private key is 64 hex digits in a file. It never goes in the repository, and this tool
 //! refuses to write one inside a git working tree. It reaches `sign` by `--key <file>`, or by
-//! `GAZELLE_RELEASE_KEY` naming that file — never as a value on the command line, where it would
+//! `GAZELLE_RELEASE_KEY` naming that file, never as a value on the command line, where it would
 //! land in shell history and process listings.
 //!
 //! The public half is compiled into the server:
@@ -82,7 +82,7 @@ fn keygen(out: &Path) -> Result<(), String> {
     }
     std::fs::write(out, format!("{}\n", to_hex(&seed))).map_err(|e| format!("writing {}: {e}", out.display()))?;
     restrict(out);
-    println!("private key: {} — back it up; losing it means no more updates for installed copies", out.display());
+    println!("private key: {} (back it up; losing it means no more updates for installed copies)", out.display());
     println!();
     println!("public key, to build the server with:");
     println!("    GAZELLE_UPDATE_PUBKEY={} cargo build --release -p gazelle-audio-server", to_hex(key.verifying_key().as_bytes()));

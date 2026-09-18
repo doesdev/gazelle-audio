@@ -29,6 +29,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pyc_dis  # noqa: E402  (a sibling script, not a package)
+from no_dashes import refuse_dashes  # noqa: E402
 
 CONSTANTS = "antelope_ui_afx_constants.pyc"
 
@@ -132,6 +133,7 @@ def main() -> int:
         f"{render('studio', studio)}\n"
         "};\n"
     )
+    text = refuse_dashes(text, "effect-catalogue.ts")
     if args.out is None:
         sys.stdout.write(text)
     else:

@@ -89,7 +89,7 @@ function render(state) {
   $("silence").hidden = !(silent || ended);
   $("silence").textContent = ended
     ? "Capture has stopped: the rest of this probe will not be recorded"
-    : silent ? `No packets from the target for ${Math.floor(cap.silent_ms / 1000)} s — is the device on, and is USBPcap attached to it?` : "";
+    : silent ? `No packets from the target for ${Math.floor(cap.silent_ms / 1000)} s. Is the device on, and is USBPcap attached to it?` : "";
   const probe = state.probe;
   running = !!probe && probe.status === "running";
   if (!probe) {
@@ -98,7 +98,7 @@ function render(state) {
     $("countdown").textContent = "";
   } else if (!running) {
     $("progress").textContent = `probe ${probe.probe_id}`;
-    $("instruction").textContent = probe.status === "completed" ? "Probe complete — thank you" : "Probe abandoned";
+    $("instruction").textContent = probe.status === "completed" ? "Probe complete, thank you" : "Probe abandoned";
     $("countdown").textContent = "";
   } else {
     $("progress").textContent = `probe ${probe.probe_id} · ${probe.progress} · overall ${probe.step_index + 1} of ${probe.step_count}` + (probe.attempt ? ` · attempt ${probe.attempt + 1}` : "");
@@ -127,7 +127,7 @@ function connect() {
     else if (message.type === "error") $("error").textContent = message.message;
   };
   socket.onclose = () => {
-    $("error").textContent = "Disconnected from helper — reconnecting…";
+    $("error").textContent = "Disconnected from helper, reconnecting…";
     setTimeout(connect, 1000);
   };
 }

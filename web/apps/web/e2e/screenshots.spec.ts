@@ -40,7 +40,7 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
   test(`screenshots in ${theme}`, async ({ page }) => {
     await page.goto(`${server.url}/#/devices/loopback-0`);
     await page.getByLabel("Theme").selectOption(theme);
-    await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("—");
+    await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("…");
     await page.evaluate(() => document.fonts.ready);
     const file = theme.replace(":", "-");
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-devices.png` });
@@ -52,7 +52,7 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
       const fader = page.getByTestId(`fader-${slot}`);
       await fader.focus();
       for (let i = 0; i < 2; i++) await fader.press("PageDown");
-      await expect(page.locator(`ga-channel[data-channel-slot="${slot}"] ga-strip .readout`).nth(1)).not.toHaveText("—");
+      await expect(page.locator(`ga-channel[data-channel-slot="${slot}"] ga-strip .readout`).nth(1)).not.toHaveText(/^\s*$/);
       await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-mixer-${name}.png` });
     }
     for (const [device, name] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] as const) {

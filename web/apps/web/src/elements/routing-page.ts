@@ -143,7 +143,7 @@ export class GaRouting extends GaElement {
           const slot = slots?.[c];
           const routed = slot !== undefined && slot.source !== routing.mute;
           cell.toggleAttribute("data-routed", routed);
-          cell.textContent = slot === undefined ? "?" : routed ? shortLabel(slot.source, slot.channel) : "—";
+          cell.textContent = slot === undefined ? "?" : routed ? shortLabel(slot.source, slot.channel) : "off";
           cell.title = slot === undefined ? `${group.name} ${c + 1}: not read from the device` : routed ? `${group.name} ${c + 1} ← ${topology.inputs[slot.source]?.name ?? "?"} ${slot.channel + 1}` : `${group.name} ${c + 1}: muted`;
           const colour = routed ? topology.inputs[slot.source]?.color : undefined;
           if (colour === undefined) cell.style.removeProperty("--source-colour");

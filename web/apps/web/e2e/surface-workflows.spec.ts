@@ -125,7 +125,7 @@ test("workflow (a): drums on the Studio+ preamps reach the Quadro over ADAT and 
   await expect(slot(page, "adat1").getByTestId("provenance")).toHaveText("from Drum rack ADAT out 1");
   await expect(slot(page, "vox").getByTestId("provenance"), "a preamp channel has no cable").toBeHidden();
   await expect(slot(page, "adatout").getByTestId("port-feed-0")).toHaveText("← not read");
-  await expect(page.getByTestId("cable-health-adat")).toContainText("Drum rack ADAT out 1–8 → Desk ADAT in 1–8");
+  await expect(page.getByTestId("cable-health-adat")).toContainText("Drum rack ADAT out 1 to 8 → Desk ADAT in 1 to 8");
 
   // Route the drum preamps 1/2 to ADAT out 1/2 from the port strip: one set_routing on the Studio+ (ADAT OUT is its destination 7).
   const sentBefore = writes(frames).length;
@@ -187,7 +187,7 @@ test("workflow (b): the Quadro plays a mix out of S/PDIF into the Studio+, with 
   // Both ends of the cable in one go: the Quadro's S/PDIF out, then the Studio+'s S/PDIF inputs.
   await page.getByTestId("strip-kind").selectOption("cable");
   await expect(page.getByTestId("strip-device")).toBeDisabled();
-  await page.getByTestId("strip-item").selectOption({ label: "Desk S/PDIF out 1–2 → Drum rack S/PDIF in 1–2" });
+  await page.getByTestId("strip-item").selectOption({ label: "Desk S/PDIF out 1 and 2 → Drum rack S/PDIF in 1 and 2" });
   await page.getByTestId("strip-add").click();
   await expect(page.locator("ga-surface .slot")).toHaveCount(4);
   const kinds = await page.locator("ga-surface .slot").evaluateAll((slots) => slots.map((s) => (s as HTMLElement).dataset["kind"]));
@@ -249,12 +249,12 @@ test("cables are declared and removed on the Workspace page, from an output to a
   await page.goto(`${server.url}/#/workspace`);
   await expect(page.getByText("No cables declared.", { exact: false })).toBeVisible();
 
-  await page.getByTestId("cable-from").selectOption({ label: "Drum rack ADAT out 9–16" });
+  await page.getByTestId("cable-from").selectOption({ label: "Drum rack ADAT out 9 to 16" });
   // Only inputs of the same kind are offered, and the channels follow the port.
   const offered = await page.getByTestId("cable-to").locator("option:not([hidden])").allTextContents();
-  expect(offered).toEqual(["Desk ADAT in", "Drum rack ADAT in 1–8", "Drum rack ADAT in 9–16"]);
+  expect(offered).toEqual(["Desk ADAT in", "Drum rack ADAT in 1 to 8", "Drum rack ADAT in 9 to 16"]);
   await expect(page.getByTestId("cable-channels")).toHaveValue("8");
-  await page.getByTestId("cable-to").selectOption({ label: "Drum rack ADAT in 1–8" });
+  await page.getByTestId("cable-to").selectOption({ label: "Drum rack ADAT in 1 to 8" });
   await page.getByTestId("cable-declare").click();
   await expect(page.getByTestId("cable-problem")).toHaveText("a cable joins two devices");
   await expect(page.getByTestId("cable-problem")).toBeVisible();
@@ -265,7 +265,7 @@ test("cables are declared and removed on the Workspace page, from an output to a
   const saved = async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { cables: { id: string }[] }).cables;
   await expect.poll(saved).toMatchObject([{ from: { device_id: STUDIO, port: "ADAT_OUT", first: 8 }, to: { device_id: QUADRO, port: "ADAT_IN", first: 0 }, channels: 8 }]);
   const id = (await saved())[0]!.id;
-  await expect(page.getByTestId(`cable-row-${id}`)).toContainText("Drum rack ADAT out 9–16 → Desk ADAT in 1–8");
+  await expect(page.getByTestId(`cable-row-${id}`)).toContainText("Drum rack ADAT out 9 to 16 → Desk ADAT in 1 to 8");
   await expect(page.getByTestId(`cable-health-${id}`)).toBeVisible();
 
   const remove = page.getByTestId(`cable-remove-${id}`);

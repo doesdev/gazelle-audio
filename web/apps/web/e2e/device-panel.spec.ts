@@ -71,7 +71,7 @@ test("each card shows the device's clock, power, preset and input level from its
   for (const id of ["loopback-0", "loopback-1"]) {
     const it = card(page, id);
     // The loopback's report bytes cycle, so the values move: what is checked is that each part shows.
-    await expect(it.locator(".rate")).toHaveText(/kHz|—/);
+    await expect(it.locator(".rate")).toHaveText(/kHz|…/);
     await expect(it.locator(".lock")).toHaveText(/LOCKED|NO LOCK/);
     await expect(it.locator(".power")).toHaveText(/^(On|Standby)$/);
     await expect(it.locator(".preset")).toHaveText(/^Preset \d+$/);

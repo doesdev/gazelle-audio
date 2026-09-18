@@ -1,4 +1,4 @@
-// <ga-workspace>: layout state shared by everyone using the server — device names and badge colours,
+// <ga-workspace>: layout state shared by everyone using the server. Device names and badge colours,
 // cross-device surfaces, declared digital cables, and groups with their colour and collapsed state.
 // Edits save automatically; controls are disabled while disconnected.
 //
@@ -9,7 +9,7 @@
 
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
-import { portName, portWidth } from "../store/cables.ts";
+import { channelSpan, portName, portWidth } from "../store/cables.ts";
 import { displayName, type DigitalPort, type Group } from "../store/store.ts";
 import {
   describeBlocked,
@@ -310,7 +310,7 @@ export class GaWorkspace extends GaElement {
     const declare = h("button", { type: "button", "data-testid": "cable-declare" }, "Declare cable");
     const problem = h("p", { class: "problem", role: "alert", "data-testid": "cable-problem", hidden: true });
 
-    // Each port of each attached device, by its ADAT ports' eights ("ADAT out 9–16") or whole.
+    // Each port of each attached device, by its ADAT ports' eights ("ADAT out 9 to 16") or whole.
     const ends = (side: "out" | "in") =>
       store.devices.value.flatMap((device) =>
         store.cables.portsOf(device.id, side).flatMap((port) => {
@@ -318,7 +318,7 @@ export class GaWorkspace extends GaElement {
           const count = store.cables.portChannels(device.id, port);
           return Array.from({ length: Math.ceil(count / width) }, (_, k) => ({
             value: `${device.id}|${port}|${k * width}`,
-            label: `${displayName(device, store.workspace.value)} ${portName(port)}${count <= width ? "" : ` ${k * width + 1}–${Math.min(count, (k + 1) * width)}`}`,
+            label: `${displayName(device, store.workspace.value)} ${portName(port)}${count <= width ? "" : ` ${channelSpan(k * width + 1, Math.min(count, (k + 1) * width))}`}`,
           }));
         }),
       );
@@ -580,19 +580,19 @@ export class GaWorkspace extends GaElement {
       h("div", { class: "actions" }, name, take),
       problem,
       diff,
-      h("p", { class: "note" }, "A snapshot records the workspace and, for each attached device, its mixer, routing, input settings, outputs, clock and device settings, read fresh. Taking one, comparing it and preparing a recall only read: nothing is sent to a device. Putting a snapshot back is not built yet — it waits for a session at the hardware — so a recall can be previewed and not applied."),
+      h("p", { class: "note" }, "A snapshot records the workspace and, for each attached device, its mixer, routing, input settings, outputs, clock and device settings, read fresh. Taking one, comparing it and preparing a recall only read: nothing is sent to a device. Putting a snapshot back is not built yet, since it waits for a session at the hardware, so a recall can be previewed and not applied."),
     );
   }
 
   /**
    * What recall would send, grouped by the part it belongs to, in the order it would run, with the
-   * guards on each part and each step, what is left out and why, and — the point of the whole
-   * thing — that nothing was sent.
+   * guards on each part and each step, what is left out and why, and (the point of the whole
+   * thing) that nothing was sent.
    */
   #recallPlan(plan: RecallPlan): HTMLElement[] {
     const devices = plan.devices.map((device) => device.model || device.device_id).join(" and ");
     return [
-      h("h3", { class: "diff-heading", "data-testid": "snapshot-recall-summary" }, `Recall preview — ${describePlan(plan)}`),
+      h("h3", { class: "diff-heading", "data-testid": "snapshot-recall-summary" }, `Recall preview: ${describePlan(plan)}`),
       plan.current_state_read
         ? null
         : h("p", { class: "change warn", "data-testid": "snapshot-recall-unread" }, "The server is in dry run and answered no reads, so nothing is known to be right already: every value that can be recalled is listed."),
@@ -614,7 +614,7 @@ export class GaWorkspace extends GaElement {
         h(
           "div",
           { class: "diff-section", "data-testid": `snapshot-recall-excluded-${kind}` },
-          h("p", { class: "diff-heading" }, `${title} — ${entries.length}`),
+          h("p", { class: "diff-heading" }, `${title}: ${entries.length}`),
           h(
             "ul",
             { class: "changes" },
@@ -640,7 +640,7 @@ export class GaWorkspace extends GaElement {
       h(
         "p",
         { class: "plan-heading" },
-        h("span", {}, `${part.title} — ${steps.length} ${steps.length === 1 ? "command" : "commands"}`),
+        h("span", {}, `${part.title}: ${steps.length} ${steps.length === 1 ? "command" : "commands"}`),
         h("span", { class: part.chosen && part.confirmed ? "" : "plan-guard" }, guard),
       ),
       h(
@@ -676,7 +676,7 @@ export class GaWorkspace extends GaElement {
     return h(
       "div",
       { class: "diff-section", "data-testid": `snapshot-diff-${key}` },
-      h("p", { class: "diff-heading" }, `${section.title} — ${describeSection(section)}`),
+      h("p", { class: "diff-heading" }, `${section.title}: ${describeSection(section)}`),
       h(
         "ul",
         { class: "changes" },
@@ -714,7 +714,7 @@ export class GaWorkspace extends GaElement {
 
     // A full backup (spec §3.3): the workspace plus every snapshot whole, in one file that imports
     // back as both. Fetching the snapshots' values is why it is a second button rather than the
-    // only one — an export of names and groups should not wait on a megabyte of captured state.
+    // only one: an export of names and groups should not wait on a megabyte of captured state.
     exportAll.addEventListener("click", async () => {
       const workspace = store.workspace.peek();
       if (workspace === undefined) return;

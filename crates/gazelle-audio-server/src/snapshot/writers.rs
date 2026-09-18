@@ -1,7 +1,7 @@
 //! The mirror of capture's read plan: which command puts each captured value back.
 //!
-//! **Nothing here sends anything.** A [`Writer`] is a description — a command name, the arguments
-//! it would carry and the label a person reads — and [`plan`](crate::snapshot::plan) turns a set of
+//! **Nothing here sends anything.** A [`Writer`] is a description (a command name, the arguments
+//! it would carry and the label a person reads) and [`plan`](crate::snapshot::plan) turns a set of
 //! them into an ordered list that a later, hardware-gated step could send. Recall itself is phase 6
 //! of `specs/2026-09-16-workspace-snapshots-and-cross-device-mixer.md` and waits for a session at
 //! the devices (spec §2.3, decision 0012).
@@ -9,13 +9,13 @@
 //! The table is **exhaustive over what capture records**: every leaf path a snapshot can hold maps
 //! to one of
 //!
-//! - [`Writer::Command`] — a command exists and recall would send it;
-//! - [`Writer::NoWriter`] — the device reports the value and neither panel has a command for it
+//! - [`Writer::Command`]: a command exists and recall would send it;
+//! - [`Writer::NoWriter`]: the device reports the value and neither panel has a command for it
 //!   (the high-pass filter, the Quadro's mono flag, the preset slot);
-//! - [`Writer::Withheld`] — a command exists but recall does not send it until a hardware session
+//! - [`Writer::Withheld`]: a command exists but recall does not send it until a hardware session
 //!   has shown that it is safe or that it works at all (the Quadro's ADAT and S/PDIF input gains,
 //!   the stereo link flags, `get_trim_configs`);
-//! - [`Writer::Unmapped`] — nothing here knows this path. It is never silent: the plan lists it as
+//! - [`Writer::Unmapped`]: nothing here knows this path. It is never silent: the plan lists it as
 //!   excluded, and `writer_covers_every_path_a_capture_can_record` fails, so a field added to
 //!   capture cannot slip through as "nothing to do".
 //!
@@ -59,8 +59,8 @@ pub enum Writer {
     Unmapped,
 }
 
-/// One thing a single command would set. Several diff paths can share a target — a mixer strip's
-/// level and its mute are one `set_mixer` — and the plan writes each target once.
+/// One thing a single command would set. Several diff paths can share a target (a mixer strip's
+/// level and its mute are one `set_mixer`), and the plan writes each target once.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Target {
     /// One strip (or the master, channel 0) of one mix.
@@ -298,8 +298,8 @@ impl Target {
     }
 
     /// The command and arguments that would put the snapshot's value back, read out of the device
-    /// snapshot's `sections`. `Err` when the snapshot does not hold what the command needs — a
-    /// half-read mixer strip, a routing group of the wrong width — which the plan lists as excluded
+    /// snapshot's `sections`. `Err` when the snapshot does not hold what the command needs (a
+    /// half-read mixer strip, a routing group of the wrong width), which the plan lists as excluded
     /// rather than sending a command built from defaults.
     pub fn build(&self, family: &str, sections: &BTreeMap<String, Json>) -> Result<Write, String> {
         let section = |name: &str| sections.get(name).cloned().unwrap_or(Json::Null);
