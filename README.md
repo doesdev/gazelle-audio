@@ -90,6 +90,9 @@ More in [Getting started](docs/manual/03-getting-started.md) and [Install, updat
 - **Untested on hardware:** everything in the second list [above](#how-much-it-has-been-tested).
 - **No authentication.** Gazelle listens only on your own computer unless you start it with `--bind`; on a network address, anyone who can reach it can change your levels.
 
+> [!NOTE]
+> Gazelle supports two interfaces on Windows because those are the two it can be tested on. Support for other Antelope models, or for macOS and Linux, is possible, but each needs real hardware to test against and a good deal of time. If you would like your interface or platform supported, open an issue: I am happy to talk about an arrangement that covers the device access and the time involved.
+
 ## Documentation
 
 - [The manual](docs/README.md): getting started, concepts, every page, safety, troubleshooting, the command line and API, and a glossary.
