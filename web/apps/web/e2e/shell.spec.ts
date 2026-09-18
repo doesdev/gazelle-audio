@@ -15,7 +15,7 @@ test.beforeAll(async () => {
   themesDir = mkdtempSync(join(tmpdir(), "gazelle-e2e-themes-"));
   writeFileSync(join(themesDir, "ember.json"), JSON.stringify({ name: "Ember", extends: "gazelle-dark", colors: { accent: "#e08a2e" } }));
   writeFileSync(join(themesDir, "broken.json"), "{ not json");
-  server = await startServer(["--dry-run", "--themes-dir", themesDir, "--loopback-cyclic-ms", "50"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run", "--themes-dir", themesDir, "--loopback-cyclic-ms", "50"], { webUi: true });
 });
 
 test.afterAll(async () => {
@@ -81,7 +81,7 @@ test("themes include user themes, apply on selection and are remembered; fonts a
 });
 
 test("controls are disabled and the header says so when the server stops", async ({ page }) => {
-  const own = await startServer([], { webUi: true });
+  const own = await startServer(["--backend", "loopback"], { webUi: true });
   try {
     await page.goto(`${own.url}/#/devices/loopback-0`);
     const name = page.getByTestId("device-name");
@@ -167,7 +167,7 @@ test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the 
   );
   // Its own server, whose loopback sends no reports. The shared one cycles every report byte every
   // 50 ms, and `spdif_src` is a single bit, so the switch would flip on its own under the test.
-  const own = await startServer(["--dry-run"], { webUi: true });
+  const own = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
   try {
     await page.goto(`${own.url}/#/devices/loopback-0`);
     await expect(page.getByTestId("clock-source")).toBeVisible();
@@ -257,7 +257,7 @@ test("the Devices page runs the test oscillator: a tone per side over a shared l
   // Its own server, whose loopback is not sending reports: the oscillator's five fields share one
   // byte, so every change carries the other four, and a device changing under the test would make
   // what is sent unreadable. With nothing reported, both tones read as off.
-  const own = await startServer(["--dry-run"], { webUi: true });
+  const own = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
   try {
   await page.goto(`${own.url}/#/devices/loopback-0`);
   await expect(page.getByTestId("osc-freq-left").locator("option")).toHaveText(["1 kHz", "440 Hz"]);

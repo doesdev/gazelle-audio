@@ -9,8 +9,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use gazelle_audio_server::no_hardware;
+
 const BIN: &str = env!("CARGO_BIN_EXE_gazelle-audio-server");
 const WINDOWLESS_BIN: &str = env!("CARGO_BIN_EXE_gazelle-audio-serverw");
+
+/// How every server in this file is started. **`--backend loopback` is not optional here**:
+/// `--backend` defaults to `usb` (decision `0018`), so a harness that leaves it out opens the
+/// devices on the machine running the tests. `GAZELLE_NO_HARDWARE` in the child's environment is
+/// the belt to this brace — see [`no_hardware`].
+const BASE: [&str; 7] =
+    ["--bind", "127.0.0.1:0", "--backend", "loopback", "--no-persist", "--no-web-ui", "--no-tray"];
 
 /// Kills the server however the test ends.
 struct Server(Child);
@@ -74,8 +83,9 @@ fn assert_healthy(port: u16) {
 /// default to pointed at `home`.
 fn start(bin: &str, extra: &[&str], home: &Path) -> Child {
     Command::new(bin)
-        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
+        .args(BASE)
         .args(extra)
+        .env(no_hardware::VAR, "1")
         .env("LOCALAPPDATA", home)
         .env("XDG_STATE_HOME", home)
         .env("HOME", home)
@@ -88,7 +98,8 @@ fn start(bin: &str, extra: &[&str], home: &Path) -> Child {
 #[test]
 fn port_zero_reports_the_bound_port() {
     let mut child = Command::new(BIN)
-        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
+        .args(BASE)
+        .env(no_hardware::VAR, "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -215,8 +226,9 @@ fn config_with_dead_release_source(home: &Path) -> PathBuf {
 
 fn start_with_config(extra: &[&str], home: &Path, config: &Path) -> Child {
     Command::new(BIN)
-        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
+        .args(BASE)
         .args(extra)
+        .env(no_hardware::VAR, "1")
         .env("GAZELLE_CONFIG_DIR", config)
         .env("LOCALAPPDATA", home)
         .env("XDG_STATE_HOME", home)
@@ -256,4 +268,88 @@ fn no_update_leaves_the_endpoint_unserved() {
     assert!(http_get(port, "/api/v1/update").starts_with("HTTP/1.1 404"));
     // The server itself is fine, and still says what version it is.
     assert_healthy(port);
+}
+
+/// What a guarded run did: whether it ever served, whether it exited unhappily, and what it said.
+struct Guarded {
+    served: bool,
+    failed: bool,
+    printed: String,
+}
+
+/// Starts the server with `extra` on top of a **backend-free** command line, under
+/// `GAZELLE_NO_HARDWARE`, and waits for it to stop — or to announce that it is serving, which is
+/// the failure these tests are about. Either way the child is not left behind.
+///
+/// Deliberately not passing `--backend`: this is how a forgetful harness would start it, and the
+/// point is that such a run never reaches a device. The variable is what makes running these on a
+/// machine with hardware attached safe.
+fn guarded_run(extra: &[&str]) -> Guarded {
+    let mut child = Command::new(BIN)
+        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
+        .args(extra)
+        .env(no_hardware::VAR, "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let rx = lines(&mut child);
+    let mut printed = String::new();
+    // The streams close when the process ends, so a disconnect is "it stopped". A "listening on"
+    // line, or silence for long enough, means it did not.
+    let served = loop {
+        match rx.recv_timeout(Duration::from_secs(30)) {
+            Ok(line) => {
+                let listening = line.contains("listening on");
+                printed.push_str(&line);
+                printed.push('\n');
+                if listening {
+                    break true;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => break true,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break false,
+        }
+    };
+    if served {
+        let _ = child.kill();
+    }
+    let failed = !child.wait().unwrap().success();
+    Guarded { served, failed, printed }
+}
+
+/// The default is `usb` (decision `0018`), asserted **without opening a device**: under
+/// `GAZELLE_NO_HARDWARE` a run with no `--backend` is refused, and the refusal is the USB one.
+/// A default of `loopback` would serve happily instead, and fail this test.
+#[test]
+fn the_default_backend_is_usb_and_the_guard_stops_it() {
+    let run = guarded_run(&[]);
+    assert!(!run.served, "a defaulted run under the guard must not serve: {}", run.printed);
+    assert!(run.failed, "and must exit unhappily, so a harness notices: {}", run.printed);
+    assert!(run.printed.contains(no_hardware::VAR), "the refusal names the variable: {}", run.printed);
+    assert!(run.printed.contains("--backend loopback"), "the refusal says what to do: {}", run.printed);
+}
+
+/// The same refusal when the flag is there and says `usb`, so the guard is about the backend
+/// rather than about the flag being absent.
+#[test]
+fn an_explicit_usb_backend_is_refused_under_the_guard_too() {
+    let run = guarded_run(&["--backend", "usb"]);
+    assert!(!run.served, "{}", run.printed);
+    assert!(run.failed, "{}", run.printed);
+    assert!(run.printed.contains(no_hardware::VAR), "{}", run.printed);
+}
+
+/// And the guard is not a general ban on running: the loopback is what the harnesses ask for, and
+/// it serves exactly as before.
+#[test]
+fn the_loopback_backend_still_runs_under_the_guard() {
+    let home = TempDir::new("guard-loopback");
+    let mut child = start(BIN, &[], &home.0);
+    let rx = lines(&mut child);
+    let _server = Server(child);
+    let port = console_port(&rx);
+    assert_healthy(port);
+    let response = http_get(port, "/api/v1/health");
+    assert!(response.contains("\"backend\":\"loopback\""), "{response}");
 }

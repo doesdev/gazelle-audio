@@ -1,7 +1,12 @@
 //! Gazelle control server.
 //!
-//! Safe by default: the transport backend is the hardware-free loopback and the listener
-//! binds to localhost unless told otherwise. Driving real hardware is a deliberate act.
+//! **The backend is `usb` unless told otherwise** (decision `0018`): talking to the interfaces is
+//! what the app is for, attaching is read-only, and every write is still its own deliberate act —
+//! `--dry-run` is off by default but always available. `--backend loopback` is the hardware-free
+//! emulator, which every test suite names explicitly, and a server started with
+//! `GAZELLE_NO_HARDWARE` set refuses `usb` outright (`no_hardware`).
+//!
+//! The listener still binds to localhost unless told otherwise.
 
 use clap::{Parser, ValueEnum};
 use std::net::SocketAddr;
@@ -22,10 +27,19 @@ use tokio::sync::Notify;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum Backend {
-    /// Hardware-free emulator. The default.
+    /// Hardware-free emulator: for trying the UI without an interface, for reproducing a bug, and
+    /// for every test suite. Asked for by name.
     Loopback,
-    /// Real USB devices, over the OS HID stack.
+    /// Real USB devices, over the OS HID stack. The default: driving the interfaces is what the
+    /// app is for (decision `0018`).
     Usb,
+}
+
+impl Backend {
+    /// The name `--backend` spells, which is also what `/api/v1/health` and the tray report.
+    fn name(self) -> String {
+        format!("{self:?}").to_lowercase()
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -35,8 +49,11 @@ struct Args {
     #[arg(long, default_value = gazelle_audio_server::config::DEFAULT_BIND)]
     bind: SocketAddr,
 
-    /// Transport backend.
-    #[arg(long, value_enum, default_value_t = Backend::Loopback)]
+    /// Transport backend. `usb` — the default — drives the attached interfaces; `loopback` is the
+    /// hardware-free emulator, for trying the UI without an interface and for the test suites.
+    /// Setting GAZELLE_NO_HARDWARE makes a server refuse `usb`, which is how the harnesses make
+    /// sure they never open a real device.
+    #[arg(long, value_enum, default_value_t = Backend::Usb)]
     backend: Backend,
 
     /// Never write to a device: report the bytes each command would send.
@@ -180,7 +197,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    // Before anything else: a binary an earlier update displaced is nothing but clutter now.
+    // Before the listener, the devices, or anything else: a run forbidden hardware that asked for
+    // it anyway stops here, having opened nothing. `--backend` defaults to `usb` (decision 0018),
+    // so this is what stands between a harness that forgot the flag and the user's own interfaces.
+    if let Some(refusal) = gazelle_audio_server::no_hardware::refusal(
+        &args.backend.name(),
+        std::env::var(gazelle_audio_server::no_hardware::VAR).ok().as_deref(),
+    ) {
+        return Err(refusal.into());
+    }
+    // A binary an earlier update displaced is nothing but clutter now.
     update::clean_up_after_previous_update();
 
     let runtime = tokio::runtime::Runtime::new()?;
@@ -339,7 +365,7 @@ async fn prepare(
         store,
         snapshots,
         force_dry_run: args.dry_run,
-        backend: format!("{:?}", args.backend).to_lowercase(),
+        backend: args.backend.name(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
         show_window,
     };
@@ -365,7 +391,7 @@ async fn prepare(
     // that looks like a working app with nothing plugged in. The scanner's warning is general; this
     // one names the reason, and the UI shows the same text (`notice`).
     for notice in gazelle_audio_server::notice::current(
-        &format!("{:?}", args.backend).to_lowercase(),
+        &args.backend.name(),
         devices.len(),
         gazelle_audio_server::tray::antelope_service_running(),
     ) {
@@ -430,7 +456,7 @@ fn tray_context(
     log_dir: Option<PathBuf>,
     show_window: Option<gazelle_audio_server::ShowWindow>,
 ) -> tray::Context {
-    let backend = format!("{:?}", args.backend).to_lowercase();
+    let backend = args.backend.name();
     let boot_args = BootArgs {
         bind: args.bind,
         backend: backend.clone(),

@@ -13,7 +13,7 @@ import { resetWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));
@@ -153,7 +153,7 @@ test("Studio+ sends set_pre_phaseinv and digital input gains; Hi-Z is on preamps
 });
 
 test("read-only digital gains show a filled bar, and preamps and digital inputs share one column grid", async ({ page }) => {
-  const reporting = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  const reporting = await startServer(["--backend", "loopback", "--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
   try {
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.goto(`${reporting.url}/#/inputs/loopback-0`);

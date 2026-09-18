@@ -14,7 +14,7 @@ import { putWorkspace, resetWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));
@@ -418,7 +418,7 @@ test("a group colour wins over a channel's own, which the popover says is kept f
 });
 
 test("the colour swatch is disabled, and its popover closes, while the server is away", async ({ page }) => {
-  const own = await startServer(["--dry-run"], { webUi: true });
+  const own = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
   try {
     await putWorkspace(own, { mixers: { "loopback-0": { channels: [{ id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
     await page.goto(`${own.url}/#/mixer/loopback-0`);

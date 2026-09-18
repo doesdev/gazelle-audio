@@ -13,7 +13,7 @@ let server: RunningServer;
 let client: Client;
 
 before(async () => {
-  server = await startServer(["--loopback-cyclic-ms", "50"]);
+  server = await startServer(["--backend", "loopback", "--loopback-cyclic-ms", "50"]);
   client = await connect(server.url);
 });
 
@@ -112,7 +112,7 @@ test("the workspace round-trips over HTTP", async () => {
 });
 
 test("when the server goes away the client reports reconnecting and refuses calls", async () => {
-  const own = await startServer();
+  const own = await startServer(["--backend", "loopback"]);
   const watcher = await connect(own.url);
   try {
     const reconnecting = new Promise<void>((resolve) => {

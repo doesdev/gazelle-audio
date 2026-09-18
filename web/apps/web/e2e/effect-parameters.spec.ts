@@ -13,7 +13,7 @@ import { resetWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));

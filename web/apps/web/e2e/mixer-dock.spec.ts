@@ -11,7 +11,7 @@ import { putWorkspace, resetWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));
