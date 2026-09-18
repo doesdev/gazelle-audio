@@ -109,10 +109,48 @@ fn the_generator_writes_exactly_the_committed_file() {
     let written = std::fs::read(&out).unwrap();
     let _ = std::fs::remove_file(&out);
     assert_eq!(
-        written,
-        std::fs::read(ICO).unwrap(),
+        decoded(&python, &written),
+        decoded(&python, &std::fs::read(ICO).unwrap()),
         "refs/tools/scripts/make_icon.py no longer writes the committed assets/gazelle.ico"
     );
+}
+
+/// An `.ico` as what it shows rather than its exact bytes: each image's size and body, with a
+/// PNG's `IDAT` inflated. Python builds ship different zlib implementations (3.14 on Windows
+/// bundles zlib-ng), which compress the same pixels to different bytes, and the lengths and
+/// offsets in the directory follow; everything else must still match exactly.
+fn decoded(python: &Path, ico: &[u8]) -> Vec<(u32, Vec<Vec<u8>>)> {
+    entries(ico)
+        .into_iter()
+        .map(|entry| {
+            if !entry.body.starts_with(b"\x89PNG\r\n\x1a\n") {
+                return (entry.size, vec![entry.body]);
+            }
+            let (mut parts, mut at) = (vec![entry.body[..8].to_vec()], 8);
+            while at < entry.body.len() {
+                let length = u32::from_be_bytes(entry.body[at..at + 4].try_into().unwrap()) as usize;
+                let kind = &entry.body[at + 4..at + 8];
+                let chunk = &entry.body[at..at + 12 + length];
+                parts.push(if kind == b"IDAT" { [kind, &inflate(python, &chunk[8..8 + length])[..]].concat() } else { chunk.to_vec() });
+                at += 12 + length;
+            }
+            (entry.size, parts)
+        })
+        .collect()
+}
+
+fn inflate(python: &Path, data: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut child = std::process::Command::new(python)
+        .args(["-c", "import sys, zlib; sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(data).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "the PNG's IDAT did not inflate");
+    out.stdout
 }
 
 fn python() -> Option<PathBuf> {

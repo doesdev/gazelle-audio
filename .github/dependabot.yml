@@ -29,6 +29,10 @@ updates:
         versions: [">= 3.2.0"]
       - dependency-name: zeroize
         versions: [">= 1.9.0"]
+      # Edition 2024 from 1.8.0, which Cargo 1.82 cannot parse even though nothing enables it
+      # (it sits behind ed25519's unused pkcs8 feature); pinned in Cargo.lock only.
+      - dependency-name: base64ct
+        versions: [">= 1.8.0"]
 
   - package-ecosystem: npm
     directory: /web
@@ -37,6 +41,13 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # The Node types follow the Node we run (24, engines in web/package.json); raise them together.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # A TypeScript major (7 is the native compiler) is its own change, not a weekly bump.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

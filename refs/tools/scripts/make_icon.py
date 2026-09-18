@@ -18,8 +18,13 @@ Usage:
     python refs/tools/scripts/make_icon.py --out some.ico
     python refs/tools/scripts/make_icon.py --check             # exit 1 if the file is stale
 
-Deterministic: the same bytes every run, on any machine, with no third-party module. There is
-no PNG or image library here — 16, 32 and 48 are BMP DIBs, which the format takes raw, and 256
+Deterministic: the same icon every run, on any machine, with no third-party module. The bytes
+match too on the same Python build, but the 256 PNG's compressed data (and so the lengths and
+offsets that follow it) can differ between builds, which ship different zlib implementations
+(3.14 on Windows bundles zlib-ng). `--check` and `tests/icon.rs` compare the icon with that data
+inflated.
+
+There is no PNG or image library here — 16, 32 and 48 are BMP DIBs, which the format takes raw, and 256
 is a PNG written with `zlib` from the standard library.
 """
 
@@ -179,6 +184,25 @@ def ico(sizes=SIZES):
     return bytes(out)
 
 
+def decoded(data):
+    """An .ico as the images it holds: each entry's size and body, a PNG's IDAT inflated."""
+    count = struct.unpack_from("<H", data, 4)[0]
+    images = []
+    for i in range(count):
+        size, _, _, _, _, _, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + 16 * i)
+        body = data[offset:offset + length]
+        if body.startswith(b"\x89PNG\r\n\x1a\n"):
+            parts, at = [body[:8]], 8
+            while at < len(body):
+                (n,) = struct.unpack_from(">I", body, at)
+                kind = body[at + 4:at + 8]
+                parts.append(kind + zlib.decompress(body[at + 8:at + 8 + n]) if kind == b"IDAT" else body[at:at + 12 + n])
+                at += 12 + n
+            body = parts
+        images.append((size, body))
+    return images
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     default = os.path.normpath(os.path.join(here, "..", "..", "..", "crates", "gazelle-audio-server", "assets", "gazelle.ico"))
@@ -196,7 +220,7 @@ def main():
         except FileNotFoundError:
             print(f"{args.out} is missing; run this script without --check", file=sys.stderr)
             return 1
-        if current != body:
+        if decoded(current) != decoded(body):
             print(f"{args.out} is not what this script writes ({len(current)} bytes on disk, {len(body)} generated)", file=sys.stderr)
             return 1
         print(f"{args.out} is up to date ({len(body)} bytes)")
