@@ -43,8 +43,8 @@ semver = "1"
 # Tauri: the UI talks HTTP and WS to a server we already run, so Tauri's IPC and build pipeline
 # would buy nothing (`specs/2026-09-18-shipping-portable.md`). Both are optional, and their trees
 # are part of what CI's Rust 1.88 build covers; see `reference/rust-crates.md`.
-tao = { version = "0.36", optional = true }
-wry = { version = "0.56", optional = true }
+tao = { version = "0.37", optional = true }
+wry = { version = "0.57", optional = true }
 
 # The tray icon, on Win32 directly. `hidapi` already brings in this exact crate, so the tray adds
 # features, not packages.
