@@ -1,10 +1,12 @@
-//! The audio driver's own settings on this PC: buffer size, latency and Safe Mode. **Read only.**
+//! The audio driver's own settings on this PC: buffer size, latency and Safe Mode.
 //!
 //! These belong to the USB audio driver (Thesycon's TUSBAudio, branded for Antelope), not to the
 //! device, so they never cross the HID protocol the rest of the server speaks. Each driver installs
-//! a user-mode API DLL beside its control panel; this module finds it, loads it, and calls only the
-//! read functions named in `.agent/reference/driver-api.md`. Nothing here sets, loads, starts or
-//! enables anything, and the Windows side resolves nothing outside [`READ_EXPORTS`].
+//! a user-mode API DLL beside its control panel; this module finds it, loads it, and calls the read
+//! functions named in `.agent/reference/driver-api.md` and **one setter**,
+//! `SetASIOBufferPreferredSize`, which sets the preferred buffer and Safe Mode together
+//! ([`write_device`]). Nothing here loads firmware, starts, enables or sets anything else, and the
+//! Windows side resolves nothing outside [`READ_EXPORTS`] and [`WRITE_EXPORTS`].
 //!
 //! The DLL sits behind [`DriverApi`] and the PC (where DLLs are found, how they are loaded, the
 //! registry) behind [`DriverHost`], so every rule here is tested against fakes and no test touches
@@ -41,6 +43,10 @@ pub const READ_EXPORTS: &[&str] = &[
     "TUSBAUDIO_GetASIOInstanceInfo",
     "TUSBAUDIO_StatusCodeStringA",
 ];
+
+/// The one write the Windows side may resolve: the preferred ASIO buffer and Safe Mode, in one
+/// call (probed on both drivers with the user, 2026-09-18). A test keeps this list to that name.
+pub const WRITE_EXPORTS: &[&str] = &["TUSBAUDIO_SetASIOBufferPreferredSize"];
 
 /// The API version asked of `CheckApiVersion`: the oldest seen (the Studio+'s), whose calls and
 /// structures are the ones read here. A newer DLL that says it still serves this is read.
@@ -98,7 +104,7 @@ pub struct DeviceProperties {
     pub product: String,
 }
 
-/// One loaded driver API DLL: the read functions, and nothing else.
+/// One loaded driver API DLL: the read functions and the one setter, nothing else.
 pub trait DriverApi: Send + Sync {
     /// `GetApiVersion`: major in the high 16 bits.
     fn api_version(&self) -> Result<u32, CallError>;
@@ -114,6 +120,9 @@ pub trait DriverApi: Send + Sync {
     fn asio_instance_count(&self) -> Option<Result<u32, CallError>>;
     /// The raw structure, at least [`asio::INFO_LEN`] bytes.
     fn asio_instance_info(&self, index: u32) -> Result<Vec<u8>, CallError>;
+    /// `SetASIOBufferPreferredSize(asioInstance, referenceSampleRate, preferredSize, options)`: the
+    /// only write. `options` replaces the driver's options; bit 0x10000 is Safe Mode.
+    fn set_asio_buffer_preferred_size(&self, asio_instance: u32, reference_sample_rate: u32, preferred_size: u32, options: u32) -> Result<(), CallError>;
 }
 
 /// The PC: where the driver DLLs are, loading one, and the registry the driver keeps settings in.
@@ -371,6 +380,212 @@ impl DriverService {
     }
 }
 
+impl DriverService {
+    /// Change the device's buffer size and/or Safe Mode, then read back. Blocking, as `read` is,
+    /// and under the same one-at-a-time lock. The read-back replaces the cached answer.
+    pub fn write(&self, device_id: &str, serial: &str, change: &DriverChange, dry_run: bool) -> Result<DriverWriteReport, WriteRefusal> {
+        let _one_at_a_time = self.reading.lock().unwrap_or_else(|e| e.into_inner());
+        let write = write_device(self.host.as_ref(), serial, change, dry_run)?;
+        let read_at_ms = now_ms();
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(serial.to_string(), (Instant::now(), read_at_ms, write.read_back.clone()));
+        Ok(DriverWriteReport {
+            device_id: device_id.into(),
+            outcome: write.outcome,
+            message: write.message,
+            call: write.call,
+            read_back: DriverReport { device_id: device_id.into(), read_at_ms, cached: false, answer: write.read_back },
+        })
+    }
+}
+
+/// What a request asks to change. Anything left out is sent as the driver has it now.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriverChange {
+    /// The preferred buffer, in samples: one of the sizes the driver offers.
+    #[serde(default)]
+    pub buffer_size: Option<u32>,
+    #[serde(default)]
+    pub safe_mode: Option<bool>,
+    /// Change it even while a program (a DAW) is using the driver's ASIO interface, whose audio
+    /// then restarts.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// The one call, with the vendor's own names for its arguments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct SetterCall {
+    pub asio_instance: u32,
+    pub reference_sample_rate: u32,
+    pub preferred_size: u32,
+    pub options: u32,
+}
+
+/// Why nothing was sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalCode {
+    /// No driver lists the device, or the device has none (the loopback).
+    Unavailable,
+    /// The driver's current settings could not be read, so the call cannot be built from them.
+    Unreadable,
+    NothingToChange,
+    /// A buffer size the driver does not offer.
+    NotOffered,
+    /// A program is using the driver's ASIO interface and the request did not say `force`.
+    AsioInUse,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct WriteRefusal {
+    pub code: RefusalCode,
+    pub message: String,
+}
+
+impl WriteRefusal {
+    fn new(code: RefusalCode, message: impl Into<String>) -> Self {
+        WriteRefusal { code, message: message.into() }
+    }
+}
+
+/// What happened once a call was built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriteOutcome {
+    /// Sent, and the driver now reports what was sent.
+    Applied,
+    /// Sent, answered OK, and the driver reports something else.
+    Mismatch,
+    /// Sent, and the driver could not be read back.
+    Unconfirmed,
+    /// Sent, and the driver answered a status other than OK.
+    Failed,
+    /// The driver already has what was asked for, so nothing was sent.
+    Unchanged,
+    /// Built and not sent: the server or the request is a dry run.
+    DryRun,
+}
+
+/// A write's result: what was sent (if anything) and what the driver reports now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriverWrite {
+    pub outcome: WriteOutcome,
+    pub message: String,
+    pub call: Option<SetterCall>,
+    pub read_back: DriverAnswer,
+}
+
+/// [`DriverWrite`] as the route answers it.
+#[derive(Clone, Debug, Serialize)]
+pub struct DriverWriteReport {
+    pub device_id: String,
+    pub outcome: WriteOutcome,
+    pub message: String,
+    pub call: Option<SetterCall>,
+    pub read_back: DriverReport,
+}
+
+/// The call for a change, built from the driver's current settings: `None` when the driver already
+/// has what is asked for. Refuses before anything is sent.
+pub fn plan(settings: &DriverSettings, change: &DriverChange) -> Result<Option<SetterCall>, WriteRefusal> {
+    if change.buffer_size.is_none() && change.safe_mode.is_none() {
+        return Err(WriteRefusal::new(RefusalCode::NothingToChange, "Nothing to change: give a buffer size, Safe Mode or both."));
+    }
+    let asio = match &settings.asio {
+        Reading::Read { value } => value,
+        Reading::Unread { message } => {
+            return Err(WriteRefusal::new(RefusalCode::Unreadable, format!("The driver's buffer settings could not be read, so nothing was sent. {message}")))
+        }
+    };
+    if !asio::plausible_rate(asio.reference_rate) {
+        return Err(WriteRefusal::new(
+            RefusalCode::Unreadable,
+            format!("The rate the driver's buffer applies at ({}) is not a plausible rate, so nothing was sent.", asio.reference_rate),
+        ));
+    }
+    let preferred_size = change.buffer_size.unwrap_or(asio.buffer_size);
+    if !asio.buffer_sizes.contains(&preferred_size) {
+        let offered: Vec<String> = asio.buffer_sizes.iter().map(u32::to_string).collect();
+        return Err(WriteRefusal::new(
+            RefusalCode::NotOffered,
+            format!("The driver does not offer a buffer of {preferred_size} samples; it offers {}.", offered.join(", ")),
+        ));
+    }
+    let safe_mode = change.safe_mode.unwrap_or(asio.safe_mode);
+    if preferred_size == asio.buffer_size && safe_mode == asio.safe_mode {
+        return Ok(None);
+    }
+    if asio.asio_clients > 0 && !change.force {
+        let who = if asio.asio_clients == 1 { "1 program is".to_string() } else { format!("{} programs are", asio.asio_clients) };
+        return Err(WriteRefusal::new(
+            RefusalCode::AsioInUse,
+            format!("{who} using the driver's ASIO interface (a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway."),
+        ));
+    }
+    Ok(Some(SetterCall { asio_instance: settings.asio_instance, reference_sample_rate: asio.reference_rate, preferred_size, options: asio::options_for(safe_mode) }))
+}
+
+/// Change a device's buffer size and/or Safe Mode: read, build the call from what the driver has
+/// now, call the one setter, read back. A refusal means nothing was sent.
+pub fn write_device(host: &dyn DriverHost, serial: &str, change: &DriverChange, dry_run: bool) -> Result<DriverWrite, WriteRefusal> {
+    let settings = match read_device(host, serial) {
+        DriverAnswer::Read(settings) => settings,
+        DriverAnswer::NoDriver { message } | DriverAnswer::NotFound { message } => return Err(WriteRefusal::new(RefusalCode::Unavailable, message)),
+        DriverAnswer::Failed { message } => return Err(WriteRefusal::new(RefusalCode::Unreadable, message)),
+    };
+    let Some(call) = plan(&settings, change)? else {
+        return Ok(DriverWrite {
+            outcome: WriteOutcome::Unchanged,
+            message: "The driver already has these settings, so nothing was sent.".into(),
+            call: None,
+            read_back: DriverAnswer::Read(settings),
+        });
+    };
+    if dry_run {
+        return Ok(DriverWrite { outcome: WriteOutcome::DryRun, message: "A dry run: the call was built and not sent.".into(), call: Some(call), read_back: DriverAnswer::Read(settings) });
+    }
+    let api = host.load(Path::new(&settings.dll)).map_err(|e| WriteRefusal::new(RefusalCode::Unreadable, format!("The driver's API could not be loaded: {e}.")))?;
+    let sent = api.set_asio_buffer_preferred_size(call.asio_instance, call.reference_sample_rate, call.preferred_size, call.options);
+    let read_back = read_device(host, serial);
+    let (outcome, message) = match (&sent, &read_back) {
+        (Err(e), _) => (WriteOutcome::Failed, format!("The driver refused the change: {e}. What it reports now is shown.")),
+        (Ok(()), DriverAnswer::Read(DriverSettings { asio: Reading::Read { value }, .. })) => compare(&call, value),
+        (Ok(()), DriverAnswer::Read(DriverSettings { asio: Reading::Unread { message }, .. })) => {
+            (WriteOutcome::Unconfirmed, format!("The driver took the change, and its settings could not be read back: {message}"))
+        }
+        (Ok(()), DriverAnswer::NoDriver { message } | DriverAnswer::NotFound { message } | DriverAnswer::Failed { message }) => {
+            (WriteOutcome::Unconfirmed, format!("The driver took the change, and could not be read back: {message}"))
+        }
+    };
+    Ok(DriverWrite { outcome, message, call: Some(call), read_back })
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+/// Whether what the driver reports is what was sent, said plainly when it is not.
+fn compare(call: &SetterCall, now: &AsioInstance) -> (WriteOutcome, String) {
+    let safe_mode = call.options & asio::SAFE_MODE_FLAG != 0;
+    let mut differences = Vec::new();
+    if now.buffer_size != call.preferred_size {
+        differences.push(format!("a buffer of {} samples was sent and the driver reports {}", call.preferred_size, now.buffer_size));
+    }
+    if now.safe_mode != safe_mode {
+        differences.push(format!("Safe Mode {} was sent and the driver reports it {}", on_off(safe_mode), on_off(now.safe_mode)));
+    }
+    if differences.is_empty() {
+        (WriteOutcome::Applied, format!("The driver now reports a buffer of {} samples with Safe Mode {}.", now.buffer_size, on_off(now.safe_mode)))
+    } else {
+        (WriteOutcome::Mismatch, format!("The driver did not take the change as sent: {}.", differences.join("; ")))
+    }
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -397,3 +612,6 @@ pub(crate) mod fake;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod write_tests;

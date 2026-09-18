@@ -175,7 +175,7 @@ fn nonsense_in_the_structure_is_could_not_be_read_not_a_number() {
     // A layout that moved by one word: the count lands where the buffer was.
     let mut words = vec![44100, 0, 0, 0x10000, 571, 632, 512, 9, 8];
     words.extend([16, 32, 64, 128, 256, 512, 1024, 2048]);
-    let quadro = Arc::new(FakeDll { asio: from_words(&words), ..FakeDll::quadro(QUADRO) });
+    let quadro = Arc::new(FakeDll::quadro(QUADRO).with_asio(from_words(&words)));
     let pc = FakePc::both(quadro, Arc::new(FakeDll::studio(STUDIO)));
     let Reading::Unread { message } = settings(read_device(&pc, QUADRO)).asio else { panic!("read nonsense") };
     assert!(message.starts_with("Could not be read: "), "{message}");

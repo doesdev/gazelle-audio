@@ -18,14 +18,30 @@ const RATES: std::ops::RangeInclusive<u32> = 8_000..=768_000;
 /// No ASIO buffer is larger than this many samples.
 const LARGEST_BUFFER: u32 = 65_536;
 
-/// Offset 16's Safe Mode bit.
-const SAFE_MODE_FLAG: u32 = 0x10000;
+/// Offset 16's Safe Mode bit, and the same bit of `SetASIOBufferPreferredSize`'s `options`.
+pub const SAFE_MODE_FLAG: u32 = 0x10000;
+
+/// More programs than this holding one driver's ASIO interface is a layout that moved.
+pub const MAX_ASIO_CLIENTS: u32 = 64;
+
+/// `SetASIOBufferPreferredSize`'s `options` for a Safe Mode setting. The driver replaces its
+/// options with these rather than merging, and Safe Mode is the only bit it was seen to carry.
+pub fn options_for(safe_mode: bool) -> u32 {
+    if safe_mode {
+        SAFE_MODE_FLAG
+    } else {
+        0
+    }
+}
 
 /// What was read, every value in samples except the rate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AsioInstance {
     /// The sample rate the instance runs at, in Hz (offset 0).
     pub sample_rate: u32,
+    /// The rate the preferred buffer applies at, in Hz (offset 4): what `SetASIOBufferPreferredSize`
+    /// is given as `referenceSampleRate`.
+    pub reference_rate: u32,
     /// The preferred buffer size (offset 28).
     pub buffer_size: u32,
     /// Input latency as the driver reports it to an ASIO host (offset 20).
@@ -37,6 +53,11 @@ pub struct AsioInstance {
     /// Safe Mode, as the driver runs it: bit 16 of offset 16 (0x10000 on, 0 off; flipped in the
     /// vendor panel and read both ways on 2026-09-18). Output latency grows with it.
     pub safe_mode: bool,
+    /// How many programs are using the driver's ASIO interface (offset 8). Both kernel drivers
+    /// fill it from the same counter `GetClientInfo` answers as its ASIO client count, and the
+    /// vendor panel's "ASIO active" / "ASIO not active" comes from this structure (found by reading
+    /// the drivers' code, 2026-09-18; not yet seen nonzero live).
+    pub asio_clients: u32,
 }
 
 /// Whether a rate is one a driver of this kind could be running at.
@@ -81,7 +102,12 @@ pub fn parse(bytes: &[u8]) -> Result<AsioInstance, String> {
         }
     }
     let safe_mode = word(bytes, 16) & SAFE_MODE_FLAG != 0;
-    Ok(AsioInstance { sample_rate, buffer_size, input_latency, output_latency, buffer_sizes, safe_mode })
+    let asio_clients = word(bytes, 8);
+    if asio_clients > MAX_ASIO_CLIENTS {
+        return Err(format!("its count of programs using ASIO ({asio_clients}) is not plausible"));
+    }
+    let reference_rate = word(bytes, 4);
+    Ok(AsioInstance { sample_rate, reference_rate, buffer_size, input_latency, output_latency, buffer_sizes, safe_mode, asio_clients })
 }
 
 #[cfg(test)]
@@ -122,7 +148,7 @@ pub(crate) mod tests {
     fn the_quadros_bytes_read_as_its_panel_showed_them() {
         assert_eq!(
             parse(&quadro()).unwrap(),
-            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED.to_vec(), safe_mode: true }
+            AsioInstance { sample_rate: 44100, reference_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED.to_vec(), safe_mode: true, asio_clients: 0 }
         );
     }
 
@@ -130,7 +156,7 @@ pub(crate) mod tests {
     fn the_studios_bytes_read_as_its_panel_showed_them() {
         assert_eq!(
             parse(&studio()).unwrap(),
-            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 568, output_latency: 585, buffer_sizes: OFFERED.to_vec(), safe_mode: true }
+            AsioInstance { sample_rate: 44100, reference_rate: 44100, buffer_size: 512, input_latency: 568, output_latency: 585, buffer_sizes: OFFERED.to_vec(), safe_mode: true, asio_clients: 0 }
         );
     }
 
@@ -203,5 +229,33 @@ pub(crate) mod tests {
         assert!(parse(&with(quadro(), 20, 0)).unwrap_err().contains("input latency"));
         assert!(parse(&with(quadro(), 24, 50_000)).unwrap_err().contains("output latency"));
         assert!(parse(&with(quadro(), 24, 1)).is_ok(), "any latency above nothing and under a second is plausible");
+    }
+
+    /// The Quadro's bytes with a DAW holding the driver's ASIO interface: offset 8 counts it.
+    pub(crate) fn quadro_in_use(clients: u32) -> Vec<u8> {
+        with(quadro(), 8, clients)
+    }
+
+    #[test]
+    fn offset_8_counts_the_programs_using_asio() {
+        assert_eq!(parse(&quadro()).unwrap().asio_clients, 0, "no DAW open when the reference was read");
+        assert_eq!(parse(&quadro_in_use(1)).unwrap().asio_clients, 1);
+        assert_eq!(parse(&quadro_in_use(3)).unwrap().asio_clients, 3);
+        assert!(parse(&quadro_in_use(MAX_ASIO_CLIENTS + 1)).unwrap_err().contains("programs using ASIO"));
+        assert!(parse(&quadro_in_use(MAX_ASIO_CLIENTS)).is_ok());
+    }
+
+    #[test]
+    fn offset_4_is_the_rate_the_buffer_applies_at() {
+        assert_eq!(parse(&with(quadro(), 4, 48000)).unwrap().reference_rate, 48000);
+        assert_eq!(parse(&quadro()).unwrap().reference_rate, 44100);
+    }
+
+    #[test]
+    fn the_safe_mode_option_is_the_flag_read_at_offset_16() {
+        assert_eq!(options_for(true), 0x10000);
+        assert_eq!(options_for(false), 0);
+        assert_eq!(options_for(true), word(&quadro(), 16), "what is sent is what is read with it on");
+        assert_eq!(options_for(false), word(&quadro_safe_mode_off(), 16));
     }
 }

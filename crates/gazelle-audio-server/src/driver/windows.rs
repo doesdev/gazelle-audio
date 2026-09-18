@@ -12,7 +12,8 @@
 //! LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`, so the DLL's own dependencies resolve from its folder and
 //! System32 and never from the current directory. Each DLL is loaded once and **never freed**:
 //! the API may keep threads or state of its own, and unloading a library under them is the one
-//! way a read could bring the server down. Only [`READ_EXPORTS`] are ever resolved.
+//! way a read could bring the server down. Only [`READ_EXPORTS`] and the one setter in
+//! [`WRITE_EXPORTS`] are ever resolved.
 //!
 //! **Calling.** Every structure the DLL fills is given a buffer several times the size the
 //! reference measured, zeroed, so a newer driver that writes more than we expect writes into our
@@ -37,7 +38,7 @@ use windows_sys::Win32::System::Registry::{
     KEY_WOW64_64KEY, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
 
-use super::{asio, CallError, DeviceProperties, DriverApi, DriverHost, DriverInfo, Handle, READ_EXPORTS};
+use super::{asio, CallError, DeviceProperties, DriverApi, DriverHost, DriverInfo, Handle, READ_EXPORTS, WRITE_EXPORTS};
 
 const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 const DESCRIPTION: &str = "TUSBAudio API DLL";
@@ -243,7 +244,7 @@ impl Library {
             return Err(format!("it could not be loaded: {error}"));
         }
         let mut exports = HashMap::new();
-        for &name in READ_EXPORTS {
+        for &name in READ_EXPORTS.iter().chain(WRITE_EXPORTS) {
             let symbol = std::ffi::CString::new(name).expect("export names have no NUL");
             if let Some(function) = unsafe { GetProcAddress(module, symbol.as_ptr().cast()) } {
                 exports.insert(name, function);
@@ -284,6 +285,8 @@ type OpenByIndex = unsafe extern "system" fn(u32, *mut *mut c_void) -> Status;
 type Close = unsafe extern "system" fn(*mut c_void) -> Status;
 type DeviceFill = unsafe extern "system" fn(*mut c_void, *mut c_void) -> Status;
 type IndexFill = unsafe extern "system" fn(u32, *mut c_void) -> Status;
+/// `SetASIOBufferPreferredSize(asioInstance, referenceSampleRate, preferredSize, options)`.
+type SetBuffer = unsafe extern "system" fn(u32, u32, u32, u32) -> Status;
 
 /// Several times any structure the reference measured, in `u32`s so it is aligned for them.
 const SLACK_WORDS: usize = 1024;
@@ -369,6 +372,11 @@ impl DriverApi for Library {
         let mut words = vec![0u32; SLACK_WORDS];
         self.check("TUSBAUDIO_GetASIOInstanceInfo", unsafe { f(index, words.as_mut_ptr().cast()) })?;
         Ok(words.iter().flat_map(|w| w.to_le_bytes()).take(asio::INFO_LEN).collect())
+    }
+
+    fn set_asio_buffer_preferred_size(&self, asio_instance: u32, reference_sample_rate: u32, preferred_size: u32, options: u32) -> Result<(), CallError> {
+        let f: SetBuffer = unsafe { std::mem::transmute(self.export("TUSBAUDIO_SetASIOBufferPreferredSize")?) };
+        self.check("TUSBAUDIO_SetASIOBufferPreferredSize", unsafe { f(asio_instance, reference_sample_rate, preferred_size, options) })
     }
 }
 
