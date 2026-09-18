@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use axum::http::{header, HeaderName, HeaderValue};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, ErrorData, GetPromptRequestParams, GetPromptResponse, ListPromptsResult, ListToolsResult, PaginatedRequestParams,
-    ServerCapabilities, ServerInfo,
+    ServerCapabilities, ServerConfig,
 };
 use rmcp::service::{RequestContext, RoleClient, RoleServer, RunningService, ServiceError};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -57,11 +57,11 @@ fn relayed(e: ServiceError) -> ErrorData {
 }
 
 impl ServerHandler for Relay {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let Some(upstream) = self.upstream.peer_info() else {
-            return ServerInfo::new(ServerCapabilities::builder().enable_tools().enable_prompts().build());
+            return ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_prompts().build());
         };
-        let mut info = ServerInfo::new(upstream.capabilities.clone());
+        let mut info = ServerConfig::new(upstream.capabilities.clone());
         if let Some(implementation) = &upstream.server_info {
             info = info.with_server_info(implementation.clone());
         }

@@ -136,7 +136,7 @@ fn check_strip(strip: &SurfaceStrip, families: &HashMap<DeviceId, String>) -> Re
             }
             let first = strip.first.unwrap_or(0);
             let width = topology::port_width(port);
-            if first % width != 0 {
+            if !first.is_multiple_of(width) {
                 return Err(format!("an {} port starts at a multiple of {width}, not {first}", if port == "ADAT_OUT" { "ADAT" } else { "S/PDIF" }));
             }
             check_port_range(family, port, first, width)

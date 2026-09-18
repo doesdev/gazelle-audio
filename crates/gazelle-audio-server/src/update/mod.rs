@@ -27,9 +27,9 @@
 //! # TLS
 //!
 //! `ureq` with rustls and the ring provider: A35's crypto choice, a different client from
-//! `drive`'s `reqwest` because reqwest 0.13's tree would lift this crate off the Rust 1.82
-//! floor. Certificates verify against ureq's bundled Mozilla roots rather than the OS trust
-//! store (`rustls-platform-verifier` also needs 1.85). That is stricter in the common case and
+//! `drive`'s `reqwest` because it is the smaller tree (no hyper, no encoding_rs) for one request
+//! at a time. Certificates verify against ureq's bundled Mozilla roots rather than the OS trust
+//! store (`rustls-platform-verifier` is left out). That is stricter in the common case and
 //! weaker in one: an update check will not go through a TLS-inspecting corporate proxy. The
 //! check failing is harmless (the app says so and carries on) and nothing is ever applied
 //! without the signature, which the proxy cannot forge.

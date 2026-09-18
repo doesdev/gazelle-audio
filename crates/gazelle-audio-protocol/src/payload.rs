@@ -49,8 +49,7 @@ impl Payload {
         // up independently, so e.g. five 1-bit fields would report 5 bytes rather than 1
         // and write a wrong `nbytes` into the payload header.
         let total_bits: usize = fields.iter().map(Field::bit_len).sum();
-        // `%` rather than `is_multiple_of`, which is only stable since 1.87 (the floor is 1.82).
-        if total_bits % 8 != 0 {
+        if !total_bits.is_multiple_of(8) {
             return Err(WireError::FieldOverflow);
         }
         let user_bytes: usize = total_bits / 8;

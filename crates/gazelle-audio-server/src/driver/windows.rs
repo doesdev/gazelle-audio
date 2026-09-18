@@ -208,7 +208,7 @@ fn description(path: &Path) -> Option<String> {
         (ok != 0 && !ptr.is_null() && len > 0).then(|| unsafe { std::slice::from_raw_parts(ptr as *const u16, len as usize) })
     };
     let mut languages: Vec<(u16, u16)> = query(r"\VarFileInfo\Translation")
-        .map(|words| words.chunks_exact(2).map(|p| (p[0], p[1])).collect())
+        .map(|words| words.as_chunks::<2>().0.iter().map(|&[lang, page]| (lang, page)).collect())
         .unwrap_or_default();
     languages.extend([(0x0409, 0x04b0), (0x0409, 0x04e4)]);
     languages.iter().find_map(|(lang, page)| {

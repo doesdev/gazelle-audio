@@ -180,8 +180,10 @@ pub fn target_of(bytes: &[u8]) -> Option<String> {
         let from = offset(0x1C)?;
         let units: Vec<u16> = bytes
             .get(from..)?
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&b| u16::from_le_bytes(b))
             .take_while(|&u| u != 0)
             .collect();
         return Some(String::from_utf16_lossy(&units));
@@ -274,8 +276,10 @@ mod tests {
         let flags = u32::from_le_bytes(bytes[20..24].try_into().unwrap());
         assert_eq!(flags & HAS_ARGUMENTS, HAS_ARGUMENTS);
         let text: String = bytes
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&b| u16::from_le_bytes(b))
             .map(|u| char::from_u32(u32::from(u)).unwrap_or('.'))
             .collect();
         assert!(text.contains("--backend usb"), "the arguments are in the string data: {text}");

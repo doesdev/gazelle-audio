@@ -1,7 +1,7 @@
 //! UTC timestamps, without a date crate.
 //!
-//! A snapshot needs one string per capture, so the two dozen kilobytes of a calendar crate (and a
-//! new entry in the Rust 1.82 floor audit) would buy a civil-from-days conversion that fits on a
+//! A snapshot needs one string per capture, so the two dozen kilobytes of a calendar crate (and its
+//! dependency tree) would buy a civil-from-days conversion that fits on a
 //! screen. The algorithm is Howard Hinnant's `civil_from_days`, valid for every date this will see.
 
 use std::time::{SystemTime, UNIX_EPOCH};

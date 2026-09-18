@@ -7,8 +7,7 @@
 //! every interface does not let the network raise a window on someone's desk.
 //!
 //! The request is written by hand over a `TcpStream`. It is a dozen lines against a server we
-//! wrote, on the same machine, and it keeps an HTTP client out of the dependency tree and out of
-//! the Rust floor audit.
+//! wrote, on the same machine, and it keeps an HTTP client out of the dependency tree.
 
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};

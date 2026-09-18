@@ -156,9 +156,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
 
 pub fn from_hex(s: &str) -> Result<Vec<u8>, String> {
     let t = s.strip_prefix("0x").unwrap_or(s);
-    // `%` rather than `is_multiple_of`, which is only stable since 1.87 and would
-    // raise this crate's MSRV for no benefit.
-    if t.len() % 2 != 0 {
+    if !t.len().is_multiple_of(2) {
         return Err(format!("hex string has odd length ({})", t.len()));
     }
     (0..t.len())

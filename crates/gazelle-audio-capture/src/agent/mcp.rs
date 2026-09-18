@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 use axum::Router;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData, GetPromptRequestParams, GetPromptResponse, GetPromptResult, Implementation,
-    ListPromptsResult, ListToolsResult, PaginatedRequestParams, Prompt, PromptMessage, Role, ServerCapabilities, ServerInfo, Tool,
+    ListPromptsResult, ListToolsResult, PaginatedRequestParams, Prompt, PromptMessage, Role, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{MaybeSendFuture, RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -51,8 +51,8 @@ pub fn mcp_tools() -> Vec<Tool> {
 }
 
 impl ServerHandler for McpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().enable_prompts().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_prompts().build())
             .with_server_info(Implementation::new("gazelle-capture", env!("CARGO_PKG_VERSION")))
             .with_instructions(GUIDANCE)
     }

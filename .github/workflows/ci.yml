@@ -1,4 +1,4 @@
-# The checks every change must pass: the Rust workspace, the Rust version floors, the web app and
+# The checks every change must pass: the Rust workspace, the Rust version floor, the web app and
 # its end-to-end suite, the docs, and a secret scan of what changed.
 #
 # Windows only, as the product is. No job opens a device: GAZELLE_NO_HARDWARE makes any server
@@ -58,29 +58,25 @@ jobs:
       # rustfmt's defaults, and reformatting it is its own decision.
 
   msrv:
-    name: Rust version floors
+    name: Rust version floor
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Toolchains
-        run: rustup toolchain install 1.82.0 1.88.0 --profile minimal
+      - name: Toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: msrv
-      # .agent/reference/rust-crates.md, "Toolchain floor": everything built by default (the
-      # server, the protocol and transport crates, and the release helper) builds on Rust 1.82.
-      # This is what catches a dependency update, or a lock-only pin such as clap_lex being
-      # undone by `cargo update`, lifting the floor.
-      - name: Rust 1.82 builds the default build
-        run: cargo +1.82.0 build --locked -p gazelle-audio-server -p gazelle-audio-protocol -p gazelle-audio-transport -p xtask
-      # The capture crate declares 1.88 (for rmcp), and the server's window feature needs 1.88
-      # through wry's url and ICU tree.
-      - name: Rust 1.88 builds the capture crate and the window
+      # .agent/reference/rust-crates.md, "Toolchain floor": the workspace declares 1.88, what the
+      # shipped app (the window build, through wry's url and ICU tree) and the capture crate
+      # (rmcp) need. A real build on that toolchain is the gate: it is what catches a dependency
+      # update that lifts the floor, including an edition Cargo 1.88 cannot parse.
+      - name: Rust 1.88 builds the workspace, the window and the capture crate
         run: |
-          cargo +1.88.0 check --locked -p gazelle-audio-capture
+          cargo +1.88.0 build --locked --workspace
           cargo +1.88.0 check --locked -p gazelle-audio-server --features window
 
   web:
