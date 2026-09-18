@@ -5,16 +5,20 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Release chores for gazelle: write SHA256SUMS, sign it, say what to upload"
+description = "Release chores for gazelle: collect the release, write SHA256SUMS, sign it, check it"
 
 [dependencies]
 # The signing half of what the server verifies with.
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 sha2 = "0.10"
 getrandom = "0.3"
-
-[dev-dependencies]
-# So the tests prove the helper's output is what the app itself accepts and, in
-# `tests/release_dry_run.rs`, that a release this tool signs is one the app's own updater
-# finds, verifies and stages. Already in the lock file; neither adds a package.
+# The server's own updater code, so `verify` checks a signed release with exactly the code an
+# installed copy checks it with, `dist` names the assets exactly as the updater asks for them, and
+# `check-version` reads the version the binary reports. Default features off: no embedded web UI,
+# which the helper has no use for. It, `serde_json` (the smoke test's answers) and `semver` (the
+# tag) were all in the lock file already through the server, so none of them adds a package or
+# moves the Rust floor. The tests lean on it too: `tests/release_dry_run.rs` proves a release this
+# tool signs is one the app's own updater finds, verifies and stages.
 gazelle-audio-server = { path = "../crates/gazelle-audio-server", default-features = false }
+serde_json = "1"
+semver = "1"

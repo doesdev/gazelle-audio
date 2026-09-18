@@ -4528,6 +4528,8 @@ dependencies = [
  "ed25519-dalek",
  "gazelle-audio-server",
  "getrandom 0.3.4",
+ "semver",
+ "serde_json",
  "sha2",
 ]
 
