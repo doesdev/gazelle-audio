@@ -138,6 +138,9 @@ export class GaEffects extends GaElement {
     const effects = store.effects(deviceId);
     const connected = () => store.connected.peek();
 
+    // The parameter catalogue is a chunk of its own, fetched as the page opens rather than with the
+    // app: an editor is built once it is here (store/effect-parameters.ts).
+    void effects.loadCatalogue();
     // Read once when the page opens, and again once the connection or the device has come back.
     this.watch(() => {
       if (store.connected.value && effects.needsRead.value) untracked(() => void effects.readOnce());
@@ -183,6 +186,13 @@ export class GaEffects extends GaElement {
     this.watch(() => {
       const chosen = this.#chosen.value;
       const slot = chosen === undefined ? undefined : effects.chains.value?.[chosen.chain]?.slots.find((s) => s.type === chosen.type && s.inst === chosen.inst);
+      // Nothing is built, and nothing read from the device, until the catalogue is here: reading it
+      // here makes this run again when it arrives.
+      if (!effects.catalogueReady) {
+        editor.replaceChildren();
+        shown = undefined;
+        return;
+      }
       if (chosen === undefined || slot === undefined) {
         editor.replaceChildren();
         shown = undefined;

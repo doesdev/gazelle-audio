@@ -20,6 +20,13 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
+/** The workspace the server holds now, as these tests read it. */
+type Saved = {
+  aliases: Record<string, string>;
+  mixers: Record<string, { mixes: { name: string }[]; groups: { name: string }[]; channels: { name: string }[] }>;
+};
+const onServer = async (): Promise<Saved> => (await (await fetch(`${server.url}/api/v1/workspace`)).json()) as Saved;
+
 /** Follows a header link, as a person moving between pages does. */
 const open = (page: Page, name: "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing") => page.locator(`ga-header nav a[data-page="${name}"]`).click();
 
@@ -200,7 +207,7 @@ test("the Mixer reads every mix again when the connection to the server comes ba
 });
 
 test("a half-typed name is a draft: leaving the page keeps it without saving it, until Enter or Escape", async ({ page }) => {
-  const saved = async () => (await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { aliases: Record<string, string>; mixers: Record<string, { mixes: { name: string }[]; groups: { name: string }[] }> };
+  const saved = onServer;
   const settle = () => page.waitForTimeout(700); // longer than the workspace's save debounce
   await putWorkspace(server, {
     mixers: {
@@ -286,7 +293,7 @@ test("a half-typed name is a draft: leaving the page keeps it without saving it,
   const channelName = page.getByTestId("name-6");
   await channelName.fill("Kick In");
   await channelName.press("Tab");
-  await expect.poll(async () => ((await saved()).mixers["loopback-0"] as unknown as { channels: { name: string }[] }).channels[0]?.name).toBe("Kick In");
+  await expect.poll(async () => (await saved()).mixers["loopback-0"]?.channels[0]?.name).toBe("Kick In");
 });
 
 test("a page left and come back to finds its scroll, sections and selections as they were", async ({ page }) => {
@@ -325,11 +332,19 @@ test("a page left and come back to finds its scroll, sections and selections as 
 
   // Mixer: the notes, the channels' horizontal scroll, and a half-typed layout name.
   const channels = Array.from({ length: 26 }, (_, i) => (i === 0 ? { id: "c0", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] } : { id: `c${i}`, name: "", slot: 6 + i, sends: [] }));
+  // The Mixer opened above found no layout for this device, so it imported one from its routing —
+  // in a dry run, a single inactive channel — and saves it after a debounce. That save has to land
+  // before the layout below is written, or it lands on top of it: the page then shows one channel,
+  // the row is no wider than the window, and setting its scroll does nothing. (Waiting for it is
+  // what makes this test deterministic; it failed 8 runs in 20 under load without it. The app is
+  // right to save what it imported, and last writer wins is the workspace's design, P91.)
+  await expect.poll(async () => (await onServer()).mixers["loopback-0"]?.channels.length, { message: "the imported layout has been saved" }).toBe(1);
   await putWorkspace(server, { mixers: { "loopback-0": { channels } } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   await page.reload();
   const strips = page.locator("ga-mixer .strips");
   await expect(page.getByTestId("fader-6")).toBeVisible();
+  await expect(page.locator("ga-mixer ga-channel"), "every channel is in, so the row is wider than the window").toHaveCount(26);
   await page.locator("ga-mixer details.notes summary").click();
   await strips.evaluate((el) => (el.scrollLeft = 150));
   await expect.poll(() => strips.evaluate((el) => el.scrollLeft)).toBe(150);

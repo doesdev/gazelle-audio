@@ -89,6 +89,37 @@ async function wouldSend(deviceId: string, command: string, args: Record<string,
 const lastSent = (page: Page) => page.getByTestId("last-sent");
 const of = (sent: Frame[], command: string) => () => sent.filter((f) => f.command === command).map((f) => f.args);
 
+// The catalogue is about 116 kB of generated tables that only this page needs, so it is not in the
+// app's bundle: the page fetches it as it opens (store/effect-parameters.ts). Holding that request
+// back shows what the page does meanwhile, which no other test can see, since the chunk is there
+// long before anything is clicked.
+test("the parameter catalogue comes in a chunk of its own: until it is here no editor opens and nothing is read", async ({ page }) => {
+  const sent = await answerReads(page);
+  let arrive = () => {};
+  const held = new Promise<void>((done) => (arrive = done));
+  let requested = 0;
+  await page.route("**/assets/effect-parameters-data-*.js", async (route) => {
+    requested++;
+    await held;
+    await route.continue();
+  });
+
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  // The page itself does not wait for it: the chains are read and shown.
+  await expect(page.getByTestId("edit-0-0")).toBeVisible();
+  expect(requested, "and it is fetched as the page opens, not with the app").toBe(1);
+
+  await page.getByTestId("edit-0-0").click();
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId("effect-editor")).toHaveCount(0);
+  expect(of(sent, "get_powergate_conf")(), "nothing is asked of the device before the catalogue is here").toHaveLength(0);
+
+  arrive();
+  await expect(page.getByTestId("effect-editor")).toBeVisible();
+  await expect(page.getByTestId("param-threshold")).toHaveAttribute("aria-valuetext", "60");
+  await expect.poll(of(sent, "get_powergate_conf")).toEqual([{ id: 2 }]);
+});
+
 test("choosing an effect opens its editor, which reads that instance once and shows a control per parameter", async ({ page }) => {
   const sent = await answerReads(page);
   await page.goto(`${server.url}/#/effects/loopback-0`);

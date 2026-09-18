@@ -5,10 +5,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
-import { EFFECT_PARAMETERS, UNSUPPORTED_EFFECTS } from "../src/store/effect-parameters.ts";
+import { loadCatalogue } from "../src/store/effect-parameters.ts";
 import { bandKey, formatParameter, shownParameters } from "../src/store/effects.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
+
+// The catalogue travels in a chunk of its own and is fetched when the Effects page opens; these
+// tests read it directly, so they fetch it first (its own arrival is `effect-catalogue-load.test.ts`).
+const { parameters: EFFECT_PARAMETERS, unsupported: UNSUPPORTED_EFFECTS } = await loadCatalogue();
 
 type Replies = Record<string, (call: Invocation) => Record<string, unknown> | null>;
 
