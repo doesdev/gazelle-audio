@@ -421,6 +421,16 @@ pub fn siblings(exe: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Whether this server offers update control at all.
+///
+/// Three ways to say no, and each is deliberate: `--no-update`; `check: false` in the settings;
+/// and **any bind that is not loopback**, because a check and a download belong to the machine
+/// running the server rather than to whoever can reach it over the network. Saying no means the
+/// tray has no update items and the HTTP routes are not served.
+pub fn is_offered(bind: std::net::IpAddr, no_update: bool, settings: &Settings) -> bool {
+    !no_update && settings.check && bind.is_loopback()
+}
+
 /// Start the binary that is now in place, with the arguments this process was given, and let
 /// this one exit. Called **after** the server has stopped and given up its port and its USB
 /// handles — never while it is running.
@@ -537,6 +547,22 @@ mod tests {
             [PathBuf::from("/usr/local/bin/gazelle-audio-server"), PathBuf::from("/usr/local/bin/gazelle-audio-serverw")]
         );
         assert_eq!(siblings(Path::new("gazelle-audio-server")), [PathBuf::from("gazelle-audio-server"), PathBuf::from("gazelle-audio-serverw")]);
+    }
+
+    #[test]
+    fn updates_are_offered_only_on_a_loopback_bind_and_only_when_asked_for() {
+        let on = Settings::default();
+        let off = Settings { check: false, ..Settings::default() };
+        for ip in ["127.0.0.1", "::1"] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(is_offered(ip, false, &on));
+            assert!(!is_offered(ip, true, &on), "--no-update wins");
+            assert!(!is_offered(ip, false, &off), "the settings can switch it off");
+        }
+        for ip in ["0.0.0.0", "192.168.1.5", "::"] {
+            let ip: std::net::IpAddr = ip.parse().unwrap();
+            assert!(!is_offered(ip, false, &on), "{ip} is reachable from off this machine");
+        }
     }
 
     #[test]

@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Release chores for gazelle: write SHA256SUMS, sign it, say what to upload"
+
+[dependencies]
+# The signing half of what the server verifies with.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
+sha2 = "0.10"
+getrandom = "0.3"
+
+[dev-dependencies]
+# So the tests prove the helper's output is what the app itself accepts.
+gazelle-audio-server = { path = "../crates/gazelle-audio-server", default-features = false }

@@ -168,16 +168,13 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 /// whoever can reach it over the network, so a server bound anywhere else offers neither the
 /// tray items nor the HTTP routes.
 fn updater(args: &Args) -> Option<Arc<Updater>> {
-    if args.no_update || !args.bind.ip().is_loopback() {
-        return None;
-    }
     let path = update::settings::default_settings_path(|k| std::env::var(k).ok());
     let (settings, warning) = Settings::load(&path);
     if let Some(warning) = warning {
         tracing::warn!("{warning}");
     }
-    if !settings.check {
-        tracing::info!("update checks are off in {}", path.display());
+    if !update::is_offered(args.bind.ip(), args.no_update, &settings) {
+        tracing::info!("no update checks (--no-update, the settings in {}, or a non-loopback bind)", path.display());
         return None;
     }
     match Updater::for_this_build(settings) {
