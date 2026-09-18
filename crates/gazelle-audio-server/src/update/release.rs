@@ -217,6 +217,26 @@ mod tests {
         assert_eq!(parse_releases(&serde_json::json!({"message": "Not Found"})), Vec::new());
     }
 
+    /// Releases are tagged with the bare version (`0.2.0`, the user's call on 2026-09-18); a
+    /// `v0.2.0` tag still reads the same, so neither kind of tag hides a release from the app.
+    #[test]
+    fn a_bare_tag_reads_as_the_same_version_as_a_v_tag() {
+        let entry = |tag: &str| serde_json::json!({"tag_name": tag, "prerelease": false, "assets": [
+            {"name": BIN, "browser_download_url": "https://example.invalid/a/bin"},
+            {"name": SUMS_NAME, "browser_download_url": "https://example.invalid/a/sums"},
+            {"name": SIGNATURE_NAME, "browser_download_url": "https://example.invalid/a/sig"}
+        ]});
+        let releases = parse_releases(&serde_json::json!([entry("0.2.0"), entry("v0.2.0"), entry("0.3.0-rc.1")]));
+        let versions: Vec<String> = releases.iter().map(|r| r.version.to_string()).collect();
+        assert_eq!(versions, ["0.2.0", "0.2.0", "0.3.0-rc.1"]);
+        assert_eq!(releases[0].tag, "0.2.0", "the tag is kept as the source wrote it");
+        assert!(releases[2].is_prerelease());
+
+        let current = Version::parse("0.1.0").unwrap();
+        let found = newest(&releases[..1], Channel::Stable, &current, BIN).expect("a bare-tagged release is offered");
+        assert_eq!(found.version, Version::parse("0.2.0").unwrap());
+    }
+
     #[test]
     fn a_sums_file_reads_as_a_name_to_digest_map() {
         let a = "0".repeat(64);
