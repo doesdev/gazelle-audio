@@ -55,3 +55,7 @@ Thumbs.db
 
 # Agent worktrees: checkouts of this repo, never content of it.
 .claude/worktrees/
+
+# --- Docs build output (pnpm -C web docs). The PDFs are built, never committed. ---
+/docs/dist/
+*.pdf

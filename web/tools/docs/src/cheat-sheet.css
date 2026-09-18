@@ -1,0 +1,62 @@
+/* The cheat sheet: two A4 pages at most, in two columns, to keep beside the desk. */
+
+:root {
+  --text: #1c1d1f;
+  --muted: #6b6e73;
+  --rule: #cdcfd2;
+  --panel: #f3f3f4;
+  --accent: #1c86aa;
+  --warning: #c4452f;
+  --warning-bg: #fbefec;
+}
+
+@page {
+  size: A4;
+  margin: 11mm 11mm 12mm;
+  @bottom-right {
+    content: "Gazelle cheat sheet  " counter(page) " of " counter(pages);
+    font: 6.8pt "Inter Variable", "Segoe UI", sans-serif;
+    color: #6b6e73;
+  }
+}
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; font: 9.7pt/1.45 "Inter Variable", "Segoe UI", sans-serif; color: var(--text); }
+
+h1 {
+  font-family: "Josefin Sans Variable", sans-serif;
+  font-weight: 600;
+  font-size: 19pt;
+  margin: 0 0 1mm;
+  column-span: all;
+}
+.lede { column-span: all; color: var(--muted); margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1.2pt solid var(--text); }
+main { column-count: 2; column-gap: 7mm; }
+main + main { break-before: page; }
+h2 {
+  font-family: "Josefin Sans Variable", sans-serif;
+  font-weight: 600;
+  font-size: 12.5pt;
+  margin: 2.6mm 0 1mm;
+  padding-bottom: 0.6mm;
+  border-bottom: 0.6pt solid var(--rule);
+  color: var(--accent);
+  break-after: avoid;
+}
+h3 { font-size: 8.4pt; margin: 1.8mm 0 0.6mm; break-after: avoid; }
+p { margin: 0 0 1.4mm; }
+ul, ol { margin: 0 0 1.6mm; padding-left: 4mm; }
+li { margin: 0 0 0.4mm; }
+strong { font-weight: 650; }
+a { color: inherit; text-decoration: none; }
+.url { display: none; }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.1pt; background: var(--panel); padding: 0 0.25em; border-radius: 2px; overflow-wrap: anywhere; }
+pre { background: var(--panel); border: 0.5pt solid var(--rule); padding: 1.4mm 2mm; margin: 0 0 1.8mm; white-space: pre-wrap; break-inside: avoid; }
+pre code { background: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: 0 0 2mm; font-size: 8.5pt; break-inside: avoid; }
+th { text-align: left; font-weight: 650; background: var(--panel); }
+th, td { padding: 0.7mm 1.2mm; border-bottom: 0.5pt solid var(--rule); vertical-align: top; }
+aside { margin: 0 0 2mm; padding: 1.6mm 2.4mm; border-left: 2pt solid var(--accent); background: var(--panel); break-inside: avoid; }
+aside.warning { border-left-color: var(--warning); background: var(--warning-bg); }
+aside > :last-child { margin-bottom: 0; }
+section { break-inside: avoid; }
