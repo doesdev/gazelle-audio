@@ -8,10 +8,24 @@
 # occurrences of "access_token", which flagged the ADR that *describes* the incident and
 # the hook's own pattern list, blocking legitimate commits. A secret is a key followed by
 # an assignment and a long opaque value, so that is what this looks for.
+#
+# CI runs this same file over a pull request or a push (.github/workflows/ci.yml):
+#
+#     .githooks/pre-commit --range <base>      scan what changed from <base> to HEAD,
+#                                              reading each file as HEAD has it
+#
+# With no arguments, as git runs it, it scans the staged files as they are staged.
 set -u
 
 fail=0
-staged=$(git diff --cached --name-only --diff-filter=ACM)
+if [ "${1:-}" = "--range" ]; then
+    base=${2:?"--range needs a base commit"}
+    staged=$(git diff --name-only --diff-filter=ACM "$base" HEAD) || exit 2
+    show() { git show "HEAD:$1"; }
+else
+    staged=$(git diff --cached --name-only --diff-filter=ACM)
+    show() { git show ":$1"; }
+fi
 [ -z "$staged" ] && exit 0
 
 # --- 1. Files that must never be committed, by name ------------------------------------
@@ -38,16 +52,16 @@ while IFS= read -r f; do
     [ -f "$f" ] || continue
     # The hook necessarily contains its own patterns.
     [ "$f" = ".githooks/pre-commit" ] && continue
-    git show ":$f" 2>/dev/null | grep -Iq . || continue          # skip binaries
+    show "$f" 2>/dev/null | grep -Iq . || continue          # skip binaries
 
-    hits=$(git show ":$f" 2>/dev/null | grep -nEI "$HARD" | head -3)
+    hits=$(show "$f" 2>/dev/null | grep -nEI "$HARD" | head -3)
     if [ -n "$hits" ]; then
         echo "BLOCKED: '$f' contains what looks like a credential:" >&2
         echo "$hits" | sed 's/^/    /' >&2
         fail=1
         continue
     fi
-    hits=$(git show ":$f" 2>/dev/null | grep -nEI "$SOFT" | head -3)
+    hits=$(show "$f" 2>/dev/null | grep -nEI "$SOFT" | head -3)
     if [ -n "$hits" ]; then
         echo "BLOCKED: '$f' assigns a value to a credential-like name:" >&2
         echo "$hits" | sed 's/^/    /' >&2

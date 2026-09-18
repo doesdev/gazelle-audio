@@ -1,0 +1,302 @@
+# Cut a release: build, check, collect, sign, and draft it on GitHub. A person publishes it.
+#
+# Pushing a tag that is the bare version (0.1.0, 0.2.0-rc.1; no v in front) runs the whole
+# thing and ends in a DRAFT release carrying exactly the files `xtask verify` listed. Running the
+# workflow by hand (workflow_dispatch) is the dry run: everything up to the release itself, signed
+# with a throwaway key made on the spot, using no secret, creating nothing.
+#
+# The steps are the release checklist in .agent/specs/2026-09-18-shipping-portable.md, and every
+# step that is more than one command is an xtask subcommand, so it is the same code a person
+# runs by hand and it is under test. The one-time setup (the key, the `release` environment,
+# the secret and the variable) is in that spec under "One-time setup".
+#
+# Where the signing key goes: the build job never sees it. The sign job runs in the protected
+# `release` environment on a fresh machine, does not check the repository out and builds nothing;
+# it runs the xtask binary the build job made, writes the key to the runner's temp directory
+# (never inside a checkout), checks that its public half is the one the binaries carry, signs,
+# and deletes it.
+#
+# Third-party actions are pinned to full commit SHAs, with the release in a trailing comment.
+
+name: Release
+
+on:
+  push:
+    # GitHub's tag filters are globs, where + repeats the character class before it.
+    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GAZELLE_NO_HARDWARE: "1"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: windows-latest
+    timeout-minutes: 180
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      # Full history, so the manual's edition date is the date the docs last changed. No build
+      # cache is restored anywhere in this workflow: a release is built from nothing.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+
+      # 1. The version: a tag must be exactly the server's version. A dry run reports the
+      #    version as its tag would be.
+      - name: Check the version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          tag=()
+          if [ "$EVENT" = push ]; then tag=("$GITHUB_REF_NAME"); fi
+          cargo run -q --locked -p xtask -- check-version "${tag[@]}" | tee -a "$GITHUB_OUTPUT"
+
+      # The release notes: this version's CHANGELOG.md section, or no release.
+      - name: Release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/notes"
+          cargo run -q --locked -p xtask -- release-notes "$VERSION" > "$RUNNER_TEMP/notes/release-notes.md"
+          cat "$RUNNER_TEMP/notes/release-notes.md"
+
+      # The public half of the signing key, which every shipped binary carries. It is a
+      # variable, not a secret: it is public by design. The sign job checks it against the key.
+      - name: The update public key is set
+        env:
+          GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+        run: |
+          if ! [[ "$GAZELLE_UPDATE_PUBKEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "::error::The repository variable GAZELLE_UPDATE_PUBKEY must be the signing key's public half, 64 hex digits (xtask keygen prints it)."
+            exit 1
+          fi
+
+      # 2. The web UI, which the binary embeds.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: pnpm, through corepack
+        run: |
+          corepack enable
+          pnpm --version
+      - name: pnpm install
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: pnpm build
+        working-directory: web
+        run: pnpm build
+
+      # 3. The suites, all of them, green.
+      - name: cargo test
+        run: cargo test --workspace --locked
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: The window feature compiles
+        run: cargo check -p gazelle-audio-server --features window --locked
+      - name: pnpm test
+        working-directory: web
+        run: pnpm test
+      - name: Playwright's Chromium
+        working-directory: web
+        run: pnpm exec playwright install chromium
+      - name: pnpm e2e
+        working-directory: web
+        run: pnpm e2e
+      - name: pnpm docs:check
+        working-directory: web
+        run: pnpm docs:check
+
+      # 4. The shipped build: release, with the window, with the public key.
+      - name: Release build
+        env:
+          GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+        run: cargo build --release --locked -p gazelle-audio-server --features window
+
+      # Both binaries, started on the loopback backend on a spare port: the version, a key that
+      # is the expected one, can_verify, the target the assets are named for, the web app at /.
+      - name: Smoke test the built binaries
+        env:
+          GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: cargo run -q --locked -p xtask -- smoke --bin-dir target/release --version "$VERSION" --pubkey "$GAZELLE_UPDATE_PUBKEY"
+
+      # 4b. The manual and the cheat sheet, checked against the release binary's --help.
+      - name: Docs PDFs
+        working-directory: web
+        env:
+          GAZELLE_BIN: target/release/gazelle-audio-server.exe
+        run: pnpm docs:pdf
+
+      # 5. The release directory, under the names the updater asks for.
+      - name: Collect the release
+        run: cargo run -q --locked -p xtask -- dist --out "$RUNNER_TEMP/release"
+
+      # The helper the sign job runs, built here so that job builds nothing.
+      - name: Build the release helper
+        run: |
+          cargo build --release --locked -p xtask
+          mkdir -p "$RUNNER_TEMP/helper"
+          cp target/release/xtask.exe "$RUNNER_TEMP/helper/"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: helper
+          path: ${{ runner.temp }}/helper/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep the e2e traces and screenshots of a failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-results
+          path: web/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  sign:
+    name: Sign and draft the release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # Required reviewer and a tag rule, set up once by the user; the secret lives only here.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: helper
+          path: helper
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notes
+          path: notes
+
+      # 6. Sign, last. The key file is the secret's contents, in the runner's temp directory,
+      #    removed however the step ends. Its public half must be the one the binaries carry,
+      #    or they could never verify an update signed with it: that fails here, before signing.
+      - name: Sign
+        env:
+          RELEASE_KEY: ${{ secrets.GAZELLE_RELEASE_KEY }}
+        run: |
+          if [ -z "$RELEASE_KEY" ]; then
+            echo "::error::The release environment has no GAZELLE_RELEASE_KEY secret."
+            exit 1
+          fi
+          key="$RUNNER_TEMP/gazelle-release.key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$RELEASE_KEY" > "$key"
+          helper/xtask.exe pubkey --key "$key" --expect "$GAZELLE_UPDATE_PUBKEY"
+          helper/xtask.exe sign --dir release --key "$key"
+
+      # Checked again as an installed copy will check it, with the updater's own code. The list
+      # it prints is exactly what is uploaded.
+      - name: Verify
+        run: helper/xtask.exe verify --dir release --pubkey "$GAZELLE_UPDATE_PUBKEY" | tee upload.txt
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: release/
+          if-no-files-found: error
+
+      # 7 and 8. A draft release on the tag. Publishing it is the user's, by hand.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          mapfile -t files < upload.txt
+          flags=(--draft --verify-tag --title "Gazelle $VERSION" --notes-file notes/release-notes.md --repo "$GITHUB_REPOSITORY")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "${flags[@]}" "${files[@]}"
+          echo "Draft release $TAG created with ${#files[@]} files. Publish it by hand." >> "$GITHUB_STEP_SUMMARY"
+
+  dry-run:
+    name: Sign with a throwaway key (dry run)
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: helper
+          path: helper
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notes
+          path: notes
+      # The same sign and verify as a release, with a key made here and thrown away, so the dry
+      # run needs no secret. Its signature is by that key, not the release key, so nothing from
+      # this run may ever be uploaded.
+      - name: Sign and verify
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          key="$RUNNER_TEMP/throwaway/dry-run.key"
+          trap 'rm -rf "$RUNNER_TEMP/throwaway"' EXIT
+          helper/xtask.exe keygen --out "$key" > /dev/null
+          public="$(helper/xtask.exe pubkey --key "$key")"
+          helper/xtask.exe sign --dir release --key "$key"
+          helper/xtask.exe verify --dir release --pubkey "$public" | tee upload.txt
+          {
+            echo "Dry run: a release would be drafted on tag $TAG (prerelease: $PRERELEASE) with these files:"
+            echo
+            sed 's/^/    /' upload.txt
+            echo
+            echo "Signed with a throwaway key, so none of it may be uploaded. The notes:"
+            echo
+            cat notes/release-notes.md
+          } >> "$GITHUB_STEP_SUMMARY"

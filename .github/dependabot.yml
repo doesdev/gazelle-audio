@@ -1,0 +1,47 @@
+# Weekly dependency updates, grouped so each ecosystem is at most one pull request a week.
+#
+# Cargo: an update can lift the Rust 1.82 floor that everything built by default must build on
+# (.agent/reference/rust-crates.md, "Toolchain floor"). The msrv job in ci.yml is what catches it,
+# so read its result before merging a cargo update. The pins that hold the floor today are
+# ignored here, so Dependabot does not propose undoing them week after week; lifting any of them
+# is a decision about the floor, made by hand.
+#
+# npm: web/ is a pnpm workspace (pnpm-lock.yaml); Dependabot's npm ecosystem reads pnpm lockfiles.
+
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+    ignore:
+      # Each of these declares a newer Rust than 1.82 from the version named on.
+      - dependency-name: clap
+        versions: [">= 4.6.0"]
+      - dependency-name: clap_lex
+        versions: [">= 1.1.0"]
+      - dependency-name: rust-embed
+        versions: ["> 8.11.0"]
+      - dependency-name: ureq
+        versions: [">= 3.2.0"]
+      - dependency-name: zeroize
+        versions: [">= 1.9.0"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

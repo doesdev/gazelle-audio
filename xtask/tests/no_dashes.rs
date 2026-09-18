@@ -31,8 +31,20 @@ const NEEDLES: &[&str] = &[
 /// Directories under the repository root whose whole trees are product.
 const TREES: &[&str] = &["web/apps/web/src", "web/apps/web/themes", "web/themes", "web/packages/client/src", "xtask/src"];
 
-/// Single files under the repository root that are product.
-const FILES: &[&str] = &["web/apps/web/index.html", "xtask/Cargo.toml"];
+/// Single files under the repository root that are product. `CHANGELOG.md` is copied word for
+/// word into each GitHub release's notes, so it is product text; `CLAUDE.md` is what tells an
+/// agent this rule, and a rule stated with the thing it forbids would not last; the workflows'
+/// messages are what a person reads when a release fails.
+const FILES: &[&str] = &[
+    "web/apps/web/index.html",
+    "xtask/Cargo.toml",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/audit.yml",
+    ".github/dependabot.yml",
+];
 
 /// Never descended into, wherever they appear.
 const SKIP_DIRS: &[&str] = &["node_modules", "dist", "target"];
@@ -160,6 +172,9 @@ fn the_roots_include_every_crate_and_the_embedded_schemas() {
         "refs/schemas/quadro_commands.json",
         "web/apps/web/src",
         "web/packages/client/src",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        ".github/workflows/release.yml",
     ] {
         assert!(roots.contains(&root.join(expected)), "{expected} is not checked");
     }
