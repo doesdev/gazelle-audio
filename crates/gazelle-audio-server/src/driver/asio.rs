@@ -18,6 +18,9 @@ const RATES: std::ops::RangeInclusive<u32> = 8_000..=768_000;
 /// No ASIO buffer is larger than this many samples.
 const LARGEST_BUFFER: u32 = 65_536;
 
+/// Offset 16's Safe Mode bit.
+const SAFE_MODE_FLAG: u32 = 0x10000;
+
 /// What was read, every value in samples except the rate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AsioInstance {
@@ -31,6 +34,9 @@ pub struct AsioInstance {
     pub output_latency: u32,
     /// The buffer sizes the driver offers, smallest first (count at 32, sizes from 36).
     pub buffer_sizes: Vec<u32>,
+    /// Safe Mode, as the driver runs it: bit 16 of offset 16 (0x10000 on, 0 off; flipped in the
+    /// vendor panel and read both ways on 2026-09-18). Output latency grows with it.
+    pub safe_mode: bool,
 }
 
 /// Whether a rate is one a driver of this kind could be running at.
@@ -68,12 +74,14 @@ pub fn parse(bytes: &[u8]) -> Result<AsioInstance, String> {
     }
     let (input_latency, output_latency) = (word(bytes, 20), word(bytes, 24));
     for (name, latency) in [("input", input_latency), ("output", output_latency)] {
-        // A latency is at least one buffer and well under a second; anything else is not a latency.
-        if latency < buffer_size || latency > sample_rate {
+        // Above nothing and under a second. Not "at least one buffer": with Safe Mode off the
+        // Quadro reports an output latency of 191 samples on a 256 sample buffer.
+        if latency == 0 || latency > sample_rate {
             return Err(format!("its {name} latency ({latency} samples) is not plausible for a {buffer_size} sample buffer"));
         }
     }
-    Ok(AsioInstance { sample_rate, buffer_size, input_latency, output_latency, buffer_sizes })
+    let safe_mode = word(bytes, 16) & SAFE_MODE_FLAG != 0;
+    Ok(AsioInstance { sample_rate, buffer_size, input_latency, output_latency, buffer_sizes, safe_mode })
 }
 
 #[cfg(test)]
@@ -114,7 +122,7 @@ pub(crate) mod tests {
     fn the_quadros_bytes_read_as_its_panel_showed_them() {
         assert_eq!(
             parse(&quadro()).unwrap(),
-            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED.to_vec() }
+            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED.to_vec(), safe_mode: true }
         );
     }
 
@@ -122,7 +130,7 @@ pub(crate) mod tests {
     fn the_studios_bytes_read_as_its_panel_showed_them() {
         assert_eq!(
             parse(&studio()).unwrap(),
-            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 568, output_latency: 585, buffer_sizes: OFFERED.to_vec() }
+            AsioInstance { sample_rate: 44100, buffer_size: 512, input_latency: 568, output_latency: 585, buffer_sizes: OFFERED.to_vec(), safe_mode: true }
         );
     }
 
@@ -168,10 +176,32 @@ pub(crate) mod tests {
         assert!(parse(&with(quadro(), 32, 10)).unwrap_err().contains("not all plausible"));
     }
 
+    /// The Quadro's bytes with Safe Mode off at 256 samples (the user, 2026-09-18): the output
+    /// latency is *less* than one buffer, and the flag at offset 16 is clear.
+    pub(crate) fn quadro_safe_mode_off() -> Vec<u8> {
+        let mut words = vec![44100, 44100, 0, 0, 0, 315, 191, 256, 9];
+        words.extend(OFFERED);
+        from_words(&words)
+    }
+
+    #[test]
+    fn a_latency_shorter_than_the_buffer_is_read_as_the_panel_showed_it() {
+        let read = parse(&quadro_safe_mode_off()).unwrap();
+        assert_eq!((read.buffer_size, read.input_latency, read.output_latency), (256, 315, 191));
+        assert!(!read.safe_mode);
+    }
+
+    #[test]
+    fn safe_mode_is_the_flag_at_offset_16() {
+        assert!(parse(&quadro()).unwrap().safe_mode, "0x10000 with Safe Mode on, as read live");
+        assert!(parse(&studio()).unwrap().safe_mode);
+        assert!(!parse(&quadro_safe_mode_off()).unwrap().safe_mode, "0 with it off");
+    }
+
     #[test]
     fn a_latency_that_is_not_a_latency_is_refused() {
-        assert!(parse(&with(quadro(), 20, 100)).unwrap_err().contains("input latency"));
+        assert!(parse(&with(quadro(), 20, 0)).unwrap_err().contains("input latency"));
         assert!(parse(&with(quadro(), 24, 50_000)).unwrap_err().contains("output latency"));
-        assert!(parse(&with(quadro(), 24, 512)).is_ok(), "a latency of exactly one buffer is plausible");
+        assert!(parse(&with(quadro(), 24, 1)).is_ok(), "any latency above nothing and under a second is plausible");
     }
 }

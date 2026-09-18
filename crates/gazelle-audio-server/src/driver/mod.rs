@@ -283,9 +283,11 @@ fn read_from(host: &dyn DriverHost, dll: &Path, serial: &str) -> Result<Option<D
             Some(Err(e)) => (None, Reading::unread(format!("Could not be read: {e}."))),
         };
         let service = service_of(dll);
-        let safe_mode = match &service {
-            Some(service) => safe_mode(host, service, asio_instance),
-            None => Reading::unread("Could not tell which driver service this is, so its Safe Mode setting was not found."),
+        // The driver's own flag when the structure was read; the registry value only when it was not.
+        let safe_mode = match (&asio, &service) {
+            (Reading::Read { value }, _) => Reading::Read { value: value.safe_mode },
+            (_, Some(service)) => safe_mode(host, service, asio_instance),
+            (_, None) => Reading::unread("Could not tell which driver service this is, so its Safe Mode setting was not found."),
         };
         return Ok(Some(DriverSettings {
             dll: dll.display().to_string(),

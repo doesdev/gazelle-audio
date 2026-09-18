@@ -205,8 +205,19 @@ fn a_driver_with_no_asio_instance_says_so() {
 }
 
 #[test]
-fn safe_mode_off_and_missing_and_unreadable() {
+fn safe_mode_is_the_drivers_own_flag_when_its_structure_reads() {
+    // The registry says off; the structure the driver runs with says on (0x10000 at offset 16).
     let (_, _, mut pc) = both();
+    pc.registry.insert((QUADRO_SAFE_MODE.into(), "AsioSafeMode".into()), 0);
+    assert_eq!(settings(read_device(&pc, QUADRO)).safe_mode, Reading::Read { value: true });
+}
+
+#[test]
+fn without_the_structure_safe_mode_comes_from_the_registry_off_missing_and_unreadable() {
+    // No ASIO instance to read, so the registry is all there is.
+    let quadro = Arc::new(FakeDll { instance_count: Some(0), ..FakeDll::quadro(QUADRO) });
+    let studio = Arc::new(FakeDll { instance_count: Some(0), ..FakeDll::studio(STUDIO) });
+    let mut pc = FakePc::both(quadro, studio);
     pc.registry.insert((QUADRO_SAFE_MODE.into(), "AsioSafeMode".into()), 0);
     assert_eq!(settings(read_device(&pc, QUADRO)).safe_mode, Reading::Read { value: false });
 
