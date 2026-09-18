@@ -176,14 +176,16 @@ fn a_read_back_that_cannot_be_read_is_unconfirmed() {
 
 #[test]
 fn a_program_using_asio_refuses_the_change_unless_it_is_forced() {
+    // One DAW recording on the Quadro counted 4 (2026-09-18), so the message gives no count.
+    const IN_USE: &str = "The driver's ASIO interface is in use (by a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway.";
     let (quadro, pc) = quadro_with(quadro_in_use(1));
     let refused = refusal(write_device(&pc, QUADRO, &change(Some(256), None), false));
     assert_eq!(refused.code, RefusalCode::AsioInUse);
-    assert!(refused.message.contains("1 program is"), "{}", refused.message);
+    assert_eq!(refused.message, IN_USE);
     assert!(quadro.sets().is_empty());
 
-    let (_, pc2) = quadro_with(quadro_in_use(2));
-    assert!(refusal(write_device(&pc2, QUADRO, &change(None, Some(false)), false)).message.contains("2 programs are"));
+    let (_, pc2) = quadro_with(quadro_in_use(4));
+    assert_eq!(refusal(write_device(&pc2, QUADRO, &change(None, Some(false)), false)).message, IN_USE);
 
     let forced = DriverChange { force: true, ..change(Some(256), None) };
     let write = written(write_device(&pc, QUADRO, &forced, false));

@@ -196,16 +196,16 @@ test("a program using ASIO is named, a change is refused, and Change anyway send
   const driver = await fakeDriver(page, quadro("loopback-0", { asio_clients: 1 }), (body) =>
     body["force"] === true
       ? applied(after, "The driver now reports a buffer of 256 samples with Safe Mode on.")
-      : { status: 409, json: { error: { code: "asio_in_use", message: "1 program is using the driver's ASIO interface (a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway." } } },
+      : { status: 409, json: { error: { code: "asio_in_use", message: "The driver's ASIO interface is in use (by a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway." } } },
   );
   await page.goto(`${server.url}/#/devices/loopback-0`);
   await expect(value(page, "in-use")).toBeVisible();
-  await expect(value(page, "in-use")).toHaveText("1 program is using the driver's ASIO interface now (a DAW, most likely). A change is refused while it is, unless you choose Change anyway.");
+  await expect(value(page, "in-use")).toHaveText("The driver's ASIO interface is in use now (by a DAW, most likely). A change is refused while it is, unless you choose Change anyway.");
 
   await value(page, "buffer-menu").selectOption("256");
   await value(page, "buffer-confirm").click();
   await expect.poll(() => driver.puts).toEqual([{ buffer_size: 256 }]);
-  await expect(value(page, "result")).toContainText("Not changed. 1 program is using the driver's ASIO interface");
+  await expect(value(page, "result")).toContainText("Not changed. The driver's ASIO interface is in use");
   await expect(value(page, "result")).toHaveClass(/warning/);
   await expect(value(page, "buffer-menu"), "the menu shows what the driver still has").toHaveValue("512");
   await expect(value(page, "input_latency")).toHaveText("571 samples (12.95 ms)");

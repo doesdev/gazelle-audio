@@ -16,7 +16,7 @@ export interface AsioInstance {
   output_latency: number;
   buffer_sizes: number[];
   safe_mode: boolean;
-  /** How many programs (a DAW) are using the driver's ASIO interface; a change is refused while any are, unless forced. */
+  /** The driver's count of ASIO clients (one DAW can count several); a change is refused while it is above 0, unless forced. */
   asio_clients: number;
 }
 

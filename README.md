@@ -27,7 +27,7 @@ Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Stu
 
 Over a thousand automated tests run against a built-in emulator of both devices, and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That shows Gazelle sends what it means to send; it cannot show what your device does with it.
 
-**Driven and checked on the real devices:** finding and opening both interfaces and reading their state; mixer faders, mute and solo on both, read back from every mix; input and output metering (Quadro); microphone emulation with an Edge Duo (Quadro); front panel brightness (Quadro); inserting and removing one effect and changing one effect setting (Quadro); the effects meter report with signal (Quadro).
+**Driven and checked on the real devices:** finding and opening both interfaces and reading their state; mixer faders, mute and solo on both, read back from every mix; input and output metering (Quadro); microphone emulation with an Edge Duo (Quadro); front panel brightness (Quadro); inserting and removing one effect and changing one effect setting (Quadro); the effects meter report with signal (Quadro); changing the driver's buffer size and Safe Mode, including with a DAW recording (both).
 
 **Written and tested against the emulator only, never on a device:** device preset save and recall, hard mute, DC coupling, the test oscillator, S/PDIF sample rate conversion, reordering effects and chains of several effects, all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 

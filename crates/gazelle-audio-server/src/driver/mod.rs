@@ -517,10 +517,10 @@ pub fn plan(settings: &DriverSettings, change: &DriverChange) -> Result<Option<S
         return Ok(None);
     }
     if asio.asio_clients > 0 && !change.force {
-        let who = if asio.asio_clients == 1 { "1 program is".to_string() } else { format!("{} programs are", asio.asio_clients) };
+        // No count in the message: one DAW recording on the Quadro counted as 4 (2026-09-18).
         return Err(WriteRefusal::new(
             RefusalCode::AsioInUse,
-            format!("{who} using the driver's ASIO interface (a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway."),
+            "The driver's ASIO interface is in use (by a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway.".to_string(),
         ));
     }
     Ok(Some(SetterCall { asio_instance: settings.asio_instance, reference_sample_rate: asio.reference_rate, preferred_size, options: asio::options_for(safe_mode) }))

@@ -116,10 +116,12 @@ test("the controls come from a reading: the offered sizes, the buffer, Safe Mode
   assert.equal(driverControls({ device_id: "loopback-0", read_at_ms: 1, cached: false, state: "no_driver", message: "m" }), undefined);
 });
 
-test("programs using ASIO are named before a change is tried", () => {
+test("ASIO in use is said without a count, since one DAW counts as several clients", () => {
+  // Seen 2026-09-18: one DAW recording on the Quadro made the driver count 4.
+  const text = "The driver's ASIO interface is in use now (by a DAW, most likely). A change is refused while it is, unless you choose Change anyway.";
   assert.equal(asioInUseText(0), undefined);
-  assert.equal(asioInUseText(1), "1 program is using the driver's ASIO interface now (a DAW, most likely). A change is refused while it is, unless you choose Change anyway.");
-  assert.equal(asioInUseText(2), "2 programs are using the driver's ASIO interface now (a DAW, most likely). A change is refused while they are, unless you choose Change anyway.");
+  assert.equal(asioInUseText(1), text);
+  assert.equal(asioInUseText(4), text);
 });
 
 test("a write's result reads plainly, and a mismatch or failure is not dressed up as success", () => {

@@ -53,10 +53,11 @@ pub struct AsioInstance {
     /// Safe Mode, as the driver runs it: bit 16 of offset 16 (0x10000 on, 0 off; flipped in the
     /// vendor panel and read both ways on 2026-09-18). Output latency grows with it.
     pub safe_mode: bool,
-    /// How many programs are using the driver's ASIO interface (offset 8). Both kernel drivers
-    /// fill it from the same counter `GetClientInfo` answers as its ASIO client count, and the
-    /// vendor panel's "ASIO active" / "ASIO not active" comes from this structure (found by reading
-    /// the drivers' code, 2026-09-18; not yet seen nonzero live).
+    /// The driver's count of ASIO clients (offset 8): nonzero while a program is using its ASIO
+    /// interface. Both kernel drivers fill it from the same counter `GetClientInfo` answers as its
+    /// ASIO client count, and the vendor panel's "ASIO active" / "ASIO not active" comes from this
+    /// structure. Seen live 2026-09-18: one DAW recording on the Quadro counted 4, so it counts
+    /// connections, not programs.
     pub asio_clients: u32,
 }
 

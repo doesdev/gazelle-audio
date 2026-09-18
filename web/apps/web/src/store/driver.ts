@@ -19,7 +19,7 @@ export interface DriverControls {
   sizes: number[];
   buffer: number;
   safeMode: boolean;
-  /** Programs using the driver's ASIO interface now. */
+  /** The driver's count of ASIO clients now; one DAW can count as several. */
   asioClients: number;
 }
 
@@ -32,8 +32,8 @@ export function driverControls(report: DriverReport | undefined): DriverControls
 /** The line that names programs using ASIO, before anything is tried; none when there are none. */
 export function asioInUseText(clients: number): string | undefined {
   if (clients <= 0) return undefined;
-  const [who, they] = clients === 1 ? ["1 program is", "it is"] : [`${clients} programs are`, "they are"];
-  return `${who} using the driver's ASIO interface now (a DAW, most likely). A change is refused while ${they}, unless you choose Change anyway.`;
+  // No count: one DAW recording on the Quadro counted as 4 (2026-09-18).
+  return "The driver's ASIO interface is in use now (by a DAW, most likely). A change is refused while it is, unless you choose Change anyway.";
 }
 
 const OUTCOME_LEAD: Record<DriverWriteReport["outcome"], [lead: string, problem: boolean]> = {
