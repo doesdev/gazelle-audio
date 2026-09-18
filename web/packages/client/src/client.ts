@@ -8,7 +8,7 @@ import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
-import type { Snapshot, SnapshotDiff, SnapshotImport, SnapshotSummary } from "./snapshots.ts";
+import type { RecallAsk, RecallPlan, Snapshot, SnapshotDiff, SnapshotImport, SnapshotSummary } from "./snapshots.ts";
 import type { Workspace } from "./workspace.ts";
 
 export const API_PATH = "/api/v1";
@@ -114,6 +114,12 @@ export interface Client {
     compare(id: string): Promise<SnapshotDiff>;
     /** Add snapshots from a backup file, keeping any already stored. */
     import(snapshots: Snapshot[]): Promise<SnapshotImport>;
+    /**
+     * What recall would send to put this snapshot back: an ordered list of commands with their
+     * bytes and their guards. Reads every device and **sends nothing**; there is deliberately no
+     * way here to apply one (workspace spec §2.3, decision 0012).
+     */
+    recallPlan(id: string, ask?: RecallAsk): Promise<RecallPlan>;
   };
   /** User theme files from the server's themes directory; the UI validates each theme. */
   themes(): Promise<UserTheme[]>;
@@ -256,6 +262,8 @@ class Connection implements Client {
     },
     compare: async (id: string): Promise<SnapshotDiff> => (await this.#http("GET", `snapshots/${encodeURIComponent(id)}/compare`)) as SnapshotDiff,
     import: async (snapshots: Snapshot[]): Promise<SnapshotImport> => (await this.#http("POST", "snapshots/import", snapshots)) as SnapshotImport,
+    recallPlan: async (id: string, ask: RecallAsk = {}): Promise<RecallPlan> =>
+      (await this.#http("POST", `snapshots/${encodeURIComponent(id)}/recall/plan`, ask)) as RecallPlan,
   };
 
   async themes(): Promise<UserTheme[]> {

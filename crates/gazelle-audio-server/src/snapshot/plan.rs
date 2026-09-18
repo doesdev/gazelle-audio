@@ -132,11 +132,12 @@ pub struct PartPlan {
 pub struct RaisedOutput {
     pub device_id: String,
     pub output: String,
-    /// Where it is now, in dB of attenuation (96 is -inf).
-    pub now: i64,
+    /// Where it is now, in dB of attenuation (96 is -inf), or `null` when nobody could read it.
+    pub now: Option<i64>,
     /// Where the snapshot puts it.
     pub snapshot: i64,
-    pub raised_db: i64,
+    /// How far this raises it, or `null` when the present is unknown.
+    pub raised_db: Option<i64>,
 }
 
 /// A device in the snapshot, and whether anything of it can be recalled.
@@ -263,7 +264,15 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
             continue;
         }
         let family = device.family.clone();
-        let unreadable: Vec<&str> = recorded.unreadable.iter().map(|u| u.path.as_str()).collect();
+        // Both sides' unread paths, not only the snapshot's: a value the devices would not give up
+        // just now is a stale view, and guard 1 of §2.3 is that nothing is sent from one.
+        let present = now.devices.get(&crate::device::descriptor::DeviceId(id.clone()));
+        let unreadable: Vec<&str> = recorded
+            .unreadable
+            .iter()
+            .chain(present.into_iter().flat_map(|d| d.unreadable.iter()))
+            .map(|u| u.path.as_str())
+            .collect();
 
         // Group the differences by the command that would undo them.
         let mut wanted: BTreeMap<Target, Planned> = BTreeMap::new();
@@ -348,6 +357,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
         if silences {
             steps.extend(silence_steps(&id, &device.model, &family));
         }
+        let mut restore_incomplete: Vec<String> = Vec::new();
         for planned in ordered {
             match planned.target.build(&family, &recorded.sections) {
                 Err(reason) => excluded.push(Excluded {
@@ -357,7 +367,14 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
                     label: planned.label.clone(),
                     kind: "incomplete",
                     command: None,
-                    reason,
+                    reason: {
+                        // A restore that cannot be built is not one exclusion among many: it means
+                        // this plan would silence an output and have nothing to unmute it with.
+                        if matches!(planned.target, Target::OutputMute { .. } | Target::HardMute) {
+                            restore_incomplete.push(reason.clone());
+                        }
+                        reason
+                    },
                 }),
                 Ok(write) => {
                     let mut note = None;
@@ -369,22 +386,30 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
                         }
                     }
                     if let Target::OutputVolume { id: output } = planned.target {
-                        if let (Some(from), Some(to)) = (planned.from.as_ref().and_then(Json::as_i64), planned.to.as_ref().and_then(Json::as_i64)) {
-                            // `from` is the snapshot's, `to` is now: recall writes the snapshot's,
-                            // so the output is raised by however much attenuation it loses.
-                            let raise = to - from;
+                        let name = crate::snapshot::writers::output_name(output);
+                        // `from` is the snapshot's, `to` is now: recall writes the snapshot's, so
+                        // the output is raised by however much attenuation it loses. A present
+                        // nobody could read is the dangerous case, not the safe one: how far this
+                        // would move the level is then not known, and it needs the same tick.
+                        let (raise, unknown) = match (planned.from.as_ref().and_then(Json::as_i64), planned.to.as_ref().and_then(Json::as_i64)) {
+                            (Some(from), Some(to)) => (Some((from, to, to - from)), false),
+                            (Some(_), None) => (None, true),
+                            _ => (None, false),
+                        };
+                        if let Some((from, to, raise)) = raise {
                             if raise > RAISE_THRESHOLD_DB {
-                                raised.push(RaisedOutput {
-                                    device_id: id.clone(),
-                                    output: crate::snapshot::writers::output_name(output).to_string(),
-                                    now: to,
-                                    snapshot: from,
-                                    raised_db: raise,
-                                });
-                                note = Some(format!("raises {} by {raise} dB", crate::snapshot::writers::output_name(output)));
+                                raised.push(RaisedOutput { device_id: id.clone(), output: name.to_string(), now: Some(to), snapshot: from, raised_db: Some(raise) });
+                                note = Some(format!("raises {name} by {raise} dB"));
                                 if !request.confirm_raised_outputs {
                                     blocked.push("raised_outputs".to_string());
                                 }
+                            }
+                        } else if unknown {
+                            let snapshot = planned.from.as_ref().and_then(Json::as_i64).unwrap_or_default();
+                            raised.push(RaisedOutput { device_id: id.clone(), output: name.to_string(), now: None, snapshot, raised_db: None });
+                            note = Some(format!("{name} is at an unknown level now, so how far this moves it is not known"));
+                            if !request.confirm_raised_outputs {
+                                blocked.push("raised_outputs".to_string());
                             }
                         }
                     }
@@ -412,6 +437,13 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
                         blocked_by: blocked,
                     });
                 }
+            }
+        }
+        // If anything the restore needs is missing, every step of this device is held back: a plan
+        // that silences the outputs and cannot put them back is not one to run (§2.3.4, §2.3.5).
+        if silences && !restore_incomplete.is_empty() {
+            for step in steps.iter_mut().filter(|s| s.device_id == id) {
+                step.blocked_by.push("restore_incomplete".to_string());
             }
         }
         device_plans.push(DevicePlan {
@@ -837,7 +869,7 @@ mod tests {
         let plan = plan();
         assert_eq!(plan.raised_outputs.len(), 1, "only the one over the threshold: {:?}", plan.raised_outputs);
         let raised = &plan.raised_outputs[0];
-        assert_eq!((raised.output.as_str(), raised.now, raised.snapshot, raised.raised_db), ("Monitor", 30, 10, 20));
+        assert_eq!((raised.output.as_str(), raised.now, raised.snapshot, raised.raised_db), ("Monitor", Some(30), 10, Some(20)));
         let step = plan.steps.iter().find(|s| s.command == "set_volume" && s.args["id"] == json!(0)).expect("a step");
         assert_eq!(step.blocked_by, vec!["raised_outputs"]);
         assert_eq!(step.note.as_deref(), Some("raises Monitor by 20 dB"));
@@ -907,6 +939,51 @@ mod tests {
         assert!(covers("inputs.links", "inputs.links.preamp[0].linked"));
         assert!(!covers("inputs.preamps", "inputs.preamp_gains"));
         assert!(!covers("inputs.preamp", "inputs.preamps[0].type"));
+    }
+
+    #[test]
+    fn a_value_the_devices_would_not_give_up_just_now_is_refused_too() {
+        // The snapshot read fine; the present did not. Sending the snapshot's value would be
+        // sending from a view nobody has, which is what guard 1 forbids.
+        let snapshot = snapshot_of(recorded());
+        let mut now = present();
+        {
+            let device = now.devices.get_mut(&DeviceId::loopback(0)).expect("device");
+            device.sections.get_mut("outputs").expect("outputs").as_object_mut().expect("an object").remove("volumes");
+            device.unreadable.push(Unreadable { path: "outputs.volumes".into(), reason: "the device has not reported its state".into() });
+        }
+        let plan = build(&snapshot, &now, &diff(&snapshot, &now), &RecallRequest::default(), true);
+        assert!(!plan.steps.iter().any(|s| s.command == "set_volume"), "{:?}", commands(&plan));
+        assert!(plan.excluded.iter().any(|e| e.kind == "unreadable" && e.path.starts_with("volumes")), "{:?}", plan.excluded);
+    }
+
+    #[test]
+    fn a_plan_that_could_not_put_the_outputs_back_holds_every_step_of_that_device() {
+        // A snapshot with no mutes recorded: recall would silence the outputs and have nothing to
+        // unmute them with, so nothing of it is ready to run.
+        let mut device = recorded();
+        device.sections.get_mut("outputs").expect("outputs").as_object_mut().expect("an object").remove("hard_mute");
+        let snapshot = snapshot_of(device);
+        let now = present();
+        let plan = build(&snapshot, &now, &diff(&snapshot, &now), &RecallRequest::default(), true);
+        assert_eq!(plan.ready, 0, "nothing runs while the outputs cannot be unsilenced");
+        assert!(plan.steps.iter().all(|s| s.blocked_by.iter().any(|g| g == "restore_incomplete")), "{:?}", plan.steps.iter().map(|s| &s.blocked_by).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn an_output_whose_level_now_is_unknown_needs_the_same_tick_as_a_raise() {
+        let snapshot = snapshot_of(recorded());
+        let mut now = present();
+        {
+            let outputs = now.devices.get_mut(&DeviceId::loopback(0)).expect("device").sections.get_mut("outputs").expect("outputs");
+            outputs["volumes"][0].as_object_mut().expect("an output").remove("volume");
+        }
+        let plan = build(&snapshot, &now, &diff(&snapshot, &now), &RecallRequest::default(), true);
+        let step = plan.steps.iter().find(|s| s.command == "set_volume" && s.args["id"] == json!(0)).expect("a step");
+        assert!(step.blocked_by.contains(&"raised_outputs".to_string()), "{step:?}");
+        assert!(step.note.as_deref().unwrap_or_default().contains("unknown level"));
+        let raised = plan.raised_outputs.iter().find(|r| r.output == "Monitor").expect("a raised output");
+        assert_eq!((raised.now, raised.raised_db, raised.snapshot), (None, None, 10));
     }
 
     #[test]

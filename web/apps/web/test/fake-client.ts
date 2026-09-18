@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type ServerInfo, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -145,7 +145,19 @@ export class FakeClient implements Client {
       }
       return { added, skipped };
     },
+    recallPlan: async (id: string, ask: RecallAsk = {}): Promise<RecallPlan> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      const found = this.storedSnapshots.find((snapshot) => snapshot.id === id);
+      if (found === undefined) throw new GazelleError("unknown_snapshot", `no such snapshot: ${id}`);
+      this.lastRecallAsk = ask;
+      return this.plan ?? emptyPlan(summarise(found));
+    },
   };
+
+  /** What `recallPlan` answers; a plan with nothing to send by default. */
+  plan: RecallPlan | undefined;
+  /** What the last `recallPlan` was asked for, so a test can see the page's choices. */
+  lastRecallAsk: RecallAsk | undefined;
 
   async themes(): Promise<UserTheme[]> {
     return this.userThemes;
@@ -154,6 +166,38 @@ export class FakeClient implements Client {
   async close(): Promise<void> {
     this.closed = true;
   }
+}
+
+/** A recall plan with nothing to send: the shape the page reads, with none of it to do. */
+function emptyPlan(snapshot: SnapshotSummary): RecallPlan {
+  const part = (name: string, title: string, on: boolean, confirm: boolean) => ({ name, title, default_on: on, chosen: on, needs_confirming: confirm, confirmed: !confirm, steps: 0 });
+  return {
+    snapshot,
+    prepared_at: snapshot.created,
+    current_state_read: true,
+    raise_threshold_db: 6,
+    parts: [
+      part("silence", "Silence the outputs", true, false),
+      part("clock", "Clock", false, true),
+      part("settings", "Device settings", false, false),
+      part("dc_coupling", "DC coupling", false, true),
+      part("inputs", "Inputs", true, false),
+      part("phantom", "48V", false, true),
+      part("routing", "Routing", true, false),
+      part("mixer", "Mixer", true, false),
+      part("outputs", "Outputs", true, false),
+      part("restore", "Restore the outputs", true, false),
+    ],
+    devices: [],
+    steps: [],
+    excluded: [],
+    raised_outputs: [],
+    phantom_on: [],
+    ready: 0,
+    workspace_changes: 0,
+    sent: false,
+    note: "Nothing has been sent to any device.",
+  };
 }
 
 function summarise(snapshot: Snapshot): SnapshotSummary {

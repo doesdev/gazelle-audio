@@ -746,6 +746,7 @@ export class Store {
     delete: (id) => this.#client.snapshots.delete(id),
     compare: (id) => this.#client.snapshots.compare(id),
     import: (snapshots) => this.#client.snapshots.import(snapshots),
+    recallPlan: (id, ask) => this.#client.snapshots.recallPlan(id, ask),
   });
 
   #knownInputs(deviceId: string): InputsModel | undefined {

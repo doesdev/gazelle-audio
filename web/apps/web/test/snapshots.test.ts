@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { Store } from "../src/store/store.ts";
-import { describeChange, describeDiff, describeSection, describeSnapshot, formatValue, formatWhen } from "../src/store/snapshots.ts";
+import { describeBlocked, describeChange, describeDiff, describePlan, describeSection, describeSnapshot, describeStep, excludedByKind, formatValue, formatWhen, planByPart } from "../src/store/snapshots.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage } from "./fake-client.ts";
-import type { Snapshot, SnapshotDiff } from "gazelle-audio-client";
+import type { RecallPlan, RecallStep, Snapshot, SnapshotDiff } from "gazelle-audio-client";
 
 function setup() {
   const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
@@ -147,4 +147,133 @@ test("what a snapshot and a diff say in words", () => {
   };
   assert.equal(describeDiff(diff), "2 differences · 1 value could not be read on one side or the other · 1 device is not attached.");
   assert.equal(describeDiff({ ...diff, devices: [], changes: 0, same: true }), "Nothing that could be read differs.");
+});
+
+// Recall's preview. Everything here describes a plan; nothing here applies one, and there is
+// deliberately nothing in the model that could (workspace spec §2.3, decision 0012).
+
+const planSummary = () => ({
+  version: 1,
+  id: "snap-1",
+  name: "Drum tracking",
+  created: "2026-09-17T20:15:00Z",
+  note: "",
+  devices: [{ device_id: "loopback-0", family: "quadro", model: "Zen Quadro", read_at: "2026-09-17T20:15:00Z", current_preset: 1, sections: ["clock"], unreadable: 0 }],
+});
+
+const step = (over: Partial<RecallStep>): RecallStep => ({
+  device_id: "loopback-0",
+  model: "Zen Quadro",
+  part: "mixer",
+  title: "Mixer",
+  label: "Mixer · Mix 1 · strip 3",
+  command: "set_mixer",
+  ext3: null,
+  args: { mixer_id: 0, channel: 3, level: 12, pan: 32, mute: 0, solo: 0 },
+  bytes: "7000",
+  bytes_len: 2,
+  paths: ["mixer.mixes[0][3].level"],
+  blocked_by: [],
+  ...over,
+});
+
+const part = (name: string, title: string, on: boolean, confirm: boolean, steps: number) => ({
+  name,
+  title,
+  default_on: on,
+  chosen: on,
+  needs_confirming: confirm,
+  confirmed: !confirm,
+  steps,
+});
+
+const plan = (over: Partial<RecallPlan> = {}): RecallPlan => ({
+  snapshot: planSummary(),
+  prepared_at: "2026-09-17T21:00:00Z",
+  current_state_read: true,
+  raise_threshold_db: 6,
+  parts: [part("silence", "Silence the outputs", true, false, 1), part("phantom", "48V", false, true, 1), part("mixer", "Mixer", true, false, 1)],
+  devices: [{ device_id: "loopback-0", model: "Zen Quadro", family: "quadro", missing: false, steps: 3, excluded: 2 }],
+  steps: [
+    step({ part: "silence", title: "Silence the outputs", label: "Silence · hard mute on", command: "set_hard_mute", args: { value: 1 }, paths: [] }),
+    step({ part: "phantom", title: "48V", label: "48V · preamp 1 · ON", command: "set_pre_phantom", args: { id: 0, phantom: 1 }, note: "switches 48V ON", blocked_by: ["phantom"] }),
+    step({}),
+  ],
+  excluded: [
+    { device_id: "loopback-0", section: "inputs", path: "preamps[0].hpf", label: "Inputs · preamp 1 · high-pass filter", kind: "no_writer", reason: "no command sets it" },
+    { device_id: "loopback-0", section: "inputs", path: "adat_gains", label: "Inputs · ADAT gains", kind: "withheld", command: "set_adat_gain", reason: "waits for a hardware probe" },
+  ],
+  raised_outputs: [],
+  phantom_on: ["Zen Quadro · preamp 1"],
+  ready: 2,
+  workspace_changes: 0,
+  sent: false,
+  note: "Nothing has been sent to any device.",
+  ...over,
+});
+
+test("preparing a recall asks the server, keeps the plan, and nothing here can apply one", async () => {
+  const { client, store } = setup();
+  const snapshots = store.snapshots;
+  client.storedSnapshots = [snapshot("snap-1", "Drum tracking", "2026-09-17T20:15:00Z")];
+  await snapshots.load();
+
+  const shown = () => snapshots.plan.value;
+  assert.equal(shown(), undefined);
+  client.plan = plan();
+  const prepared = await snapshots.prepareRecall("snap-1");
+  assert.equal(prepared?.sent, false);
+  assert.equal(shown()?.steps.length, 3);
+  assert.deepEqual(client.lastRecallAsk, {}, "the page asks for the server's defaults");
+  // Not one command reached a device: preparing a plan only reads.
+  assert.deepEqual(client.invocations, []);
+
+  snapshots.closePlan();
+  assert.equal(shown(), undefined, "closing it puts the preview away");
+
+  // Deleting the snapshot a plan is for takes the plan with it.
+  await snapshots.prepareRecall("snap-1");
+  await snapshots.remove("snap-1");
+  assert.equal(shown(), undefined, "a plan for a snapshot that is gone is not left on screen");
+
+  // A refusal is reported and leaves no plan behind.
+  client.storedSnapshots = [snapshot("snap-2", "Take 2", "2026-09-17T20:15:00Z")];
+  client.failSnapshots = new Error("the devices could not be read");
+  assert.equal(await snapshots.prepareRecall("snap-2"), undefined);
+  assert.equal(snapshots.problem.value, "the devices could not be read");
+  assert.equal(shown(), undefined, "a refusal leaves no plan behind");
+});
+
+test("a plan reads as parts in running order, steps with their bytes, and reasons grouped by kind", () => {
+  const shown = plan();
+  assert.deepEqual(
+    planByPart(shown).map(({ part, steps }) => [part.title, steps.length]),
+    [["Silence the outputs", 1], ["48V", 1], ["Mixer", 1]],
+  );
+  // A part with no steps is not drawn at all.
+  assert.deepEqual(planByPart(plan({ steps: [] })), []);
+
+  assert.equal(describePlan(shown), "3 commands to 1 device · 1 held back by a guard · 2 values are not recalled.");
+  assert.equal(describePlan(plan({ steps: [], excluded: [], ready: 0, devices: [] })), "Nothing would be sent.");
+  assert.equal(
+    describePlan(plan({ steps: [], excluded: [], ready: 0, devices: [], workspace_changes: 2 })),
+    "Nothing would be sent · 2 workspace differences, which are layout only.",
+  );
+
+  assert.equal(describeStep(shown.steps[2]!), "set_mixer mixer_id 0, channel 3, level 12, pan 32, mute 0, solo 0 · 2 bytes");
+  // A routing group's 64 bytes are said as a length, not listed.
+  assert.equal(describeStep(step({ command: "set_routing", args: { bank_idx: 8, bank_configs: new Array(64).fill(0) }, bytes_len: 70 })), "set_routing bank_idx 8, bank_configs 64 bytes · 70 bytes");
+
+  assert.equal(describeBlocked(shown.steps[1]!), "48V is switched off");
+  assert.equal(describeBlocked(step({ blocked_by: ["clock:confirm"] })), "Clock needs its own confirmation");
+  assert.equal(describeBlocked(step({ blocked_by: ["raised_outputs"] })), "needs the raised-output tick");
+  assert.equal(describeBlocked(step({})), "");
+
+  assert.deepEqual(
+    excludedByKind(shown).map(({ kind, title, entries }) => [kind, title, entries.length]),
+    [
+      ["withheld", "Values held back until a session at the hardware", 1],
+      ["no_writer", "Values the devices report and no command sets", 1],
+    ],
+  );
 });
