@@ -271,6 +271,19 @@ fn install_points_start_on_boot_at_the_installed_windowless_binary() {
 }
 
 #[test]
+fn reinstalling_leaves_a_login_entry_that_already_runs_the_installed_copy_alone() {
+    let w = World::new("boot-same");
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let entry = format!("\"{}\" --backend usb --dry-run", w.installed("gazelle-audio-serverw.exe").display());
+    w.run_key.write(ENTRY_NAME, &entry).unwrap();
+
+    let report = install::install(&w.context(&never), &w.portable("v2")).unwrap();
+
+    assert_eq!(report.boot, None, "there was nothing to re-point");
+    assert_eq!(w.run_key.read(ENTRY_NAME).unwrap().as_deref(), Some(entry.as_str()));
+}
+
+#[test]
 fn install_does_not_create_a_login_entry_that_was_never_asked_for() {
     let w = World::new("no-boot");
     let report = install::install(&w.context(&never), &w.portable("v1")).unwrap();
