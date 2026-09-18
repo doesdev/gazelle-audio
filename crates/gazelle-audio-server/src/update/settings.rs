@@ -38,8 +38,8 @@ pub const DEFAULT_API_BASE: &str = "https://api.github.com";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Whether to look for updates at all. Off means the updater does nothing unasked; the tray
-    /// and the HTTP endpoint can still check on request.
+    /// Whether to offer updates at all. Off removes the whole updater: no checks, the tray has no
+    /// update items (Check for updates included) and the HTTP update routes are not served.
     pub check: bool,
     pub channel: Channel,
     /// How long between background checks. Zero means only on start.

@@ -153,3 +153,35 @@ test("an option marked data-no-wheel is passed over", async ({ page }) => {
   await expect(group).toHaveValue("");
   await expect(page.locator("ga-channel-group")).toHaveCount(0);
 });
+
+test("menus that re-route audio are left to the page: a channel's input and main mix, and a port strip's route", async ({ page }) => {
+  // Each change is a set_routing: a wheel step would put another source on the channel or the port.
+  const frames = recordFrames(page);
+  const routed = () => frames.filter((f) => f.command === "set_routing").length;
+  await putWorkspace(server, {
+    mixers: { "loopback-0": { channels: [{ id: "a", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } },
+    surfaces: [{ id: "s", name: "Ports", mixes: {}, strips: [{ id: "adat", kind: "port", device_id: "loopback-1", port: "ADAT_OUT", first: 0 }] }],
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await watchWheel(page);
+  for (const testId of ["in-6", "out-6"]) {
+    const select = page.getByTestId(testId);
+    const value = await select.inputValue();
+    await restTheWheel(page);
+    await wheelOver(page, select, 100);
+    await expect.poll(() => wheelKept(page)).toBe(false);
+    await page.waitForTimeout(200);
+    await expect(select).toHaveValue(value);
+  }
+  expect(routed()).toBe(0);
+
+  await page.goto(`${server.url}/#/surface/s`);
+  await watchWheel(page);
+  const route = page.getByTestId("port-route-0");
+  await expect(route).toBeVisible();
+  await wheelOver(page, route, 100);
+  await expect.poll(() => wheelKept(page)).toBe(false);
+  await page.waitForTimeout(200);
+  await expect(route).toHaveValue("");
+  expect(routed()).toBe(0);
+});

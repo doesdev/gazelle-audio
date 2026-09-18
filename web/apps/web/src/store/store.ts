@@ -27,6 +27,7 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
+import type { DriverReport } from "./driver.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -41,6 +42,7 @@ export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
 export const EXPLAIN_STORAGE_KEY = "gazelle.explain";
+export const DOUBLE_CLICK_UNITY_STORAGE_KEY = "gazelle.controls.doubleClickUnity";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
@@ -360,6 +362,7 @@ export class Store {
   readonly #mixerDockCollapsed: Signal<boolean>;
   readonly #explainMode: Signal<boolean>;
   readonly #mixerDockSurface: Signal<string | null>;
+  readonly #doubleClickUnity: Signal<boolean>;
   /** The surface the mixer dock shows, while it exists; undefined for the device in view. */
   readonly mixerDockSurface: ReadonlySignal<string | undefined>;
   readonly #clipLights = new Set<ClipLight>();
@@ -393,6 +396,7 @@ export class Store {
     this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.#explainMode = persisted(this.#storage, EXPLAIN_STORAGE_KEY, false, (stored) => (stored === true ? true : stored === false ? false : undefined));
     this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
+    this.#doubleClickUnity = persisted(this.#storage, DOUBLE_CLICK_UNITY_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     // A surface deleted here or elsewhere hands the dock back to the device in view.
     this.mixerDockSurface = computed(() => {
       const id = this.#mixerDockSurface.value;
@@ -1356,6 +1360,19 @@ export class Store {
     return true;
   }
 
+  /**
+   * Whether a double-click on a level (a fader, a volume, a send, a return) puts it at unity rather
+   * than at its safe level, about -20 dB. Ctrl+click sets unity either way. Off unless chosen, and
+   * remembered per browser (the user, 2026-09-18).
+   */
+  get doubleClickUnity(): ReadonlySignal<boolean> {
+    return this.#doubleClickUnity;
+  }
+
+  setDoubleClickUnity(unity: boolean): void {
+    this.#doubleClickUnity.value = unity;
+  }
+
   /** How long clip lights stay lit once a clip ends, in ms, or null to hold them until cleared. Remembered. */
   get clipAutoClear(): ReadonlySignal<number | null> {
     return this.#clipAutoClear;
@@ -1580,6 +1597,34 @@ export class Store {
   }
 
   readonly #panningLaws = new Map<string, Signal<number>>();
+
+  /**
+   * The audio driver's settings for a device (buffer size, latency, Safe Mode) as last read, or
+   * `undefined` until `loadDriver` answers. They belong to the driver on the server's PC and are
+   * only ever read here.
+   */
+  driver(deviceId: string): ReadonlySignal<DriverReport | undefined> {
+    let value = this.#drivers.get(deviceId);
+    if (value === undefined) {
+      value = signal<DriverReport | undefined>(undefined);
+      this.#drivers.set(deviceId, value);
+    }
+    return value;
+  }
+
+  /** Asks the server for a device's driver settings; `refresh` skips the few seconds it keeps them. */
+  async loadDriver(deviceId: string, refresh = false): Promise<void> {
+    let report: DriverReport;
+    try {
+      report = await this.#client.driver(deviceId, { refresh });
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      report = { device_id: deviceId, read_at_ms: Date.now(), cached: false, state: "failed", message: `The driver's settings could not be asked for: ${why}` };
+    }
+    (this.driver(deviceId) as Signal<DriverReport | undefined>).value = report;
+  }
+
+  readonly #drivers = new Map<string, Signal<DriverReport | undefined>>();
 
   /** Recalls one of the device's own presets, 1..[`PRESET_SLOTS`]. */
   recallPreset(deviceId: string, slot: number): boolean {

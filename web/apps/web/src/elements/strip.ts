@@ -13,9 +13,12 @@
 import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 import { faderPosition, formatLevel, formatPan, panAtPosition, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
-import { bindControl } from "./controls.ts";
+import { bindControl, levelReset } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
+
+/** Where a double-click puts a fader or a send: -20 dB, a safe level (the user, 2026-09-18). Ctrl+click is unity. */
+const SAFE_LEVEL = 20;
 
 /** The fader cap's height; its centre line marks the level. */
 const FADER_CAP_PX = 24;
@@ -166,7 +169,7 @@ export class GaStrip extends GaElement {
 
     const cap = h("div", { class: "cap" });
     const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}`, "data-explain": id === "master" ? "strip.master-fader" : "strip.fader", "data-explain-name": label }, h("div", { class: "groove" }), cap);
-    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: 0, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, inset: FADER_CAP_PX / 2 });
+    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
     // Marks share the cap's travel, so the cap's centre line sits on the mark for its level.
     const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: calc(${FADER_CAP_PX / 2}px + (100% - ${FADER_CAP_PX}px) * ${faderPosition(mark)})` }, mark === 0 ? "0" : `-${mark}`)));
     const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}`, "data-explain": "strip.level" });
@@ -212,7 +215,7 @@ export class GaStrip extends GaElement {
         const sendValue = h("span", { class: "value" });
         // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.
         const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send`, "aria-valuemin": -SEND_MAX, "aria-valuemax": 0, "data-explain": "strip.send", "data-explain-name": label }, sendFill, sendValue);
-        bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: 0, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled });
+        bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
         top.unshift(h("span", { class: "caption" }, "Send"), send);
         this.watch(() => {
           const value = state.value.send;

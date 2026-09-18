@@ -3,7 +3,8 @@
 
 import { h } from "../core/dom.ts";
 import { BRIGHTNESS_MAX, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PRESET_SLOTS, type OscillatorState } from "../store/store.ts";
-import { bindControl } from "./controls.ts";
+import { bindConfirm, bindControl, CONFIRM_MS } from "./controls.ts";
+import { driverSection } from "./driver-section.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import type { GaSection } from "./section.ts";
 import { keepCollapsed } from "./view-state.ts";
@@ -24,6 +25,43 @@ const hex4 = (n: number) => n.toString(16).padStart(4, "0");
 /** Each live field's key for the explain mode. */
 const LIVE_KEYS: Record<string, string> = { power_on: "devices.live-power", current_preset: "devices.live-preset", sync_source: "devices.live-sync" };
 
+/**
+ * A menu whose choice is sent only from a Confirm button beside it, the clock source's and the
+ * sample rate's (the user, 2026-09-18). Choosing another value shows the button, outlined as an
+ * armed 48V is, and pressing it sends; a wait of `CONFIRM_MS` takes it away and puts the menu back
+ * to `current`, what the device has, and so does choosing that value again.
+ */
+function confirmedChoice(select: HTMLSelectElement, testId: string, describe: (index: number) => string, send: (index: number) => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const confirm = h("button", { type: "button", class: "confirm", "data-testid": testId, "data-explain": "devices.clock-confirm", hidden: true }, "Confirm");
+  const choice = {
+    current: Number(select.value),
+    confirm,
+    armed: () => timer !== undefined,
+    disarm: () => {
+      clearTimeout(timer);
+      timer = undefined;
+      confirm.hidden = true;
+      select.value = String(choice.current);
+    },
+  };
+  select.addEventListener("change", () => {
+    const index = Number(select.value);
+    if (index === choice.current) return choice.disarm();
+    clearTimeout(timer);
+    confirm.title = describe(index);
+    confirm.hidden = false;
+    timer = setTimeout(choice.disarm, CONFIRM_MS);
+  });
+  confirm.addEventListener("click", () => {
+    if (timer === undefined) return;
+    choice.current = Number(select.value);
+    choice.disarm();
+    send(choice.current);
+  });
+  return choice;
+}
+
 export class GaDeviceStatus extends GaElement {
   static override styles = [
     sheet(`
@@ -39,6 +77,7 @@ export class GaDeviceStatus extends GaElement {
       .brightness .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .brightness[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
       .clock select { min-height: 24px; }
+      .choice { display: inline-flex; align-items: center; gap: 6px; }
       .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
       .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
       .note-inline { margin: 6px 0 0; font-size: 11px; color: var(--ga-text-muted); }
@@ -52,6 +91,7 @@ export class GaDeviceStatus extends GaElement {
       .tone[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .presets button[data-armed], .tone[data-armed], .dc[data-armed], .confirm { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
     `),
   ];
 
@@ -149,14 +189,17 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
-    // Presets: the device's own five slots. Recall is one click; saving overwrites what is in the
-    // slot, so it takes a confirming second click, as standby does.
+    // Presets: the device's own five slots. Recall may change anything at once, 48V and the clock
+    // among what a preset may hold, and saving overwrites what is in the slot, so each takes a
+    // confirming second click, as 48V does.
     let presetSection: HTMLElement | undefined;
     if (device.family !== null) {
       const slots = Array.from({ length: PRESET_SLOTS }, (_, i) => i + 1);
       const buttons = slots.map((slot) =>
-        h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}`, "data-explain": "devices.preset-recall", "data-explain-name": String(slot), "on:click": () => store.recallPreset(id, slot) }, String(slot)),
+        h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}: click twice`, "data-explain": "devices.preset-recall", "data-explain-name": String(slot) }, String(slot)),
       );
+      const recallDisarms = buttons.map((button, i) => bindConfirm(button, String(slots[i]), () => store.recallPreset(id, slots[i] as number)));
+      for (const disarmRecall of recallDisarms) this.onDisconnect(disarmRecall);
       const into = h("select", { "aria-label": "Preset to save into", "data-testid": "preset-save-slot", "data-explain": "devices.preset-slot" }, slots.map((slot) => h("option", { value: String(slot) }, String(slot))));
       let armTimer: ReturnType<typeof setTimeout> | undefined;
       const disarm = () => {
@@ -202,26 +245,34 @@ export class GaDeviceStatus extends GaElement {
         }
         into.disabled = !connected;
         save.disabled = !connected;
-        if (!connected) disarm();
+        if (!connected) {
+          disarm();
+          for (const disarmRecall of recallDisarms) disarmRecall();
+        }
       });
     }
 
     // Clock: the source and sample rate the device runs at, and what it measures. Neither takes the
     // wheel (P73): each step would reclock the device, interrupting everything playing through it,
-    // and a source with no signal behind it loses lock.
+    // and a source with no signal behind it loses lock. For the same reason a choice is only sent
+    // from a Confirm button beside the menu, which a wait takes away again, putting the menu back.
     let clockSection: HTMLElement | undefined;
     const clock = store.clock(id);
     if (clock !== undefined) {
       const source = h(
         "select",
-        { "aria-label": "Clock source", "data-testid": "clock-source", "data-no-wheel": true, "data-explain": "devices.clock-source", "on:change": () => store.setClockSource(id, Number(source.value)) },
+        { "aria-label": "Clock source", "data-testid": "clock-source", "data-no-wheel": true, "data-explain": "devices.clock-source" },
         clock.sources.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const rate = h(
         "select",
-        { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "data-explain": "devices.sample-rate", "on:change": () => store.setSampleRate(id, Number(rate.value)) },
+        { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "data-explain": "devices.sample-rate" },
         clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
       );
+      const sourceChoice = confirmedChoice(source, "clock-source-confirm", (index) => `Change the clock source to ${clock.sources[index] ?? index}: audio stops for a moment`, (index) => store.setClockSource(id, index));
+      const rateChoice = confirmedChoice(rate, "clock-rate-confirm", (index) => `Change the sample rate to ${clock.rates[index] ?? index}: audio stops for a moment`, (index) => store.setSampleRate(id, index));
+      this.onDisconnect(sourceChoice.disarm);
+      this.onDisconnect(rateChoice.disarm);
       const lock = h("span", { class: "lock", "data-explain": "devices.lock" }, "NO LOCK");
       const measured = h("span", { class: "readout", "data-testid": "clock-measured", "data-explain": "devices.measured" }, "…");
       // The Studio+'s S/PDIF sample-rate converter: with it on, a digital input at another rate or on
@@ -243,8 +294,8 @@ export class GaDeviceStatus extends GaElement {
         h(
           "dl",
           { class: "fields clock" },
-          field("Source", source),
-          field("Sample rate", rate),
+          field("Source", h("span", { class: "choice" }, source, sourceChoice.confirm)),
+          field("Sample rate", h("span", { class: "choice" }, rate, rateChoice.confirm)),
           field("Measured", h("span", {}, measured, " ", lock)),
           ...(spdifSrc === undefined ? [] : field("S/PDIF SRC", spdifSrc)),
         ),
@@ -255,13 +306,19 @@ export class GaDeviceStatus extends GaElement {
         const connected = store.connected.value;
         source.disabled = !connected;
         rate.disabled = !connected;
+        if (!connected) {
+          sourceChoice.disarm();
+          rateChoice.disarm();
+        }
         if (spdifSrc !== undefined) {
           spdifSrc.setAttribute("aria-pressed", String(store.spdifSrc(id) ?? false));
           (spdifSrc as HTMLButtonElement).disabled = !connected;
         }
         if (state === undefined) return;
-        if (this.root.activeElement !== source) source.value = String(Math.min(clock.sources.length - 1, Math.max(0, state.source)));
-        if (this.root.activeElement !== rate) rate.value = String(state.rate);
+        sourceChoice.current = Math.min(clock.sources.length - 1, Math.max(0, state.source));
+        rateChoice.current = state.rate;
+        if (this.root.activeElement !== source && !sourceChoice.armed()) source.value = String(sourceChoice.current);
+        if (this.root.activeElement !== rate && !rateChoice.armed()) rate.value = String(rateChoice.current);
         measured.textContent = state.hz > 0 ? `${(state.hz / 1000).toFixed(1)} kHz` : "none";
         lock.textContent = state.locked ? "LOCKED" : "NO LOCK";
         lock.toggleAttribute("data-locked", state.locked);
@@ -270,7 +327,8 @@ export class GaDeviceStatus extends GaElement {
 
     // Test oscillator: a tone per side over a shared level, for lining up a signal path. Both
     // models have it. The device holds the two as mute bits; here they are tones you switch on,
-    // which is how they are used, and a tone at 0 dBFS is loud, so the note says so.
+    // which is how they are used, and a tone at 0 dBFS is loud, so the note says so and turning one
+    // on takes a confirming second click, as 48V does. Off is one click.
     let oscSection: HTMLElement | undefined;
     if (device.family !== null) {
       const state = () => store.oscillator(id) as OscillatorState;
@@ -282,8 +340,8 @@ export class GaDeviceStatus extends GaElement {
         );
         return select;
       };
-      const on = (side: "left" | "right") =>
-        h("button", {
+      const on = (side: "left" | "right") => {
+        const button = h("button", {
           type: "button",
           class: "tone",
           "data-control": "",
@@ -291,8 +349,15 @@ export class GaDeviceStatus extends GaElement {
           "data-explain": "devices.osc-tone",
           "data-explain-name": side === "left" ? "Left" : "Right",
           "aria-label": `Oscillator ${side} on`,
-          "on:click": () => store.setOscillator(id, side === "left" ? { onLeft: !state().onLeft } : { onRight: !state().onRight }),
+          title: "A tone straight to the outputs: click twice to turn it on",
         }, "Tone");
+        const isOn = () => (side === "left" ? state().onLeft : state().onRight);
+        const disarmTone = bindConfirm(button, "Tone", () => store.setOscillator(id, side === "left" ? { onLeft: !isOn() } : { onRight: !isOn() }), () => !isOn());
+        this.onDisconnect(disarmTone);
+        toneDisarms.push(disarmTone);
+        return button;
+      };
+      const toneDisarms: (() => void)[] = [];
       const level = h(
         "select",
         { "aria-label": "Oscillator level", "data-testid": "osc-level", "data-explain": "devices.osc-level", "on:change": () => store.setOscillator(id, { level: Number(level.value) }) },
@@ -317,6 +382,7 @@ export class GaDeviceStatus extends GaElement {
         const current = state();
         const connected = store.connected.value;
         level.disabled = !connected;
+        if (!connected) for (const disarmTone of toneDisarms) disarmTone();
         if (this.root.activeElement !== level) level.value = String(current.level);
         for (const { side, freq: select, on: button } of sides) {
           select.disabled = !connected;
@@ -328,23 +394,28 @@ export class GaDeviceStatus extends GaElement {
     }
 
     // DC coupling: whether the converters pass DC, for control voltages rather than audio. One
-    // switch per side, as the Quadro's settings page has, and each is reported back.
+    // switch per side, as the Quadro's settings page has, and each is reported back. DC can harm
+    // speakers, so turning a side on takes a confirming second click, as 48V does; off is one.
     let dcSection: HTMLElement | undefined;
     if (store.hasDcCoupling(id)) {
       const sides = [
         { side: "inputs" as const, name: "Inputs" },
         { side: "outputs" as const, name: "Outputs" },
       ];
+      const coupled = (side: "inputs" | "outputs") => store.dcCoupling(id)?.[side] ?? false;
       const switches = sides.map(({ side, name }) =>
         h("button", {
           type: "button",
+          class: "dc",
           "data-control": "",
           "data-testid": `dc-${side}`,
           "data-explain": side === "inputs" ? "devices.dc-inputs" : "devices.dc-outputs",
           "aria-label": `DC coupled ${name.toLowerCase()}`,
-          "on:click": () => store.setDcCoupled(id, side, !(store.dcCoupling(id)?.[side] ?? false)),
+          title: "Pass DC: click twice to turn it on",
         }, "DC coupled"),
       );
+      const dcDisarms = sides.map(({ side }, i) => bindConfirm(switches[i] as HTMLElement, "DC coupled", () => store.setDcCoupled(id, side, !coupled(side)), () => !coupled(side)));
+      for (const disarmDc of dcDisarms) this.onDisconnect(disarmDc);
       dcSection = h(
         "ga-section",
         { heading: "DC coupling", explain: "devices.dc" },
@@ -358,6 +429,7 @@ export class GaDeviceStatus extends GaElement {
           const button = switches[i] as HTMLButtonElement;
           button.setAttribute("aria-pressed", String(state?.[side] ?? false));
           button.disabled = !connected;
+          if (!connected) dcDisarms[i]?.();
         });
       });
     }
@@ -405,6 +477,7 @@ export class GaDeviceStatus extends GaElement {
       ),
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
+      driverSection(store, id, (fn) => this.watch(fn)),
       ...(panningSection === undefined ? [] : [panningSection]),
       ...(dcSection === undefined ? [] : [dcSection]),
       ...(oscSection === undefined ? [] : [oscSection]),

@@ -5,6 +5,7 @@
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
+import type { DriverReport } from "./driver.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
@@ -123,6 +124,12 @@ export interface Client {
   };
   /** User theme files from the server's themes directory; the UI validates each theme. */
   themes(): Promise<UserTheme[]>;
+  /**
+   * The audio driver's settings for a device (buffer size, latency, Safe Mode), read from the
+   * driver on the server's PC. Read only. The server keeps an answer a few seconds; `refresh`
+   * asks the driver again.
+   */
+  driver(id: string, options?: { refresh?: boolean }): Promise<DriverReport>;
   close(): Promise<void>;
 }
 
@@ -269,6 +276,10 @@ class Connection implements Client {
   async themes(): Promise<UserTheme[]> {
     const listed = await this.#http("GET", "themes");
     return Array.isArray(listed) ? (listed as UserTheme[]) : [];
+  }
+
+  async driver(id: string, options: { refresh?: boolean } = {}): Promise<DriverReport> {
+    return (await this.#http("GET", `devices/${encodeURIComponent(id)}/driver${options.refresh === true ? "?refresh=true" : ""}`)) as DriverReport;
   }
 
   constructor(baseUrl: string, options: ConnectOptions) {

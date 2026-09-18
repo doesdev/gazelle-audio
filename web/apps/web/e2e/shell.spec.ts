@@ -142,19 +142,28 @@ test("the Devices page sets the clock source and sample rate, and shows the meas
       if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
     }),
   );
-  await page.goto(`${server.url}/#/devices/loopback-0`);
+  // Its own server, whose loopback sends no reports: a choice is confirmed only when it differs
+  // from what the device reports, and the shared one's reports cycle through every source.
+  const own = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
+  try {
+    await page.goto(`${own.url}/#/devices/loopback-0`);
+    const source = page.getByTestId("clock-source");
+    await expect(source.locator("option")).toHaveText(["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]);
+    await source.selectOption("4");
+    await page.getByTestId("clock-source-confirm").click();
+    await expect.poll(() => frames.filter((f) => f.command === "set_sync_source").map((f) => f.args?.["src_index"])).toEqual([4]);
 
-  const source = page.getByTestId("clock-source");
-  await expect(source.locator("option")).toHaveText(["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]);
-  await source.selectOption("4");
-  await expect.poll(() => frames.filter((f) => f.command === "set_sync_source").map((f) => f.args?.["src_index"])).toEqual([4]);
-
-  const rate = page.getByTestId("clock-rate");
-  await expect(rate.locator("option")).toHaveText(["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"]);
-  await rate.selectOption("2");
-  await expect.poll(() => frames.filter((f) => f.command === "set_samp_rate").map((f) => f.args?.["srate_idx"])).toEqual([2]);
+    const rate = page.getByTestId("clock-rate");
+    await expect(rate.locator("option")).toHaveText(["32 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"]);
+    await rate.selectOption("2");
+    await page.getByTestId("clock-rate-confirm").click();
+    await expect.poll(() => frames.filter((f) => f.command === "set_samp_rate").map((f) => f.args?.["srate_idx"])).toEqual([2]);
+  } finally {
+    await own.stop();
+  }
 
   // The measured rate and lock come from the device's report, whatever the loopback is sending.
+  await page.goto(`${server.url}/#/devices/loopback-0`);
   await expect(page.getByTestId("clock-measured")).toContainText("kHz");
 });
 
@@ -186,7 +195,7 @@ test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the 
   }
 });
 
-test("the Devices page recalls a device preset, and saves into one behind a confirm", async ({ page }) => {
+test("the Devices page recalls a device preset and saves into one, each behind a confirm", async ({ page }) => {
   const frames: { command?: string; args?: Record<string, number> }[] = [];
   page.on("websocket", (socket) =>
     socket.on("framesent", (event) => {
@@ -196,6 +205,8 @@ test("the Devices page recalls a device preset, and saves into one behind a conf
   const sent = (command: string) => frames.filter((f) => f.command === command).map((f) => f.args?.["preset_idx"]);
   await page.goto(`${server.url}/#/devices/loopback-0`);
 
+  // A preset may hold anything, 48V and the clock included, so recalling one asks too.
+  await page.getByTestId("preset-3").click();
   await page.getByTestId("preset-3").click();
   await expect.poll(() => sent("preset_recall")).toEqual([3]);
 
@@ -233,18 +244,27 @@ test("the Devices page switches DC coupling per side on the Quadro; the Studio+ 
       if (typeof event.payload === "string") frames.push(JSON.parse(event.payload) as { command?: string; args?: Record<string, number> });
     }),
   );
-  await page.goto(`${server.url}/#/devices/loopback-1`);
-  await expect(page.getByTestId("dc-inputs")).toHaveCount(0);
+  // Its own server, whose loopback sends no reports, so both sides read as off and turning one on
+  // takes a confirming second click.
+  const own = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
+  try {
+    await page.goto(`${own.url}/#/devices/loopback-1`);
+    await expect(page.getByTestId("dc-inputs")).toHaveCount(0);
 
-  await page.goto(`${server.url}/#/devices/loopback-0`);
-  await page.getByTestId("dc-inputs").click();
-  await page.getByTestId("dc-outputs").click();
-  // The switches show what the device reports, so on the loopback they stay put: what is sent is
-  // what matters. `dc_coupled_io` names the side, inputs 0 and outputs 1.
-  await expect.poll(() => frames.filter((f) => f.command === "set_dc_coupled").map((f) => [f.args?.["dc_coupled"], f.args?.["dc_coupled_io"]])).toEqual([
-    [1, 0],
-    [1, 1],
-  ]);
+    await page.goto(`${own.url}/#/devices/loopback-0`);
+    await page.getByTestId("dc-inputs").click();
+    await page.getByTestId("dc-inputs").click();
+    await page.getByTestId("dc-outputs").click();
+    await page.getByTestId("dc-outputs").click();
+    // The switches show what the device reports, so on the loopback they stay put: what is sent is
+    // what matters. `dc_coupled_io` names the side, inputs 0 and outputs 1.
+    await expect.poll(() => frames.filter((f) => f.command === "set_dc_coupled").map((f) => [f.args?.["dc_coupled"], f.args?.["dc_coupled_io"]])).toEqual([
+      [1, 0],
+      [1, 1],
+    ]);
+  } finally {
+    await own.stop();
+  }
 });
 
 test("the Devices page runs the test oscillator: a tone per side over a shared level", async ({ page }) => {
@@ -265,6 +285,7 @@ test("the Devices page runs the test oscillator: a tone per side over a shared l
 
   await page.getByTestId("osc-level").selectOption("3");
   await page.getByTestId("osc-freq-right").selectOption("1");
+  await page.getByTestId("osc-on-left").click();
   await page.getByTestId("osc-on-left").click();
   // All five fields travel together, and each change keeps the ones before it.
   await expect.poll(() => frames.filter((f) => f.command === "set_sine_gen").at(-1)?.args).toEqual({

@@ -15,12 +15,12 @@
 import { h } from "../core/dom.ts";
 import type { OutputFeed } from "../store/channels.ts";
 import { formatVolume, VOLUME_MAX, type OutputInfo } from "../store/outputs.ts";
-import { bindControl, bindMomentary } from "./controls.ts";
+import { bindControl, bindMomentary, levelReset } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { route } from "./router.ts";
 
-/** The vendor panels' starting volume, which a reset returns to. */
-const VOLUME_RESET = 30;
+/** Where a double-click puts a volume: -20 dB, the safe level every level resets to (the user, 2026-09-18). */
+const VOLUME_RESET = 20;
 
 export class GaControlRoom extends GaElement {
   static override styles = [sheet(`:host { display: block; }`)];
@@ -86,7 +86,7 @@ export class GaMonitor extends GaElement {
       const fill = h("div", { class: "fill" });
       const value = h("span", { class: "value" });
       const element = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": label, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": testId, "data-explain": explain, "data-explain-name": name }, fill, value);
-      bindControl(element, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get, set, enabled });
+      bindControl(element, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get, set, enabled, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
       const show = (volume: number) => {
         fill.style.width = `${((VOLUME_MAX - Math.min(VOLUME_MAX, Math.max(0, volume))) / VOLUME_MAX) * 100}%`;
         value.textContent = formatVolume(volume);

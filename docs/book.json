@@ -1,0 +1,25 @@
+{
+  "title": "Gazelle user manual",
+  "subtitle": "User manual",
+  "chapters": [
+    "manual/01-about.md",
+    "manual/02-safety.md",
+    "manual/03-getting-started.md",
+    "manual/04-concepts.md",
+    "manual/05-the-app.md",
+    "manual/06-devices-page.md",
+    "manual/07-inputs-page.md",
+    "manual/08-outputs-page.md",
+    "manual/09-mixer-page.md",
+    "manual/10-routing-page.md",
+    "manual/11-effects-page.md",
+    "manual/12-workspace-page.md",
+    "manual/13-surfaces-and-cables.md",
+    "manual/14-snapshots-and-backup.md",
+    "manual/15-install-update-uninstall.md",
+    "manual/16-troubleshooting.md",
+    "manual/17-command-line-and-api.md",
+    "manual/18-glossary.md"
+  ],
+  "cheatSheet": "cheat-sheet.md"
+}

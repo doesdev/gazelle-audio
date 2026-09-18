@@ -12,13 +12,11 @@
 
 import type { Catalogue } from "./explain-rules.ts";
 
-/**
- * Keys with an entry that nothing in the elements uses yet: the Devices page's Driver section, which
- * is being built separately. Each is what that section's controls should carry.
- */
-export const RESERVED_KEYS: readonly string[] = ["devices.driver", "devices.driver-buffer", "devices.driver-latency", "devices.driver-safe-mode", "devices.driver-rate"];
+/** Keys with an entry that nothing in the elements uses yet, for a section being built elsewhere. */
+export const RESERVED_KEYS: readonly string[] = [];
 
-const LEVEL_KEYS = "Arrow keys and the wheel move it a step at a time, Page Up and Page Down in bigger steps, and a double-click puts it back to its starting value.";
+const STEP_KEYS = "Arrow keys and the wheel move it a step at a time, Page Up and Page Down in bigger steps, and a double-click puts it back to its starting value.";
+const LEVEL_KEYS = "Arrow keys and the wheel move it a step at a time, Page Up and Page Down in bigger steps. A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.";
 const NOTHING_SENT = "Nothing is sent to a device.";
 const WORKSPACE = "It is kept in the workspace on the server, so everyone using this server sees the same.";
 
@@ -57,6 +55,11 @@ export const CATALOGUE: Catalogue = {
     what: "Whether this page is connected to the server. While it is not, every control is disabled until it reconnects.",
   },
   "header.theme": { title: "Theme", what: "The colours the app is drawn in. Remembered in this browser only." },
+  "header.double-click": {
+    title: "Double-click on a level",
+    what: "What a double-click does to a fader, volume, send or return: a safe -20 dB, or unity. Ctrl or Cmd and a click always sets unity.",
+    effect: "Remembered in this browser only. The wheel does not step this menu, and a phone does not show it, having no double-click.",
+  },
 
   // The shell.
   "app.menu": { title: "Sidebar", what: "Opens the sidebar over the page: device cards, the output meters and the Control Room. Escape or a tap outside closes it." },
@@ -112,7 +115,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} volume",
     name: "Output",
     what: "The hardware volume of {name}, in dB of attenuation: 0 dB at the right, down to off at the left.",
-    effect: "Sends the new volume straight to the device, the same control as the Outputs page's. " + "Double-click returns it to -30 dB, the vendor panel's starting value.",
+    effect: "Sends the new volume straight to the device, the same control as the Outputs page's. A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.",
     watch: "This is the volume of what you are listening to: a drag to the right is as loud as the output goes.",
   },
   "cr.mute": { title: "{name} mute", name: "Output", what: "Mutes {name} on the device. Its volume is kept and comes back when unmuted." },
@@ -139,7 +142,7 @@ export const CATALOGUE: Catalogue = {
   "cr.talk-level": {
     title: "Talkback level",
     what: "How loud talkback is, as a fader on the outputs' scale: 0 dB at the right, off at the left.",
-    effect: "Double-click returns it to -30 dB.",
+    effect: "A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.",
   },
   "cr.talk-to": { title: "Talkback to {name}", name: "this output", what: "Whether talkback is heard on {name} while Talk is held." },
 
@@ -181,7 +184,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} reverb send",
     name: "Channel",
     what: "How much of {name} goes to the Studio+'s reverb, in dB of attenuation: 0 dB at the right, off at the left. Only on Mix 1, as the vendor panel has it.",
-    effect: "Double-click returns it to 0 dB. The reverb's level on the Effects page is its return.",
+    effect: "A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB. The reverb's level on the Effects page is its return.",
   },
   "strip.mute": {
     title: "{name} mute",
@@ -243,12 +246,12 @@ export const CATALOGUE: Catalogue = {
   "channel.input": {
     title: "Channel input",
     what: "Which source feeds this channel: a preamp, a digital input, the computer's playback, an effect return.",
-    effect: "Routes that source to the channel's mixer input in its main mix and every mix it is sent to, and mutes it in the rest. No input mutes it everywhere.",
+    effect: "Routes that source to the channel's mixer input in its main mix and every mix it is sent to, and mutes it in the rest. No input mutes it everywhere. The wheel does not step this menu, since each step would route.",
   },
   "channel.main-mix": {
     title: "Main mix",
     what: "The mix this channel belongs to. A channel works once it has an input and a main mix.",
-    effect: "Routes the channel into that mix. Other mixes can take it too, with Add to on the channel.",
+    effect: "Routes the channel into that mix. Other mixes can take it too, with Add to on the channel. The wheel does not step this menu.",
   },
   "channel.group": { title: "Group", what: "Puts the channel in a group, or makes a new one. Grouped channels sit together under a coloured band that can fold them away. " + NOTHING_SENT },
   "channel.in-mix": {
@@ -267,7 +270,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} gain",
     name: "Preamp",
     what: "{name}'s gain in whole dB, shared with the Inputs page and every channel on this preamp.",
-    effect: "Raises or lowers the level before anything else, so every mix and recording of this input follows. " + LEVEL_KEYS,
+    effect: "Raises or lowers the level before anything else, so every mix and recording of this input follows. " + STEP_KEYS,
     watch: "Too much clips the converter: watch the clip light.",
   },
   "channel.48v": {
@@ -372,7 +375,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} gain",
     name: "Preamp",
     what: "{name}'s gain in whole dB. Its range follows the type: Mic 0 to 65, Line -6 to +20, Hi-Z 0 to 40.",
-    effect: "Raises or lowers the input before anything else, so every mix, recording and effect fed by it follows. " + LEVEL_KEYS,
+    effect: "Raises or lowers the input before anything else, so every mix, recording and effect fed by it follows. " + STEP_KEYS,
     watch: "Too much clips the converter, and that cannot be undone later: watch the clip light on its strips.",
   },
   "inputs.48v": {
@@ -392,7 +395,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} gain",
     name: "Input",
     what: "The gain of {name}, -6 to +12 dB in whole dB, applied to the digital signal as it arrives.",
-    effect: LEVEL_KEYS,
+    effect: STEP_KEYS,
   },
   "inputs.digital-gain-readonly": {
     title: "{name} gain",
@@ -442,7 +445,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} volume",
     name: "Output",
     what: "The hardware volume of {name}, in dB of attenuation: 0 dB at the right, down to off at the left.",
-    effect: "Sends the new volume straight to the device. Double-click returns it to -30 dB, the vendor panel's starting value.",
+    effect: "Sends the new volume straight to the device. A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.",
     watch: "A drag to the right is as loud as the output goes: turn up slowly on speakers and headphones.",
   },
   "outputs.mute": { title: "{name} mute", name: "Output", what: "Mutes {name} on the device. Its volume is kept and comes back when unmuted." },
@@ -466,7 +469,7 @@ export const CATALOGUE: Catalogue = {
     title: "Talk",
     what: "The Studio+ talkback: on only while you hold it (pointer, Space or Enter), off as soon as you let go, however it is let go.",
   },
-  "outputs.talk-level": { title: "Talkback level", what: "How loud talkback is, as a fader on the outputs' scale: 0 dB at the right, off at the left.", effect: "Double-click returns it to -30 dB." },
+  "outputs.talk-level": { title: "Talkback level", what: "How loud talkback is, as a fader on the outputs' scale: 0 dB at the right, off at the left.", effect: "A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB." },
   "outputs.talk-to": { title: "Talkback to {name}", name: "this output", what: "Whether talkback is heard on {name} while Talk is held." },
 
   // The Routing page.
@@ -555,18 +558,19 @@ export const CATALOGUE: Catalogue = {
   // The reverb.
   "reverb.heading": { title: "Reverb", what: "The device's one reverb: on or off and its level here; its other settings as the device reports them." },
   "reverb.on": { title: "Reverb on", what: "Switches the device's reverb on or off. Sent only once its settings have been read, so the other settings are never overwritten with defaults." },
-  "reverb.level": { title: "Reverb level", what: "The level of the reverb's output. On the Studio+ this is its return." },
+  "reverb.level": { title: "Reverb level", what: "The level of the reverb's output. On the Studio+ this is its return.", effect: "A double-click sets -18 dB, the nearest its steps have to -20, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click sets 0 dB." },
   "reverb.param": { title: "{name}", name: "Reverb setting", what: "A reverb setting as the device reports it, in the vendor panel's units.", watch: "Changing it is not in this version." },
   "reverb.returns": { title: "Reverb returns", what: "How much reverb each of the Quadro's first two mixes gets back." },
   "reverb.return-level": {
     title: "{name}",
     name: "Reverb return",
     what: "How much reverb goes back into this mix, in the vendor panel's own steps: 0 is full, 90 the least.",
+    effect: "A double-click sets 20 steps below full; Ctrl or Cmd and a click sets full.",
     watch: "The panel shows no scale for these, and they have not been checked on the device.",
   },
   "reverb.return-mute": { title: "Mute the return", what: "Mutes the reverb coming back into this mix." },
   "reverb.sends": { title: "Reverb sends", what: "How much of each of mix 1's channels 1 to 16 goes to the Quadro's reverb, and where it sits in it." },
-  "reverb.send-level": { title: "{name}", name: "Reverb send", what: "How much of this channel goes to the reverb, in dB of attenuation: 0 dB at the right, off at the left.", effect: "Double-click turns it off." },
+  "reverb.send-level": { title: "{name}", name: "Reverb send", what: "How much of this channel goes to the reverb, in dB of attenuation: 0 dB at the right, off at the left.", effect: "A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB." },
   "reverb.send-pan": { title: "{name}", name: "Reverb send pan", what: "Where this channel sits in the reverb, from L 100% through C to R 100%.", effect: "Dragging snaps to centre near the middle; a double-click centres it." },
 
   // The Devices page.
@@ -598,7 +602,8 @@ export const CATALOGUE: Catalogue = {
     title: "Recall preset {name}",
     name: "",
     what: "Loads the device's preset from this slot. The slot the device is on is lit.",
-    watch: "It changes the device's settings at once, which can change what you hear.",
+    effect: "Click twice: the first click arms it for 3 s and the button reads Confirm.",
+    watch: "A preset may hold anything, 48V and the clock among it, and recalling it changes all of it at once, which can change what you hear.",
   },
   "devices.preset-slot": { title: "Save into", what: "The slot Save writes into. Choosing one writes nothing." },
   "devices.preset-save": {
@@ -609,12 +614,19 @@ export const CATALOGUE: Catalogue = {
   "devices.clock-source": {
     title: "Clock source",
     what: "Where the device takes its clock from: its own (Internal on the Quadro, the oven clock on the Studio+), or a digital input, word clock (Studio+) or USB.",
+    effect: "Choosing another shows Confirm beside the menu; nothing is sent until it is pressed, and a wait of 3 s puts the menu back.",
     watch: "Changing it reclocks the device, which interrupts whatever is playing through it. A source with no signal behind it loses lock. The wheel does not step this menu for that reason.",
   },
   "devices.sample-rate": {
     title: "Sample rate",
     what: "The rate the device runs at, 32 to 192 kHz.",
+    effect: "Choosing another shows Confirm beside the menu; nothing is sent until it is pressed, and a wait of 3 s puts the menu back.",
     watch: "Changing it interrupts everything playing through the device, including a DAW's stream. While the device follows an external clock it takes the rate from there and ignores this. The wheel does not step this menu.",
+  },
+  "devices.clock-confirm": {
+    title: "Confirm",
+    what: "Sends the clock source or sample rate chosen in the menu beside it. Its own tooltip names the choice.",
+    watch: "Audio through the device stops for a moment while it reclocks.",
   },
   "devices.measured": { title: "Measured", what: "The sample rate the device measures, as it reports it; none when it measures nothing." },
   "devices.lock": { title: "Lock", what: "Whether the device reports itself locked to its clock source." },
@@ -631,11 +643,13 @@ export const CATALOGUE: Catalogue = {
   "devices.dc-inputs": {
     title: "DC coupled inputs",
     what: "Lets the Quadro's inputs pass control voltages as well as audio, for modular gear.",
+    effect: "Turning it on takes a second click within 3 s; turning it off is one.",
     watch: "Leave it off for audio: with it on, any DC offset a source carries comes in too.",
   },
   "devices.dc-outputs": {
     title: "DC coupled outputs",
     what: "Lets the Quadro's outputs pass control voltages as well as audio, for modular gear.",
+    effect: "Turning it on takes a second click within 3 s; turning it off is one.",
     watch: "Leave it off for audio: with it on, any DC in what is played reaches the outputs, which speakers and headphones should never get.",
   },
   "devices.osc-frequency": { title: "{name} frequency", name: "Oscillator", what: "The tone's frequency: 1 kHz or 440 Hz." },
@@ -643,18 +657,28 @@ export const CATALOGUE: Catalogue = {
     title: "{name} tone",
     name: "Oscillator",
     what: "Switches this side's test tone on or off.",
+    effect: "Turning it on takes a second click within 3 s; turning it off is one.",
     watch: "At 0 dBFS the tone is as loud as the device goes: turn the monitors down first.",
   },
   "devices.osc-level": { title: "Oscillator level", what: "The tones' level, shared by both sides: 0, -6, -12 or -18 dBFS.", watch: "0 dBFS is full scale." },
-  "devices.driver": { title: "Driver", what: "Settings of the USB audio driver on this computer, not of the device. They are read from the driver itself." },
+  "devices.driver": {
+    title: "Driver",
+    what: "The USB audio driver's settings on this computer for this device, not the device's own. Read from the driver itself, and shown only: change them in the vendor's panel.",
+  },
+  "devices.driver-version": { title: "Driver version", what: "The driver's version and the version of its programming interface. One Gazelle was not checked against says so." },
+  "devices.driver-rate": { title: "Sample rate", what: "The sample rate the driver reports it is running at for this device." },
   "devices.driver-buffer": {
     title: "Buffer size",
     what: "The driver's ASIO buffer, in samples: smaller means less delay through the computer, larger means fewer dropouts.",
-    watch: "A DAW using the driver has to restart its audio when the buffer changes, so expect a gap or a prompt from it.",
+    watch: "A DAW using the driver has to restart its audio when the buffer changes, so expect a gap or a prompt from it when you change it in the vendor's panel.",
   },
-  "devices.driver-latency": { title: "Latency", what: "The delay the driver reports for input and output, in samples and milliseconds at the current rate." },
-  "devices.driver-safe-mode": { title: "Safe Mode", what: "The driver's ASIO Safe Mode, which adds buffering for fewer dropouts at the cost of more delay.", watch: "When the driver applies a change to it has not been measured." },
-  "devices.driver-rate": { title: "Driver sample rate", what: "The sample rate the driver reports for this device." },
+  "devices.driver-latency": { title: "Latency", what: "The delay the driver reports, in samples and in milliseconds at its sample rate, rounded as the vendor's panel rounds it." },
+  "devices.driver-safe-mode": {
+    title: "Safe Mode",
+    what: "The driver's ASIO Safe Mode, which adds buffering for fewer dropouts at the cost of more delay.",
+    effect: "Measured on a Quadro at 256 samples: it adds 176 samples, about 4 ms, to the output latency and nothing to the input.",
+  },
+  "devices.driver-refresh": { title: "Read again", what: "Asks the driver again now, rather than using what was read in the last few seconds. It changes nothing." },
 
   // The Workspace page.
   "workspace.saving": { title: "Saving", what: "The workspace is being saved to the server. Edits save by themselves a moment after you make them." },

@@ -21,7 +21,7 @@ import { bandKey, formatParameter, formatReverbLevel, formatRoomSize, REVERB_LEV
 import { formatPan, meterDeflection, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition } from "../store/mixer.ts";
 import { formatVolume } from "../store/outputs.ts";
 import { meterGradient } from "../themes/theme.ts";
-import { bindControl } from "./controls.ts";
+import { bindControl, levelReset } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 
@@ -633,7 +633,9 @@ export class GaEffects extends GaElement {
       max: REVERB_LEVEL_MAX,
       up: 1,
       page: 5,
-      reset: REVERB_LEVEL_UNITY,
+      // A quarter of unity, 2.5, is -20 dB; the nearest step the level has is 3, -18 dB.
+      reset: 3,
+      level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn), REVERB_LEVEL_UNITY, "-18 dB, the nearest it has to -20 dB"),
       get: () => effects.reverb.peek()?.level ?? REVERB_LEVEL_UNITY,
       set: (v) => effects.setReverbLevel(v),
       enabled: () => enabled() && effects.reverb.peek() !== undefined,
@@ -684,7 +686,10 @@ export class GaEffects extends GaElement {
         max: 0,
         up: -1,
         page: 6,
-        reset: 0,
+        // The steps have no known scale: twenty below full is -20 dB if they are decibels, as the
+        // mixer's are.
+        reset: 20,
+        level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn), 0, "20 steps below full, about -20 dB if the steps are decibels", "full"),
         get: () => effects.returns.peek()?.entries[mix]?.level ?? 0,
         set: (v) => effects.setReturn(mix, { level: v }),
         enabled: () => enabled() && effects.returns.peek() !== undefined,
@@ -713,7 +718,8 @@ export class GaEffects extends GaElement {
         max: 0,
         up: -1,
         page: 6,
-        reset: REVERB_SEND_MAX,
+        reset: 20,
+        level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn)),
         get: () => effects.sends.peek()?.entries[i]?.level ?? REVERB_SEND_MAX,
         set: (v) => effects.setSend(channel, { level: v }),
         enabled: () => enabled() && effects.sends.peek() !== undefined,

@@ -1,6 +1,7 @@
 // <ga-header>: brand, page tabs, and the hardware-safety badges the spec requires to be always
-// visible (§6.3): which backend is driving devices, dry-run, and the connection state. The theme
-// picker sits at the end, then slot="menu", where the app puts its sidebar button for phones.
+// visible (§6.3): which backend is driving devices, dry-run, and the connection state. The
+// preferences sit at the end, what a double-click does to a level and the theme, then slot="menu",
+// where the app puts its sidebar button for phones.
 //
 // Narrower than a laptop, the bar takes two lines: the brand and badges above, the page tabs and
 // theme picker below, where the tabs scroll sideways within their line when they do not fit.
@@ -61,12 +62,14 @@ export class GaHeader extends GaElement {
         /* A zero-height line break, ordered between the two lines. */
         .bar::after { content: ""; order: 1; flex: 0 0 100%; }
         nav { order: 2; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-        .theme { order: 3; max-width: 120px; }
+        .theme, .reset { order: 3; max-width: 120px; }
       }
       @media (max-width: 480px) {
         .brand { font-size: 17px; }
         nav a { padding: 4px 8px; }
         .theme { max-width: 96px; }
+        /* A phone has no double-click. */
+        .reset { display: none; }
         /* The dot's colour carries the state; the words stay for screen readers and the tooltip. */
         .status-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       }
@@ -81,8 +84,24 @@ export class GaHeader extends GaElement {
     const statusText = h("span", { class: "status-text" });
     const status = h("span", { class: "status", role: "status", "data-testid": "connection", "data-explain": "header.connection" }, statusText);
     const picker = h("select", { class: "theme", "aria-label": "Theme", "data-explain": "header.theme", "on:change": (event) => store.selectTheme((event.target as HTMLSelectElement).value) });
+    // What a double-click on a level does (the user, 2026-09-18): a safe -20 dB unless unity is chosen.
+    // Not by the wheel: it is a safety setting, and the header is where the pointer passes.
+    const reset = h(
+      "select",
+      {
+        class: "reset",
+        "aria-label": "Double-click on a level",
+        title: "What a double-click on a fader, volume, send or return does. Ctrl/Cmd+click always sets unity.",
+        "data-testid": "double-click-level",
+        "data-no-wheel": true,
+        "data-explain": "header.double-click",
+        "on:change": () => store.setDoubleClickUnity(reset.value === "unity"),
+      },
+      h("option", { value: "safe" }, "Double-click: -20 dB"),
+      h("option", { value: "unity" }, "Double-click: unity"),
+    );
 
-    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, picker, h("slot", { name: "menu" })));
+    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
 
     this.watch(() => {
       // A surface is opened from the Workspace page, so that tab stays marked while one is shown.
@@ -101,6 +120,9 @@ export class GaHeader extends GaElement {
       status.dataset["state"] = state;
       statusText.textContent = STATUS_TEXT[state];
       status.title = STATUS_TEXT[state];
+    });
+    this.watch(() => {
+      reset.value = store.doubleClickUnity.value ? "unity" : "safe";
     });
     this.watch(() => {
       const { themes } = store.themeCatalog.value;

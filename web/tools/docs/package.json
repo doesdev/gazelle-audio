@@ -1,0 +1,11 @@
+{
+  "name": "@gazelle-audio/docs",
+  "version": "0.0.0",
+  "description": "Builds the Gazelle manual and cheat sheet from docs/ into PDFs, checks them, and takes their screenshots (unpublished)",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "marked": "18.0.13"
+  }
+}
