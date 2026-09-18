@@ -178,6 +178,42 @@ test("Quadro reverb returns into mixes 1-2 and sends from mix 1's channels", asy
   await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_send", { mixer_id: 0, channel: 2, level: 39, pan: 32, mute: 0, solo: 0 }));
 });
 
+test("the reverb's level, returns and sends: double-click goes to about -20 dB, Ctrl+click to unity, and the titles say so", async ({ page }) => {
+  await answerReads(page);
+  await page.goto(`${server.url}/#/effects/loopback-0`);
+  const level = page.getByTestId("reverb-level");
+  await expect(level).toHaveAttribute("aria-valuetext", "0 dB");
+  // The level's steps are a quarter of unity apart at the bottom: -18 dB is the nearest it has to -20.
+  await expect(level).toHaveAttribute("title", "Double-click: -18 dB, the nearest it has to -20 dB. Ctrl/Cmd+click: 0 dB.");
+  await level.dblclick();
+  await expect(level).toHaveAttribute("aria-valuetext", "-18 dB");
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_config", { mixer_id: 0, room_size: 40, color: 10, predelay: 20, density: 100, early_ref_gain: 30, late_ref_delay: 50, richness: 60, reverb_time: 70, reverb_level: 3, on: 1 }));
+  await level.click({ modifiers: ["Control"], position: { x: 3, y: 5 } });
+  await expect(level).toHaveAttribute("aria-valuetext", "0 dB");
+
+  const returnLevel = page.getByTestId("return-level-0");
+  await expect(returnLevel).toHaveAttribute("title", "Double-click: 20 steps below full, about -20 dB if the steps are decibels. Ctrl/Cmd+click: full.");
+  await returnLevel.dblclick();
+  await expect(returnLevel).toHaveAttribute("aria-valuetext", "-20 steps");
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_return", { mixer_id: 0, level: 20, mute: 0 }));
+  await returnLevel.click({ modifiers: ["Control"], position: { x: 3, y: 5 } });
+  await expect(returnLevel).toHaveAttribute("aria-valuetext", "full");
+
+  const send = page.getByTestId("send-level-2");
+  await expect(send).toHaveAttribute("title", "Double-click: -20 dB. Ctrl/Cmd+click: 0 dB.");
+  await send.dblclick();
+  await expect(send).toHaveAttribute("aria-valuetext", "-20 dB");
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_send", { mixer_id: 0, channel: 2, level: 20, pan: 32, mute: 0, solo: 0 }));
+  await send.click({ modifiers: ["Control"], position: { x: 3, y: 5 } });
+  await expect(send).toHaveAttribute("aria-valuetext", "0 dB");
+
+  // A send's pan keeps its reset, centre.
+  const pan = page.getByTestId("send-pan-2");
+  await pan.dblclick();
+  await expect(pan).toHaveAttribute("aria-valuetext", "C");
+  await expect(pan).not.toHaveAttribute("title", /Ctrl/);
+});
+
 test("the Studio+ has sixteen chains, its own bypass fields, and no reverb returns or sends of its own", async ({ page }) => {
   await answerReads(page);
   await page.goto(`${server.url}/#/effects/loopback-1`);

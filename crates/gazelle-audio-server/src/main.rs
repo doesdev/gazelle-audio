@@ -62,7 +62,7 @@ struct Args {
 
     /// Allow the recall route to apply a snapshot to a device. Off by default, and off is not the
     /// whole guard: the request must ask as well, and applying is not built yet. It waits for the
-    /// hardware session in the workspace spec's §6.
+    /// hardware session in the workspace spec's §10.
     #[arg(long)]
     enable_recall: bool,
 
@@ -70,8 +70,8 @@ struct Args {
     #[arg(long)]
     workspace: Option<PathBuf>,
 
-    /// Where snapshots are stored, one JSON file each. Defaults to a "snapshots" folder beside
-    /// the workspace file.
+    /// Where snapshots are stored, one JSON file each. Defaults to a "snapshots" folder in the
+    /// config folder, which stays there even when `--workspace` puts the workspace elsewhere.
     #[arg(long)]
     snapshots_dir: Option<PathBuf>,
 
@@ -124,7 +124,7 @@ struct Args {
     install: bool,
 
     /// With `--install`: start the installed copy afterwards. Without either flag, a run in a
-    /// terminal asks and one started from Explorer does not.
+    /// terminal asks, and one started from Explorer or a script starts it (`--yes` does not).
     #[arg(long, requires = "install")]
     start: bool,
 

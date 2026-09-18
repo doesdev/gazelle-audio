@@ -41,6 +41,7 @@ export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
+export const DOUBLE_CLICK_UNITY_STORAGE_KEY = "gazelle.controls.doubleClickUnity";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
 export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
@@ -359,6 +360,7 @@ export class Store {
   readonly #clipAutoClear: Signal<number | null>;
   readonly #mixerDockCollapsed: Signal<boolean>;
   readonly #mixerDockSurface: Signal<string | null>;
+  readonly #doubleClickUnity: Signal<boolean>;
   /** The surface the mixer dock shows, while it exists; undefined for the device in view. */
   readonly mixerDockSurface: ReadonlySignal<string | undefined>;
   readonly #clipLights = new Set<ClipLight>();
@@ -391,6 +393,7 @@ export class Store {
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
     this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
+    this.#doubleClickUnity = persisted(this.#storage, DOUBLE_CLICK_UNITY_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     // A surface deleted here or elsewhere hands the dock back to the device in view.
     this.mixerDockSurface = computed(() => {
       const id = this.#mixerDockSurface.value;
@@ -1343,6 +1346,19 @@ export class Store {
     if (surfaceId !== undefined && !(this.#workspace.peek()?.surfaces ?? []).some((s) => s.id === surfaceId)) return false;
     this.#mixerDockSurface.value = surfaceId ?? null;
     return true;
+  }
+
+  /**
+   * Whether a double-click on a level (a fader, a volume, a send, a return) puts it at unity rather
+   * than at its safe level, about -20 dB. Ctrl+click sets unity either way. Off unless chosen, and
+   * remembered per browser (the user, 2026-09-18).
+   */
+  get doubleClickUnity(): ReadonlySignal<boolean> {
+    return this.#doubleClickUnity;
+  }
+
+  setDoubleClickUnity(unity: boolean): void {
+    this.#doubleClickUnity.value = unity;
   }
 
   /** How long clip lights stay lit once a clip ends, in ms, or null to hold them until cleared. Remembered. */

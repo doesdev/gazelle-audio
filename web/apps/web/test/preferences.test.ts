@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { persisted, STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../src/store/preferences.ts";
-import { MIXER_DOCK_STORAGE_KEY, MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, SIDEBAR_STORAGE_KEY, Store } from "../src/store/store.ts";
+import { DOUBLE_CLICK_UNITY_STORAGE_KEY, MIXER_DOCK_STORAGE_KEY, MIXER_WIDTH_STORAGE_KEY, PANELS_STORAGE_KEY, SELECTED_DEVICE_STORAGE_KEY, SELECTED_MIXES_STORAGE_KEY, SIDEBAR_STORAGE_KEY, Store } from "../src/store/store.ts";
 import { effect } from "../src/core/signal.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -115,6 +115,22 @@ test("whether the mixer dock is collapsed is remembered per browser; it starts o
   assert.equal(store(storage).mixerDockCollapsed.value, false, "an invalid stored value falls back to open");
   storage.items.set(MIXER_DOCK_STORAGE_KEY, JSON.stringify(true));
   assert.equal(store(storage).mixerDockCollapsed.value, true);
+});
+
+test("whether double-click puts a level at unity is remembered per browser; it starts at the safe level", () => {
+  const storage = new MemoryStorage();
+  const first = store(storage);
+  assert.equal(first.doubleClickUnity.value, false, "double-click goes to the safe level by default");
+  first.setDoubleClickUnity(true);
+  assert.equal(first.doubleClickUnity.value, true);
+  assert.equal(store(storage).doubleClickUnity.value, true, "a later load sees the choice");
+  first.setDoubleClickUnity(false);
+  assert.equal(store(storage).doubleClickUnity.value, false);
+
+  storage.items.set(DOUBLE_CLICK_UNITY_STORAGE_KEY, JSON.stringify("unity"));
+  assert.equal(store(storage).doubleClickUnity.value, false, "an invalid stored value falls back to the safe level");
+  storage.items.set(DOUBLE_CLICK_UNITY_STORAGE_KEY, JSON.stringify(true));
+  assert.equal(store(storage).doubleClickUnity.value, true);
 });
 
 test("at phone width the mixer dock starts collapsed until a choice is kept; a kept choice wins at any width", () => {

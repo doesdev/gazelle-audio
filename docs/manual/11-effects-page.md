@@ -36,7 +36,7 @@ Clicking an effect's name opens its settings below the chains: a control per set
 
 ## Reverb
 
-- **On** switches the reverb on and off; **Level** sets its level (double-click for 0 dB).
+- **On** switches the reverb on and off; **Level** sets its level (double-click for -18 dB, the nearest it has to -20 dB; Ctrl+click for 0 dB).
 - Its other settings (room size, reverb time, pre-delay and so on) are shown read-only; changing them is not in this version.
-- **Quadro:** **Reverb returns** set how much reverb reaches mix 1 (Monitor and HP1) and mix 2 (HP2), each with a Mute; double-click returns a level to full. **Reverb sends** set how much of each of mix 1's channels 1 to 16 goes to the reverb, with a pan.
+- **Quadro:** **Reverb returns** set how much reverb reaches mix 1 (Monitor and HP1) and mix 2 (HP2), each with a Mute; double-click puts a level 20 steps below full (about -20 dB, if the steps are decibels), and Ctrl+click at full. **Reverb sends** set how much of each of mix 1's channels 1 to 16 goes to the reverb, with a pan; double-click a send for -20 dB, Ctrl+click for 0 dB.
 - **Studio+:** each channel's reverb send is its **Send** on the Mixer page, in mix 1; the return is the reverb level.
