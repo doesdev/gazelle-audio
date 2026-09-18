@@ -1,26 +1,22 @@
-// Registers every element. Import once, before adding <ga-app> to the page.
+// Registers every element the app loads with it. Import once, before adding <ga-app> to the page.
+//
+// These are what the shell shows at once: the header, the sidebar's device list, meter and Control
+// Room, the mixer and its dock, and the notices. A page built by one route only is not here — it
+// comes with its route, from `lazy.ts`.
 
 import { GaApp } from "./app.ts";
 import { GaChannel } from "./channel.ts";
 import { GaChannelGroup } from "./channel-group.ts";
 import { GaMixMaster } from "./mix-master.ts";
-import { GaRouting } from "./routing-page.ts";
 import { GaDeviceList } from "./device-list.ts";
-import { GaDeviceStatus } from "./device-status.ts";
-import { GaEffects } from "./effects-page.ts";
 import { GaHeader } from "./header.ts";
-import { GaInputs } from "./inputs-page.ts";
-import { GaOutputs } from "./outputs-page.ts";
 import { GaControlRoom, GaMonitor } from "./control-room.ts";
 import { GaOutputMeters } from "./output-meters.ts";
 import { GaMixer } from "./mixer-page.ts";
 import { GaMixerDock } from "./mixer-dock.ts";
 import { GaStrip } from "./strip.ts";
-import { GaSurface } from "./surface-page.ts";
-import { GaSurfaceStrip } from "./surface-strip.ts";
 import { GaNotices } from "./notices.ts";
 import { GaSection } from "./section.ts";
-import { GaWorkspace } from "./workspace.ts";
 
 import { installSelectWheel } from "./select-wheel.ts";
 
@@ -30,10 +26,6 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-section", GaSection],
   ["ga-header", GaHeader],
   ["ga-device-list", GaDeviceList],
-  ["ga-device-status", GaDeviceStatus],
-  ["ga-workspace", GaWorkspace],
-  ["ga-inputs", GaInputs],
-  ["ga-outputs", GaOutputs],
   ["ga-control-room", GaControlRoom],
   ["ga-output-meters", GaOutputMeters],
   ["ga-monitor", GaMonitor],
@@ -41,12 +33,8 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-channel", GaChannel],
   ["ga-channel-group", GaChannelGroup],
   ["ga-mix-master", GaMixMaster],
-  ["ga-routing", GaRouting],
-  ["ga-effects", GaEffects],
   ["ga-mixer", GaMixer],
   ["ga-mixer-dock", GaMixerDock],
-  ["ga-surface-strip", GaSurfaceStrip],
-  ["ga-surface", GaSurface],
   ["ga-notices", GaNotices],
   ["ga-app", GaApp],
 ];

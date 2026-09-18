@@ -25,6 +25,7 @@ import { displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { channelStrip } from "./channel.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import { isReady, loadElement } from "./lazy.ts";
 import { href, route } from "./router.ts";
 import type { GaSection } from "./section.ts";
 
@@ -135,9 +136,31 @@ export class GaMixerDock extends GaElement {
       return own;
     };
 
-    // A surface: its strips at dock width, rebuilt when its strips or their order change.
+    // A surface: its strips at dock width, rebuilt when its strips or their order change. The
+    // surface strip is not loaded with the app (`lazy.ts`) — it belongs to the surface page, which
+    // most sessions never open — so the dock asks for it the first time it shows one, and says so
+    // in the row meanwhile. It is only ever fetched once, whichever asks first.
     const followSurface = (surfaceId: string): (() => void)[] => {
       let rendered = "";
+      let alive = true;
+      const paint = (name: string, ids: string[]): void => {
+        if (!alive) return;
+        if (ids.length === 0) {
+          strips.replaceChildren(h("p", { class: "placeholder empty" }, `${name} has no strips yet. `, h("a", { href: href({ page: "surface", id: surfaceId }) }, "Add some on the surface.")));
+          return;
+        }
+        if (!isReady("ga-surface-strip")) {
+          strips.replaceChildren(h("p", { class: "placeholder empty", "data-testid": "dock-loading" }, `Loading ${name}…`));
+          void loadElement("ga-surface-strip").then(
+            () => paint(name, ids),
+            () => {
+              if (alive) strips.replaceChildren(h("p", { class: "placeholder empty", role: "alert" }, `${name} could not be loaded. Reload the page to try again.`));
+            },
+          );
+          return;
+        }
+        strips.replaceChildren(...ids.map((id) => h("ga-surface-strip", { "surface-id": surfaceId, "strip-id": id, compact: "" })));
+      };
       return [
         effect(() => {
           const surface = store.surfaces.surface(surfaceId);
@@ -146,14 +169,9 @@ export class GaMixerDock extends GaElement {
           const key = JSON.stringify(ids);
           if (key === rendered) return;
           rendered = key;
-          untracked(() =>
-            strips.replaceChildren(
-              ...(ids.length === 0
-                ? [h("p", { class: "placeholder empty" }, `${surface?.name ?? "This surface"} has no strips yet. `, h("a", { href: href({ page: "surface", id: surfaceId }) }, "Add some on the surface."))]
-                : ids.map((id) => h("ga-surface-strip", { "surface-id": surfaceId, "strip-id": id, compact: "" }))),
-            ),
-          );
+          untracked(() => paint(surface?.name ?? "This surface", ids));
         }),
+        () => (alive = false),
       ];
     };
 

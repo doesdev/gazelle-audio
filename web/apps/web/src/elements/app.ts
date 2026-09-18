@@ -21,6 +21,7 @@ import { GaElement, sheet, useStore } from "./element.ts";
 import type { SidebarSection } from "../store/store.ts";
 import type { GaSection } from "./section.ts";
 import { followHash, PAGES, route, type Page } from "./router.ts";
+import { isReady, loadElement } from "./lazy.ts";
 import { keepScroll } from "./view-state.ts";
 
 /** The widest viewport, in CSS pixels, at which the sidebar is a drawer rather than docked. */
@@ -224,7 +225,7 @@ export class GaApp extends GaElement {
     this.onDisconnect(() => scroll?.());
     this.watch(() => {
       const current = route.value;
-      title.textContent = current.page === "surface" ? "Surface" : (PAGES.find((p) => p.page === current.page)?.label ?? "");
+      title.textContent = pageTitle(current.page);
       // Every page but the Devices page needs a device of known model.
       const known = current.page !== "devices";
       let deviceId: string | undefined;
@@ -251,7 +252,9 @@ export class GaApp extends GaElement {
       built = key;
       untracked(() => {
         scroll?.();
-        page.replaceChildren(pageFor(current.page, deviceId));
+        // `built` has moved on once another route has been shown, so a chunk that lands late does
+        // not push aside the page that is on screen by then.
+        showPage(page, current.page, deviceId, () => built === key && this.isConnected);
         scroll = keepScroll(main, store.view(`scroll:${key}`, 0));
       });
     });
@@ -285,6 +288,47 @@ function deepActiveElement(): Element | undefined {
 function composedContains(ancestor: Node, node: Node): boolean {
   for (let at: Node | null = node; at !== null; at = at instanceof ShadowRoot ? at.host : at.parentNode) if (at === ancestor) return true;
   return false;
+}
+
+/** What the heading and the messages below call this page. The surface page has no tab of its own. */
+function pageTitle(page: Page): string {
+  return page === "surface" ? "Surface" : (PAGES.find((p) => p.page === page)?.label ?? "");
+}
+
+/**
+ * Puts the page this route asks for into `into`.
+ *
+ * A page the app did not load with it comes in a chunk of its own (`lazy.ts`): the route asks for
+ * it here, the first time it is shown. While the chunk is on its way `into` says so, in the same
+ * placeholder line a page with no device to show uses, and the page replaces it as soon as it is
+ * here. A chunk that never arrives leaves that message saying what went wrong, rather than the
+ * empty page an unregistered element would be, with a Try again that reloads: a browser remembers
+ * a module fetch that failed, so asking for the same file again in this document would fail at
+ * once, however well the network is by then. It is the boot error's button (main.ts) for the same
+ * reason.
+ *
+ * `current` is false once the route has moved on or the shell has gone, so nothing arriving late
+ * is put on screen.
+ */
+function showPage(into: HTMLElement, page: Page, id: string | undefined, current: () => boolean): void {
+  const element = pageFor(page, id);
+  const tag = element.localName;
+  if (isReady(tag)) {
+    into.replaceChildren(element);
+    return;
+  }
+  into.replaceChildren(h("p", { class: "placeholder", "data-testid": "page-loading" }, `Loading the ${pageTitle(page)} page…`));
+  void loadElement(tag).then(
+    () => {
+      if (current()) into.replaceChildren(element);
+    },
+    (error: unknown) => {
+      if (!current()) return;
+      const again = h("button", { type: "button", "data-testid": "page-retry", "on:click": () => location.reload() }, "Try again");
+      const reason = error instanceof Error ? error.message : String(error);
+      into.replaceChildren(h("p", { class: "placeholder", role: "alert", "data-testid": "page-failed" }, `The ${pageTitle(page)} page could not be loaded: ${reason}. `, again));
+    },
+  );
 }
 
 function pageFor(page: Page, id: string | undefined): HTMLElement {
