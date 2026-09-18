@@ -34,6 +34,8 @@ Along the top: the page tabs, then three things worth a glance.
 
 At the right, two menus. **Double-click** chooses what a double-click does to a level: its **safe level** (the default: -20 dB on a fader, -30 dB on a volume, off on a reverb send), or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 
+![The header's right end: the LOOPBACK badge, Connected, the Double-click menu on safe level, and the theme menu.](../images/header-menus.png)
+
 ## The sidebar
 
 One sidebar holds three sections, each folded or opened by clicking its title. It sits on the right; the arrow button at its top moves it to the other side, and the double arrow folds it to a narrow rail.

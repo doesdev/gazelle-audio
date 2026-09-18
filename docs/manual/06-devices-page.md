@@ -43,9 +43,13 @@ The audio driver's settings for this device on this computer: the USB audio driv
 
 **Changing Safe Mode.** The switch reads **On** or **Off**. Its first click reads **Confirm**; a second within three seconds turns Safe Mode the other way, keeping the buffer size as it is. Safe Mode adds buffering on the output: on a Quadro it added 176 samples (about 4 ms) at 256 samples and 265 at 512, and nothing on the input.
 
+![A Quadro's Driver section: 256 samples chosen in the buffer menu, with its Confirm beside it, and Safe Mode on.](../images/driver-quadro.png)
+
 After either change the section shows what the driver reports now, latencies included, and a line saying what happened. If the driver reports something other than what was sent, the line says so and shows what it reports; nothing is hidden.
 
 **A program using the driver.** When a program (a DAW, most likely) is using the driver's ASIO interface, the section says so, and a change is refused with nothing sent. A DAW counts as long as it has the driver open, even when it is neither playing nor recording. **Change anyway** (two clicks) sends it regardless; that program then restarts its audio, and may stop or complain. Close it or stop its audio first if you can.
+
+![The Driver section with a DAW using the driver: the line saying so, a buffer change refused with nothing sent, and Change anyway.](../images/driver-in-use.png)
 
 > **Warning.** Changing the buffer size or Safe Mode restarts the audio of any program using the driver, even when the section does not know it is in use. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
 

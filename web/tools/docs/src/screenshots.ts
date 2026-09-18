@@ -185,8 +185,65 @@ async function main(): Promise<void> {
     await go(`#/mixer/${STUDIO}`, page.getByTestId("fader-1"));
     await shoot(page, "mixer-studio");
 
+    // The header's right end: the backend badge, the connection, the Double-click menu and the theme.
+    const header = page.locator("ga-header");
+    const [bar, badge] = await Promise.all([header.boundingBox(), header.getByTestId("backend").boundingBox()]);
+    if (bar === null || badge === null) throw new Error("the header is not on the page");
+    await settle(page);
+    await page.screenshot({ path: join(IMAGES, "header-menus.png"), clip: { x: badge.x - 16, y: bar.y, width: bar.x + bar.width - (badge.x - 16), height: bar.height } });
+    console.log("  header-menus.png");
+
     await go(`#/devices/${QUADRO}`, page.locator("ga-device-status"));
     await shoot(page, "devices-quadro");
+
+    // The Driver section, as a Quadro's driver reads (the loopback server has none): the page's
+    // driver requests are answered here, as the e2e suite's driver tests do. Nothing is sent to a
+    // server, let alone a driver. First a buffer size chosen and waiting for its Confirm; then a
+    // DAW using the driver, with a change refused and Change anyway offered.
+    const driverReading = (asioClients: number) => {
+      const asio = { sample_rate: 44100, reference_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: [8, 16, 32, 64, 128, 256, 512, 1024, 2048], safe_mode: true, asio_clients: asioClients };
+      return {
+        device_id: QUADRO,
+        read_at_ms: Date.UTC(2026, 8, 18, 12, 0, 0),
+        cached: false,
+        state: "read",
+        dll: "C:\\Program Files\\Antelope Audio\\Zen Quadro Synergy Core USB Audio Driver\\x64\\Zen_Quadro_Synergy_Coreapi_x64.dll",
+        service: "Zen_Quadro_Synergy_Core",
+        api_version: "5.12",
+        api_known: true,
+        driver_version: { state: "read", value: "5.68.0" },
+        sample_rate: { state: "read", value: 44100 },
+        asio_instances: 1,
+        asio_instance: 0,
+        asio: { state: "read", value: asio },
+        safe_mode: { state: "read", value: true },
+      };
+    };
+    const driverSection = page.locator('ga-device-status ga-section[heading="Driver"]');
+    const driverField = (field: string) => page.locator(`ga-device-status [data-testid="driver-${field}"]`);
+    let asioClients = 0;
+    await page.route("**/api/v1/devices/*/driver*", (route) =>
+      route.request().method() === "PUT"
+        ? route.fulfill({ status: 409, json: { error: { code: "asio_in_use", message: "The driver's ASIO interface is in use (by a DAW, most likely), and changing the buffer or Safe Mode restarts its audio. Nothing was sent; ask again with force to change it anyway." } } })
+        : route.fulfill({ json: driverReading(asioClients) }),
+    );
+    await go(`#/devices/${QUADRO}`, driverField("buffer-menu"));
+    await driverSection.scrollIntoViewIfNeeded();
+    await driverField("buffer-menu").selectOption("256");
+    await driverField("buffer-confirm").waitFor({ state: "visible" });
+    // The Confirm goes back by itself after three seconds, so the picture is taken without the usual wait.
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    await driverSection.screenshot({ path: join(IMAGES, "driver-quadro.png") });
+    console.log("  driver-quadro.png");
+
+    asioClients = 1;
+    await go(`#/devices/${QUADRO}`, driverField("in-use"));
+    await driverSection.scrollIntoViewIfNeeded();
+    await driverField("buffer-menu").selectOption("256");
+    await driverField("buffer-confirm").click();
+    await driverField("force").waitFor({ state: "visible" });
+    await shoot(page, "driver-in-use", { clip: driverSection });
+    await page.unroute("**/api/v1/devices/*/driver*");
 
     await go(`#/inputs/${STUDIO}`, page.getByTestId("preamp-0"));
     await shoot(page, "inputs-studio");
