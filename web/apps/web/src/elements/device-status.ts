@@ -4,6 +4,7 @@
 import { h } from "../core/dom.ts";
 import { BRIGHTNESS_MAX, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PRESET_SLOTS, type OscillatorState } from "../store/store.ts";
 import { bindControl } from "./controls.ts";
+import { driverSection } from "./driver-section.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import type { GaSection } from "./section.ts";
 import { keepCollapsed } from "./view-state.ts";
@@ -395,6 +396,7 @@ export class GaDeviceStatus extends GaElement {
       ),
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
+      driverSection(store, id, (fn) => this.watch(fn)),
       ...(panningSection === undefined ? [] : [panningSection]),
       ...(dcSection === undefined ? [] : [dcSection]),
       ...(oscSection === undefined ? [] : [oscSection]),

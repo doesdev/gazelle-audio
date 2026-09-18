@@ -27,6 +27,7 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
+import type { DriverReport } from "./driver.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -1568,6 +1569,34 @@ export class Store {
   }
 
   readonly #panningLaws = new Map<string, Signal<number>>();
+
+  /**
+   * The audio driver's settings for a device (buffer size, latency, Safe Mode) as last read, or
+   * `undefined` until `loadDriver` answers. They belong to the driver on the server's PC and are
+   * only ever read here.
+   */
+  driver(deviceId: string): ReadonlySignal<DriverReport | undefined> {
+    let value = this.#drivers.get(deviceId);
+    if (value === undefined) {
+      value = signal<DriverReport | undefined>(undefined);
+      this.#drivers.set(deviceId, value);
+    }
+    return value;
+  }
+
+  /** Asks the server for a device's driver settings; `refresh` skips the few seconds it keeps them. */
+  async loadDriver(deviceId: string, refresh = false): Promise<void> {
+    let report: DriverReport;
+    try {
+      report = await this.#client.driver(deviceId, { refresh });
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      report = { device_id: deviceId, read_at_ms: Date.now(), cached: false, state: "failed", message: `The driver's settings could not be asked for: ${why}` };
+    }
+    (this.driver(deviceId) as Signal<DriverReport | undefined>).value = report;
+  }
+
+  readonly #drivers = new Map<string, Signal<DriverReport | undefined>>();
 
   /** Recalls one of the device's own presets, 1..[`PRESET_SLOTS`]. */
   recallPreset(deviceId: string, slot: number): boolean {

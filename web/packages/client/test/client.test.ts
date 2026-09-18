@@ -354,6 +354,20 @@ test("user themes are listed over HTTP", async () => {
   await client.close();
 });
 
+test("a device's driver settings are read over HTTP, and a refresh is asked for by name", async () => {
+  const report = { device_id: "serial:1", read_at_ms: 1, cached: false, state: "no_driver", message: "The loopback backend has no audio driver on this PC." };
+  const urls: string[] = [];
+  const fetch: FetchLike = async (url, init) => {
+    urls.push(`${init?.method ?? "GET"} ${url}`);
+    return { ok: true, status: 200, json: async () => report };
+  };
+  const { client } = await open({ fetch });
+  assert.deepEqual(await client.driver("serial:1"), report);
+  await client.driver("serial:1", { refresh: true });
+  assert.deepEqual(urls, ["GET http://127.0.0.1:8420/api/v1/devices/serial%3A1/driver", "GET http://127.0.0.1:8420/api/v1/devices/serial%3A1/driver?refresh=true"]);
+  await client.close();
+});
+
 test("a device of unknown model has no typed commands", async () => {
   const { client } = await open();
   const dev = client.device("usb:1:2:3:4");
