@@ -174,7 +174,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} pan",
     name: "Channel",
     what: "Where {name} sits between left and right in this mix, from L 100% through C to R 100%.",
-    effect: "Dragging snaps to centre near the middle, as the vendor panel's knob does; the wheel and arrow keys step 3% at a time through it. Double-click centres it. Each channel keeps its own pan, even when linked.",
+    effect: "Dragging snaps to centre near the middle, as the vendor panel's knob does; the wheel and arrow keys step about 3% at a time through it. Double-click centres it. Each channel keeps its own pan, even when linked.",
     watch: "While the mix is mono, the device has the channel centred and this shows the pan it goes back to. On the Quadro the panning law sets how loud a centred channel is.",
   },
   "strip.send": {

@@ -86,6 +86,18 @@ test("off by default: nothing shows and the explanations are not fetched; turned
   expect(overlaps(await box(panel(page)), await box(fader)), "the panel does not cover the fader").toBe(false);
   expect(await panel(page).evaluate((el) => getComputedStyle(el).pointerEvents), "and takes no pointer events").toBe("none");
 
+  // A control's own tooltip says what it is doing now: the panel shows it last, and borrows it from
+  // the control while it is up, so the browser's tooltip does not land on top; it goes back after.
+  const mono = page.getByTestId("mix-mono-0");
+  const own = await mono.getAttribute("title");
+  expect(own).toMatch(/mono/i);
+  await mono.hover();
+  await expect(panel(page)).toContainText(own ?? "");
+  await expect(mono).not.toHaveAttribute("title", /./);
+  await page.mouse.move(5, 5);
+  await expect(panel(page)).toBeHidden();
+  await expect(mono).toHaveAttribute("title", own ?? "");
+
   await page.reload();
   await expect(page.getByTestId("fader-6")).toBeVisible();
   await expect(toggle(page), "remembered per browser").toHaveAttribute("aria-pressed", "true");

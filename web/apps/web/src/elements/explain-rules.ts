@@ -38,6 +38,19 @@ export function resolveExplanation(entry: Explanation, name: string | undefined)
   return { title: fill(entry.title), what: fill(entry.what), effect: entry.effect === undefined ? undefined : fill(entry.effect), watch: entry.watch === undefined ? undefined : fill(entry.watch) };
 }
 
+/**
+ * Whether an element's own tooltip says something its explanation does not already: some sentence of
+ * it that the explanation does not hold. A button's fixed title often repeats what the catalogue says;
+ * a live one ("Sums Mix 1 to mono, so HP1 goes mono too") never does, and is worth its line.
+ */
+export function adds(own: string, text: ResolvedExplanation): boolean {
+  const said = [text.title, text.what, text.effect ?? "", text.watch ?? ""].join(" ").toLowerCase();
+  return own
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim().replace(/[.!?]+$/, "").toLowerCase())
+    .some((sentence) => sentence !== "" && !said.includes(sentence));
+}
+
 interface Attributed {
   getAttribute(name: string): string | null;
 }

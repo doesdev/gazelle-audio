@@ -18,7 +18,7 @@
 import { h } from "../core/dom.ts";
 import { signal } from "../core/signal.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
-import { explainKeyIn, placePanel, resolveExplanation, type Catalogue } from "./explain-rules.ts";
+import { adds, explainKeyIn, placePanel, resolveExplanation, type Catalogue } from "./explain-rules.ts";
 
 /** How long the pointer rests on something before its panel shows, when none is showing yet. */
 const SHOW_DELAY_MS = 350;
@@ -182,7 +182,7 @@ export class GaExplain extends GaElement {
       giveBack();
       const own = next.target.getAttribute("title") ?? "";
       now.textContent = own;
-      now.hidden = own === "" || own === text.title;
+      now.hidden = !adds(own, text);
       if (own !== "") {
         borrowed = { element: next.target, title: own };
         next.target.removeAttribute("title");

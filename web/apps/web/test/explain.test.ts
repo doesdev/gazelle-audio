@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { CATALOGUE, RESERVED_KEYS } from "../src/elements/explain-catalogue.ts";
-import { explainKeyIn, placePanel, resolveExplanation, type Rect } from "../src/elements/explain-rules.ts";
+import { adds, explainKeyIn, placePanel, resolveExplanation, type Rect } from "../src/elements/explain-rules.ts";
 import { EXPLAIN_STORAGE_KEY, Store } from "../src/store/store.ts";
 import { builtInThemes, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -74,6 +74,14 @@ test("an explanation names what it is about, and falls back to the entry's own w
   assert.deepEqual(resolveExplanation(entry, "Vox"), { title: "Vox level", what: "How loud Vox is in the mix.", effect: "Moves the level.", watch: undefined });
   assert.deepEqual(resolveExplanation(entry, undefined), { title: "this channel level", what: "How loud this channel is in the mix.", effect: "Moves the level.", watch: undefined });
   assert.equal(resolveExplanation({ title: "{name}", what: "x" }, "").title, "", "an empty name with no fallback stays empty rather than printing a placeholder");
+});
+
+test("an element's own tooltip is shown only when it says something the explanation does not", () => {
+  const text = resolveExplanation({ title: "Move earlier", what: "Moves the effect one place earlier.", watch: "Reordering a chain has never been tried on a device." }, undefined);
+  assert.equal(adds("Move earlier. Reordering a chain has never been tried on a device.", text), false, "every sentence is already said");
+  assert.equal(adds("Sums Mix 1 to mono, so HP1 goes mono too.", text), true);
+  assert.equal(adds("Move earlier. It is the second of three.", text), true, "one new sentence is enough");
+  assert.equal(adds("", text), false);
 });
 
 test("the key is the nearest one along the event's path, through shadow roots, and nothing when none carries one", () => {
