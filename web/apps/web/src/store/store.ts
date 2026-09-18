@@ -27,7 +27,7 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
-import type { DriverReport } from "./driver.ts";
+import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -1600,8 +1600,8 @@ export class Store {
 
   /**
    * The audio driver's settings for a device (buffer size, latency, Safe Mode) as last read, or
-   * `undefined` until `loadDriver` answers. They belong to the driver on the server's PC and are
-   * only ever read here.
+   * `undefined` until `loadDriver` answers. They belong to the driver on the server's PC; the
+   * buffer size and Safe Mode change through `setDriver`, whose read-back lands here.
    */
   driver(deviceId: string): ReadonlySignal<DriverReport | undefined> {
     let value = this.#drivers.get(deviceId);
@@ -1621,10 +1621,47 @@ export class Store {
       const why = error instanceof Error ? error.message : String(error);
       report = { device_id: deviceId, read_at_ms: Date.now(), cached: false, state: "failed", message: `The driver's settings could not be asked for: ${why}` };
     }
-    (this.driver(deviceId) as Signal<DriverReport | undefined>).value = report;
+    batch(() => {
+      (this.driver(deviceId) as Signal<DriverReport | undefined>).value = report;
+      // A result stands beside the values it describes, never beside a newer reading.
+      (this.driverWrite(deviceId) as Signal<DriverWriteState | undefined>).value = undefined;
+    });
   }
 
   readonly #drivers = new Map<string, Signal<DriverReport | undefined>>();
+
+  /** The last change asked of a device's driver, until the next read; `undefined` when there is none. */
+  driverWrite(deviceId: string): ReadonlySignal<DriverWriteState | undefined> {
+    let value = this.#driverWrites.get(deviceId);
+    if (value === undefined) {
+      value = signal<DriverWriteState | undefined>(undefined);
+      this.#driverWrites.set(deviceId, value);
+    }
+    return value;
+  }
+
+  /**
+   * Changes a device's driver buffer size and/or Safe Mode. The driver's read-back becomes what
+   * `driver` shows; a refusal (nothing sent) is kept with the change it refused, so the page can
+   * offer to send it again with `force`.
+   */
+  async setDriver(deviceId: string, change: DriverChange): Promise<void> {
+    const write = this.driverWrite(deviceId) as Signal<DriverWriteState | undefined>;
+    write.value = { state: "sending", change };
+    try {
+      const report = await this.#client.setDriver(deviceId, change);
+      batch(() => {
+        (this.driver(deviceId) as Signal<DriverReport | undefined>).value = report.read_back;
+        write.value = { state: "done", report };
+      });
+    } catch (error) {
+      const code = error instanceof GazelleError ? String(error.code) : "not_connected";
+      const message = error instanceof Error ? error.message : String(error);
+      write.value = { state: "refused", code, message, change };
+    }
+  }
+
+  readonly #driverWrites = new Map<string, Signal<DriverWriteState | undefined>>();
 
   /** Recalls one of the device's own presets, 1..[`PRESET_SLOTS`]. */
   recallPreset(deviceId: string, slot: number): boolean {

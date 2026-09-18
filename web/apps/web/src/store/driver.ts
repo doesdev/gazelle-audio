@@ -1,9 +1,65 @@
 // The audio driver's settings as the Devices page shows them: buffer size, latency and Safe Mode,
-// which belong to the driver on the PC, not to the device. Read only; changing them is a later step.
+// which belong to the driver on the PC, not to the device. The buffer size and Safe Mode can be
+// changed from the page, through the driver's one setter; what the driver reports afterwards is
+// what the page then shows.
 
-import type { DriverReading, DriverReport } from "gazelle-audio-client";
+import type { DriverChange, DriverReading, DriverReport, DriverWriteReport } from "gazelle-audio-client";
 
-export type { DriverReport };
+export type { DriverChange, DriverReport, DriverWriteReport };
+
+/** The last change asked of a device's driver: on its way, answered, or refused with nothing sent. */
+export type DriverWriteState =
+  | { state: "sending"; change: DriverChange }
+  | { state: "done"; report: DriverWriteReport }
+  | { state: "refused"; code: string; message: string; change: DriverChange };
+
+/** What the Driver section's controls need, or `undefined` when there is no reading to change from. */
+export interface DriverControls {
+  /** The sizes the driver offers, smallest first. */
+  sizes: number[];
+  buffer: number;
+  safeMode: boolean;
+  /** Programs using the driver's ASIO interface now. */
+  asioClients: number;
+}
+
+export function driverControls(report: DriverReport | undefined): DriverControls | undefined {
+  if (report === undefined || report.state !== "read" || report.asio.state !== "read") return undefined;
+  const { buffer_sizes, buffer_size, safe_mode, asio_clients } = report.asio.value;
+  return { sizes: buffer_sizes, buffer: buffer_size, safeMode: safe_mode, asioClients: asio_clients };
+}
+
+/** The line that names programs using ASIO, before anything is tried; none when there are none. */
+export function asioInUseText(clients: number): string | undefined {
+  if (clients <= 0) return undefined;
+  const [who, they] = clients === 1 ? ["1 program is", "it is"] : [`${clients} programs are`, "they are"];
+  return `${who} using the driver's ASIO interface now (a DAW, most likely). A change is refused while ${they}, unless you choose Change anyway.`;
+}
+
+const OUTCOME_LEAD: Record<DriverWriteReport["outcome"], [lead: string, problem: boolean]> = {
+  applied: ["Changed.", false],
+  unchanged: ["Unchanged.", false],
+  dry_run: ["Not sent (dry run).", false],
+  mismatch: ["Not as sent.", true],
+  unconfirmed: ["Not confirmed.", true],
+  failed: ["Not changed.", true],
+};
+
+/**
+ * The result line under the controls. A change that went through carries the latencies the driver
+ * reports now, which is what a buffer or Safe Mode change is for; one that did not says so first.
+ */
+export function writeText(write: DriverWriteState): { text: string; problem: boolean } {
+  if (write.state === "sending") return { text: "Sending to the driver...", problem: false };
+  if (write.state === "refused") return { text: `Not changed. ${write.message}`, problem: true };
+  const [lead, problem] = OUTCOME_LEAD[write.report.outcome];
+  const back = write.report.read_back;
+  const latencies =
+    write.report.outcome === "applied" && back.state === "read" && back.asio.state === "read"
+      ? ` Input latency ${latencyText(back.asio.value.input_latency, back.asio.value.sample_rate)}, output latency ${latencyText(back.asio.value.output_latency, back.asio.value.sample_rate)}.`
+      : "";
+  return { text: `${lead} ${write.report.message}${latencies}`, problem };
+}
 
 /** One line of the Driver section. `unread` marks a value the driver would not give. */
 export interface DriverRow {

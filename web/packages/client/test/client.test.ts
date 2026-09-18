@@ -368,6 +368,26 @@ test("a device's driver settings are read over HTTP, and a refresh is asked for 
   await client.close();
 });
 
+test("a change to a device's driver is a PUT of only what changes, and a refusal is a GazelleError with its code", async () => {
+  const sent: { method: string; url: string; body: unknown }[] = [];
+  let answer: { ok: boolean; status: number; body: unknown } = { ok: true, status: 200, body: { device_id: "serial:1", outcome: "applied", message: "m", call: null, read_back: {} } };
+  const fetch: FetchLike = async (url, init) => {
+    sent.push({ method: init?.method ?? "GET", url, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) });
+    return { ok: answer.ok, status: answer.status, json: async () => answer.body };
+  };
+  const { client } = await open({ fetch });
+  assert.equal((await client.setDriver("serial:1", { buffer_size: 256 })).outcome, "applied");
+  await client.setDriver("serial:1", { safe_mode: false, force: true });
+  assert.deepEqual(sent, [
+    { method: "PUT", url: "http://127.0.0.1:8420/api/v1/devices/serial%3A1/driver", body: { buffer_size: 256 } },
+    { method: "PUT", url: "http://127.0.0.1:8420/api/v1/devices/serial%3A1/driver", body: { safe_mode: false, force: true } },
+  ]);
+  answer = { ok: false, status: 409, body: { error: { code: "asio_in_use", message: "1 program is using the driver's ASIO interface" } } };
+  const refused = errorOf(await outcome(client.setDriver("serial:1", { buffer_size: 256 })));
+  assert.deepEqual([refused.code, refused.message], ["asio_in_use", "1 program is using the driver's ASIO interface"]);
+  await client.close();
+});
+
 test("a device of unknown model has no typed commands", async () => {
   const { client } = await open();
   const dev = client.device("usb:1:2:3:4");

@@ -5,7 +5,7 @@
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
-import type { DriverReport } from "./driver.ts";
+import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
@@ -130,6 +130,13 @@ export interface Client {
    * asks the driver again.
    */
   driver(id: string, options?: { refresh?: boolean }): Promise<DriverReport>;
+  /**
+   * Changes the driver's buffer size and/or Safe Mode for a device, through the driver's one setter,
+   * and answers what the driver reports afterwards. Rejects, having sent nothing, when the change
+   * cannot be made: a size the driver does not offer, no driver, or a program using its ASIO
+   * interface without `force` (code `asio_in_use`).
+   */
+  setDriver(id: string, change: DriverChange): Promise<DriverWriteReport>;
   close(): Promise<void>;
 }
 
@@ -280,6 +287,10 @@ class Connection implements Client {
 
   async driver(id: string, options: { refresh?: boolean } = {}): Promise<DriverReport> {
     return (await this.#http("GET", `devices/${encodeURIComponent(id)}/driver${options.refresh === true ? "?refresh=true" : ""}`)) as DriverReport;
+  }
+
+  async setDriver(id: string, change: DriverChange): Promise<DriverWriteReport> {
+    return (await this.#http("PUT", `devices/${encodeURIComponent(id)}/driver`, change)) as DriverWriteReport;
   }
 
   constructor(baseUrl: string, options: ConnectOptions) {

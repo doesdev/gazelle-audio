@@ -1,4 +1,7 @@
-// Value controls shared by the mixer strips and the inputs page.
+// Value controls shared by the mixer strips and the inputs page, and the confirms for the large
+// one-click actions.
+
+import { h } from "../core/dom.ts";
 
 export interface ControlOptions {
   axis: "x" | "y";
@@ -112,15 +115,16 @@ export const CONFIRM_MS = 3000;
  * outlined (`data-armed`), and a second click within `CONFIRM_MS` acts; a wait forgets it. When
  * `needed()` is false, turning a thing off, one click acts. Keys press it as they press any button,
  * and an `aria-label` on it keeps the name a screen reader hears, as 48V's does. Returns the disarm,
- * for a page that goes or a connection that drops.
+ * for a page that goes or a connection that drops. `idle` may be a function, for a label that
+ * follows what the button controls (the driver's Safe Mode reads On or Off).
  */
-export function bindConfirm(button: HTMLElement, idle: string, act: () => void, needed: () => boolean = () => true): () => void {
+export function bindConfirm(button: HTMLElement, idle: string | (() => string), act: () => void, needed: () => boolean = () => true): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const disarm = () => {
     clearTimeout(timer);
     timer = undefined;
     button.removeAttribute("data-armed");
-    button.textContent = idle;
+    button.textContent = typeof idle === "string" ? idle : idle();
   };
   button.addEventListener("click", () => {
     if (timer !== undefined || !needed()) {
@@ -133,6 +137,44 @@ export function bindConfirm(button: HTMLElement, idle: string, act: () => void, 
     timer = setTimeout(disarm, CONFIRM_MS);
   });
   return disarm;
+}
+
+/**
+ * A menu whose choice is sent only from a Confirm button beside it: the clock source's and the
+ * sample rate's (the user, 2026-09-18), and the driver's buffer size. Choosing another value shows
+ * the button, outlined as an armed 48V is, and pressing it sends; a wait of `CONFIRM_MS` takes it
+ * away and puts the menu back to `current`, what the device or driver has, and so does choosing
+ * that value again. `explain` is the Confirm button's key for the explain mode.
+ */
+export function confirmedChoice(select: HTMLSelectElement, testId: string, explain: string, describe: (index: number) => string, send: (index: number) => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const confirm = h("button", { type: "button", class: "confirm", "data-testid": testId, "data-explain": explain, hidden: true }, "Confirm");
+  const choice = {
+    current: Number(select.value),
+    confirm,
+    armed: () => timer !== undefined,
+    disarm: () => {
+      clearTimeout(timer);
+      timer = undefined;
+      confirm.hidden = true;
+      select.value = String(choice.current);
+    },
+  };
+  select.addEventListener("change", () => {
+    const index = Number(select.value);
+    if (index === choice.current) return choice.disarm();
+    clearTimeout(timer);
+    confirm.title = describe(index);
+    confirm.hidden = false;
+    timer = setTimeout(choice.disarm, CONFIRM_MS);
+  });
+  confirm.addEventListener("click", () => {
+    if (timer === undefined) return;
+    choice.current = Number(select.value);
+    choice.disarm();
+    send(choice.current);
+  });
+  return choice;
 }
 
 /**

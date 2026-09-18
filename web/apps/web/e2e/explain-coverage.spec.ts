@@ -145,6 +145,30 @@ test("every control, readout, badge and heading on every page carries a key the 
   await visit(`devices/${STUDIO}`, "ga-device-status");
   await check(page, `devices ${STUDIO}`);
 
+  // The Driver section as a driver fills it (the loopback has none): its buffer menu with the
+  // Confirm beside it, the Safe Mode switch, and the Change anyway a program using ASIO brings.
+  const sizes = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
+  const asio = { sample_rate: 44100, reference_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: sizes, safe_mode: true, asio_clients: 1 };
+  await page.route("**/api/v1/devices/*/driver*", (route) =>
+    route.request().method() === "PUT"
+      ? route.fulfill({ status: 409, json: { error: { code: "asio_in_use", message: "1 program is using the driver's ASIO interface." } } })
+      : route.fulfill({
+          json: {
+            device_id: QUADRO, read_at_ms: 1, cached: false, state: "read", dll: "x", service: "s", api_version: "5.12", api_known: true,
+            driver_version: { state: "read", value: "5.68.0" }, sample_rate: { state: "read", value: 44100 }, asio_instances: 1, asio_instance: 0,
+            asio: { state: "read", value: asio }, safe_mode: { state: "read", value: true },
+          },
+        }),
+  );
+  await visit(`devices/${QUADRO}`, "ga-device-status");
+  await page.getByTestId("driver-buffer-menu").selectOption("256");
+  await page.getByTestId("driver-buffer-confirm").click();
+  await expect(page.getByTestId("driver-force")).toBeVisible();
+  await page.getByTestId("driver-buffer-menu").selectOption("128");
+  await expect(page.getByTestId("driver-buffer-confirm")).toBeVisible();
+  await check(page, `devices ${QUADRO} with a driver`);
+  await page.unroute("**/api/v1/devices/*/driver*");
+
   for (const device of [QUADRO, STUDIO]) {
     await visit(`inputs/${device}`, "ga-inputs");
     // A link badge pressed opens the link bar and its buttons.

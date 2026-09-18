@@ -3,7 +3,7 @@
 
 import { h } from "../core/dom.ts";
 import { BRIGHTNESS_MAX, displayName, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PRESET_SLOTS, type OscillatorState } from "../store/store.ts";
-import { bindConfirm, bindControl, CONFIRM_MS } from "./controls.ts";
+import { bindConfirm, bindControl, confirmedChoice } from "./controls.ts";
 import { driverSection } from "./driver-section.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import type { GaSection } from "./section.ts";
@@ -24,43 +24,6 @@ const hex4 = (n: number) => n.toString(16).padStart(4, "0");
 
 /** Each live field's key for the explain mode. */
 const LIVE_KEYS: Record<string, string> = { power_on: "devices.live-power", current_preset: "devices.live-preset", sync_source: "devices.live-sync" };
-
-/**
- * A menu whose choice is sent only from a Confirm button beside it, the clock source's and the
- * sample rate's (the user, 2026-09-18). Choosing another value shows the button, outlined as an
- * armed 48V is, and pressing it sends; a wait of `CONFIRM_MS` takes it away and puts the menu back
- * to `current`, what the device has, and so does choosing that value again.
- */
-function confirmedChoice(select: HTMLSelectElement, testId: string, describe: (index: number) => string, send: (index: number) => void) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const confirm = h("button", { type: "button", class: "confirm", "data-testid": testId, "data-explain": "devices.clock-confirm", hidden: true }, "Confirm");
-  const choice = {
-    current: Number(select.value),
-    confirm,
-    armed: () => timer !== undefined,
-    disarm: () => {
-      clearTimeout(timer);
-      timer = undefined;
-      confirm.hidden = true;
-      select.value = String(choice.current);
-    },
-  };
-  select.addEventListener("change", () => {
-    const index = Number(select.value);
-    if (index === choice.current) return choice.disarm();
-    clearTimeout(timer);
-    confirm.title = describe(index);
-    confirm.hidden = false;
-    timer = setTimeout(choice.disarm, CONFIRM_MS);
-  });
-  confirm.addEventListener("click", () => {
-    if (timer === undefined) return;
-    choice.current = Number(select.value);
-    choice.disarm();
-    send(choice.current);
-  });
-  return choice;
-}
 
 export class GaDeviceStatus extends GaElement {
   static override styles = [
@@ -92,6 +55,10 @@ export class GaDeviceStatus extends GaElement {
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .presets button[data-armed], .tone[data-armed], .dc[data-armed], .confirm { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .driver-safe, .driver-force { min-width: 44px; min-height: 24px; font-size: 12px; font-weight: 600; }
+      .driver-safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .driver-safe[data-armed], .driver-force[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .note-inline.warning { color: var(--ga-state-mute); }
     `),
   ];
 
@@ -269,8 +236,8 @@ export class GaDeviceStatus extends GaElement {
         { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "data-explain": "devices.sample-rate" },
         clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
       );
-      const sourceChoice = confirmedChoice(source, "clock-source-confirm", (index) => `Change the clock source to ${clock.sources[index] ?? index}: audio stops for a moment`, (index) => store.setClockSource(id, index));
-      const rateChoice = confirmedChoice(rate, "clock-rate-confirm", (index) => `Change the sample rate to ${clock.rates[index] ?? index}: audio stops for a moment`, (index) => store.setSampleRate(id, index));
+      const sourceChoice = confirmedChoice(source, "clock-source-confirm", "devices.clock-confirm", (index) => `Change the clock source to ${clock.sources[index] ?? index}: audio stops for a moment`, (index) => store.setClockSource(id, index));
+      const rateChoice = confirmedChoice(rate, "clock-rate-confirm", "devices.clock-confirm", (index) => `Change the sample rate to ${clock.rates[index] ?? index}: audio stops for a moment`, (index) => store.setSampleRate(id, index));
       this.onDisconnect(sourceChoice.disarm);
       this.onDisconnect(rateChoice.disarm);
       const lock = h("span", { class: "lock", "data-explain": "devices.lock" }, "NO LOCK");
@@ -477,7 +444,7 @@ export class GaDeviceStatus extends GaElement {
       ),
       liveSection,
       ...(clockSection === undefined ? [] : [clockSection]),
-      driverSection(store, id, (fn) => this.watch(fn)),
+      driverSection(store, id, (fn) => this.watch(fn), (fn) => this.onDisconnect(fn)),
       ...(panningSection === undefined ? [] : [panningSection]),
       ...(dcSection === undefined ? [] : [dcSection]),
       ...(oscSection === undefined ? [] : [oscSection]),

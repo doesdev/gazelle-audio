@@ -663,14 +663,41 @@ export const CATALOGUE: Catalogue = {
   "devices.osc-level": { title: "Oscillator level", what: "The tones' level, shared by both sides: 0, -6, -12 or -18 dBFS.", watch: "0 dBFS is full scale." },
   "devices.driver": {
     title: "Driver",
-    what: "The USB audio driver's settings on this computer for this device, not the device's own. Read from the driver itself, and shown only: change them in the vendor's panel.",
+    what: "The USB audio driver's settings on this computer for this device, not the device's own. Read from the driver itself; the buffer size and Safe Mode can be changed here, each with a confirming click.",
+    watch: "A program using the driver (a DAW) restarts its audio when either changes.",
   },
   "devices.driver-version": { title: "Driver version", what: "The driver's version and the version of its programming interface. One Gazelle was not checked against says so." },
   "devices.driver-rate": { title: "Sample rate", what: "The sample rate the driver reports it is running at for this device." },
   "devices.driver-buffer": {
     title: "Buffer size",
     what: "The driver's ASIO buffer, in samples: smaller means less delay through the computer, larger means fewer dropouts.",
-    watch: "A DAW using the driver has to restart its audio when the buffer changes, so expect a gap or a prompt from it when you change it in the vendor's panel.",
+    watch: "A DAW using the driver has to restart its audio when the buffer changes, so expect a gap or a prompt from it.",
+  },
+  "devices.driver-buffer-menu": {
+    title: "Buffer size",
+    what: "The ASIO buffer the driver uses, from the sizes it offers. Choosing one shows a Confirm beside the menu; nothing is sent until it is pressed.",
+    effect: "Smaller means less delay through the computer, larger means fewer dropouts. The latencies below show what the driver reports after the change.",
+    watch: "A DAW using the driver restarts its audio. The wheel does not change this menu.",
+  },
+  "devices.driver-buffer-confirm": {
+    title: "Confirm",
+    what: "Sends the buffer size chosen in the menu beside it to the driver, keeping Safe Mode as it is, then shows what the driver reports. A wait puts the menu back.",
+    watch: "A DAW using the driver restarts its audio.",
+  },
+  "devices.driver-safe-mode-switch": {
+    title: "Safe Mode",
+    what: "Turns the driver's ASIO Safe Mode on or off, keeping the buffer size as it is. The first click reads Confirm; a second within three seconds sends.",
+    effect: "Measured on a Quadro: it adds 176 samples of output latency at 256 samples and 265 at 512, and nothing to the input.",
+    watch: "A DAW using the driver restarts its audio.",
+  },
+  "devices.driver-force": {
+    title: "Change anyway",
+    what: "Sends the change the driver section refused because a program is using the driver's ASIO interface, this time anyway. It takes a confirming click.",
+    watch: "That program (a DAW, most likely) restarts its audio, and may stop or complain.",
+  },
+  "devices.driver-result": {
+    title: "Result",
+    what: "What happened to the last change: what the driver reports now, with its latencies, or why nothing was sent. A result that differs from what was sent says so.",
   },
   "devices.driver-latency": { title: "Latency", what: "The delay the driver reports, in samples and in milliseconds at its sample rate, rounded as the vendor's panel rounds it." },
   "devices.driver-safe-mode": {

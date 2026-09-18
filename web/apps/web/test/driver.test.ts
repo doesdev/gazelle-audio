@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { GazelleError, type DriverReport } from "gazelle-audio-client";
+import { GazelleError, type DriverChange, type DriverReport, type DriverWriteReport } from "gazelle-audio-client";
 
-import { driverView, latencyText } from "../src/store/driver.ts";
+import { asioInUseText, driverControls, driverView, latencyText, writeText } from "../src/store/driver.ts";
 import { Store } from "../src/store/store.ts";
 import { device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -23,7 +23,7 @@ export const QUADRO_REPORT: DriverReport = {
   sample_rate: { state: "read", value: 44100 },
   asio_instances: 1,
   asio_instance: 0,
-  asio: { state: "read", value: { sample_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED } },
+  asio: { state: "read", value: { sample_rate: 44100, reference_rate: 44100, buffer_size: 512, input_latency: 571, output_latency: 632, buffer_sizes: OFFERED, safe_mode: true, asio_clients: 0 } },
   safe_mode: { state: "read", value: true },
 };
 
@@ -100,5 +100,71 @@ test("the store reads a device's driver on demand, and a failed request becomes 
   await store.loadDriver("loopback-0");
   const failed = store.driver("loopback-0").value;
   assert.deepEqual([failed?.state, failed?.state === "read" ? "" : failed?.message], ["failed", "The driver's settings could not be asked for: GET failed: ECONNREFUSED"]);
+  await flush();
+});
+
+/** The Quadro after a change to 256 samples with Safe Mode off, as its driver read back on 2026-09-18. */
+const QUADRO_256_OFF: DriverReport = {
+  ...QUADRO_REPORT,
+  asio: { state: "read", value: { sample_rate: 44100, reference_rate: 44100, buffer_size: 256, input_latency: 315, output_latency: 191, buffer_sizes: OFFERED, safe_mode: false, asio_clients: 0 } },
+  safe_mode: { state: "read", value: false },
+} as DriverReport;
+
+test("the controls come from a reading: the offered sizes, the buffer, Safe Mode and who is using ASIO", () => {
+  assert.deepEqual(driverControls(QUADRO_REPORT), { sizes: OFFERED, buffer: 512, safeMode: true, asioClients: 0 });
+  assert.equal(driverControls({ ...QUADRO_REPORT, asio: { state: "unread", message: "Could not be read." } } as DriverReport), undefined, "nothing to change from without a reading");
+  assert.equal(driverControls({ device_id: "loopback-0", read_at_ms: 1, cached: false, state: "no_driver", message: "m" }), undefined);
+});
+
+test("programs using ASIO are named before a change is tried", () => {
+  assert.equal(asioInUseText(0), undefined);
+  assert.equal(asioInUseText(1), "1 program is using the driver's ASIO interface now (a DAW, most likely). A change is refused while it is, unless you choose Change anyway.");
+  assert.equal(asioInUseText(2), "2 programs are using the driver's ASIO interface now (a DAW, most likely). A change is refused while they are, unless you choose Change anyway.");
+});
+
+test("a write's result reads plainly, and a mismatch or failure is not dressed up as success", () => {
+  const report = (outcome: DriverWriteReport["outcome"], message: string): DriverWriteReport => ({ device_id: "d", outcome, message, call: null, read_back: QUADRO_256_OFF });
+  assert.deepEqual(writeText({ state: "done", report: report("applied", "The driver now reports a buffer of 256 samples with Safe Mode off.") }), {
+    text: "Changed. The driver now reports a buffer of 256 samples with Safe Mode off. Input latency 315 samples (7.14 ms), output latency 191 samples (4.33 ms).",
+    problem: false,
+  });
+  assert.equal(writeText({ state: "done", report: report("mismatch", "The driver did not take the change as sent: x.") }).problem, true);
+  assert.match(writeText({ state: "done", report: report("mismatch", "The driver did not take the change as sent: x.") }).text, /^Not as sent\. /);
+  assert.equal(writeText({ state: "done", report: report("failed", "The driver refused the change: y.") }).problem, true);
+  assert.equal(writeText({ state: "done", report: report("unconfirmed", "z") }).problem, true);
+  assert.equal(writeText({ state: "done", report: report("unchanged", "The driver already has these settings, so nothing was sent.") }).problem, false);
+  assert.deepEqual(writeText({ state: "sending", change: { buffer_size: 256 } }), { text: "Sending to the driver...", problem: false });
+  assert.deepEqual(writeText({ state: "refused", code: "not_offered", message: "No.", change: { buffer_size: 3 } }), { text: "Not changed. No.", problem: true });
+});
+
+test("the store sends a change, shows the driver's read-back, and keeps a refusal with the change it refused", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"));
+  const sent: DriverChange[] = [];
+  let refuse: GazelleError | undefined;
+  client.driver = async () => QUADRO_REPORT;
+  client.setDriver = async (id, change) => {
+    sent.push(change);
+    if (refuse !== undefined) throw refuse;
+    return { device_id: id, outcome: "applied", message: "The driver now reports a buffer of 256 samples with Safe Mode off.", call: null, read_back: QUADRO_256_OFF };
+  };
+  const store = new Store(client, { storage: new MemoryStorage() });
+  await store.start();
+  await store.loadDriver("loopback-0");
+
+  const sending = store.setDriver("loopback-0", { buffer_size: 256 });
+  assert.equal(store.driverWrite("loopback-0").value?.state, "sending");
+  await sending;
+  assert.equal(store.driver("loopback-0").value, QUADRO_256_OFF, "the read-back is what the section shows");
+  assert.equal(store.driverWrite("loopback-0").value?.state, "done");
+
+  refuse = new GazelleError("asio_in_use", "1 program is using the driver's ASIO interface.");
+  await store.setDriver("loopback-0", { safe_mode: true });
+  assert.deepEqual(store.driverWrite("loopback-0").value, { state: "refused", code: "asio_in_use", message: "1 program is using the driver's ASIO interface.", change: { safe_mode: true } });
+  assert.equal(store.driver("loopback-0").value, QUADRO_256_OFF, "a refusal changes nothing shown");
+  assert.deepEqual(sent, [{ buffer_size: 256 }, { safe_mode: true }]);
+
+  // A new read clears the last result, so it never stands beside values it does not describe.
+  await store.loadDriver("loopback-0", true);
+  assert.equal(store.driverWrite("loopback-0").value, undefined);
   await flush();
 });

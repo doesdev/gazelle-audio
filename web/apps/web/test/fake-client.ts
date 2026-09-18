@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -165,6 +165,11 @@ export class FakeClient implements Client {
 
   /** How a driver read answers; the loopback's answer by default. */
   driver: (id: string, options?: { refresh?: boolean }) => Promise<DriverReport> = async (id) => ({ device_id: id, read_at_ms: 0, cached: false, state: "no_driver", message: "The loopback backend has no audio driver on this PC." });
+
+  /** How a driver change answers; the loopback's refusal by default, as the server gives it. */
+  setDriver: (id: string, change: DriverChange) => Promise<DriverWriteReport> = async () => {
+    throw new GazelleError("unavailable", "The loopback backend has no audio driver on this PC.");
+  };
 
   async close(): Promise<void> {
     this.closed = true;

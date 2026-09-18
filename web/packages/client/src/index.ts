@@ -18,7 +18,7 @@ export type {
   UntypedDevice,
   UserTheme,
 } from "./client.ts";
-export type { AsioInstance, DriverReading, DriverReport, DriverSettings, DriverUnread } from "./driver.ts";
+export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
 export { fromHex, toHex } from "./bytes.ts";
