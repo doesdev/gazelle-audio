@@ -153,7 +153,17 @@ fn log_dir_writes_the_log_to_a_file_as_well() {
     let rx = lines(&mut child);
     let _server = Server(child);
     let port = console_port(&rx);
-    let text = std::fs::read_to_string(logs.join("gazelle.log")).unwrap();
+    // Each record goes to the console layer before the file layer, so the console can show the
+    // line a moment before the file holds it (seen on a CI runner): wait for it, briefly.
+    let file = logs.join("gazelle.log");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let text = loop {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        if text.lines().any(|line| listening_port(line).is_some()) || std::time::Instant::now() > deadline {
+            break text;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     assert_eq!(text.lines().find_map(listening_port), Some(port), "{text}");
     assert!(!text.contains('\x1b'), "no colour codes in the file: {text:?}");
     assert_eq!(std::fs::read_dir(&home.0).unwrap().count(), 1, "only the named folder is written");

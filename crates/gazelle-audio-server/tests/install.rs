@@ -593,13 +593,17 @@ fn the_shell_resolves_the_shortcut_the_installer_wrote() {
         .expect("powershell is how this machine asks the shell what a .lnk points at");
     let text = String::from_utf8_lossy(&out.stdout);
     let read: Vec<&str> = text.lines().map(str::trim).collect();
+    // Compared as the places they name, not as spellings: under a temp directory with an 8.3
+    // short name (CI's `C:\Users\RUNNER~1`) the shell gives the target back in long form and
+    // the working directory as written, so equal strings would be the wrong question.
+    let place = |path: PathBuf| std::fs::canonicalize(&path).unwrap_or(path);
     assert_eq!(
-        read.first().map(PathBuf::from),
-        Some(w.installed("gazelle-audio-serverw.exe")),
+        read.first().map(PathBuf::from).map(place),
+        Some(place(w.installed("gazelle-audio-serverw.exe"))),
         "the shell read: {text:?} / {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(read.get(1).map(PathBuf::from), Some(w.layout.programs.clone()), "{text:?}");
+    assert_eq!(read.get(1).map(PathBuf::from).map(place), Some(place(w.layout.programs.clone())), "{text:?}");
     assert_eq!(read.get(2).copied(), Some("Gazelle"), "{text:?}");
 }
 

@@ -133,8 +133,10 @@ jobs:
       - name: pnpm docs:check
         working-directory: web
         run: pnpm docs:check
-      - name: Keep the e2e traces and screenshots of a failure
-        if: failure()
+      # Always, not only on failure: a test that failed and then passed on a retry is flaky, and
+      # its first attempt's trace is the only record of why. Nothing is uploaded on a clean run.
+      - name: Keep the e2e traces and screenshots of a failure or a flake
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-results
