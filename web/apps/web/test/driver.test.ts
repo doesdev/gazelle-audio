@@ -29,6 +29,14 @@ export const QUADRO_REPORT: DriverReport = {
 
 test("latency reads as the vendor panel shows it, in samples and milliseconds", () => {
   assert.equal(latencyText(571, 44100), "571 samples (12.95 ms)");
+  // The vendor panel's own rounding, from its four values on the user's two devices (2026-09-18):
+  // whole microseconds first, then hundredths of a millisecond with a half going to the even digit.
+  // Plain rounding would give 13.27 for the Studio+'s 585 samples; the panel shows 13.26.
+  assert.deepEqual(
+    [[571, 44100], [632, 44100], [568, 44100], [585, 44100]].map(([samples, rate]) => latencyText(samples as number, rate as number)),
+    ["571 samples (12.95 ms)", "632 samples (14.33 ms)", "568 samples (12.88 ms)", "585 samples (13.26 ms)"],
+  );
+  assert.equal(latencyText(587, 44100), "587 samples (13.31 ms)", "13310 us: no half, so the ordinary way");
   assert.equal(latencyText(632, 44100), "632 samples (14.33 ms)");
   assert.equal(latencyText(568, 44100), "568 samples (12.88 ms)");
   assert.equal(latencyText(512, 48000), "512 samples (10.67 ms)");

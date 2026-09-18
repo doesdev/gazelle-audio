@@ -14,8 +14,20 @@ export interface DriverRow {
   field: string;
 }
 
-/** A latency as the vendor's panel shows it: "571 samples (12.95 ms)". */
-export const latencyText = (samples: number, rate: number): string => `${samples} samples (${((samples / rate) * 1000).toFixed(2)} ms)`;
+/**
+ * A latency as the vendor's panel shows it: "571 samples (12.95 ms)". The panel counts whole
+ * microseconds, then rounds to hundredths of a millisecond with a half going to the even digit:
+ * that is the one rule its four values on the user's devices all fit (585 samples at 44.1 kHz is
+ * 13265 us, which it shows as 13.26, where ordinary rounding gives 13.27). Whether it truncates or
+ * rounds the microseconds first, those four values cannot tell; truncation is assumed.
+ */
+export const latencyText = (samples: number, rate: number): string => {
+  const micros = Math.floor((samples * 1_000_000) / rate);
+  const rest = micros % 10;
+  let hundredths = (micros - rest) / 10;
+  if (rest > 5 || (rest === 5 && hundredths % 2 === 1)) hundredths += 1;
+  return `${samples} samples (${Math.floor(hundredths / 100)}.${String(hundredths % 100).padStart(2, "0")} ms)`;
+};
 
 const kHz = (rate: number) => `${Number((rate / 1000).toFixed(3))} kHz`;
 
