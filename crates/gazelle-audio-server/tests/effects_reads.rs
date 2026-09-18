@@ -21,7 +21,7 @@ fn app() -> axum::Router {
     let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
     devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
-    http::router(AppState { devices, store, force_dry_run: false, backend: "loopback".into(), themes_dir: None })
+    http::router(AppState { devices, store, force_dry_run: false, backend: "loopback".into(), themes_dir: None, show_window: None })
 }
 
 async fn post(app: axum::Router, uri: &str) -> (StatusCode, Value) {

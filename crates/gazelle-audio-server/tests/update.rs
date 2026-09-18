@@ -530,6 +530,7 @@ fn api(updater: Updater) -> axum::Router {
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir: None,
+        show_window: None,
     };
     gazelle_audio_server::http::router(state).merge(gazelle_audio_server::http::update::routes(Arc::new(updater)))
 }
@@ -605,6 +606,7 @@ async fn without_the_updater_the_routes_are_not_there_but_health_still_names_the
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir: None,
+        show_window: None,
     });
 
     assert_eq!(call(&app, "GET", "/api/v1/update").await.0, axum::http::StatusCode::NOT_FOUND);

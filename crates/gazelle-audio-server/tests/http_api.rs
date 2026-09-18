@@ -30,6 +30,7 @@ fn app_with_themes(themes_dir: Option<std::path::PathBuf>) -> axum::Router {
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir,
+        show_window: None,
     })
 }
 
@@ -275,6 +276,8 @@ async fn health_reports_backend_and_device_count() {
     assert_eq!(body["status"], "ok");
     assert_eq!(body["backend"], "loopback");
     assert_eq!(body["devices"], 2);
+    // The loopback opens no hardware, so nothing can be holding it: the list is present and empty.
+    assert_eq!(body["notices"], serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -567,6 +570,7 @@ async fn server_wide_dry_run_cannot_be_overridden() {
         force_dry_run: true,
         backend: "loopback".into(),
         themes_dir: None,
+        show_window: None,
     });
 
     // Explicitly asking for dry_run=false must NOT defeat the server-wide safety setting.
@@ -914,6 +918,7 @@ async fn a_set_command_does_not_wait_for_a_reply_the_device_never_sends() {
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir: None,
+        show_window: None,
     });
 
     let started = std::time::Instant::now();

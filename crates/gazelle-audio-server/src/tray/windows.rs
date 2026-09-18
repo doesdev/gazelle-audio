@@ -200,16 +200,31 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     }
 }
 
+/// What Open, and clicking the icon, does: the desktop window if there is one, otherwise the
+/// browser, which is what this always did (P70).
 fn open_ui(state: &State) {
     if !state.context.web_ui {
         return;
     }
-    // A double-click selects twice; one browser tab is what was meant.
+    // A double-click selects twice; one window, or one browser tab, is what was meant.
     let double_click = Duration::from_millis(u64::from(unsafe { GetDoubleClickTime() }));
     if state.last_open.get().is_some_and(|t| t.elapsed() < double_click) {
         return;
     }
     state.last_open.set(Some(Instant::now()));
+    if let Some(show) = &state.context.show_window {
+        show();
+        return;
+    }
+    open_browser(state);
+}
+
+/// The web UI in the system browser, whatever Open does. The app is served over HTTP either way,
+/// and reaching it from a phone or a second machine is the point of that.
+fn open_browser(state: &State) {
+    if !state.context.web_ui {
+        return;
+    }
     let url = ui_url(state.context.address);
     if let Err(code) = shell_open(&url) {
         tracing::warn!("opening {url} in the browser failed (ShellExecute returned {code})");
@@ -246,6 +261,7 @@ fn status(state: &State) -> Status {
             available: updater.available(),
             staged: updater.staged(),
         }),
+        has_window: c.show_window.is_some(),
     }
 }
 
@@ -291,6 +307,7 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
     };
     match Command::from_id(picked as usize) {
         Some(Command::Open) => open_ui(state),
+        Some(Command::OpenInBrowser) => open_browser(state),
         Some(Command::StartOnBoot) => match state.boot.toggle() {
             Ok(true) => tracing::info!("start on boot: on ({})", state.boot.command()),
             Ok(false) => tracing::info!("start on boot: off"),
@@ -347,7 +364,7 @@ fn spawn_update(state: &Rc<State>, work: impl FnOnce(&crate::update::Updater) + 
 
 /// Whether a Windows service is running. Only reads its status; anything that cannot be read
 /// (not installed, no access) counts as not running.
-fn service_running(name: &str) -> bool {
+pub(super) fn service_running(name: &str) -> bool {
     unsafe {
         let manager = OpenSCManagerW(null(), null(), SC_MANAGER_CONNECT);
         if manager.is_null() {
@@ -420,7 +437,7 @@ impl RunKey for UserRunKey {
 /// The icon, drawn rather than shipped: a light "G" on a dark grey disc, at the small-icon size.
 fn make_icon() -> HICON {
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
-    let pixels = icon_pixels(size);
+    let pixels = crate::icon::rgba(size);
     let mut color = Vec::with_capacity(size * size * 4);
     // The AND mask is one bit per pixel, rows padded to 16 bits; set where fully transparent.
     let row = size.div_ceil(16) * 2;
@@ -434,40 +451,4 @@ fn make_icon() -> HICON {
     unsafe {
         CreateIcon(GetModuleHandleW(null()), size as i32, size as i32, 1, 32, mask.as_ptr(), color.as_ptr())
     }
-}
-
-/// RGBA, top row first, antialiased by sampling each pixel 4x4.
-fn icon_pixels(size: usize) -> Vec<[u8; 4]> {
-    const DISC: [f32; 3] = [0x2b as f32, 0x2d as f32, 0x31 as f32];
-    const MARK: [f32; 3] = [0xe8 as f32, 0xa8 as f32, 0x38 as f32];
-    const SAMPLES: usize = 4;
-    let mut out = Vec::with_capacity(size * size);
-    for py in 0..size {
-        for px in 0..size {
-            let (mut disc, mut mark) = (0.0f32, 0.0f32);
-            for sy in 0..SAMPLES {
-                for sx in 0..SAMPLES {
-                    // -1..1 across the icon, y up.
-                    let x = ((px as f32 + (sx as f32 + 0.5) / SAMPLES as f32) / size as f32) * 2.0 - 1.0;
-                    let y = 1.0 - ((py as f32 + (sy as f32 + 0.5) / SAMPLES as f32) / size as f32) * 2.0;
-                    let r = (x * x + y * y).sqrt();
-                    if r <= 0.97 {
-                        disc += 1.0;
-                        let angle = y.atan2(x).to_degrees();
-                        // A ring open on the right above the bar, plus the bar itself.
-                        let ring = (0.40..=0.66).contains(&r) && !(0.0..60.0).contains(&angle);
-                        let bar = (-0.06..=0.12).contains(&y) && (0.05..=0.66).contains(&x);
-                        if ring || bar {
-                            mark += 1.0;
-                        }
-                    }
-                }
-            }
-            let n = (SAMPLES * SAMPLES) as f32;
-            let (coverage, m) = (disc / n, if disc > 0.0 { mark / disc } else { 0.0 });
-            let mix = |i: usize| (DISC[i] + (MARK[i] - DISC[i]) * m).round() as u8;
-            out.push([mix(0), mix(1), mix(2), (coverage * 255.0).round() as u8]);
-        }
-    }
-    out
 }

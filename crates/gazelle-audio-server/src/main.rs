@@ -78,6 +78,11 @@ struct Args {
     #[arg(long)]
     no_update: bool,
 
+    /// Run without the desktop window, serving the UI over HTTP only. A build without the
+    /// `window` feature, and any `--no-tray` run, has no window either way.
+    #[arg(long)]
+    no_window: bool,
+
     /// Also log to a size-capped file in DIR. Tray runs do by default, in the platform's state
     /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
     #[arg(long, value_name = "DIR")]
@@ -104,11 +109,22 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     update::clean_up_after_previous_update();
 
     let runtime = tokio::runtime::Runtime::new()?;
+    // The port is taken before anything else is opened, so a second launch that is about to hand
+    // over never takes a USB handle or a workspace file on its way out.
+    let listener = match runtime.block_on(tokio::net::TcpListener::bind(args.bind)) {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => return second_instance(args.bind, &e),
+        Err(e) => return Err(Box::new(e)),
+    };
     let updater = updater(args);
-    let (listener, app, devices, hotplug) = runtime.block_on(prepare(args, updater.clone()))?;
     let address = listener.local_addr()?;
     // Set when the tray asks to restart into a staged update; acted on once the server is down.
     let restart = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // Before the devices are attached, so the window is on screen while that happens rather than
+    // after it; its first request waits in the listener's backlog until the server answers.
+    let window = open_window(args, address);
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), updater.clone()))?;
 
     // Quit in the tray and Ctrl-C both end the server the same way.
     let quit = Arc::new(Notify::new());
@@ -118,7 +134,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     let tray = if args.no_tray {
         None
     } else {
-        let mut context = tray_context(args, address, &devices, &quit, log_dir);
+        let mut context = tray_context(args, address, &devices, &quit, log_dir, window.clone());
         context.update = updater.clone();
         let asked = restart.clone();
         context.restart = Some(Box::new(move || asked.store(true, std::sync::atomic::Ordering::SeqCst)));
@@ -186,12 +202,16 @@ fn updater(args: &Args) -> Option<Arc<Updater>> {
     }
 }
 
-/// Everything up to a bound listener: devices attached, workspace store chosen, routes built. For
-/// the USB backend, also the scanner that keeps attaching and detaching devices from then on.
+/// Everything behind the bound listener: devices attached, workspace store chosen, routes built.
+/// For the USB backend, also the scanner that keeps attaching and detaching devices from then on.
+///
+/// `address` is what the listener really bound, which with port 0 is not what was asked for.
 async fn prepare(
     args: &Args,
+    address: SocketAddr,
+    show_window: Option<gazelle_audio_server::ShowWindow>,
     updater: Option<Arc<Updater>>,
-) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
+) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
     let pids: Vec<u16> = args
@@ -234,6 +254,7 @@ async fn prepare(
         force_dry_run: args.dry_run,
         backend: format!("{:?}", args.backend).to_lowercase(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
+        show_window,
     };
 
     let app = http::router(state);
@@ -243,17 +264,26 @@ async fn prepare(
     };
     #[cfg(feature = "web-ui")]
     let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
-    let listener = tokio::net::TcpListener::bind(args.bind).await?;
 
     // The bound address, not `args.bind`: with port 0 this log line is how another process (the
     // web client's integration tests) finds the server.
     tracing::info!(
         "listening on http://{} — backend={:?} devices={} dry_run={}",
-        listener.local_addr()?,
+        address,
         args.backend,
         devices.len(),
         args.dry_run
     );
+    // A USB run that attached nothing while Antelope's service holds the devices is the one case
+    // that looks like a working app with nothing plugged in. The scanner's warning is general; this
+    // one names the reason, and the UI shows the same text (`notice`).
+    for notice in gazelle_audio_server::notice::current(
+        &format!("{:?}", args.backend).to_lowercase(),
+        devices.len(),
+        gazelle_audio_server::tray::antelope_service_running(),
+    ) {
+        tracing::warn!("{}", notice.message);
+    }
     if !args.bind.ip().is_loopback() {
         tracing::warn!(
             "bound to a non-loopback address ({}); this exposes device control to the network",
@@ -261,7 +291,24 @@ async fn prepare(
         );
     }
 
-    Ok((listener, app, devices, hotplug))
+    Ok((app, devices, hotplug))
+}
+
+/// The port is already taken. If a Gazelle holds it, hand it the window and go quietly; the
+/// person double-clicked the app again, and what they want is the window they already have
+/// (`handover`). Anything else on the port is the error it always was.
+fn second_instance(bind: SocketAddr, error: &std::io::Error) -> Result<(), Box<dyn std::error::Error>> {
+    match gazelle_audio_server::handover::hand_over(bind) {
+        Ok(gazelle_audio_server::handover::Outcome::Shown) => {
+            tracing::info!("Gazelle is already running on {bind}; brought its window to the front");
+            Ok(())
+        }
+        Ok(gazelle_audio_server::handover::Outcome::Headless(reason)) => {
+            tracing::info!("Gazelle is already running on {bind}, and {reason}");
+            Ok(())
+        }
+        Err(why) => Err(format!("{bind} is in use ({error}), and what is listening there is not Gazelle: {why}").into()),
+    }
 }
 
 /// Serve until Ctrl-C or Quit, then stop the device workers.
@@ -284,7 +331,7 @@ async fn serve(
         }
         devices.shutdown_all();
     };
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await
+    http::serve_with_shutdown(listener, app, shutdown).await
 }
 
 /// What the tray is told about this server, including the arguments a boot entry repeats.
@@ -294,6 +341,7 @@ fn tray_context(
     devices: &Arc<DeviceManager>,
     quit: &Arc<Notify>,
     log_dir: Option<PathBuf>,
+    show_window: Option<gazelle_audio_server::ShowWindow>,
 ) -> tray::Context {
     let backend = format!("{:?}", args.backend).to_lowercase();
     let boot_args = BootArgs {
@@ -322,10 +370,42 @@ fn tray_context(
         boot_args,
         log_dir,
         quit: Box::new(move || quit.notify_one()),
+        show_window: show_window.map(|show| Box::new(move || show()) as Box<dyn Fn()>),
         rescan: None,
         update: None,
         restart: None,
     }
+}
+
+/// Opens the desktop window, when this build has one and this run wants one.
+///
+/// **A `--no-tray` run never has one.** That is the headless shape — a service, a test harness,
+/// the web suite's own server — and a window appearing in the middle of one would be a surprise.
+/// The desktop run is the tray and the window together. Nor is there one without the web UI to
+/// put in it.
+///
+/// A window that cannot be created is a warning, never a reason to fail: the UI is still served,
+/// and the tray's Open falls back to the browser.
+#[cfg(feature = "window")]
+fn open_window(args: &Args, address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
+    if args.no_window || args.no_tray || args.no_web_ui {
+        return None;
+    }
+    let path = gazelle_audio_server::config::default_window_state_path(|k| std::env::var(k).ok());
+    match gazelle_audio_server::window::open(tray::ui_url(address), path) {
+        Ok(window) => Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
+        Err(e) => {
+            tracing::warn!("no window, serving the UI over HTTP only: {e}");
+            None
+        }
+    }
+}
+
+/// Without the `window` feature there is no window to open, and `--no-window` is accepted and
+/// already true.
+#[cfg(not(feature = "window"))]
+fn open_window(_args: &Args, _address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
+    None
 }
 
 /// Attaches every Antelope control interface the HID stack can open now, then keeps scanning.

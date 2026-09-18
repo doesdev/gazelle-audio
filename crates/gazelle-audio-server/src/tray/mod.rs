@@ -12,7 +12,7 @@ pub mod boot;
 #[cfg(windows)]
 mod windows;
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -45,6 +45,9 @@ pub struct Context {
     pub log_dir: Option<PathBuf>,
     /// Asks the server to stop. The tray removes itself straight after.
     pub quit: Box<dyn Fn()>,
+    /// Brings the desktop window to the front. `None` on a server without one, and Open then
+    /// opens a browser as it always did.
+    pub show_window: Option<Box<dyn Fn()>>,
     /// Asks for a device scan now. `None` where devices cannot come and go (the loopback), and
     /// the menu then has no Rescan item.
     pub rescan: Option<Box<dyn Fn()>>,
@@ -91,10 +94,26 @@ pub fn start(_context: Context) -> Result<Tray, String> {
     Err("the tray icon is only built for Windows so far".into())
 }
 
+/// Whether Antelope's Manager Service is running now. The one thing outside the tray that wants
+/// to know is [`crate::notice`]; anything that cannot be read counts as not running.
+///
+/// There is no such service off Windows, so nothing there can be holding the devices this way.
+#[cfg(windows)]
+pub fn antelope_service_running() -> bool {
+    windows::service_running(ANTELOPE_SERVICE)
+}
+
+#[cfg(not(windows))]
+pub fn antelope_service_running() -> bool {
+    false
+}
+
 /// A menu command.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Open,
+    /// The web UI in the system browser. Only offered where Open means the desktop window.
+    OpenInBrowser,
     StartOnBoot,
     Quit,
     OpenLogFolder,
@@ -117,6 +136,7 @@ impl Command {
             Command::CheckUpdates => 6,
             Command::DownloadUpdate => 7,
             Command::RestartToUpdate => 8,
+            Command::OpenInBrowser => 9,
         }
     }
 
@@ -126,7 +146,7 @@ impl Command {
 }
 
 /// Every menu command, for the id round trip and for the Windows module's dispatch.
-pub const ALL: [Command; 8] = [
+pub const ALL: [Command; 9] = [
     Command::Open,
     Command::StartOnBoot,
     Command::Quit,
@@ -135,6 +155,7 @@ pub const ALL: [Command; 8] = [
     Command::CheckUpdates,
     Command::DownloadUpdate,
     Command::RestartToUpdate,
+    Command::OpenInBrowser,
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -165,6 +186,10 @@ pub struct Status {
     /// What the updater has to say, or `None` when there is no updater — a non-loopback bind,
     /// where update control is deliberately not offered.
     pub update: Option<UpdateMenu>,
+
+    /// Whether this server has a desktop window. Open then shows it, and a second item opens a
+    /// browser; without one Open is the browser, as it always was.
+    pub has_window: bool,
 }
 
 /// The updater as the menu shows it, read when the menu opens.
@@ -181,12 +206,7 @@ pub struct UpdateMenu {
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
 /// open `0.0.0.0`, so it gets the loopback address of the same family.
 pub fn ui_url(address: SocketAddr) -> String {
-    let ip = match address.ip() {
-        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        ip => ip,
-    };
-    format!("http://{}/", SocketAddr::new(ip, address.port()))
+    format!("http://{}/", crate::handover::reachable(address))
 }
 
 /// A device as the menu names it: its model, or its USB ids when the model is unknown.
@@ -207,11 +227,22 @@ pub fn menu(status: &Status) -> Vec<Item> {
             checked: None,
             default: status.web_ui,
         },
+    ];
+    if status.has_window {
+        items.push(Item::Action {
+            command: Command::OpenInBrowser,
+            label: "Open in browser".into(),
+            enabled: status.web_ui,
+            checked: None,
+            default: false,
+        });
+    }
+    items.extend([
         Item::Separator,
         Item::Info(format!("Listening on {}", ui_url(status.address))),
         Item::Info(format!("Backend: {}", status.backend)),
         Item::Info(format!("Dry run: {}", if status.dry_run { "on" } else { "off" })),
-    ];
+    ]);
     if status.devices.is_empty() {
         items.push(Item::Info("No devices attached".into()));
     }
@@ -297,6 +328,7 @@ mod tests {
             log_file: true,
             can_rescan: false,
             update: None,
+            has_window: false,
         }
     }
 
@@ -396,6 +428,29 @@ mod tests {
         // The loopback's devices never change, so there is nothing to offer.
         let items = menu(&status());
         assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::Rescan, .. })));
+    }
+
+    /// With a desktop window, Open shows it and a second item still opens a browser: the app is
+    /// served over HTTP either way, and a phone or a second machine is the point of that (P70).
+    #[test]
+    fn a_window_adds_open_in_browser_beside_open() {
+        let items = menu(&Status { has_window: true, ..status() });
+        let commands: Vec<Command> =
+            items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
+        assert_eq!(commands, [Command::Open, Command::OpenInBrowser, Command::StartOnBoot, Command::OpenLogFolder, Command::Quit]);
+        assert_eq!(
+            action(&items, Command::OpenInBrowser),
+            &Item::Action { command: Command::OpenInBrowser, label: "Open in browser".into(), enabled: true, checked: None, default: false }
+        );
+        assert!(matches!(action(&items, Command::Open), Item::Action { default: true, label, .. } if label == "Open Gazelle"));
+
+        // Without a window there is only one way to open it, and the menu does not grow an item
+        // that would do the same thing twice.
+        assert!(!menu(&status()).iter().any(|i| matches!(i, Item::Action { command: Command::OpenInBrowser, .. })));
+
+        // Nothing to open at all: both are dead, as Open already was.
+        let items = menu(&Status { has_window: true, web_ui: false, ..status() });
+        assert!(matches!(action(&items, Command::OpenInBrowser), Item::Action { enabled: false, .. }));
     }
 
     #[test]

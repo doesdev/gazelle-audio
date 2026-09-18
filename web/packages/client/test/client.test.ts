@@ -64,8 +64,20 @@ test("connect resolves on hello with the server's info and devices", async () =>
   const { client, socket } = await open();
   assert.equal(socket.url, "ws://127.0.0.1:8420/api/v1/ws");
   assert.equal(client.status, "open");
-  assert.deepEqual(client.server, { version: "0.1.0", backend: "loopback", dry_run: false });
+  assert.deepEqual(client.server, { version: "0.1.0", backend: "loopback", dry_run: false, notices: [] });
   assert.deepEqual([...client.devices.keys()], ["loopback-0", "loopback-1", "usb:1:2:3:4"]);
+  await client.close();
+});
+
+// The server says what it cannot do and why (`notice.rs`); an older server says nothing and the
+// list is empty rather than missing.
+test("hello carries the server's notices, and anything that is not a list of strings is dropped", async () => {
+  const net = fakeNetwork();
+  const pending = connect("http://127.0.0.1:8420", { WebSocket: net.WebSocket, timers: new ManualTimers(), random: () => 1 });
+  const socket = net.sockets[0]!;
+  socket.receive({ ...HELLO, notices: [{ code: "antelope-service-holds-devices", message: "The service holds them." }, { code: "x" }, "loose"] });
+  const client = await pending;
+  assert.deepEqual(client.server.notices, ["The service holds them."]);
   await client.close();
 });
 

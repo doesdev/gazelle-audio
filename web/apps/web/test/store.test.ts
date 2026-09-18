@@ -40,6 +40,33 @@ test("connection state follows the client", async () => {
   assert.equal(client.closed, true);
 });
 
+// The server says why nothing attached, rather than leaving the app showing an empty device list
+// (`notice.rs`): today that is Antelope's service holding the interfaces.
+test("what the server says about itself becomes a notice, once per reconnection", () => {
+  const { client, store } = setup();
+  const held = "Antelope's Manager Service is running and holds the interfaces, so Gazelle cannot open them.";
+  client.server = { ...client.server, notices: [held] };
+
+  client.emit("status", "open");
+  assert.deepEqual(store.notices.value.map((n) => [n.level, n.message]), [["warning", held]]);
+
+  // A reconnection with the same thing still wrong does not stack a second copy.
+  client.emit("status", "reconnecting");
+  client.emit("status", "open");
+  assert.deepEqual(store.notices.value.map((n) => n.message), [held]);
+
+  // Dismissed, and still wrong on the next connection: it comes back rather than staying hidden.
+  store.dismiss(store.notices.value[0]!.id);
+  client.emit("status", "open");
+  assert.deepEqual(store.notices.value.map((n) => n.message), [held]);
+
+  // The service was stopped and the devices attached: the server stops saying it.
+  store.dismiss(store.notices.value[0]!.id);
+  client.server = { ...client.server, notices: [] };
+  client.emit("status", "open");
+  assert.deepEqual(store.notices.value, []);
+});
+
 test("edits apply at once and are saved together after the debounce", async () => {
   const { client, timers, store } = setup();
   await store.start();

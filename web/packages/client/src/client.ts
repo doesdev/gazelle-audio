@@ -35,6 +35,9 @@ export interface ServerInfo {
   version: string;
   backend: string;
   dry_run: boolean;
+  /** What the server wants said beyond the device list, in the order it sent them; see its
+   * `notice.rs`. Empty from a server that sends none. */
+  notices: readonly string[];
 }
 
 export interface ClientEvents {
@@ -196,7 +199,7 @@ function familySchema(family: Family): FamilySchema {
 
 class Connection implements Client {
   #status: Status = "closed";
-  #server: ServerInfo = { version: "", backend: "", dry_run: false };
+  #server: ServerInfo = { version: "", backend: "", dry_run: false, notices: [] };
   readonly #devices = new Map<string, DeviceDescriptor>();
   readonly #listeners = new Map<string, Set<(value: unknown) => void>>();
   readonly #cyclic = new Map<string, Set<{ reportId: string; listener: (fields: unknown) => void }>>();
@@ -384,7 +387,16 @@ class Connection implements Client {
   }
 
   #hello(frame: Frame, reconnect: boolean): void {
-    this.#server = { version: String(frame["version"] ?? ""), backend: String(frame["backend"] ?? ""), dry_run: frame["dry_run"] === true };
+    this.#server = {
+      version: String(frame["version"] ?? ""),
+      backend: String(frame["backend"] ?? ""),
+      dry_run: frame["dry_run"] === true,
+      // Each notice is `{code, message}`; only the message is shown, and anything else is skipped
+      // rather than rendered as `[object Object]`.
+      notices: (Array.isArray(frame["notices"]) ? frame["notices"] : [])
+        .filter((notice): notice is { message: string } => isObject(notice) && typeof notice["message"] === "string")
+        .map((notice) => notice.message),
+    };
     const next = new Map<string, DeviceDescriptor>();
     for (const device of Array.isArray(frame["devices"]) ? frame["devices"] : []) {
       if (isObject(device) && typeof device["id"] === "string") next.set(device["id"], device as unknown as DeviceDescriptor);

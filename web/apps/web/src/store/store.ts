@@ -412,6 +412,15 @@ export class Store {
           this.#status.value = status;
           this.#server.value = client.server;
           refreshDevices();
+          // What the server says about itself, as a warning the moment a connection is up: an
+          // empty device list because Antelope's service holds the interfaces looks like a working
+          // app with nothing plugged in otherwise. One copy at a time, since every reconnection
+          // repeats whatever is still true.
+          if (status === "open") {
+            for (const message of client.server.notices) {
+              if (!this.#notices.peek().some((notice) => notice.message === message)) this.#notify("warning", message);
+            }
+          }
           // Mixes and routing are read once and kept (P80). While the connection is down the server
           // may restart or the device change, so they are read again once it is back.
           if (status !== "open") {
