@@ -189,3 +189,71 @@ fn the_windowless_build_runs_the_same_server_and_logs_to_its_file() {
     };
     assert_healthy(port);
 }
+
+/// The whole response to a GET, as text, so a test can read a status line and a body.
+fn http_get(port: u16, path: &str) -> String {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+
+/// A config directory holding update settings that point at a **closed local port**, so the
+/// server's own start-up check fails at once and nothing in this test can reach the real
+/// release source.
+fn config_with_dead_release_source(home: &Path) -> PathBuf {
+    let config = home.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("update.json"),
+        r#"{"check":true,"interval_hours":0,"api_base":"http://127.0.0.1:1","repo":"gazelle/none"}"#,
+    )
+    .unwrap();
+    config
+}
+
+fn start_with_config(extra: &[&str], home: &Path, config: &Path) -> Child {
+    Command::new(BIN)
+        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray"])
+        .args(extra)
+        .env("GAZELLE_CONFIG_DIR", config)
+        .env("LOCALAPPDATA", home)
+        .env("XDG_STATE_HOME", home)
+        .env("HOME", home)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// Proves `main.rs` really merges the update routes on a loopback bind — the only test that
+/// exercises the wiring rather than the module.
+#[test]
+fn a_loopback_server_serves_the_update_endpoint_and_names_its_version() {
+    let home = TempDir::new("update-endpoint");
+    let config = config_with_dead_release_source(&home.0);
+    let mut child = start_with_config(&[], &home.0, &config);
+    let rx = lines(&mut child);
+    let _server = Server(child);
+    let port = console_port(&rx);
+
+    let response = http_get(port, "/api/v1/update");
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.contains(&format!("\"version\":\"{}\"", env!("CARGO_PKG_VERSION"))), "{response}");
+    assert!(response.contains("\"channel\":\"stable\""), "{response}");
+}
+
+#[test]
+fn no_update_leaves_the_endpoint_unserved() {
+    let home = TempDir::new("no-update");
+    let config = config_with_dead_release_source(&home.0);
+    let mut child = start_with_config(&["--no-update"], &home.0, &config);
+    let rx = lines(&mut child);
+    let _server = Server(child);
+    let port = console_port(&rx);
+
+    assert!(http_get(port, "/api/v1/update").starts_with("HTTP/1.1 404"));
+    // The server itself is fine, and still says what version it is.
+    assert_healthy(port);
+}
