@@ -87,7 +87,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Shift-click (Routing) | Select a run of sources |
 | Delete (Routing) | Mute a cell |
 
-**Double-click resets:** fader, Studio+ Send, output, CR and talkback volume, reverb send -20 dB; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
+**Double-click resets:** fader -20 dB; output, CR and talkback volume -30 dB; Studio+ Send and reverb sends off; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
 
 **Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, Standby, remove a channel, strip, surface, cable or snapshot. Off is one click.
 

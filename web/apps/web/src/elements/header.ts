@@ -85,7 +85,7 @@ export class GaHeader extends GaElement {
         "data-no-wheel": true,
         "on:change": () => store.setDoubleClickUnity(reset.value === "unity"),
       },
-      h("option", { value: "safe" }, "Double-click: -20 dB"),
+      h("option", { value: "safe" }, "Double-click: safe level"),
       h("option", { value: "unity" }, "Double-click: unity"),
     );
 

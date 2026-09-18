@@ -200,10 +200,11 @@ test("the reverb's level, returns and sends: double-click goes to about -20 dB, 
   await expect(returnLevel).toHaveAttribute("aria-valuetext", "full");
 
   const send = page.getByTestId("send-level-2");
-  await expect(send).toHaveAttribute("title", "Double-click: -20 dB. Ctrl/Cmd+click: 0 dB.");
+  // A send resets to off (the user, 2026-09-18): a double-click never adds reverb.
+  await expect(send).toHaveAttribute("title", "Double-click: off. Ctrl/Cmd+click: 0 dB.");
   await send.dblclick();
-  await expect(send).toHaveAttribute("aria-valuetext", "-20 dB");
-  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_send", { mixer_id: 0, channel: 2, level: 20, pan: 32, mute: 0, solo: 0 }));
+  await expect(send).toHaveAttribute("aria-valuetext", "-inf");
+  await expect(lastSent(page)).toContainText(await wouldSend("loopback-0", "set_reverb_send", { mixer_id: 0, channel: 2, level: 96, pan: 32, mute: 0, solo: 0 }));
   await send.click({ modifiers: ["Control"], position: { x: 3, y: 5 } });
   await expect(send).toHaveAttribute("aria-valuetext", "0 dB");
 

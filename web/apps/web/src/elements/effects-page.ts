@@ -714,8 +714,9 @@ export class GaEffects extends GaElement {
         max: 0,
         up: -1,
         page: 6,
-        reset: 20,
-        level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn)),
+        // A send's double-click is off, so it never adds reverb (the user, 2026-09-18).
+        reset: REVERB_SEND_MAX,
+        level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn), 0, "off"),
         get: () => effects.sends.peek()?.entries[i]?.level ?? REVERB_SEND_MAX,
         set: (v) => effects.setSend(channel, { level: v }),
         enabled: () => enabled() && effects.sends.peek() !== undefined,

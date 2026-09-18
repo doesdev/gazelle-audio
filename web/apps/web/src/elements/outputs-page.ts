@@ -9,7 +9,8 @@ import { GaElement, sheet, useStore } from "./element.ts";
 import type { ControlHost } from "./inputs-page.ts";
 
 /** Where a double-click puts a volume: -20 dB, the safe level every level resets to (the user, 2026-09-18). */
-const VOLUME_RESET = 20;
+/** A volume's double-click: -30 dB, quieter than a fader's -20 (the user, 2026-09-18). */
+const VOLUME_RESET = 30;
 
 /** The styles of an output's row, for any element that shows one. */
 export const OUTPUT_CONTROL_STYLES = `
@@ -185,7 +186,7 @@ export class GaOutputs extends GaElement {
     const value = h("span", { class: "value" });
     // The panel's talkback control is a level fader, on the outputs' scale: 0 dB at the right, -inf at the left.
     const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback level", "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": "talk-volume" }, fill, value);
-    bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn)) });
+    bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn), 0, "-30 dB") });
     const destinations = (outputs.talkback?.destinations ?? []).map((d) =>
       h("button", { type: "button", "data-control": "", "data-testid": `talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
     );
@@ -227,7 +228,7 @@ export function outputRow(host: ControlHost, outputs: OutputsModel, output: Outp
     fill,
     value,
   );
-  bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => host.watch(fn)) });
+  bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => host.watch(fn), 0, "-30 dB") });
   const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
   const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
   // Mono is reported (Quadro) but has no command, so it is a badge, not a button.

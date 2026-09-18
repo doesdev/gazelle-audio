@@ -33,7 +33,7 @@ A channel's colour comes from its group if the group has one, then its own, then
 Below the head is the **strip**:
 
 - **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. See [Doubled signals](02-safety.md#doubled-signals).
-- **Send** (Studio+, mix 1 only): the reverb send. Double-click for -20 dB, Ctrl+click for 0 dB.
+- **Send** (Studio+, mix 1 only): the reverb send. Double-click turns it off, Ctrl+click puts it at 0 dB.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
 - **M** (mute), **S** (solo), **⇆** (link).
 - **The fader**, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **-20 dB**, and Ctrl+click (Cmd+click) puts it at **0 dB**, unity. The header's **Double-click** menu can make double-click unity instead.

@@ -32,7 +32,7 @@ Along the top: the page tabs, then three things worth a glance.
 - **Dry run**, shown only when Gazelle was started with `--dry-run`: commands report the bytes they would send, and nothing is written to a device.
 - **The connection**: Connected, Reconnecting or Disconnected. While it is not connected, a banner says so and every control is disabled.
 
-At the right, two menus. **Double-click** chooses what a double-click does to a level: **-20 dB**, the safe level and the default, or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
+At the right, two menus. **Double-click** chooses what a double-click does to a level: its **safe level** (the default: -20 dB on a fader, -30 dB on a volume, off on a reverb send), or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 
 ## The sidebar
 
@@ -89,13 +89,13 @@ What double-click resets to:
 |---|---|
 | Mixer fader, mix master | -20 dB (Ctrl+click: 0 dB) |
 | Pan | Centre |
-| Studio+ reverb Send (Mixer page, mix 1) | -20 dB (Ctrl+click: 0 dB) |
-| Output volume, Control Room volume, talkback level | -20 dB (Ctrl+click: 0 dB) |
+| Studio+ reverb Send (Mixer page, mix 1) | off (Ctrl+click: 0 dB) |
+| Output volume, Control Room volume, talkback level | -30 dB (Ctrl+click: 0 dB) |
 | Preamp gain, digital input gain | 0 dB |
 | Brightness | 50% |
 | Reverb level | -18 dB, the nearest it has to -20 (Ctrl+click: 0 dB) |
 | Quadro reverb returns | 20 steps below full (Ctrl+click: full) |
-| Quadro reverb sends | -20 dB (Ctrl+click: 0 dB) |
+| Quadro reverb sends | off (Ctrl+click: 0 dB) |
 | Effect settings | The vendor panel's starting value |
 
 The rows with a Ctrl+click are **levels**. Their double-click goes to a safe level, and Ctrl+click to unity; with the header's **Double-click** menu on **unity**, double-click goes to unity as well. A level's tooltip says what its double-click and Ctrl+click do.

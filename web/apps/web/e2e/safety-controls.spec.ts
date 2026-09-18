@@ -86,7 +86,7 @@ test.describe("level resets", () => {
     await page.goto(`${server.url}/#/mixer/loopback-0`);
     const setting = page.getByTestId("double-click-level");
     await expect(setting).toHaveValue("safe");
-    await expect(setting.locator("option")).toHaveText(["Double-click: -20 dB", "Double-click: unity"]);
+    await expect(setting.locator("option")).toHaveText(["Double-click: safe level", "Double-click: unity"]);
     await setting.selectOption("unity");
 
     const fader = page.getByTestId("fader-9");
@@ -111,45 +111,45 @@ test.describe("level resets", () => {
     await expect.poll(level).toBe(20);
   });
 
-  test("the Studio+ Send: double-click -20 dB, Ctrl+click 0 dB", async ({ page }) => {
+  test("the Studio+ Send: double-click off, Ctrl+click 0 dB (the user, 2026-09-18)", async ({ page }) => {
     const frames = recordFrames(page);
     const send = lastArg(frames, "set_mixer_cfg", "send", (f) => f.args?.["channel"] === 1);
     await putWorkspace(server, { mixers: { "loopback-1": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
     await page.goto(`${server.url}/#/mixer/loopback-1`);
     const bar = page.locator('ga-channel[data-channel-slot="0"] ga-strip .send');
-    await expect(bar).toHaveAttribute("title", "Double-click: -20 dB. Ctrl/Cmd+click: 0 dB.");
+    await expect(bar).toHaveAttribute("title", "Double-click: off. Ctrl/Cmd+click: 0 dB.");
     await bar.dblclick();
-    await expect.poll(send).toBe(20);
-    await expect(bar).toHaveAttribute("aria-valuetext", "-20 dB");
+    await expect.poll(send).toBe(95);
+    await expect(bar).toHaveAttribute("aria-valuetext", "-inf");
     await ctrlClick(bar, { x: 3, y: 5 });
     await expect.poll(send).toBe(0);
     await expect(bar).toHaveAttribute("aria-valuetext", "0 dB");
   });
 
-  test("output, Control Room and talkback volumes: double-click -20 dB, Ctrl+click 0 dB; a gain keeps its reset", async ({ page }) => {
+  test("output, Control Room and talkback volumes: double-click -30 dB, Ctrl+click 0 dB; a gain keeps its reset (the user, 2026-09-18)", async ({ page }) => {
     const frames = recordFrames(page);
     const volume = (id: number) => lastArg(frames, "set_volume", "volume", (f) => f.device_id === "loopback-0" && f.args?.["id"] === id);
     await page.goto(`${server.url}/#/outputs/loopback-0`);
     const out = page.getByTestId("out-volume-3");
-    await expect(out).toHaveAttribute("title", "Double-click: -20 dB. Ctrl/Cmd+click: 0 dB.");
+    await expect(out).toHaveAttribute("title", "Double-click: -30 dB. Ctrl/Cmd+click: 0 dB.");
     await out.dblclick();
-    await expect.poll(volume(3)).toBe(20);
-    await expect(out).toHaveAttribute("aria-valuetext", "-20 dB");
+    await expect.poll(volume(3)).toBe(30);
+    await expect(out).toHaveAttribute("aria-valuetext", "-30 dB");
     await ctrlClick(out, { x: 3, y: 5 });
     await expect.poll(volume(3)).toBe(0);
     await expect(out).toHaveAttribute("aria-valuetext", "0 dB");
 
     const cr = page.locator("ga-control-room").getByTestId("cr-volume-1");
-    await expect(cr).toHaveAttribute("title", "Double-click: -20 dB. Ctrl/Cmd+click: 0 dB.");
+    await expect(cr).toHaveAttribute("title", "Double-click: -30 dB. Ctrl/Cmd+click: 0 dB.");
     await cr.dblclick();
-    await expect.poll(volume(1)).toBe(20);
+    await expect.poll(volume(1)).toBe(30);
     await ctrlClick(cr, { x: 3, y: 5 });
     await expect.poll(volume(1)).toBe(0);
 
     await page.goto(`${server.url}/#/outputs/loopback-1`);
     const talk = page.getByTestId("talk-volume");
     await talk.dblclick();
-    await expect(talk).toHaveAttribute("aria-valuetext", "-20 dB");
+    await expect(talk).toHaveAttribute("aria-valuetext", "-30 dB");
     await ctrlClick(talk, { x: 3, y: 5 });
     await expect(talk).toHaveAttribute("aria-valuetext", "0 dB");
     await expect.poll(lastArg(frames, "set_tbk_vol", "volume")).toBe(0);

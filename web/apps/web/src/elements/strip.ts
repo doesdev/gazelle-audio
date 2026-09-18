@@ -215,7 +215,7 @@ export class GaStrip extends GaElement {
         const sendValue = h("span", { class: "value" });
         // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.
         const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send`, "aria-valuemin": -SEND_MAX, "aria-valuemax": 0 }, sendFill, sendValue);
-        bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
+        bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: SEND_MAX, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn), 0, "off") });
         top.unshift(h("span", { class: "caption" }, "Send"), send);
         this.watch(() => {
           const value = state.value.send;
