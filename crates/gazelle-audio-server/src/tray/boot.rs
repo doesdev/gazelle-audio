@@ -18,6 +18,22 @@ pub trait RunKey {
     fn remove(&self, name: &str) -> io::Result<()>;
 }
 
+/// No login entries at all: what a platform with no such concept offers, so the rest of the
+/// code has one shape rather than two.
+pub struct NoRunKey;
+
+impl RunKey for NoRunKey {
+    fn read(&self, _name: &str) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+    fn write(&self, _name: &str, _command: &str) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "there are no login entries on this platform"))
+    }
+    fn remove(&self, _name: &str) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// The arguments a boot entry carries over from the running server.
 ///
 /// Carried: what decides what the server serves and how safely — `--bind`, `--backend`,

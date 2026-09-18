@@ -35,6 +35,11 @@ pub const PUBLISHER: &str = "Gazelle";
 pub const ABOUT_URL: &str = "https://github.com/doesdev/gazelle-audio";
 /// The per-user Add/Remove Programs entry. Under `HKCU`, which is what makes this need no UAC.
 pub const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Gazelle";
+/// Points the Add/Remove Programs entry somewhere else under `HKCU`. **For testing the installer
+/// end to end**: it lets a test drive the real `--install` and `--uninstall`, through the real
+/// registry code, without going anywhere near the list of the user's installed programs. Unset,
+/// which it is for anybody not running the tests, the entry is [`UNINSTALL_KEY`].
+pub const UNINSTALL_KEY_VAR: &str = "GAZELLE_UNINSTALL_KEY";
 /// The Start Menu file name.
 pub const SHORTCUT_FILE: &str = "Gazelle.lnk";
 /// The console build, which is always the one an install is driven from.
@@ -56,6 +61,8 @@ pub struct Layout {
     pub config: Option<PathBuf>,
     /// `%LOCALAPPDATA%\gazelle\logs` (P78).
     pub logs: Option<PathBuf>,
+    /// The Add/Remove Programs key, [`UNINSTALL_KEY`] unless [`UNINSTALL_KEY_VAR`] names another.
+    pub uninstall_key: String,
 }
 
 impl Layout {
@@ -71,6 +78,7 @@ impl Layout {
             start_menu: PathBuf::from(&roaming).join("Microsoft").join("Windows").join("Start Menu").join("Programs"),
             config: crate::config::config_dir(|k| var(k)),
             logs: crate::config::default_log_dir(|k| var(k)),
+            uninstall_key: get(UNINSTALL_KEY_VAR).unwrap_or_else(|| UNINSTALL_KEY.to_string()),
         })
     }
 }
@@ -230,10 +238,9 @@ fn write_shortcut(ctx: &Context, launch: &Path, dir: &Path) -> Result<PathBuf, S
 
 /// The Add/Remove Programs entry, exactly as Windows reads it.
 fn write_uninstall_entry(ctx: &Context, dir: &Path, console: &Path, launch: &Path, size_kb: u32) -> Result<(), String> {
-    let r = ctx.registry;
-    let set = |name: &str, value: &str| {
-        r.set_string(UNINSTALL_KEY, name, value).map_err(|e| format!("writing HKCU\\{UNINSTALL_KEY}\\{name}: {e}"))
-    };
+    let (r, key) = (ctx.registry, ctx.layout.uninstall_key.as_str());
+    let set =
+        |name: &str, value: &str| r.set_string(key, name, value).map_err(|e| format!("writing HKCU\\{key}\\{name}: {e}"));
     set("DisplayName", APP_NAME)?;
     set("DisplayVersion", crate::VERSION)?;
     set("Publisher", PUBLISHER)?;
@@ -248,7 +255,7 @@ fn write_uninstall_entry(ctx: &Context, dir: &Path, console: &Path, launch: &Pat
     set("DisplayIcon", &format!("{},0", launch.display()))?;
     set("URLInfoAbout", ABOUT_URL)?;
     let set_u32 = |name: &str, value: u32| {
-        r.set_u32(UNINSTALL_KEY, name, value).map_err(|e| format!("writing HKCU\\{UNINSTALL_KEY}\\{name}: {e}"))
+        r.set_u32(key, name, value).map_err(|e| format!("writing HKCU\\{key}\\{name}: {e}"))
     };
     // Kilobytes, which is the unit Add/Remove Programs shows.
     set_u32("EstimatedSize", size_kb)?;
@@ -313,7 +320,8 @@ pub fn uninstall(ctx: &Context, dir: &Path, purge: bool) -> Result<Removed, Stri
     let shortcut_path = ctx.layout.start_menu.join(SHORTCUT_FILE);
     let shortcut = remove_if_there(&shortcut_path).map_err(|e| format!("removing {}: {e}", shortcut_path.display()))?;
 
-    ctx.registry.delete_tree(UNINSTALL_KEY).map_err(|e| format!("removing HKCU\\{UNINSTALL_KEY}: {e}"))?;
+    let key = ctx.layout.uninstall_key.as_str();
+    ctx.registry.delete_tree(key).map_err(|e| format!("removing HKCU\\{key}: {e}"))?;
 
     let mut files = Vec::new();
     for path in ours {
@@ -345,7 +353,7 @@ pub fn uninstall(ctx: &Context, dir: &Path, purge: bool) -> Result<Removed, Stri
 /// Where an install is, according to the Add/Remove Programs entry it wrote, falling back to
 /// where this layout would have put it.
 pub fn installed_dir(ctx: &Context) -> PathBuf {
-    match ctx.registry.get_string(UNINSTALL_KEY, "InstallLocation") {
+    match ctx.registry.get_string(&ctx.layout.uninstall_key, "InstallLocation") {
         Ok(Some(dir)) if !dir.is_empty() => PathBuf::from(dir),
         _ => ctx.layout.programs.clone(),
     }
@@ -379,6 +387,183 @@ pub fn relocated_arguments(dir: &Path, purge: bool) -> Vec<String> {
         if purge { "--purge".into() } else { "--keep-config".into() },
         "--yes".into(),
     ]
+}
+
+// --- what the command line asks for -------------------------------------------------------------
+
+/// The `--install` / `--uninstall` request, as the CLI spells it.
+///
+/// `start` and `purge` are three-valued on purpose: `None` is "ask, if there is anyone to ask",
+/// which is the difference between a person running this in a terminal and Add/Remove Programs
+/// running it with nowhere to put a question.
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    pub install: bool,
+    pub uninstall: bool,
+    /// Start the installed copy afterwards.
+    pub start: Option<bool>,
+    /// Remove the config and log directories as well.
+    pub purge: Option<bool>,
+    /// Take the default answer to everything and ask nothing.
+    pub yes: bool,
+    /// The folder a relocated uninstall was told to remove; also the mark that says this process
+    /// **is** the relocated copy ([`relocation`]).
+    pub target: Option<PathBuf>,
+}
+
+/// Do what the command line asked, printing what happened. The one entry point `main` calls.
+pub fn run(options: &Options) -> Result<(), String> {
+    let layout = Layout::from_env(|k| std::env::var(k).ok())?;
+    let registry = real_registry()?;
+    let run_key = crate::tray::user_run_key();
+    let in_use: &dyn Fn(&Path) -> bool = &image_in_use;
+    let waiting = if options.target.is_some() { Waiting::for_the_parent_to_exit() } else { Waiting::none() };
+    let ctx = Context { layout: &layout, registry: registry.as_ref(), run_key: run_key.as_ref(), in_use, waiting };
+
+    if options.install {
+        let source = std::env::current_exe().map_err(|e| format!("finding this binary: {e}"))?;
+        return do_install(&ctx, &source, options);
+    }
+    do_uninstall(&ctx, options)
+}
+
+#[cfg(windows)]
+fn real_registry() -> Result<Box<dyn registry::Registry>, String> {
+    Ok(Box::new(registry::CurrentUser))
+}
+
+#[cfg(not(windows))]
+fn real_registry() -> Result<Box<dyn registry::Registry>, String> {
+    Err("--install and --uninstall are Windows-only so far; elsewhere, copy the binary where you want it".into())
+}
+
+fn do_install(ctx: &Context, source: &Path, options: &Options) -> Result<(), String> {
+    let done = install(ctx, source)?;
+    println!("{} {} to {}", if done.upgraded { "Upgraded" } else { "Installed" }, crate::VERSION, done.dir.display());
+    for path in &done.copied {
+        println!("  {}", path.display());
+    }
+    if done.swept > 0 {
+        println!("  swept {} file(s) a previous update had left", done.swept);
+    }
+    println!("  Start Menu: {}", done.shortcut.display());
+    println!("  Add/Remove Programs: HKCU\\{}", ctx.layout.uninstall_key);
+    match &done.boot {
+        Some(command) => println!("  Start on boot now runs {command}"),
+        None => println!("  Start on boot: unchanged"),
+    }
+    println!("To remove it: \"{}\" --uninstall", done.dir.join(console_name()).display());
+
+    let start = match options.start {
+        Some(start) => start,
+        None if options.yes => false,
+        None => ask(&format!("Start {APP_NAME} now?"), true),
+    };
+    if start {
+        start_installed(&done.launch)?;
+    }
+    Ok(())
+}
+
+fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
+    let dir = options.target.clone().unwrap_or_else(|| installed_dir(ctx));
+    let data: Vec<PathBuf> =
+        [ctx.layout.config.clone(), ctx.layout.logs.clone()].into_iter().flatten().filter(|p| p.exists()).collect();
+    // The question is asked here, in the process that still has a terminal, and the answer is
+    // carried to the relocated copy rather than asked again where nobody could see it.
+    let purge = match options.purge {
+        Some(purge) => purge,
+        None if options.yes || data.is_empty() => false,
+        None => {
+            println!("Your settings, layouts, themes, snapshots and logs are in:");
+            for path in &data {
+                println!("  {}", path.display());
+            }
+            ask("Remove them too? (they are kept by default)", false)
+        }
+    };
+
+    // A binary cannot delete itself. When this one is inside the folder being removed it copies
+    // itself out, hands the whole job to the copy and exits so its image is released.
+    if options.target.is_none() {
+        let exe = std::env::current_exe().map_err(|e| format!("finding this binary: {e}"))?;
+        if let Some(copy) = relocation(&exe, &dir, &std::env::temp_dir(), std::process::id()) {
+            std::fs::copy(&exe, &copy).map_err(|e| format!("copying this binary to {}: {e}", copy.display()))?;
+            std::process::Command::new(&copy)
+                .args(relocated_arguments(&dir, purge))
+                .spawn()
+                .map_err(|e| format!("starting {}: {e}", copy.display()))?;
+            println!("Removing {} from {}.", APP_NAME, dir.display());
+            return Ok(());
+        }
+    }
+
+    let removed = uninstall(ctx, &dir, purge)?;
+    println!("Removed {} from {}", APP_NAME, removed.dir.display());
+    for path in &removed.files {
+        println!("  {}", path.display());
+    }
+    if removed.shortcut {
+        println!("  {}", ctx.layout.start_menu.join(SHORTCUT_FILE).display());
+    }
+    println!("  HKCU\\{}", ctx.layout.uninstall_key);
+    if removed.boot {
+        println!("  the Start on boot login entry");
+    }
+    if !removed.dir_removed {
+        println!("  {} was left: it still holds files this did not put there", removed.dir.display());
+    }
+    for path in &removed.purged {
+        println!("  {} (--purge)", path.display());
+    }
+    for path in &removed.kept {
+        println!("Kept {} — remove it by hand, or uninstall with --purge.", path.display());
+    }
+    Ok(())
+}
+
+/// Start the copy that has just been installed, honouring the single-instance handover (P122):
+/// a Gazelle already listening on the default address is brought to the front rather than a
+/// second one started behind it.
+fn start_installed(launch: &Path) -> Result<(), String> {
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], crate::config::DEFAULT_PORT));
+    match crate::handover::hand_over(address) {
+        Ok(crate::handover::Outcome::Shown) => {
+            println!("{APP_NAME} was already running on {address}; brought its window to the front.");
+            return Ok(());
+        }
+        Ok(crate::handover::Outcome::Headless(reason)) => {
+            println!("{APP_NAME} was already running on {address}, and {reason}.");
+            return Ok(());
+        }
+        // Nothing of ours is listening, so there is nothing to hand over to: start one.
+        Err(_) => {}
+    }
+    let child = update::relaunch_command(launch, [])
+        .spawn()
+        .map_err(|e| format!("starting {}: {e}", launch.display()))?;
+    println!("Started {} as process {}.", launch.display(), child.id());
+    Ok(())
+}
+
+/// A yes/no question, when there is someone at a terminal to answer it. Started from Add/Remove
+/// Programs, from Explorer or from a script there is not, and the default stands.
+fn ask(question: &str, default_yes: bool) -> bool {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        return default_yes;
+    }
+    print!("{question} [{}] ", if default_yes { "Y/n" } else { "y/N" });
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return default_yes;
+    }
+    match line.trim().to_lowercase().as_str() {
+        "y" | "yes" => true,
+        "n" | "no" => false,
+        _ => default_yes,
+    }
 }
 
 // --- the real seams ---------------------------------------------------------------------------

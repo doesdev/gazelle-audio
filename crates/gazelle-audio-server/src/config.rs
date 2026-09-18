@@ -2,6 +2,14 @@
 
 use std::path::PathBuf;
 
+/// Where the server listens when `--bind` is not given: localhost, deliberately (decision 0012).
+/// Named here rather than only in `main`'s argument default because the installer needs to know
+/// where a copy that is already running would be, to hand over to it (P122).
+pub const DEFAULT_BIND: &str = "127.0.0.1:8420";
+
+/// The port of [`DEFAULT_BIND`], for callers that want an address rather than a string.
+pub const DEFAULT_PORT: u16 = 8420;
+
 /// The server's configuration directory as the environment names it, or `None` when it names
 /// none (the server then uses the working directory).
 ///
@@ -61,6 +69,14 @@ pub fn default_log_dir(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two ways of naming the default must not drift apart.
+    #[test]
+    fn the_default_bind_and_the_default_port_agree() {
+        let address: std::net::SocketAddr = DEFAULT_BIND.parse().unwrap();
+        assert_eq!(address.port(), DEFAULT_PORT);
+        assert!(address.ip().is_loopback(), "the default has to stay off the network");
+    }
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())

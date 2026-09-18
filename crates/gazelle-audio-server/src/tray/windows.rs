@@ -382,7 +382,7 @@ pub(super) fn service_running(name: &str) -> bool {
 }
 
 /// The current user's login entries, `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-struct UserRunKey;
+pub(crate) struct UserRunKey;
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 

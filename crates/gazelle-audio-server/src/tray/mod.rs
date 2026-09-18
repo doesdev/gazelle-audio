@@ -94,6 +94,21 @@ pub fn start(_context: Context) -> Result<Tray, String> {
     Err("the tray icon is only built for Windows so far".into())
 }
 
+/// The current user's login entries, `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+///
+/// The tray uses this to read and flip Start on boot; the installer uses it to re-point an entry
+/// at the installed binary. Both go through [`boot::RunKey`], so every rule about it is tested
+/// against an in-memory fake and no test writes the real key.
+#[cfg(windows)]
+pub fn user_run_key() -> Box<dyn boot::RunKey> {
+    Box::new(windows::UserRunKey)
+}
+
+#[cfg(not(windows))]
+pub fn user_run_key() -> Box<dyn boot::RunKey> {
+    Box::new(boot::NoRunKey)
+}
+
 /// Whether Antelope's Manager Service is running now. The one thing outside the tray that wants
 /// to know is [`crate::notice`]; anything that cannot be read counts as not running.
 ///

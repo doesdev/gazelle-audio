@@ -31,7 +31,7 @@ enum Backend {
 #[command(name = "gazelle-audio-server", version, about = "Gazelle control server for Antelope Audio interfaces")]
 struct Args {
     /// Address to bind. Defaults to localhost; override only deliberately.
-    #[arg(long, default_value = "127.0.0.1:8420")]
+    #[arg(long, default_value = gazelle_audio_server::config::DEFAULT_BIND)]
     bind: SocketAddr,
 
     /// Transport backend.
@@ -87,11 +87,80 @@ struct Args {
     /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
     #[arg(long, value_name = "DIR")]
     log_dir: Option<PathBuf>,
+
+    /// Copy this binary into `%LOCALAPPDATA%\Programs\Gazelle`, add a Start Menu shortcut and an
+    /// Add/Remove Programs entry, and stop. Per-user: no administrator, no MSI. Run again over an
+    /// existing install to upgrade it in place. Does not start the server.
+    #[arg(long, conflicts_with = "uninstall")]
+    install: bool,
+
+    /// With `--install`: start the installed copy afterwards. Without either flag, a run in a
+    /// terminal asks and one started from Explorer does not.
+    #[arg(long, requires = "install")]
+    start: bool,
+
+    /// With `--install`: do not start the installed copy, and do not ask.
+    #[arg(long, requires = "install", conflicts_with = "start")]
+    no_start: bool,
+
+    /// Remove the installed copy, its shortcut and its Add/Remove Programs entry, and stop. Your
+    /// settings and layouts are kept unless `--purge`.
+    #[arg(long)]
+    uninstall: bool,
+
+    /// With `--uninstall`: also remove the configuration (`%APPDATA%\gazelle`) and the logs
+    /// (`%LOCALAPPDATA%\gazelle`). Nothing outside those and the install folder is ever touched.
+    #[arg(long, requires = "uninstall")]
+    purge: bool,
+
+    /// With `--uninstall`: keep them, without asking.
+    #[arg(long, requires = "uninstall", conflicts_with = "purge")]
+    keep_config: bool,
+
+    /// Take the default answer to every question and ask nothing. What Add/Remove Programs'
+    /// quiet uninstall runs.
+    #[arg(long)]
+    yes: bool,
+
+    /// Set by an uninstall on itself, never by hand: the folder the relocated copy is to remove.
+    #[arg(long, value_name = "DIR", hide = true, requires = "uninstall")]
+    uninstall_target: Option<PathBuf>,
+}
+
+impl Args {
+    /// The install request this command line makes, or `None` for an ordinary server run.
+    fn install_options(&self) -> Option<gazelle_audio_server::install::Options> {
+        if !self.install && !self.uninstall {
+            return None;
+        }
+        Some(gazelle_audio_server::install::Options {
+            install: self.install,
+            uninstall: self.uninstall,
+            start: three(self.start, self.no_start),
+            purge: three(self.purge, self.keep_config),
+            yes: self.yes,
+            target: self.uninstall_target.clone(),
+        })
+    }
+}
+
+/// Two flags that mean yes and no, and neither meaning "ask".
+fn three(yes: bool, no: bool) -> Option<bool> {
+    match (yes, no) {
+        (true, _) => Some(true),
+        (_, true) => Some(false),
+        _ => None,
+    }
 }
 
 /// Public so the windowless build (`bin/gazelle-audio-serverw.rs`) runs this same server.
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    // Planting the app, or taking it away, is all this run does: no listener, no devices, no
+    // tray, no log file. It prints to whoever asked and stops.
+    if let Some(options) = args.install_options() {
+        return gazelle_audio_server::install::run(&options).map_err(Into::into);
+    }
     let log_dir = logging::init(logging::file_log_dir(!args.no_tray, args.log_dir.clone(), || {
         default_log_dir(|k| std::env::var(k).ok())
     }));

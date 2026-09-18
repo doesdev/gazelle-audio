@@ -444,7 +444,113 @@ fn the_layout_is_read_from_the_windows_environment() {
     assert_eq!(layout.start_menu, root.join("Roaming").join("Microsoft/Windows/Start Menu/Programs".replace('/', "\\")));
     assert_eq!(layout.config, Some(root.join("Roaming").join("gazelle")), "where the workspace already lives (P82)");
     assert_eq!(layout.logs, Some(root.join("Local").join("gazelle").join("logs")), "where the tray already logs (P78)");
+    assert_eq!(layout.uninstall_key, install::UNINSTALL_KEY, "Add/Remove Programs, unless a test says otherwise");
+    let scratch = Layout::from_env(|k| match k {
+        "GAZELLE_UNINSTALL_KEY" => Some(r"Software\somewhere\else".to_string()),
+        other => fake_env(root)(other),
+    })
+    .unwrap();
+    assert_eq!(scratch.uninstall_key, r"Software\somewhere\else");
     assert!(Layout::from_env(|_| None).is_err(), "with no LOCALAPPDATA there is nowhere per-user to install to");
+}
+
+// --- the whole thing, through the command line and the real registry ---------------------------
+
+/// `--install` and `--uninstall` as a person runs them, with every root pointed at a temporary
+/// folder and the Add/Remove Programs entry pointed — by [`install::UNINSTALL_KEY_VAR`] — at a
+/// scratch key of this test's own. So the real `Layout`, the real `CurrentUser` registry code,
+/// the real shortcut and the real file copying all run, and the user's installed-programs list,
+/// Start Menu and Programs folder are never touched.
+#[cfg(windows)]
+#[test]
+fn the_command_line_installs_and_uninstalls_for_real() {
+    use gazelle_audio_server::install::registry::CurrentUser;
+
+    let root = TempDir::new("cli");
+    let key = format!(r"Software\gazelle-audio\test-{}\Uninstall\Gazelle", std::process::id());
+    let layout = Layout::from_env(|k| match k {
+        "GAZELLE_UNINSTALL_KEY" => Some(key.clone()),
+        other => fake_env(&root.0)(other),
+    })
+    .unwrap();
+    // However this test ends, the scratch key goes.
+    struct Scratch(String);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = CurrentUser.delete_tree(&self.0);
+        }
+    }
+    let _scratch = Scratch(key.clone());
+
+    let gazelle = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_gazelle-audio-server"))
+            .args(args)
+            .env("LOCALAPPDATA", root.0.join("Local"))
+            .env("APPDATA", root.0.join("Roaming"))
+            .env("GAZELLE_UNINSTALL_KEY", &key)
+            .output()
+            .unwrap()
+    };
+
+    let out = gazelle(&["--install", "--no-start"]);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "{text}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains(&layout.programs.display().to_string()), "it says where it put things: {text}");
+    for name in ["gazelle-audio-server.exe", "gazelle-audio-serverw.exe"] {
+        assert!(layout.programs.join(name).is_file(), "{name} is not in {}", layout.programs.display());
+    }
+    assert!(layout.start_menu.join(install::SHORTCUT_FILE).is_file());
+    assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap().as_deref(), Some("Gazelle"));
+    assert_eq!(
+        CurrentUser.get_string(&key, "InstallLocation").unwrap().map(PathBuf::from),
+        Some(layout.programs.clone()),
+        "the real registry write went through"
+    );
+
+    // Run from the build directory rather than the installed copy, so this is the plain path and
+    // not the relocating one; the installed copy removing itself is checked by hand.
+    let out = gazelle(&["--uninstall", "--yes"]);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "{text}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(!layout.programs.exists(), "{text}");
+    assert!(!layout.start_menu.join(install::SHORTCUT_FILE).exists());
+    assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap(), None, "the entry is gone from the registry");
+}
+
+/// Uninstalling where nothing is installed says so and fails, rather than reporting success.
+#[cfg(windows)]
+#[test]
+fn the_command_line_refuses_to_uninstall_nothing() {
+    let root = TempDir::new("cli-nothing");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gazelle-audio-server"))
+        .args(["--uninstall", "--yes", "--uninstall-target", root.0.to_str().unwrap()])
+        .env("LOCALAPPDATA", root.0.join("Local"))
+        .env("APPDATA", root.0.join("Roaming"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no Gazelle is installed"), "{:?}", out);
+}
+
+/// The real registry code, on a scratch key: every operation the installer needs.
+#[cfg(windows)]
+#[test]
+fn the_current_user_registry_writes_reads_and_removes() {
+    use gazelle_audio_server::install::registry::CurrentUser;
+    let key = format!(r"Software\gazelle-audio\test-registry-{}", std::process::id());
+
+    CurrentUser.set_string(&key, "DisplayName", "Gazelle").unwrap();
+    CurrentUser.set_u32(&key, "EstimatedSize", 12345).unwrap();
+    assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap().as_deref(), Some("Gazelle"));
+    // A value of another type is an error rather than a quiet `None`: "there is no string there"
+    // and "there is something else there" are different answers and worth telling apart.
+    assert!(CurrentUser.get_string(&key, "EstimatedSize").is_err(), "a DWORD read as a string");
+    assert_eq!(CurrentUser.get_string(&key, "NeverWritten").unwrap(), None);
+    assert_eq!(CurrentUser.get_string(r"Software\gazelle-audio\no-such-key", "DisplayName").unwrap(), None);
+
+    CurrentUser.delete_tree(&key).unwrap();
+    assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap(), None);
+    CurrentUser.delete_tree(&key).unwrap();
 }
 
 // --- the shortcut, read by the shell itself ---------------------------------------------------
