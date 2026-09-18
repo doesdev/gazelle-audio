@@ -4,6 +4,7 @@
 //! cannot be exercised through `oneshot`.
 
 use gazelle_audio_server::device::manager::DeviceManager;
+use gazelle_audio_server::snapshot::store::MemorySnapshotStore;
 use gazelle_audio_server::registry_set::{RegistrySet, PID_QUADRO, PID_STUDIO};
 use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
 use gazelle_audio_server::{http, AppState};
@@ -23,6 +24,7 @@ async fn serve_with(devices: Arc<DeviceManager>) -> String {
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
     let app = http::router(AppState {
         devices,
+        snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
         force_dry_run: false,
         backend: "loopback".into(),

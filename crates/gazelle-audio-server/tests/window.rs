@@ -24,6 +24,7 @@ async fn serve(show_window: Option<Arc<dyn Fn() + Send + Sync>>) -> SocketAddr {
         force_dry_run: false,
         backend: "loopback".into(),
         themes_dir: None,
+        snapshots: std::sync::Arc::new(gazelle_audio_server::snapshot::store::MemorySnapshotStore::default()),
         show_window,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

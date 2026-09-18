@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type ServerInfo, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type ServerInfo, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -91,6 +91,62 @@ export class FakeClient implements Client {
     },
   };
 
+  /** Snapshots the fake server holds, newest first, with their whole documents. */
+  storedSnapshots: Snapshot[] = [];
+  /** What `compare` answers; a comparison with nothing differing by default. */
+  diff: SnapshotDiff | undefined;
+  /** Set to make the next snapshot call fail, as the server refusing one does. */
+  failSnapshots: Error | undefined;
+
+  readonly snapshots = {
+    list: async (): Promise<SnapshotSummary[]> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      return this.storedSnapshots.map((snapshot) => summarise(snapshot));
+    },
+    get: async (id: string): Promise<Snapshot> => {
+      const found = this.storedSnapshots.find((snapshot) => snapshot.id === id);
+      if (found === undefined) throw new GazelleError("unknown_snapshot", `no such snapshot: ${id}`);
+      return structuredClone(found);
+    },
+    create: async (name: string, note = ""): Promise<SnapshotSummary> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      const snapshot: Snapshot = { version: 1, id: `snap-${this.storedSnapshots.length + 1}`, name, created: new Date(2026, 8, 17, 21, 15).toISOString(), note, workspace: structuredClone(this.stored), devices: {} };
+      this.storedSnapshots = [snapshot, ...this.storedSnapshots];
+      return summarise(snapshot);
+    },
+    rename: async (id: string, change: { name?: string; note?: string }): Promise<SnapshotSummary> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      const found = this.storedSnapshots.find((snapshot) => snapshot.id === id);
+      if (found === undefined) throw new GazelleError("unknown_snapshot", `no such snapshot: ${id}`);
+      if (change.name !== undefined) found.name = change.name;
+      if (change.note !== undefined) found.note = change.note;
+      return summarise(found);
+    },
+    delete: async (id: string): Promise<void> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      this.storedSnapshots = this.storedSnapshots.filter((snapshot) => snapshot.id !== id);
+    },
+    compare: async (id: string): Promise<SnapshotDiff> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      const found = this.storedSnapshots.find((snapshot) => snapshot.id === id);
+      if (found === undefined) throw new GazelleError("unknown_snapshot", `no such snapshot: ${id}`);
+      return this.diff ?? { snapshot: summarise(found), compared_at: found.created, workspace: [], devices: [], changes: 0, same: true };
+    },
+    import: async (snapshots: Snapshot[]): Promise<{ added: string[]; skipped: string[] }> => {
+      if (this.failSnapshots !== undefined) throw this.failSnapshots;
+      const added: string[] = [];
+      const skipped: string[] = [];
+      for (const snapshot of snapshots) {
+        if (this.storedSnapshots.some((stored) => stored.id === snapshot.id)) skipped.push(snapshot.id);
+        else {
+          this.storedSnapshots = [...this.storedSnapshots, structuredClone(snapshot)];
+          added.push(snapshot.id);
+        }
+      }
+      return { added, skipped };
+    },
+  };
+
   async themes(): Promise<UserTheme[]> {
     return this.userThemes;
   }
@@ -98,6 +154,25 @@ export class FakeClient implements Client {
   async close(): Promise<void> {
     this.closed = true;
   }
+}
+
+function summarise(snapshot: Snapshot): SnapshotSummary {
+  return {
+    version: snapshot.version,
+    id: snapshot.id,
+    name: snapshot.name,
+    created: snapshot.created,
+    note: snapshot.note,
+    devices: Object.entries(snapshot.devices).map(([device_id, device]) => ({
+      device_id,
+      family: device.family,
+      model: device.model,
+      read_at: device.read_at,
+      current_preset: device.current_preset ?? null,
+      sections: Object.keys(device.sections),
+      unreadable: device.unreadable.length,
+    })),
+  };
 }
 
 export class MemoryStorage implements KeyValueStorage {

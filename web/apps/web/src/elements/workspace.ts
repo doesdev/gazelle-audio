@@ -11,7 +11,8 @@ import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
 import { portName, portWidth } from "../store/cables.ts";
 import { displayName, type DigitalPort, type Group } from "../store/store.ts";
-import { readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
+import { describeChange, describeDiff, describeSection, describeSnapshot, formatWhen, SNAPSHOT_VERSION, type DeviceDiff, type SectionDiff } from "../store/snapshots.ts";
+import { backupFileName, backupFileText, readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
 
@@ -71,6 +72,14 @@ export class GaWorkspace extends GaElement {
       .health { flex: 1; min-width: 0; font-size: 11px; }
       .warn { color: var(--ga-notice-warning, var(--ga-text-primary)); }
       .channels { width: 3.5em; }
+      .diff-section { margin-top: 8px; }
+      .diff-heading { margin: 0 0 2px; font-size: 11px; color: var(--ga-text-secondary); }
+      .changes { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+      .change { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
+      .change-label { flex: 1 1 220px; min-width: 0; }
+      .change-value { flex: 0 0 auto; color: var(--ga-text-secondary); font-variant-numeric: tabular-nums; }
+      /* A reason is a sentence, not a value: it takes the next line and wraps rather than running off the page. */
+      .change.warn .change-value { flex: 1 1 100%; color: var(--ga-notice-warning, var(--ga-text-primary)); overflow-wrap: anywhere; }
     `),
   ];
 
@@ -84,6 +93,7 @@ export class GaWorkspace extends GaElement {
       h("ga-section", { heading: "Surfaces" }, this.#surfaces()),
       h("ga-section", { heading: "Digital cables" }, this.#cables()),
       h("ga-section", { heading: "Groups" }, groups),
+      h("ga-section", { heading: "Snapshots" }, this.#snapshots()),
       h("ga-section", { heading: "Backup" }, this.#backup()),
     );
 
@@ -405,10 +415,157 @@ export class GaWorkspace extends GaElement {
     );
   }
 
+  /**
+   * Snapshots: take one with a name, list them with when and from which devices, rename, delete,
+   * and compare one with the devices as they are now.
+   *
+   * Everything here reads. Taking a snapshot asks every attached device for its state and changes
+   * nothing on one; comparing reads them again. Putting a snapshot back is not built (spec §2.3):
+   * it waits for a session at the hardware, and until then the diff is what a snapshot is for.
+   */
+  #snapshots(): HTMLElement {
+    const store = useStore();
+    const snapshots = store.snapshots;
+    const list = h("div", { class: "surfaces", "data-testid": "snapshots" });
+    const name = h("input", { type: "text", placeholder: "Snapshot name", "aria-label": "New snapshot name", "data-testid": "snapshot-new-name" });
+    const take = h("button", { type: "button", "data-testid": "snapshot-take" }, "Take snapshot");
+    const problem = h("p", { class: "problem", role: "alert", "data-testid": "snapshot-problem", hidden: true });
+    const diff = h("div", { "data-testid": "snapshot-diff" });
+
+    void snapshots.loadOnce();
+
+    const takeOne = () => {
+      if (name.value.trim() === "") {
+        name.focus();
+        return;
+      }
+      const asked = name.value;
+      void snapshots.take(asked).then((taken) => {
+        if (taken !== undefined && name.value === asked) name.value = "";
+      });
+    };
+    take.addEventListener("click", takeOne);
+    name.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") takeOne();
+    });
+
+    this.watch(() => {
+      const reason = snapshots.problem.value;
+      problem.textContent = reason ?? "";
+      problem.hidden = reason === undefined;
+    });
+
+    let rendered = "";
+    this.watch(() => {
+      const listed = snapshots.list.value;
+      const busy = snapshots.busy.value;
+      const connected = store.connected.value;
+      const known = snapshots.known.value;
+      take.disabled = name.disabled = !connected || busy !== undefined;
+      take.textContent = busy === "taking" ? "Reading the devices…" : "Take snapshot";
+      const key = JSON.stringify([listed, connected, busy]);
+      if (key === rendered) return;
+      rendered = key;
+      if (listed.length === 0) {
+        list.replaceChildren(h("p", { class: "placeholder" }, known ? "No snapshots yet. A snapshot records the workspace and every attached device's settings, so you can see what has changed since." : "Loading…"));
+        return;
+      }
+      list.replaceChildren(
+        ...listed.map((summary) => {
+          const field = h("input", { type: "text", class: "surface-name", value: summary.name, "aria-label": `Name of ${summary.name}`, "data-testid": `snapshot-rename-${summary.id}`, disabled: !connected });
+          commitOnEnter(field, (value) => void snapshots.rename(summary.id, value), () => snapshots.list.peek().find((s) => s.id === summary.id)?.name ?? summary.name);
+          const compare = h("button", { type: "button", class: "open", "data-testid": `snapshot-compare-${summary.id}`, title: "Read every device again and show what differs; nothing is sent", disabled: !connected || busy !== undefined, "on:click": () => void snapshots.compare(summary.id) }, busy === "comparing" ? "Reading…" : "Compare with now");
+          let armed: ReturnType<typeof setTimeout> | undefined;
+          const remove = h("button", {
+            type: "button",
+            "data-testid": `snapshot-delete-${summary.id}`,
+            title: "Delete this snapshot (click twice); nothing changes on the devices",
+            disabled: !connected,
+            "on:click": () => {
+              if (armed !== undefined) {
+                clearTimeout(armed);
+                void snapshots.remove(summary.id);
+                return;
+              }
+              remove.textContent = "Confirm";
+              armed = setTimeout(() => {
+                armed = undefined;
+                remove.textContent = "Delete";
+              }, 3000);
+            },
+          }, "Delete");
+          return h(
+            "div",
+            { class: "surface", "data-testid": `snapshot-row-${summary.id}` },
+            field,
+            h("span", { class: "muted summary" }, `${formatWhen(summary.created)} · ${describeSnapshot(summary)}`),
+            compare,
+            remove,
+          );
+        }),
+      );
+    });
+
+    this.watch(() => {
+      const shown = snapshots.diff.value;
+      if (shown === undefined) {
+        diff.replaceChildren();
+        return;
+      }
+      diff.replaceChildren(
+        h(
+          "div",
+          { class: "confirm", role: "group", "aria-label": `What differs from ${shown.snapshot.name}` },
+          h("p", { "data-testid": "snapshot-diff-summary" }, `${shown.snapshot.name}, taken ${formatWhen(shown.snapshot.created)}, against the devices now: ${describeDiff(shown)}`),
+          ...shown.devices.map((device) => this.#deviceDiff(device)),
+          shown.workspace.length === 0 ? null : this.#sectionDiff("workspace-workspace", { section: "workspace", title: "Workspace", changes: shown.workspace }),
+          h("div", { class: "actions" }, h("button", { type: "button", "data-testid": "snapshot-diff-close", "on:click": () => snapshots.closeDiff() }, "Close")),
+        ),
+      );
+    });
+
+    return h(
+      "div",
+      { class: "backup" },
+      list,
+      h("div", { class: "actions" }, name, take),
+      problem,
+      diff,
+      h("p", { class: "note" }, "A snapshot records the workspace and, for each attached device, its mixer, routing, input settings, outputs, clock and device settings, read fresh. Taking one and comparing it only read: nothing is sent to a device, and putting a snapshot back is not built yet."),
+    );
+  }
+
+  /** One device's part of a comparison: its sections, or why it has none. */
+  #deviceDiff(device: DeviceDiff): HTMLElement {
+    const heading = h("p", { class: "note", "data-testid": `snapshot-diff-device-${device.device_id}` }, device.missing
+      ? `${device.model || device.device_id} is in the snapshot but is not attached now, so none of it can be compared.`
+      : device.added
+        ? `${device.model || device.device_id} is attached now but was not when the snapshot was taken.`
+        : `${device.model || device.device_id}: ${device.changes === 0 ? "nothing differs" : describeSection({ section: "", title: "", changes: device.sections.flatMap((s) => s.changes) })}`);
+    return h("div", {}, heading, ...device.sections.map((section) => this.#sectionDiff(`${device.device_id}-${section.section}`, section)));
+  }
+
+  /** One section of a comparison: its changes, each as a line a person can read. */
+  #sectionDiff(key: string, section: SectionDiff): HTMLElement {
+    return h(
+      "div",
+      { class: "diff-section", "data-testid": `snapshot-diff-${key}` },
+      h("p", { class: "diff-heading" }, `${section.title} — ${describeSection(section)}`),
+      h(
+        "ul",
+        { class: "changes" },
+        section.changes.map((change) =>
+          h("li", { class: change.kind === "unknown" ? "change warn" : "change" }, h("span", { class: "change-label" }, change.label), h("span", { class: "change-value" }, describeChange(change))),
+        ),
+      ),
+    );
+  }
+
   /** Export and import. The chosen file and its confirmation live only as long as the page. */
   #backup(): HTMLElement {
     const store = useStore();
     const exportButton = h("button", { type: "button", "data-testid": "workspace-export" }, "Export");
+    const exportAll = h("button", { type: "button", "data-testid": "workspace-export-backup" }, "Export with snapshots");
     const file = h("input", { type: "file", class: "file", accept: ".json,application/json", "data-testid": "workspace-import-file", "aria-label": "Workspace file to import" });
     const importButton = h("button", { type: "button", "data-testid": "workspace-import" }, "Import…");
     const outcome = h("div");
@@ -417,12 +574,32 @@ export class GaWorkspace extends GaElement {
     const show = (...children: HTMLElement[]) => outcome.replaceChildren(...children);
     const problem = (text: string) => show(h("p", { class: "problem", role: "alert", "data-testid": "workspace-import-problem" }, text));
 
+    const download = (text: string, filename: string) => {
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      h("a", { href: url, download: filename }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    };
+
     exportButton.addEventListener("click", () => {
       const workspace = store.workspace.peek();
       if (workspace === undefined) return;
-      const url = URL.createObjectURL(new Blob([workspaceFileText(workspace)], { type: "application/json" }));
-      h("a", { href: url, download: workspaceFileName(new Date()) }).click();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      download(workspaceFileText(workspace), workspaceFileName(new Date()));
+    });
+
+    // A full backup (spec §3.3): the workspace plus every snapshot whole, in one file that imports
+    // back as both. Fetching the snapshots' values is why it is a second button rather than the
+    // only one — an export of names and groups should not wait on a megabyte of captured state.
+    exportAll.addEventListener("click", async () => {
+      const workspace = store.workspace.peek();
+      if (workspace === undefined) return;
+      exportAll.disabled = true;
+      const snapshots = await store.snapshots.all();
+      exportAll.disabled = false;
+      if (snapshots === undefined) {
+        problem(`The backup was not saved. ${store.snapshots.problem.peek() ?? ""}`.trim());
+        return;
+      }
+      download(backupFileText(workspace, snapshots), backupFileName(new Date()));
     });
 
     importButton.addEventListener("click", () => file.click());
@@ -431,7 +608,7 @@ export class GaWorkspace extends GaElement {
       // Cleared at once, so choosing the same file again (after fixing it, say) is a change too.
       file.value = "";
       if (chosen === undefined) return;
-      const read = readWorkspaceFile(await chosen.text(), store.workspace.peek()?.version ?? 1);
+      const read = readWorkspaceFile(await chosen.text(), store.workspace.peek()?.version ?? 1, SNAPSHOT_VERSION);
       if (!read.ok) {
         problem(`${chosen.name} was not imported: it ${read.problem}.`);
         return;
@@ -445,16 +622,25 @@ export class GaWorkspace extends GaElement {
         busy = true;
         replace.disabled = cancel.disabled = true;
         const refused = await store.replaceWorkspace(read.workspace);
+        // Snapshots are added after the workspace, and only if it went in: a backup half applied
+        // should leave the snapshots out rather than beside a workspace that is not theirs. They
+        // are add-only, so one already here keeps the moment it recorded (spec §3.3).
+        const added = refused !== undefined || read.snapshots.length === 0 ? undefined : await store.snapshots.importAll(read.snapshots);
         busy = false;
-        if (refused === undefined) show(h("p", { class: "done", role: "status", "data-testid": "workspace-import-status" }, `Imported ${chosen.name}.`));
-        else problem(`${chosen.name} was not imported. ${refused}`);
+        if (refused !== undefined) {
+          problem(`${chosen.name} was not imported. ${refused}`);
+          return;
+        }
+        const snapshotNote = added === undefined ? "" : ` ${added.added.length} ${added.added.length === 1 ? "snapshot was" : "snapshots were"} added${added.skipped.length === 0 ? "" : `; ${added.skipped.length} already here ${added.skipped.length === 1 ? "was" : "were"} kept as ${added.skipped.length === 1 ? "it is" : "they are"}`}.`;
+        show(h("p", { class: "done", role: "status", "data-testid": "workspace-import-status" }, `Imported ${chosen.name}.${snapshotNote}`));
       });
       cancel.addEventListener("click", () => show());
       show(
         h(
           "div",
           { class: "confirm", role: "group", "aria-label": "Confirm import", "data-testid": "workspace-import-confirm" },
-          h("p", {}, `Replace this workspace with ${chosen.name}? It holds ${describeSummary(read.summary)}.`),
+          h("p", {}, `Replace this workspace with ${chosen.name}? It holds ${describeSummary(read.summary)}${read.snapshots.length === 0 ? "" : `, and ${read.snapshots.length} ${read.snapshots.length === 1 ? "snapshot" : "snapshots"}`}.`),
+          read.snapshots.length === 0 ? null : h("p", { class: "note" }, "Snapshots are added, not replaced: any already here keep the moment they recorded. Nothing in them is sent to a device."),
           absent.length === 0 ? null : h("p", { class: "note" }, `It also names devices that are not connected: ${absent.join(", ")}. Their names and layouts apply when a device with that id is attached.`),
           h("p", { class: "note" }, "Everything in the current workspace is replaced, for everyone using this server. Export first to keep a copy."),
           h("div", { class: "actions" }, replace, cancel),
@@ -466,14 +652,15 @@ export class GaWorkspace extends GaElement {
       const connected = store.connected.value;
       const loaded = store.workspace.value !== undefined;
       exportButton.disabled = !connected || !loaded;
+      exportAll.disabled = !connected || !loaded || store.snapshots.busy.value !== undefined;
       importButton.disabled = file.disabled = !connected || !loaded;
     });
 
     return h(
       "div",
       { class: "backup" },
-      h("p", { class: "note" }, "Export saves the device names, groups, links, mixer layouts and saved layouts to a file. Import replaces them from one. Neither touches the devices: levels, routing and input settings stay as they are."),
-      h("div", { class: "actions" }, exportButton, importButton, file),
+      h("p", { class: "note" }, "Export saves the device names, groups, links, mixer layouts and saved layouts to a file; Export with snapshots saves those and every snapshot's values too. Import reads either back, replacing the workspace and adding snapshots that are not already here. Neither touches the devices: levels, routing and input settings stay as they are."),
+      h("div", { class: "actions" }, exportButton, exportAll, importButton, file),
       outcome,
     );
   }

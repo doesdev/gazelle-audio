@@ -1,9 +1,10 @@
 //! Owns every connected device and routes work to the right worker.
 
 use gazelle_audio_protocol::field::Field;
+use gazelle_audio_protocol::payload::Value;
 use gazelle_audio_protocol::registry::{CyclicReport, Registry};
 use gazelle_audio_transport::{Device, LoopbackDevice};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -62,11 +63,20 @@ struct Entry {
     join: Option<std::thread::JoinHandle<()>>,
 }
 
+/// The latest decoded report of each id, per device.
+type CyclicCache = RwLock<BTreeMap<DeviceId, BTreeMap<u32, HashMap<String, Value>>>>;
+
 /// The set of devices the server is managing.
 pub struct DeviceManager {
     entries: RwLock<BTreeMap<DeviceId, Entry>>,
     registries: RegistrySet,
     events: broadcast::Sender<ServerEvent>,
+    /// The last report each device pushed, per report id. Cyclic reports are the only way to read
+    /// half the device's state (48V, gains, volumes, clock: workspace spec §2.1), and they arrive
+    /// on the device's own schedule rather than on request, so something that needs that state now
+    /// reads the last one rather than waiting for the next. Nothing is invented: a device that has
+    /// pushed nothing has no entry, and a snapshot records that as unread.
+    cyclic: Arc<CyclicCache>,
 }
 
 /// Anything a WebSocket client may be told about.
@@ -84,7 +94,18 @@ impl DeviceManager {
             entries: RwLock::new(BTreeMap::new()),
             registries,
             events,
+            cyclic: Arc::new(RwLock::new(BTreeMap::new())),
         })
+    }
+
+    /// The fields of the last report of `report_id` this device pushed, or `None` when it has
+    /// pushed none. Never a guess: a device that has said nothing reads as nothing.
+    pub fn cyclic(&self, id: &DeviceId, report_id: u32) -> Option<HashMap<String, Value>> {
+        self.cyclic.read().unwrap().get(id)?.get(&report_id).cloned()
+    }
+
+    fn forget_cyclic(&self, id: &DeviceId) {
+        self.cyclic.write().unwrap().remove(id);
     }
 
     /// Subscribe to the event stream. Each subscriber gets its own buffer.
@@ -118,11 +139,17 @@ impl DeviceManager {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let events = self.events.clone();
+        let cyclic = Arc::clone(&self.cyclic);
         let ctx = WorkerContext {
             device_id: id.clone(),
             device,
             registry: model.map(|m| m.registry.clone()),
             events: Box::new(move |e| {
+                // Remember the latest of each report before publishing it: a subscriber may be
+                // reconnecting or absent, and the state still has to be readable now.
+                if let DeviceEvent::Cyclic { device_id, report_id, fields } = &e {
+                    cyclic.write().unwrap().entry(device_id.clone()).or_default().insert(*report_id, fields.clone());
+                }
                 // No subscribers is the normal case when nothing is watching; ignore.
                 let _ = events.send(ServerEvent::Device(e));
             }),
@@ -159,6 +186,7 @@ impl DeviceManager {
         if self.entries.write().unwrap().remove(id).is_none() {
             return;
         }
+        self.forget_cyclic(id);
         tracing::warn!("{id} stopped responding (unplugged?) and was detached");
         let _ = self.events.send(ServerEvent::DeviceRemoved(id.clone()));
     }
@@ -249,6 +277,7 @@ impl DeviceManager {
         if let Some(join) = entry.join {
             let _ = join.join();
         }
+        self.forget_cyclic(id);
         let _ = self.events.send(ServerEvent::DeviceRemoved(id.clone()));
         Ok(())
     }

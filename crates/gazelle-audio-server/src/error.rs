@@ -23,6 +23,8 @@ pub enum ServerError {
     DeviceGone(String),
     /// Protocol-level failure building or parsing bytes.
     Protocol(String),
+    /// No snapshot with this id is stored.
+    UnknownSnapshot(String),
     /// Workspace persistence failure.
     Storage(String),
     /// A backend was requested that is not implemented yet.
@@ -41,6 +43,7 @@ impl ServerError {
             ServerError::Refused { .. } => "refused",
             ServerError::DeviceGone(_) => "device_gone",
             ServerError::Protocol(_) => "protocol_error",
+            ServerError::UnknownSnapshot(_) => "unknown_snapshot",
             ServerError::Storage(_) => "storage_error",
             ServerError::Unsupported(_) => "unsupported",
         }
@@ -48,7 +51,7 @@ impl ServerError {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            ServerError::UnknownDevice(_) | ServerError::UnknownCommand { .. } => {
+            ServerError::UnknownDevice(_) | ServerError::UnknownCommand { .. } | ServerError::UnknownSnapshot(_) => {
                 StatusCode::NOT_FOUND
             }
             ServerError::BadValue(_) => StatusCode::BAD_REQUEST,
@@ -89,6 +92,7 @@ impl std::fmt::Display for ServerError {
             }
             ServerError::DeviceGone(d) => write!(f, "device {d} is no longer reachable"),
             ServerError::Protocol(m) => write!(f, "protocol error: {m}"),
+            ServerError::UnknownSnapshot(id) => write!(f, "no such snapshot: {id}"),
             ServerError::Storage(m) => write!(f, "storage error: {m}"),
             ServerError::Unsupported(m) => write!(f, "unsupported: {m}"),
         }

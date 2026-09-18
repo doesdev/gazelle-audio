@@ -8,6 +8,7 @@ import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
+import type { Snapshot, SnapshotDiff, SnapshotImport, SnapshotSummary } from "./snapshots.ts";
 import type { Workspace } from "./workspace.ts";
 
 export const API_PATH = "/api/v1";
@@ -100,6 +101,20 @@ export interface Client {
   /** Throws `unknown_device` when the id is not currently known. */
   device(id: string): DeviceHandle;
   readonly workspace: { get(): Promise<Workspace>; put(workspace: Workspace): Promise<Workspace> };
+  /**
+   * Snapshots the server keeps. `create` and `compare` read every attached device and send
+   * nothing to any of them; `rename` changes a snapshot's name and note and nothing it recorded.
+   */
+  readonly snapshots: {
+    list(): Promise<SnapshotSummary[]>;
+    get(id: string): Promise<Snapshot>;
+    create(name: string, note?: string): Promise<SnapshotSummary>;
+    rename(id: string, change: { name?: string; note?: string }): Promise<SnapshotSummary>;
+    delete(id: string): Promise<void>;
+    compare(id: string): Promise<SnapshotDiff>;
+    /** Add snapshots from a backup file, keeping any already stored. */
+    import(snapshots: Snapshot[]): Promise<SnapshotImport>;
+  };
   /** User theme files from the server's themes directory; the UI validates each theme. */
   themes(): Promise<UserTheme[]>;
   close(): Promise<void>;
@@ -224,6 +239,23 @@ class Connection implements Client {
   readonly workspace = {
     get: async (): Promise<Workspace> => (await this.#http("GET", "workspace")) as Workspace,
     put: async (workspace: Workspace): Promise<Workspace> => (await this.#http("PUT", "workspace", workspace)) as Workspace,
+  };
+
+  readonly snapshots = {
+    list: async (): Promise<SnapshotSummary[]> => {
+      const listed = await this.#http("GET", "snapshots");
+      const snapshots = isObject(listed) ? listed["snapshots"] : undefined;
+      return Array.isArray(snapshots) ? (snapshots as SnapshotSummary[]) : [];
+    },
+    get: async (id: string): Promise<Snapshot> => (await this.#http("GET", `snapshots/${encodeURIComponent(id)}`)) as Snapshot,
+    create: async (name: string, note = ""): Promise<SnapshotSummary> => (await this.#http("POST", "snapshots", { name, note })) as SnapshotSummary,
+    rename: async (id: string, change: { name?: string; note?: string }): Promise<SnapshotSummary> =>
+      (await this.#http("PATCH", `snapshots/${encodeURIComponent(id)}`, change)) as SnapshotSummary,
+    delete: async (id: string): Promise<void> => {
+      await this.#http("DELETE", `snapshots/${encodeURIComponent(id)}`);
+    },
+    compare: async (id: string): Promise<SnapshotDiff> => (await this.#http("GET", `snapshots/${encodeURIComponent(id)}/compare`)) as SnapshotDiff,
+    import: async (snapshots: Snapshot[]): Promise<SnapshotImport> => (await this.#http("POST", "snapshots/import", snapshots)) as SnapshotImport,
   };
 
   async themes(): Promise<UserTheme[]> {
@@ -546,7 +578,7 @@ class Connection implements Client {
   }
 
   /** A JSON request to `API_PATH/<path>`; failures become GazelleError. */
-  async #http(method: "GET" | "PUT", path: string, body?: unknown): Promise<unknown> {
+  async #http(method: "GET" | "PUT" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<unknown> {
     const url = new URL(`${API_PATH}/${path}`, this.#base).toString();
     let response: Awaited<ReturnType<FetchLike>>;
     try {
