@@ -80,7 +80,7 @@ async fn rpc_invokes_a_command_and_echoes_the_id() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
     let _hello = next_json(&mut ws).await;
 
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({
             "id": 7,
             "device_id": "loopback-0",
@@ -108,7 +108,7 @@ async fn rpc_ext3_selects_the_routing_group() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
     let _hello = next_json(&mut ws).await;
 
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({"id": 1, "device_id": "loopback-1", "command": "get_routing", "ext3": 13, "dry_run": true}).to_string(),
     ))
     .await
@@ -117,7 +117,7 @@ async fn rpc_ext3_selects_the_routing_group() {
     assert_eq!(reply["type"], "rpc_response", "reply: {reply}");
     assert_eq!(&reply["result"]["sent_hex"].as_str().unwrap()[24..32], "0d000000");
 
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({"id": 2, "device_id": "loopback-1", "command": "set_mixer_cfg", "ext3": 1, "dry_run": true}).to_string(),
     ))
     .await
@@ -133,7 +133,7 @@ async fn rpc_errors_carry_the_id_and_a_code() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
     let _hello = next_json(&mut ws).await;
 
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({"id": "abc", "device_id": "loopback-1", "command": "set_mixer", "args": {}})
             .to_string(),
     ))
@@ -152,13 +152,13 @@ async fn malformed_frame_does_not_drop_the_connection() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
     let _hello = next_json(&mut ws).await;
 
-    ws.send(Message::Text("not json at all".into())).await.unwrap();
+    ws.send(Message::text("not json at all")).await.unwrap();
     let reply = next_json(&mut ws).await;
     assert_eq!(reply["type"], "rpc_error");
     assert_eq!(reply["error"]["code"], "bad_request");
 
     // The socket must still be usable afterwards.
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({"id": 1, "device_id": "loopback-0", "command": "set_routing",
                "args": {}, "dry_run": true})
         .to_string(),
@@ -230,7 +230,7 @@ async fn a_pending_rpc_does_not_stall_events() {
     // Prove events flow before the request.
     while next_json(&mut ws).await["type"] != "cyclic" {}
 
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({"id": 1, "device_id": "loopback-0", "command": "set_mixer",
                "args": {"level": 64}})
         .to_string(),

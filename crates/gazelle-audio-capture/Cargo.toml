@@ -14,7 +14,7 @@ path = "src/main.rs"
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
-getrandom = "0.3"
+getrandom = "0.4"
 pcap-file = "=2.0.0"
 # drive's chat-completions client: rustls with the ring provider, installed at runtime (decision A35).
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
@@ -31,5 +31,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [dev-dependencies]
 http-body-util = "0.1"
 tempfile = "3"
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }

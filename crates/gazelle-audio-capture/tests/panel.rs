@@ -252,7 +252,7 @@ async fn wait_error(ws: &mut Ws) -> String {
 }
 
 async fn op(ws: &mut Ws, command: Value) {
-    ws.send(Message::Text(command.to_string())).await.unwrap();
+    ws.send(Message::text(command.to_string())).await.unwrap();
 }
 
 #[tokio::test]
@@ -262,7 +262,7 @@ async fn websocket_closes_on_an_oversized_message() {
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     assert_eq!(next_message(&mut ws).await["type"], "state");
     let huge = "x".repeat(gazelle_audio_capture::panel::MAX_MESSAGE_BYTES + 1);
-    ws.send(Message::Text(huge)).await.unwrap();
+    ws.send(Message::text(huge)).await.unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         match tokio::time::timeout_at(deadline, ws.next()).await.expect("the helper closes the connection within 5 s") {

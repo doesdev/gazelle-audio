@@ -10,8 +10,8 @@ description = "Release chores for gazelle: collect the release, write SHA256SUMS
 [dependencies]
 # The signing half of what the server verifies with.
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
-sha2 = "0.10"
-getrandom = "0.3"
+sha2 = "0.11"
+getrandom = "0.4"
 # The server's own updater code, so `verify` checks a signed release with exactly the code an
 # installed copy checks it with, `dist` names the assets exactly as the updater asks for them, and
 # `check-version` reads the version the binary reports. Default features off: no embedded web UI,

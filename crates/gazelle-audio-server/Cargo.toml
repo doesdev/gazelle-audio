@@ -33,7 +33,7 @@ rust-embed = { version = "8", optional = true, features = ["interpolate-folder-p
 # `update/mod.rs`.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-sha2 = "0.10"
+sha2 = "0.11"
 # Signature checking only; no signing in the shipped binary. `xtask` does the signing.
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 semver = "1"
@@ -75,4 +75,4 @@ window = ["dep:tao", "dep:wry"]
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.29"
