@@ -102,11 +102,11 @@ The rows with a Ctrl+click are **levels**. Their double-click goes to a safe lev
 
 > **Warning.** Home and End go to the raw ends of a control's scale, which point different ways on different controls: on a mixer fader **Home is 0 dB**, while on an output volume **End is 0 dB**. Ctrl+click, and double-click when you have chosen unity, put a level at full level. With monitors up, prefer the arrow keys.
 
-**Drop-down menus take the wheel too**, one option per notch, and most send their change at once. The clock source, sample rate, **Add effect**, a channel's **Input** and **Main mix**, the mix master's **+ Output**, a surface's **Route** and mix pin menus, and the header's **Double-click** menu ignore the wheel, because one accidental notch there would interrupt audio, change routing or change a safety setting. Ctrl with the wheel still zooms the page.
+**Drop-down menus take the wheel too**, one option per notch, and most send their change at once. The clock source, sample rate, the driver's buffer size, **Add effect**, a channel's **Input** and **Main mix**, the mix master's **+ Output**, a surface's **Route** and mix pin menus, and the header's **Double-click** menu ignore the wheel, because one accidental notch there would interrupt audio, change routing or change a safety setting. Ctrl with the wheel still zooms the page.
 
 **Text fields** (names) save on Enter or when you leave the field; Escape puts back what was there.
 
-**Buttons that ask twice** read **Confirm** (or **Confirm N**, **Confirm save**, **Confirm standby**) after the first click, and forget it after three seconds: 48V on, a test tone on, DC coupling on, recalling or saving a device preset, Standby, and removing a channel, a surface, a strip, a cable or a snapshot. Turning a thing off never asks. The clock source and sample rate menus ask with a **Confirm** button beside them. Enter and Space press these buttons as a click does.
+**Buttons that ask twice** read **Confirm** (or **Confirm N**, **Confirm save**, **Confirm standby**) after the first click, and forget it after three seconds: 48V on, a test tone on, DC coupling on, recalling or saving a device preset, the driver's Safe Mode either way, Standby, and removing a channel, a surface, a strip, a cable or a snapshot. Turning a thing off never asks, except Safe Mode, which restarts a DAW's audio either way. The clock source, sample rate and driver buffer size menus ask with a **Confirm** button beside them. Enter and Space press these buttons as a click does.
 
 Apart from those, the only keyboard shortcuts are Escape (to close the phone drawer or a colour picker) and the usual Tab to move between controls.
 

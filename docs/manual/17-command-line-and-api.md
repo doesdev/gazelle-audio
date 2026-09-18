@@ -71,6 +71,8 @@ Everything the app does goes through this API, under `http://127.0.0.1:8420/api/
 | `GET /devices/{id}/commands` | Every command the device's model takes, with its fields, and its status reports |
 | `GET /commands` | The command names per known model |
 | `POST /devices/{id}/command/{name}` | Send a command. The body is a JSON object of its fields; `?dry_run=true` reports the bytes without sending |
+| `GET /devices/{id}/driver` | The audio driver's settings for the device: buffer size, latencies, Safe Mode. `?refresh=true` asks the driver again |
+| `PUT /devices/{id}/driver` | Change the driver's buffer size and/or Safe Mode: `{"buffer_size": 256}`, `{"safe_mode": false}`, with `"force": true` to change it while a program uses ASIO. Answers the call as sent and what the driver reports afterwards (`outcome` is `applied`, `mismatch`, `unconfirmed`, `failed` or `unchanged`); `?dry_run=true` builds the call without sending it. An error means nothing was sent: `not_offered` or `nothing_to_change` (400), `asio_in_use`, `unavailable` or `unreadable` (409) |
 | `GET /workspace`, `PUT /workspace` | Read or replace the workspace document |
 | `GET /themes` | Your theme files |
 | `GET /snapshots`, `POST /snapshots` | List snapshots, or take one (`{"name": "..."}`) |

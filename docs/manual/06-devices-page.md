@@ -27,6 +27,30 @@ Choosing a source or a rate sends nothing yet: a **Confirm** button appears besi
 
 > **Warning.** A clock or sample rate change interrupts the device's audio and your recording software's stream. These two menus ignore the mouse wheel. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
 
+## Driver
+
+The audio driver's settings for this device on this computer: the USB audio driver Antelope installs, not the device itself. Gazelle reads them from the driver, as the vendor's driver control panel shows them.
+
+| Row | What it shows |
+|---|---|
+| **Driver version** | The driver's version and the version of its programming interface |
+| **Sample rate** | The rate the driver runs the device at |
+| **Buffer size** | The driver's ASIO buffer, in samples, from the sizes it offers (8 to 2048 on both drivers) |
+| **Input latency**, **Output latency** | The delay the driver reports to recording software, in samples and in milliseconds, rounded as the vendor's panel rounds them |
+| **Safe Mode** | The driver's ASIO Safe Mode: **On** or **Off** |
+
+**Changing the buffer size.** Choosing a size in the menu sends nothing yet: a **Confirm** button appears beside it, and pressing it within three seconds sends the new size to the driver, keeping Safe Mode as it is. Otherwise the menu goes back to what the driver has. The menu ignores the mouse wheel.
+
+**Changing Safe Mode.** The switch reads **On** or **Off**. Its first click reads **Confirm**; a second within three seconds turns Safe Mode the other way, keeping the buffer size as it is. Safe Mode adds buffering on the output: on a Quadro it added 176 samples (about 4 ms) at 256 samples and 265 at 512, and nothing on the input.
+
+After either change the section shows what the driver reports now, latencies included, and a line saying what happened. If the driver reports something other than what was sent, the line says so and shows what it reports; nothing is hidden.
+
+**A program using the driver.** When a program (a DAW, most likely) is using the driver's ASIO interface, the section says so, and a change is refused with nothing sent. **Change anyway** (two clicks) sends it regardless; that program then restarts its audio, and may stop or complain. Close it or stop its audio first if you can.
+
+> **Warning.** Changing the buffer size or Safe Mode restarts the audio of any program using the driver, even when the section does not know it is in use. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
+
+The loopback emulator has no driver, so its Driver section says so and offers nothing to change. **Read again** asks the driver afresh and changes nothing.
+
 ## Panning law (Quadro)
 
 **Centre attenuation**: how much a signal panned to the centre is lowered in every mix: 0 dB, -3 dB, -4.5 dB or -6 dB. It also affects a mix summed to mono.
