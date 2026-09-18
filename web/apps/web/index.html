@@ -13,6 +13,14 @@
         color: var(--ga-text-primary, #e6e6e6);
         font: 12px/1.4 "Inter Variable", system-ui, sans-serif;
       }
+      /* Selection is not drawn outside a field; the elements' shared sheet does the same in each
+         shadow root (src/elements/styles.ts). */
+      ::selection { background: transparent; }
+      :is(input, textarea, select, [contenteditable]:not([contenteditable="false"]))::selection,
+      [contenteditable]:not([contenteditable="false"]) ::selection {
+        background: var(--ga-accent, #3fb6d9);
+        color: var(--ga-accent-text, #0b1114);
+      }
       .boot-error { max-width: 520px; margin: 15vh auto; padding: 0 16px; }
       .boot-error h1 { font: 600 22px "Josefin Sans Variable", system-ui, sans-serif; }
       .boot-error button { font: inherit; padding: 4px 12px; }

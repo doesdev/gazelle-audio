@@ -16,6 +16,17 @@ export const shared = stylesheet(`
   *, *::before, *::after { box-sizing: inherit; }
   [hidden] { display: none !important; }
 
+  /* A drag across the UI must not light up labels, readouts and headings. Text can still be
+     selected (on purpose, or while testing); the selection is simply not drawn. A shadow root does
+     not take the page's ::selection rule, so this is here, in every element's shared sheet, as
+     well as in index.html. Fields a person types in keep a visible selection. */
+  ::selection { background: transparent; }
+  :is(input, textarea, select, [contenteditable]:not([contenteditable="false"]))::selection,
+  [contenteditable]:not([contenteditable="false"]) ::selection {
+    background: var(--ga-accent);
+    color: var(--ga-accent-text);
+  }
+
   h1, h2, h3, .title {
     margin: 0;
     font-family: "Josefin Sans Variable", system-ui, sans-serif;
