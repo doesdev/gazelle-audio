@@ -41,6 +41,9 @@ pub struct Context {
     pub log_dir: Option<PathBuf>,
     /// Asks the server to stop. The tray removes itself straight after.
     pub quit: Box<dyn Fn()>,
+    /// Brings the desktop window to the front. `None` on a server without one, and Open then
+    /// opens a browser as it always did.
+    pub show_window: Option<Box<dyn Fn()>>,
     /// Asks for a device scan now. `None` where devices cannot come and go (the loopback), and
     /// the menu then has no Rescan item.
     pub rescan: Option<Box<dyn Fn()>>,
@@ -105,6 +108,8 @@ pub fn antelope_service_running() -> bool {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Open,
+    /// The web UI in the system browser. Only offered where Open means the desktop window.
+    OpenInBrowser,
     StartOnBoot,
     Quit,
     OpenLogFolder,
@@ -120,11 +125,14 @@ impl Command {
             Command::Quit => 3,
             Command::OpenLogFolder => 4,
             Command::Rescan => 5,
+            Command::OpenInBrowser => 6,
         }
     }
 
     pub fn from_id(id: usize) -> Option<Command> {
-        [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan].into_iter().find(|c| c.id() == id)
+        [Command::Open, Command::OpenInBrowser, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan]
+            .into_iter()
+            .find(|c| c.id() == id)
     }
 }
 
@@ -153,6 +161,9 @@ pub struct Status {
     pub log_file: bool,
     /// Whether devices can come and go, so a rescan means something (the USB backend).
     pub can_rescan: bool,
+    /// Whether this server has a desktop window. Open then shows it, and a second item opens a
+    /// browser; without one Open is the browser, as it always was.
+    pub has_window: bool,
 }
 
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
@@ -179,11 +190,22 @@ pub fn menu(status: &Status) -> Vec<Item> {
             checked: None,
             default: status.web_ui,
         },
+    ];
+    if status.has_window {
+        items.push(Item::Action {
+            command: Command::OpenInBrowser,
+            label: "Open in browser".into(),
+            enabled: status.web_ui,
+            checked: None,
+            default: false,
+        });
+    }
+    items.extend([
         Item::Separator,
         Item::Info(format!("Listening on {}", ui_url(status.address))),
         Item::Info(format!("Backend: {}", status.backend)),
         Item::Info(format!("Dry run: {}", if status.dry_run { "on" } else { "off" })),
-    ];
+    ]);
     if status.devices.is_empty() {
         items.push(Item::Info("No devices attached".into()));
     }
@@ -238,6 +260,7 @@ mod tests {
             start_on_boot: false,
             log_file: true,
             can_rescan: false,
+            has_window: false,
         }
     }
 
@@ -335,6 +358,29 @@ mod tests {
         assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::Rescan, .. })));
     }
 
+    /// With a desktop window, Open shows it and a second item still opens a browser: the app is
+    /// served over HTTP either way, and a phone or a second machine is the point of that (P70).
+    #[test]
+    fn a_window_adds_open_in_browser_beside_open() {
+        let items = menu(&Status { has_window: true, ..status() });
+        let commands: Vec<Command> =
+            items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
+        assert_eq!(commands, [Command::Open, Command::OpenInBrowser, Command::StartOnBoot, Command::OpenLogFolder, Command::Quit]);
+        assert_eq!(
+            action(&items, Command::OpenInBrowser),
+            &Item::Action { command: Command::OpenInBrowser, label: "Open in browser".into(), enabled: true, checked: None, default: false }
+        );
+        assert!(matches!(action(&items, Command::Open), Item::Action { default: true, label, .. } if label == "Open Gazelle"));
+
+        // Without a window there is only one way to open it, and the menu does not grow an item
+        // that would do the same thing twice.
+        assert!(!menu(&status()).iter().any(|i| matches!(i, Item::Action { command: Command::OpenInBrowser, .. })));
+
+        // Nothing to open at all: both are dead, as Open already was.
+        let items = menu(&Status { has_window: true, web_ui: false, ..status() });
+        assert!(matches!(action(&items, Command::OpenInBrowser), Item::Action { enabled: false, .. }));
+    }
+
     #[test]
     fn without_the_web_ui_there_is_nothing_to_open() {
         let items = menu(&Status { web_ui: false, ..status() });
@@ -354,7 +400,7 @@ mod tests {
 
     #[test]
     fn command_ids_round_trip_and_zero_is_no_command() {
-        for c in [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan] {
+        for c in [Command::Open, Command::OpenInBrowser, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan] {
             assert_eq!(Command::from_id(c.id()), Some(c));
         }
         assert_eq!(Command::from_id(0), None);

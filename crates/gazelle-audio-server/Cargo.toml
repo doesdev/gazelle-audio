@@ -26,6 +26,14 @@ clap = { version = "~4.5.61", features = ["derive"] }
 futures-util = "0.3"
 rust-embed = { version = "=8.11.0", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
 
+# The desktop window, behind the `window` feature: Tao makes the window, Wry puts the system
+# webview (WebView2 on Windows) in it and points it at this server. Used directly, not through
+# Tauri: the UI talks HTTP and WS to a server we already run, so Tauri's IPC and build pipeline
+# would buy nothing (`specs/2026-09-18-shipping-portable.md`). Both are optional, and their trees
+# are audited against the Rust floor separately — see `reference/rust-crates.md`.
+tao = { version = "0.36", optional = true }
+wry = { version = "0.56", optional = true }
+
 # The tray icon, on Win32 directly. `hidapi` already brings in this exact crate, so the tray adds
 # features, not packages, to what the Rust floor audit covers.
 [target.'cfg(windows)'.dependencies]
@@ -45,6 +53,9 @@ default = ["web-ui"]
 # Serve the built web UI from the binary. Needs no Node at build time: when
 # web/apps/web/dist is missing, a notice page is embedded instead.
 web-ui = ["dep:rust-embed"]
+# A window of its own over the served UI. Off by default: the headless server, every test harness
+# that runs it with `--no-tray`, and the Rust floor audit's default answer are untouched by it.
+window = ["dep:tao", "dep:wry"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -72,6 +72,11 @@ struct Args {
     #[arg(long)]
     no_tray: bool,
 
+    /// Run without the desktop window, serving the UI over HTTP only. A build without the
+    /// `window` feature, and any `--no-tray` run, has no window either way.
+    #[arg(long)]
+    no_window: bool,
+
     /// Also log to a size-capped file in DIR. Tray runs do by default, in the platform's state
     /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
     #[arg(long, value_name = "DIR")]
@@ -103,7 +108,11 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         Err(e) => return Err(Box::new(e)),
     };
     let address = listener.local_addr()?;
-    let (app, devices, hotplug) = runtime.block_on(prepare(args, address))?;
+
+    // Before the devices are attached, so the window is on screen while that happens rather than
+    // after it; its first request waits in the listener's backlog until the server answers.
+    let window = open_window(args, address);
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone()))?;
 
     // Quit in the tray and Ctrl-C both end the server the same way.
     let quit = Arc::new(Notify::new());
@@ -113,7 +122,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     let tray = if args.no_tray {
         None
     } else {
-        let mut context = tray_context(args, address, &devices, &quit, log_dir);
+        let mut context = tray_context(args, address, &devices, &quit, log_dir, window.clone());
         context.rescan = hotplug.as_ref().map(|hotplug| {
             let rescan = hotplug.rescan();
             Box::new(move || rescan.now()) as Box<dyn Fn()>
@@ -153,6 +162,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 async fn prepare(
     args: &Args,
     address: SocketAddr,
+    show_window: Option<gazelle_audio_server::ShowWindow>,
 ) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -196,8 +206,7 @@ async fn prepare(
         force_dry_run: args.dry_run,
         backend: format!("{:?}", args.backend).to_lowercase(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
-        // No window is created yet; a second launch is told this one is headless.
-        show_window: None,
+        show_window,
     };
 
     let app = http::router(state);
@@ -280,6 +289,7 @@ fn tray_context(
     devices: &Arc<DeviceManager>,
     quit: &Arc<Notify>,
     log_dir: Option<PathBuf>,
+    show_window: Option<gazelle_audio_server::ShowWindow>,
 ) -> tray::Context {
     let backend = format!("{:?}", args.backend).to_lowercase();
     let boot_args = BootArgs {
@@ -308,8 +318,40 @@ fn tray_context(
         boot_args,
         log_dir,
         quit: Box::new(move || quit.notify_one()),
+        show_window: show_window.map(|show| Box::new(move || show()) as Box<dyn Fn()>),
         rescan: None,
     }
+}
+
+/// Opens the desktop window, when this build has one and this run wants one.
+///
+/// **A `--no-tray` run never has one.** That is the headless shape — a service, a test harness,
+/// the web suite's own server — and a window appearing in the middle of one would be a surprise.
+/// The desktop run is the tray and the window together. Nor is there one without the web UI to
+/// put in it.
+///
+/// A window that cannot be created is a warning, never a reason to fail: the UI is still served,
+/// and the tray's Open falls back to the browser.
+#[cfg(feature = "window")]
+fn open_window(args: &Args, address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
+    if args.no_window || args.no_tray || args.no_web_ui {
+        return None;
+    }
+    let path = gazelle_audio_server::config::default_window_state_path(|k| std::env::var(k).ok());
+    match gazelle_audio_server::window::open(tray::ui_url(address), path) {
+        Ok(window) => Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
+        Err(e) => {
+            tracing::warn!("no window, serving the UI over HTTP only: {e}");
+            None
+        }
+    }
+}
+
+/// Without the `window` feature there is no window to open, and `--no-window` is accepted and
+/// already true.
+#[cfg(not(feature = "window"))]
+fn open_window(_args: &Args, _address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
+    None
 }
 
 /// Attaches every Antelope control interface the HID stack can open now, then keeps scanning.

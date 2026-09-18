@@ -35,6 +35,11 @@ pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))
 }
 
+/// Where the desktop window's size and position are remembered, beside the workspace.
+pub fn default_window_state_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    config_dir(var).map_or_else(|| PathBuf::from("window.json"), |dir| dir.join("window.json"))
+}
+
 /// The directory a server's log file goes in when `--log-dir` is not given, or `None` when the
 /// environment names nowhere for it (the server then writes no log file).
 ///
@@ -113,6 +118,17 @@ mod tests {
     fn empty_xdg_config_home_is_treated_as_unset() {
         let p = default_workspace_path(env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/home/u")]));
         assert_eq!(p, PathBuf::from("/home/u/.config/gazelle/workspace.json"));
+    }
+
+    #[test]
+    fn the_window_is_remembered_beside_the_workspace() {
+        let appdata = r"C:\Users\u\AppData\Roaming";
+        assert_eq!(
+            default_window_state_path(env(&[("APPDATA", appdata)])),
+            PathBuf::from(appdata).join("gazelle").join("window.json")
+        );
+        assert_eq!(default_window_state_path(env(&[("GAZELLE_CONFIG_DIR", "/srv/gazelle")])), PathBuf::from("/srv/gazelle/window.json"));
+        assert_eq!(default_window_state_path(env(&[])), PathBuf::from("window.json"));
     }
 
     #[test]

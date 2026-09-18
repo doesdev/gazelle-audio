@@ -16,11 +16,13 @@ pub mod device;
 pub mod error;
 pub mod handover;
 pub mod http;
+pub mod icon;
 pub mod logging;
 pub mod notice;
 pub mod registry_set;
 pub mod tray;
 pub mod value;
+pub mod window;
 #[cfg(feature = "web-ui")]
 pub mod web;
 pub mod workspace;
