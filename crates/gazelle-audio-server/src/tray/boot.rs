@@ -18,6 +18,22 @@ pub trait RunKey {
     fn remove(&self, name: &str) -> io::Result<()>;
 }
 
+/// No login entries at all: what a platform with no such concept offers, so the rest of the
+/// code has one shape rather than two.
+pub struct NoRunKey;
+
+impl RunKey for NoRunKey {
+    fn read(&self, _name: &str) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+    fn write(&self, _name: &str, _command: &str) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "there are no login entries on this platform"))
+    }
+    fn remove(&self, _name: &str) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// The arguments a boot entry carries over from the running server.
 ///
 /// Carried: what decides what the server serves and how safely — `--bind`, `--backend`,
@@ -129,6 +145,23 @@ pub fn program_of(command: &str) -> Option<&str> {
         None => command.split([' ', '\t']).next().unwrap_or(""),
     };
     (!program.is_empty()).then_some(program)
+}
+
+/// Everything after the program in a command line, leading space and all, so it can be put back
+/// behind another program's path unchanged. An install re-points a login entry at the installed
+/// binary and must not reinterpret the options the person's own entry carries.
+pub fn arguments_of(command: &str) -> &str {
+    let trimmed = command.trim_start();
+    match trimmed.strip_prefix('"') {
+        Some(rest) => match rest.find('"') {
+            Some(at) => &rest[at + 1..],
+            None => "",
+        },
+        None => match trimmed.find([' ', '\t']) {
+            Some(at) => &trimmed[at..],
+            None => "",
+        },
+    }
 }
 
 /// The program a login entry runs: the windowless build beside `exe` when there is one, so a
@@ -324,6 +357,16 @@ mod tests {
         assert_eq!(program_of(r"C:\tools\g.exe"), Some(r"C:\tools\g.exe"));
         assert_eq!(program_of(r#""C:\unterminated"#), None);
         assert_eq!(program_of(""), None);
+    }
+
+    #[test]
+    fn what_follows_the_program_is_carried_over_untouched() {
+        assert_eq!(arguments_of(r#""C:\Program Files\g.exe" --bind 127.0.0.1:8420 --dry-run"#), " --bind 127.0.0.1:8420 --dry-run");
+        assert_eq!(arguments_of(r"C:\tools\g.exe --backend usb"), " --backend usb");
+        assert_eq!(arguments_of(r#""C:\tools\g.exe""#), "", "a program on its own carries nothing");
+        assert_eq!(arguments_of(r"C:\tools\g.exe"), "");
+        assert_eq!(arguments_of(r#""C:\unterminated --bind x"#), "", "an unterminated quote names no arguments either");
+        assert_eq!(arguments_of(""), "");
     }
 
     #[test]

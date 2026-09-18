@@ -17,6 +17,7 @@ pub mod error;
 pub mod handover;
 pub mod http;
 pub mod icon;
+pub mod install;
 pub mod logging;
 pub mod notice;
 pub mod registry_set;
