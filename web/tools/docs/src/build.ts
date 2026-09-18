@@ -1,4 +1,4 @@
-// `pnpm -C web docs`: checks the manual and the cheat sheet under docs/, then prints each to a
+// `pnpm -C web docs:pdf`: checks the manual and the cheat sheet under docs/, then prints each to a
 // PDF with the Chromium that Playwright installs for the e2e suite.
 //
 //   docs/dist/gazelle-manual.pdf       title page, contents with page numbers, one chapter per
@@ -31,7 +31,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "../../../..");
 const DOCS = join(REPO_ROOT, "docs");
 const OUT = join(DOCS, "dist");
-const CLI_CHAPTER = "manual/16-command-line-and-api.md";
 const CHEAT_SHEET_MAX_PAGES = 2;
 
 function fail(heading: string, problems: readonly string[]): never {
@@ -49,13 +48,15 @@ export function runChecks(): Book {
   if (problems.length > 0) fail(`The docs have ${problems.length} problem${problems.length === 1 ? "" : "s"}`, problems);
   console.log(`checked ${markdown.length} Markdown files: no dashes, every link and image resolves, the book is complete`);
 
+  const cliChapter = book.chapters.find((file) => file.includes("command-line"));
+  if (cliChapter === undefined) fail("The book has no command-line chapter", ["book.json must list a chapter whose file name contains \"command-line\""]);
   const binary = findBinary(REPO_ROOT);
   if (binary === undefined) {
     console.log("command-line check skipped: no gazelle-audio-server binary is built (cargo build -p gazelle-audio-server, or set GAZELLE_BIN)");
   } else {
-    const cli = compareCli(helpOf(binary), readFileSync(join(DOCS, CLI_CHAPTER), "utf8"));
-    if (cli.length > 0) fail(`docs/${CLI_CHAPTER} disagrees with ${relative(REPO_ROOT, binary)} --help`, cli);
-    console.log(`checked docs/${CLI_CHAPTER} against ${relative(REPO_ROOT, binary)} --help`);
+    const cli = compareCli(helpOf(binary), readFileSync(join(DOCS, cliChapter), "utf8"));
+    if (cli.length > 0) fail(`docs/${cliChapter} disagrees with ${relative(REPO_ROOT, binary)} --help`, cli);
+    console.log(`checked docs/${cliChapter} against ${relative(REPO_ROOT, binary)} --help`);
   }
   return book;
 }
@@ -142,7 +143,7 @@ function manualHtml(book: Book, chapters: readonly Chapter[], pages: ReadonlyMap
   <div class="subtitle">${escapeHtml(book.subtitle)}</div>
   <div class="for">For the Antelope Audio Zen Quadro Synergy Core and Zen Studio+</div>
   <div class="edition">Version ${escapeHtml(version())}, ${escapeHtml(editionDate())}</div>
-  <div class="first"><strong>Before anything else:</strong> read chapter 2, Safety. Keep monitors and headphones low whenever you try something new, and know where your physical mute is.</div>
+  <div class="first"><strong>Before anything else:</strong> read chapter ${chapters.findIndex((c) => c.file.includes("safety")) + 1}, Safety. Keep monitors and headphones low whenever you try something new, and know where your physical mute is.</div>
   <div class="fine">Gazelle is independent software, written from the protocol the devices speak. It is not affiliated with, endorsed by or supported by Antelope Audio. Antelope Audio, Zen Quadro, Zen Studio and Synergy Core are trademarks of their owners and are used here only to say which hardware Gazelle works with. Gazelle is free software under the MIT licence and comes with no warranty.</div>
 </section>
 <nav class="toc"><p class="toc-title">Contents</p><ol>
@@ -199,6 +200,15 @@ async function buildManual(browser: Browser, book: Book): Promise<number> {
   throw new Error("the contents' page numbers did not settle after three prints");
 }
 
+/**
+ * The cheat sheet's columns, one `<main>` per printed page. A `<div class="page-break"></div>` line
+ * in the Markdown (invisible on GitHub), just before a `##` heading, starts a new page there.
+ */
+function pages(html: string): string {
+  const parts = html.split(/<div class="page-break"><\/div>\s*<\/section>/);
+  return parts.map((part, index) => `<main>${part}${index < parts.length - 1 ? "</section>" : ""}</main>`).join("\n");
+}
+
 async function buildCheatSheet(browser: Browser, book: Book): Promise<number> {
   const path = resolve(DOCS, book.cheatSheet);
   const rendered = renderMarkdown(readFileSync(path, "utf8"), {
@@ -216,7 +226,7 @@ async function buildCheatSheet(browser: Browser, book: Book): Promise<number> {
   const html = `<!doctype html>
 <html lang="en-GB"><head><meta charset="utf-8"><title>${escapeHtml(rendered.title)}</title>
 <style>${fontFaces()}\n${css}</style></head>
-<body>${title}<main>${rest}${sections.map((s) => `<section>${s}</section>`).join("\n")}</main></body></html>`;
+<body>${title}${pages(`${rest}${sections.map((s) => `<section>${s}</section>`).join("\n")}`)}</body></html>`;
   const pdf = await printPdf(browser, html, join(OUT, "gazelle-cheat-sheet.html"));
   const count = pageCount(pdf);
   if (count > CHEAT_SHEET_MAX_PAGES) fail("The cheat sheet is too long", [`it prints on ${count} pages; it must fit on ${CHEAT_SHEET_MAX_PAGES}`]);

@@ -13,7 +13,7 @@
     "gen-types": "node tools/gen-types/src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node tools/gen-types/src/main.ts --check && tsc -p tsconfig.json && node --conditions=gazelle-source --test \"packages/*/test/**/*.test.ts\" \"tools/*/test/**/*.test.ts\" \"apps/*/test/**/*.test.ts\"",
-    "docs": "node tools/docs/src/build.ts",
+    "docs:pdf": "node tools/docs/src/build.ts",
     "docs:check": "node tools/docs/src/check.ts",
     "docs:screenshots": "node tools/docs/src/screenshots.ts"
   },

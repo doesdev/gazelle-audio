@@ -1,0 +1,108 @@
+# Gazelle cheat sheet
+
+Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent software, not affiliated with Antelope Audio. Version 0.1.0, Windows. Tested on one person's two units: go carefully.
+
+## Safety first
+
+> **Warning.** Monitors and headphones **down** before you try anything new. Know your **physical mute**: the speakers' or amplifier's knob or power switch, or the interface's own volume knob.
+
+- Silence first, investigate second: speakers down, then **Mute** (or **Hard mute** on a Quadro, Outputs page).
+- **48V** takes two clicks (or Ctrl+click). Check for ribbon mics; mind the thump.
+- **Clock and sample rate** changes interrupt audio at once. Stop playback first.
+- **×2** on a strip: the same audio reaches that mix twice, about +6 dB.
+- **Test oscillator**: 0 dBFS is as loud as the device goes. Start at -18.
+- **DC coupling** (Quadro) can damage speakers. Leave it off.
+- **Presets** recall in one click and may change anything, 48V and clock included.
+- **Clicking** a fader jumps there; **double-click** on a fader is 0 dB.
+- Never run Antelope's panels on the same device at the same time.
+- Try new things on the emulator (`--backend loopback`) or in `--dry-run`.
+
+## Getting out of trouble fast
+
+| Problem | Do |
+|---|---|
+| Too loud, feedback, noise | Speakers down. Then Mute / Hard mute |
+| No devices | Stop `Antelope-Manager-Service`; USB cable (not Thunderbolt); tray **Rescan devices** |
+| Header says LOOPBACK | You are on the emulator, not your hardware |
+| Controls greyed, "not connected" | Gazelle quit or crashed: start it, reload |
+| Display disagrees with device | Reload; **Read from device** (Routing, Effects) |
+| Port 8420 in use | `--bind 127.0.0.1:8421` |
+| No window | WebView2 missing: tray **Open Gazelle** opens the browser |
+| SmartScreen warning | Unsigned: **More info**, **Run anyway**, only for the official download |
+
+## Install and start
+
+```
+gazelle-audio-server.exe --install
+```
+
+Installs to `%LOCALAPPDATA%\Programs\Gazelle` with a Start Menu entry; no admin. Start **Gazelle** from the Start Menu. Closing the window keeps it in the tray; **Quit** is in the tray menu.
+
+Stop Antelope's service first, or no device appears. Admin PowerShell:
+
+```
+Stop-Service -Name Antelope-Manager-Service
+```
+
+Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Manager-Service`.
+
+## Files
+
+| What | Where |
+|---|---|
+| Log | `%LOCALAPPDATA%\gazelle\logs\gazelle.log` (tray: **Open log folder**) |
+| Workspace | `%APPDATA%\gazelle\workspace.json` |
+| Snapshots | `%APPDATA%\gazelle\snapshots\` |
+| Program | `%LOCALAPPDATA%\Programs\Gazelle` |
+
+<div class="page-break"></div>
+
+## The pages
+
+| Page | For |
+|---|---|
+| Devices | Name, clock, rate, presets, power, brightness, oscillator |
+| Workspace | Names, colours, surfaces, cables, snapshots, backup |
+| Inputs | Preamp type, gain, 48V, Ø; digital gains; mic emulation |
+| Outputs | Volume, Mute, Dim, CR, trims, Hard mute, talkback |
+| Mixer | Four mixes as named channels; Mono, outputs per mix |
+| Routing | Source for every destination; Read from device |
+| Effects | Chains, effect settings, reverb |
+
+**Sidebar:** Devices (click a card to switch device), Meter (**Clear** for clip lights), Control Room (volume, Mute, Dim, Mono per output; Studio+ talkback). **Dock:** a mix's faders at the bottom of every page. **Header:** USB or LOOPBACK, Dry run, connection.
+
+## Gestures
+
+| Do | Result |
+|---|---|
+| Drag | Follows the pointer (pan snaps to centre) |
+| Click a bar | **Jumps** to that value |
+| Wheel | One step per notch (1 dB); also steps menus |
+| Arrows | One step |
+| Page Up/Down | 6 dB (faders, volumes, gains) |
+| Home / End | The ends: fader **Home = 0 dB**; volume **End = 0 dB** |
+| Double-click | Reset (below) |
+| Enter / Escape | Save / undo a name |
+| Shift-click (Routing) | Select a run of sources |
+| Delete (Routing) | Mute a cell |
+
+**Double-click resets:** fader **0 dB (unity)**; Studio+ Send **0 dB**; Quadro reverb return **full**; output and CR volume -30 dB; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default.
+
+**Two clicks (Confirm):** 48V on, Standby, Save preset, remove a channel, strip, surface, cable or snapshot.
+
+**Wheel ignored:** clock source, sample rate, Add effect, + Output, Route, mix pin.
+
+**Hold:** Talk (mouse, Space or Enter).
+
+## Useful options
+
+| Option | Does |
+|---|---|
+| `--backend loopback` | The emulator; no hardware |
+| `--dry-run` | Real devices, nothing written: shows bytes |
+| `--no-persist` | Save nothing |
+| `--bind 0.0.0.0:8420` | Reachable from your network (no password) |
+| `--log-dir <DIR>` | Log to a folder, for `--no-tray` runs |
+| `--install` | Install for this user |
+| `--uninstall` | Remove; settings kept unless `--purge` |
+| `--version` | Which Gazelle this is |

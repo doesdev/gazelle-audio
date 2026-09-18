@@ -136,10 +136,10 @@ aside.callout { background: var(--panel); border-left-color: var(--muted); }
 .toc .t { flex: 0 1 auto; }
 .toc .dots { flex: 1 1 auto; border-bottom: 0.8pt dotted #a6a9ae; margin: 0 1.5mm; transform: translateY(-0.25em); }
 .toc .p { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-.toc .n { flex: 0 0 9mm; color: var(--accent); font-variant-numeric: tabular-nums; }
+.toc .n { flex: 0 0 11mm; color: var(--accent); font-variant-numeric: tabular-nums; }
 .toc li.chapter { margin-top: 2.6mm; font-weight: 650; font-size: 10pt; break-after: avoid; }
 .toc li.section { font-size: 8.8pt; padding-left: 9mm; color: var(--text); }
-.toc li.section .n { flex-basis: 9mm; }
+.toc li.section .n { flex-basis: 11mm; }
 
 /* Chapters. */
-.chapter { break-before: page; }
+article.chapter { break-before: page; }
