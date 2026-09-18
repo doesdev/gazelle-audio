@@ -1,6 +1,8 @@
-// <ga-section heading="Devices" [collapsed]>: a titled bar with a disclosure arrow that shows or
-// hides its content. Controls for the section go in slot="actions" at the bar's right end. It fires
-// `toggle` when the person opens or closes it.
+// <ga-section heading="Devices" [collapsed] [explain="key"]>: a titled bar with a disclosure arrow
+// that shows or hides its content. Controls for the section go in slot="actions" at the bar's right
+// end. It fires `toggle` when the person opens or closes it. `explain` is the explain mode's key for
+// the section, carried by its heading, so hovering the heading explains the section and hovering
+// what is in it explains that instead.
 
 import { h } from "../core/dom.ts";
 import { GaElement, sheet } from "./element.ts";
@@ -67,6 +69,8 @@ export class GaSection extends GaElement {
         class: "toggle",
         type: "button",
         "aria-expanded": String(!this.collapsed),
+        "data-explain": this.getAttribute("explain"),
+        "data-explain-name": this.getAttribute("heading"),
         "on:click": () => {
           this.collapsed = !this.collapsed;
           this.dispatchEvent(new Event("toggle"));

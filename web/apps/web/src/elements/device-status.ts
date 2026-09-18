@@ -21,6 +21,9 @@ const LIVE_FIELDS: readonly [field: string, label: string, format: (value: unkno
 
 const hex4 = (n: number) => n.toString(16).padStart(4, "0");
 
+/** Each live field's key for the explain mode. */
+const LIVE_KEYS: Record<string, string> = { power_on: "devices.live-power", current_preset: "devices.live-preset", sync_source: "devices.live-sync" };
+
 export class GaDeviceStatus extends GaElement {
   static override styles = [
     sheet(`
@@ -66,18 +69,19 @@ export class GaDeviceStatus extends GaElement {
       "aria-label": "Device name",
       placeholder: device.model ?? device.id,
       "data-testid": "device-name",
+      "data-explain": "devices.name",
     });
     const showName = commitOnEnter(name, (value) => store.renameDevice(id, value), () => store.workspace.peek()?.aliases[id] ?? "", store.view<string | undefined>(`draft:devices:${id}:name`, undefined));
     const field = (label: string, value: Node | string) => [h("dt", {}, label), h("dd", {}, value)];
 
     const live = h("dl", { class: "fields" });
-    const liveSection = h("ga-section", { heading: "Status report" }, live);
+    const liveSection = h("ga-section", { heading: "Status report", explain: "devices.status" }, live);
     if (device.family === null) {
       live.replaceChildren(h("dd", { class: "muted" }, "This device's model is unknown, so its reports cannot be decoded."));
     } else {
       this.onDisconnect(store.watchReport(id, STATUS_REPORT));
       for (const [fieldName, label, format] of LIVE_FIELDS) {
-        const readout = h("span", { class: "readout", "data-field": fieldName }, "…");
+        const readout = h("span", { class: "readout", "data-field": fieldName, "data-explain": LIVE_KEYS[fieldName] }, "…");
         live.append(...field(label, readout));
         this.watch(() => {
           const value = store.field(id, STATUS_REPORT, fieldName).value;
@@ -90,7 +94,7 @@ export class GaDeviceStatus extends GaElement {
     // so it takes a confirming second click, as 48V does. A device of unknown model gets neither.
     let powerControls: HTMLElement | undefined;
     if (device.family !== null) {
-      const powerOn = h("button", { type: "button", "data-testid": "device-power-on", "on:click": () => store.setPower(id, true) }, "Power on");
+      const powerOn = h("button", { type: "button", "data-testid": "device-power-on", "data-explain": "devices.power-on", "on:click": () => store.setPower(id, true) }, "Power on");
       let armTimer: ReturnType<typeof setTimeout> | undefined;
       const disarm = () => {
         clearTimeout(armTimer);
@@ -104,6 +108,7 @@ export class GaDeviceStatus extends GaElement {
           type: "button",
           class: "standby",
           "data-testid": "device-standby",
+          "data-explain": "devices.standby",
           title: "Put the device in standby: click twice",
           "on:click": () => {
             if (armTimer !== undefined) {
@@ -124,7 +129,7 @@ export class GaDeviceStatus extends GaElement {
       // Front-panel brightness, 0..100 as both panels' sliders use.
       const fill = h("div", { class: "fill" });
       const shown = h("span", { class: "value" });
-      const brightness = h("div", { class: "brightness", role: "slider", tabindex: 0, "aria-label": "Front-panel brightness", "aria-valuemin": 0, "aria-valuemax": BRIGHTNESS_MAX, "data-testid": "device-brightness" }, fill, shown);
+      const brightness = h("div", { class: "brightness", role: "slider", tabindex: 0, "aria-label": "Front-panel brightness", "aria-valuemin": 0, "aria-valuemax": BRIGHTNESS_MAX, "data-testid": "device-brightness", "data-explain": "devices.brightness" }, fill, shown);
       const reported = () => Number(store.field(id, STATUS_REPORT, "brightness").peek() ?? 0);
       bindControl(brightness, { axis: "x", min: 0, max: BRIGHTNESS_MAX, up: 1, page: 10, reset: 50, get: reported, set: (v) => store.setBrightness(id, v), enabled: () => store.connected.peek() });
       this.watch(() => {
@@ -150,9 +155,9 @@ export class GaDeviceStatus extends GaElement {
     if (device.family !== null) {
       const slots = Array.from({ length: PRESET_SLOTS }, (_, i) => i + 1);
       const buttons = slots.map((slot) =>
-        h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}`, "on:click": () => store.recallPreset(id, slot) }, String(slot)),
+        h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}`, "data-explain": "devices.preset-recall", "data-explain-name": String(slot), "on:click": () => store.recallPreset(id, slot) }, String(slot)),
       );
-      const into = h("select", { "aria-label": "Preset to save into", "data-testid": "preset-save-slot" }, slots.map((slot) => h("option", { value: String(slot) }, String(slot))));
+      const into = h("select", { "aria-label": "Preset to save into", "data-testid": "preset-save-slot", "data-explain": "devices.preset-slot" }, slots.map((slot) => h("option", { value: String(slot) }, String(slot))));
       let armTimer: ReturnType<typeof setTimeout> | undefined;
       const disarm = () => {
         clearTimeout(armTimer);
@@ -166,6 +171,7 @@ export class GaDeviceStatus extends GaElement {
           type: "button",
           class: "save",
           "data-testid": "preset-save",
+          "data-explain": "devices.preset-save",
           title: "Save the device's current state into the chosen preset: click twice",
           "on:click": () => {
             if (armTimer !== undefined) {
@@ -183,7 +189,7 @@ export class GaDeviceStatus extends GaElement {
       this.onDisconnect(disarm);
       presetSection = h(
         "ga-section",
-        { heading: "Presets" },
+        { heading: "Presets", explain: "devices.presets" },
         h("div", { class: "presets" }, buttons, h("span", { class: "spacer" }), h("span", { class: "caption" }, "Save into"), into, save),
         h("p", { class: "note-inline" }, "The device's own presets, not the workspace layout. Saving overwrites what is in that slot."),
       );
@@ -208,16 +214,16 @@ export class GaDeviceStatus extends GaElement {
     if (clock !== undefined) {
       const source = h(
         "select",
-        { "aria-label": "Clock source", "data-testid": "clock-source", "data-no-wheel": true, "on:change": () => store.setClockSource(id, Number(source.value)) },
+        { "aria-label": "Clock source", "data-testid": "clock-source", "data-no-wheel": true, "data-explain": "devices.clock-source", "on:change": () => store.setClockSource(id, Number(source.value)) },
         clock.sources.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const rate = h(
         "select",
-        { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "on:change": () => store.setSampleRate(id, Number(rate.value)) },
+        { "aria-label": "Sample rate", "data-testid": "clock-rate", "data-no-wheel": true, "data-explain": "devices.sample-rate", "on:change": () => store.setSampleRate(id, Number(rate.value)) },
         clock.rates.map((name, index) => h("option", { value: String(index) }, name)),
       );
-      const lock = h("span", { class: "lock" }, "NO LOCK");
-      const measured = h("span", { class: "readout", "data-testid": "clock-measured" }, "…");
+      const lock = h("span", { class: "lock", "data-explain": "devices.lock" }, "NO LOCK");
+      const measured = h("span", { class: "readout", "data-testid": "clock-measured", "data-explain": "devices.measured" }, "…");
       // The Studio+'s S/PDIF sample-rate converter: with it on, a digital input at another rate or on
       // another clock is converted rather than having to be the clock. A switch, as the panel's is.
       const spdifSrc = store.hasSpdifSrc(id)
@@ -225,6 +231,7 @@ export class GaDeviceStatus extends GaElement {
             type: "button",
             "data-control": "",
             "data-testid": "spdif-src",
+            "data-explain": "devices.spdif-src",
             "aria-label": "S/PDIF sample-rate converter",
             title: "Convert the S/PDIF input's sample rate, so it need not follow the device's clock",
             "on:click": () => store.setSpdifSrc(id, !(store.spdifSrc(id) ?? false)),
@@ -232,7 +239,7 @@ export class GaDeviceStatus extends GaElement {
         : undefined;
       clockSection = h(
         "ga-section",
-        { heading: "Clock" },
+        { heading: "Clock", explain: "devices.clock" },
         h(
           "dl",
           { class: "fields clock" },
@@ -270,7 +277,7 @@ export class GaDeviceStatus extends GaElement {
       const freq = (side: "left" | "right") => {
         const select = h(
           "select",
-          { "aria-label": `Oscillator ${side} frequency`, "data-testid": `osc-freq-${side}`, "on:change": () => store.setOscillator(id, { [side]: Number(select.value) }) },
+          { "aria-label": `Oscillator ${side} frequency`, "data-testid": `osc-freq-${side}`, "data-explain": "devices.osc-frequency", "data-explain-name": side === "left" ? "Left" : "Right", "on:change": () => store.setOscillator(id, { [side]: Number(select.value) }) },
           OSCILLATOR_FREQUENCIES.map((name, index) => h("option", { value: String(index) }, name)),
         );
         return select;
@@ -281,12 +288,14 @@ export class GaDeviceStatus extends GaElement {
           class: "tone",
           "data-control": "",
           "data-testid": `osc-on-${side}`,
+          "data-explain": "devices.osc-tone",
+          "data-explain-name": side === "left" ? "Left" : "Right",
           "aria-label": `Oscillator ${side} on`,
           "on:click": () => store.setOscillator(id, side === "left" ? { onLeft: !state().onLeft } : { onRight: !state().onRight }),
         }, "Tone");
       const level = h(
         "select",
-        { "aria-label": "Oscillator level", "data-testid": "osc-level", "on:change": () => store.setOscillator(id, { level: Number(level.value) }) },
+        { "aria-label": "Oscillator level", "data-testid": "osc-level", "data-explain": "devices.osc-level", "on:change": () => store.setOscillator(id, { level: Number(level.value) }) },
         OSCILLATOR_LEVELS.map((name, index) => h("option", { value: String(index) }, name)),
       );
       const sides = [
@@ -295,7 +304,7 @@ export class GaDeviceStatus extends GaElement {
       ];
       oscSection = h(
         "ga-section",
-        { heading: "Test oscillator" },
+        { heading: "Test oscillator", explain: "devices.oscillator" },
         h(
           "dl",
           { class: "fields osc" },
@@ -331,13 +340,14 @@ export class GaDeviceStatus extends GaElement {
           type: "button",
           "data-control": "",
           "data-testid": `dc-${side}`,
+          "data-explain": side === "inputs" ? "devices.dc-inputs" : "devices.dc-outputs",
           "aria-label": `DC coupled ${name.toLowerCase()}`,
           "on:click": () => store.setDcCoupled(id, side, !(store.dcCoupling(id)?.[side] ?? false)),
         }, "DC coupled"),
       );
       dcSection = h(
         "ga-section",
-        { heading: "DC coupling" },
+        { heading: "DC coupling", explain: "devices.dc" },
         h("dl", { class: "fields" }, ...sides.map(({ name }, i) => field(name, switches[i] as HTMLElement))),
         h("p", { class: "note-inline" }, "Lets the converters pass control voltages as well as audio, for modular gear. Leave it off for audio."),
       );
@@ -360,12 +370,12 @@ export class GaDeviceStatus extends GaElement {
     if (panningLaws !== undefined) {
       const law = h(
         "select",
-        { "aria-label": "Panning law", "data-testid": "panning-law", "on:change": () => store.setPanningLaw(id, Number(law.value)) },
+        { "aria-label": "Panning law", "data-testid": "panning-law", "data-explain": "devices.panning-law", "on:change": () => store.setPanningLaw(id, Number(law.value)) },
         panningLaws.map((name, index) => h("option", { value: String(index) }, name)),
       );
       panningSection = h(
         "ga-section",
-        { heading: "Panning law" },
+        { heading: "Panning law", explain: "devices.panning" },
         h("dl", { class: "fields" }, field("Centre attenuation", law)),
         h("p", { class: "note-inline" }, "How much a centred signal is attenuated in every mix, including a mix summed to mono."),
       );
@@ -380,17 +390,17 @@ export class GaDeviceStatus extends GaElement {
     this.root.replaceChildren(
       h(
         "ga-section",
-        { heading: "Device" },
+        { heading: "Device", explain: "devices.device" },
         h(
           "dl",
           { class: "fields" },
           field("Name", name),
-          field("Model", h("span", { class: "readout" }, device.model ?? "Unknown")),
-          field("Family", h("span", { class: "readout" }, device.family ?? "unknown")),
-          field("Id", h("span", { class: "readout" }, device.id)),
-          field("USB id", h("span", { class: "readout" }, `${hex4(device.vid)}:${hex4(device.pid)}`)),
-          field("Backend", h("span", { class: "readout" }, device.backend)),
-          field("Identity", h("span", { class: "readout" }, device.identity_stable ? "Stable" : "Changes on reconnect")),
+          field("Model", h("span", { class: "readout", "data-explain": "devices.model" }, device.model ?? "Unknown")),
+          field("Family", h("span", { class: "readout", "data-explain": "devices.family" }, device.family ?? "unknown")),
+          field("Id", h("span", { class: "readout", "data-explain": "devices.id" }, device.id)),
+          field("USB id", h("span", { class: "readout", "data-explain": "devices.usb-id" }, `${hex4(device.vid)}:${hex4(device.pid)}`)),
+          field("Backend", h("span", { class: "readout", "data-explain": "devices.backend" }, device.backend)),
+          field("Identity", h("span", { class: "readout", "data-explain": "devices.identity" }, device.identity_stable ? "Stable" : "Changes on reconnect")),
         ),
       ),
       liveSection,

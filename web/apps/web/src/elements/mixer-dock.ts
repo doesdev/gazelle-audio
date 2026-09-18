@@ -63,11 +63,11 @@ export class GaMixerDock extends GaElement {
   protected override render(): void {
     const store = useStore();
     const device = h("span", { class: "device muted" });
-    const mixSelect = h("select", { "aria-label": "Dock mix", "data-testid": "dock-mix-select" });
-    const sourceSelect = h("select", { "aria-label": "Dock shows", "data-testid": "dock-source-select", "on:change": () => store.setMixerDockSurface(sourceSelect.value === "" ? undefined : sourceSelect.value) });
+    const mixSelect = h("select", { "aria-label": "Dock mix", "data-testid": "dock-mix-select", "data-explain": "dock.mix" });
+    const sourceSelect = h("select", { "aria-label": "Dock shows", "data-testid": "dock-source-select", "data-explain": "dock.source", "on:change": () => store.setMixerDockSurface(sourceSelect.value === "" ? undefined : sourceSelect.value) });
     const actions = h("div", { class: "actions", slot: "actions" }, sourceSelect, device, mixSelect);
     const strips = h("div", { class: "strips", "data-testid": "dock-strips" });
-    const section = h("ga-section", { heading: "Mixer" }, actions, strips) as GaSection;
+    const section = h("ga-section", { heading: "Mixer", explain: "dock.section" }, actions, strips) as GaSection;
     section.collapsed = store.mixerDockCollapsed.peek();
     section.addEventListener("toggle", () => store.setMixerDockCollapsed(section.collapsed));
     this.root.replaceChildren(section);
@@ -124,7 +124,7 @@ export class GaMixerDock extends GaElement {
           untracked(() => {
             if (shownStrips.length === 0) {
               // Short enough for one line on a phone.
-              showMessage(`No channels in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }) }, "Open the Mixer page"));
+              showMessage(`No channels in ${mixName}. `, h("a", { href: href({ page: "mixer", id: deviceId }), "data-explain": "dock.open-mixer" }, "Open the Mixer page"));
               return;
             }
             const master = h("div", { class: "master" }, h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label: mixName, compact: "" }));
@@ -146,7 +146,7 @@ export class GaMixerDock extends GaElement {
       const paint = (name: string, ids: string[]): void => {
         if (!alive) return;
         if (ids.length === 0) {
-          strips.replaceChildren(h("p", { class: "placeholder empty" }, `${name} has no strips yet. `, h("a", { href: href({ page: "surface", id: surfaceId }) }, "Add some on the surface.")));
+          strips.replaceChildren(h("p", { class: "placeholder empty" }, `${name} has no strips yet. `, h("a", { href: href({ page: "surface", id: surfaceId }), "data-explain": "dock.open-surface" }, "Add some on the surface.")));
           return;
         }
         if (!isReady("ga-surface-strip")) {

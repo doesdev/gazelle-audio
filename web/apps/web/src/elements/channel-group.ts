@@ -55,11 +55,11 @@ export class GaChannelGroup extends GaElement {
     const channels = store.channels(deviceId);
     const current = () => channels.layout.peek().groups.find((g) => g.id === groupId);
 
-    const toggle = h("button", { type: "button", "on:click": () => channels.toggleGroup(groupId) });
-    const name = h("input", { type: "text", "aria-label": "Group name" });
+    const toggle = h("button", { type: "button", "data-explain": "group.toggle", "on:click": () => channels.toggleGroup(groupId) });
+    const name = h("input", { type: "text", "aria-label": "Group name", "data-explain": "group.name" });
     const showName = commitOnEnter(name, (value) => channels.renameGroup(groupId, value.trim() === "" ? (current()?.name ?? "") : value.trim()), () => current()?.name ?? "", store.view<string | undefined>(`draft:mixer:${deviceId}:group:${groupId}:name`, undefined));
-    const color = h("input", { type: "color", "on:input": () => channels.setGroupColor(groupId, color.value) });
-    const remove = h("button", { type: "button", class: "remove", "on:click": () => channels.removeGroup(groupId) }, "×");
+    const color = h("input", { type: "color", "data-explain": "group.colour", "on:input": () => channels.setGroupColor(groupId, color.value) });
+    const remove = h("button", { type: "button", class: "remove", "data-explain": "group.remove", "on:click": () => channels.removeGroup(groupId) }, "×");
     const vertical = h("span", { class: "vertical" });
 
     this.root.replaceChildren(h("div", { class: "band" }, toggle, name, color, remove, vertical), h("div", { class: "members" }, h("slot")));

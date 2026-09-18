@@ -81,14 +81,14 @@ export class GaSurface extends GaElement {
     const surfaceId = this.getAttribute("surface-id") ?? "";
     const surfaces = store.surfaces;
 
-    const title = h("h2", { class: "name", "data-testid": "surface-name" });
+    const title = h("h2", { class: "name", "data-testid": "surface-name", "data-explain": "surface.name" });
     const mixes = h("div", { class: "bar", "aria-label": "Mixes" });
     const clocks = h("div", { class: "clocks", "data-testid": "surface-clocks" });
     const health = h("ul", { class: "health", "data-testid": "surface-cables" });
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     const strips = h("div", { class: "strips", "data-testid": "surface-strips" });
     const indicator = h("div", { class: "drop", hidden: true });
-    const missing = h("p", { class: "placeholder", hidden: true }, "This surface does not exist; it may have been deleted. ", h("a", { href: href({ page: "workspace" }) }, "Surfaces are on the Workspace page."));
+    const missing = h("p", { class: "placeholder", hidden: true }, "This surface does not exist; it may have been deleted. ", h("a", { href: href({ page: "workspace" }), "data-explain": "surface.to-workspace" }, "Surfaces are on the Workspace page."));
     const content = h("div", { class: "content" }, h("div", { class: "bar" }, title, mixes, h("span", { class: "spacer" }), lastSent), clocks, health, this.#picker(surfaceId), strips);
     this.root.replaceChildren(missing, content);
 
@@ -116,7 +116,7 @@ export class GaSurface extends GaElement {
         ...shown.map((d) => {
           const select = h(
             "select",
-            { "aria-label": `${d.name} mix`, "data-testid": `surface-mix-${d.id}`, disabled: !store.connected.peek(), "on:change": () => surfaces.setMix(surfaceId, d.id, Number(select.value)) },
+            { "aria-label": `${d.name} mix`, "data-testid": `surface-mix-${d.id}`, "data-explain": "surface.mix", "data-explain-name": d.name, disabled: !store.connected.peek(), "on:change": () => surfaces.setMix(surfaceId, d.id, Number(select.value)) },
             d.names.map((name, m) => h("option", { value: String(m) }, name)),
           );
           select.value = String(d.mix);
@@ -149,7 +149,7 @@ export class GaSurface extends GaElement {
           const sources = store.clock(id)?.sources ?? [];
           const text = clock === undefined || card?.reporting !== true ? "clock not reported yet" : `${SAMPLE_RATES[clock.rate] ?? "?"}, ${sources[clock.source] ?? "?"}, ${clock.locked ? "locked" : "not locked"}`;
           const colour = surfaces.deviceColor(id);
-          return h("span", { class: "clock", "data-testid": `clock-${id}`, style: colour === undefined ? "" : `--device-colour: ${colour}` }, h("span", { class: "dot", "aria-hidden": "true" }), `${entry === undefined ? id : displayName(entry, store.workspace.value)}: ${text}`);
+          return h("span", { class: "clock", "data-testid": `clock-${id}`, "data-explain": "surface.clock", style: colour === undefined ? "" : `--device-colour: ${colour}` }, h("span", { class: "dot", "aria-hidden": "true" }), `${entry === undefined ? id : displayName(entry, store.workspace.value)}: ${text}`);
         }),
       );
     });
@@ -163,7 +163,7 @@ export class GaSurface extends GaElement {
           const problems = store.cables.health(cable);
           return h(
             "li",
-            { "data-testid": `cable-health-${cable.id}` },
+            { "data-testid": `cable-health-${cable.id}`, "data-explain": "surface.cable-health" },
             store.cables.label(cable),
             ": ",
             problems.length === 0 ? h("span", {}, "nothing wrong reported") : h("span", { class: "warn", role: "status" }, `⚠ ${problems.join(" ")}`),
@@ -256,9 +256,9 @@ export class GaSurface extends GaElement {
     const surfaces = store.surfaces;
     const move = (to: number) => surfaces.moveStrip(surfaceId, strip.id, to);
     const tools: HTMLElement[] = [
-      h("button", { type: "button", class: "grip", "data-grip": "", title: "Drag to move", "aria-hidden": "true", tabindex: -1, disabled: !connected }, "⠿"),
-      h("button", { type: "button", "aria-label": "Move left", "data-testid": `strip-left-${strip.id}`, disabled: !connected || index === 0, "on:click": () => move(index - 1) }, "‹"),
-      h("button", { type: "button", "aria-label": "Move right", "data-testid": `strip-right-${strip.id}`, disabled: !connected || index === count - 1, "on:click": () => move(index + 1) }, "›"),
+      h("button", { type: "button", class: "grip", "data-grip": "", title: "Drag to move", "aria-hidden": "true", tabindex: -1, disabled: !connected, "data-explain": "surface.grip" }, "⠿"),
+      h("button", { type: "button", "aria-label": "Move left", "data-testid": `strip-left-${strip.id}`, "data-explain": "surface.move-left", disabled: !connected || index === 0, "on:click": () => move(index - 1) }, "‹"),
+      h("button", { type: "button", "aria-label": "Move right", "data-testid": `strip-right-${strip.id}`, "data-explain": "surface.move-right", disabled: !connected || index === count - 1, "on:click": () => move(index + 1) }, "›"),
     ];
     const deviceId = strip.device_id;
     if ((strip.kind === "channel" || strip.kind === "master") && deviceId !== undefined && store.topology(deviceId) !== undefined) {
@@ -269,6 +269,7 @@ export class GaSurface extends GaElement {
           "aria-label": "Mix this strip shows",
           title: "Follow the surface's mix for this device, or keep to one mix",
           "data-testid": `strip-pin-${strip.id}`,
+          "data-explain": "surface.pin",
           "data-no-wheel": true,
           disabled: !connected,
           "on:change": () => surfaces.pin(surfaceId, strip.id, pin.value === "" ? undefined : Number(pin.value)),
@@ -288,6 +289,7 @@ export class GaSurface extends GaElement {
       "aria-label": "Take this strip off the surface",
       title: "Take off the surface (click twice); nothing changes on the device",
       "data-testid": `strip-remove-${strip.id}`,
+      "data-explain": "surface.remove",
       disabled: !connected,
       "on:click": () => {
         if (armed !== undefined) {
@@ -331,11 +333,11 @@ export class GaSurface extends GaElement {
   /** "+ Strip": a device, a kind, and an item of that kind on that device. */
   #picker(surfaceId: string): HTMLElement {
     const store = useStore();
-    const device = h("select", { "aria-label": "Strip device", "data-testid": "strip-device" });
-    const kind = h("select", { "aria-label": "Strip kind", "data-testid": "strip-kind" }, (Object.keys(KIND_LABELS) as PickerKind[]).map((k) => h("option", { value: k }, KIND_LABELS[k])));
-    const item = h("select", { "aria-label": "Strip item", "data-testid": "strip-item" });
-    const text = h("input", { type: "text", placeholder: "Label text", "aria-label": "Label text", "data-testid": "strip-text" });
-    const add = h("button", { type: "button", "data-testid": "strip-add" }, "+ Strip");
+    const device = h("select", { "aria-label": "Strip device", "data-testid": "strip-device", "data-explain": "surface.add-device" });
+    const kind = h("select", { "aria-label": "Strip kind", "data-testid": "strip-kind", "data-explain": "surface.add-kind" }, (Object.keys(KIND_LABELS) as PickerKind[]).map((k) => h("option", { value: k }, KIND_LABELS[k])));
+    const item = h("select", { "aria-label": "Strip item", "data-testid": "strip-item", "data-explain": "surface.add-item" });
+    const text = h("input", { type: "text", placeholder: "Label text", "aria-label": "Label text", "data-testid": "strip-text", "data-explain": "surface.add-text" });
+    const add = h("button", { type: "button", "data-testid": "strip-add", "data-explain": "surface.add" }, "+ Strip");
 
     const fill = () => {
       const deviceId = device.value;

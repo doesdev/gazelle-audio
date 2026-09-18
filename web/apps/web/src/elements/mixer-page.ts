@@ -140,12 +140,13 @@ export class GaMixer extends GaElement {
     const metered = h("select", {
       "aria-label": "Mix",
       "data-testid": "mix-select",
+      "data-explain": "mixer.mix",
       "on:change": () => {
         channels.meteredMix.value = Number(metered.value);
         replaceRoute({ page: "mixer", id: deviceId, sub: metered.value });
       },
     });
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
     // Every mix's strips and links are read (sends show other mixes' levels), once: coming back to
     // the page uses what the store has. They are read again once the connection or the device has
@@ -161,7 +162,7 @@ export class GaMixer extends GaElement {
     const notes = h(
       "details",
       { class: "notes" },
-      h("summary", {}, "How this mixer works"),
+      h("summary", { "data-explain": "mixer.notes" }, "How this mixer works"),
       h(
         "ul",
         {},
@@ -186,12 +187,13 @@ export class GaMixer extends GaElement {
       const saved = channels.savedLayouts();
       if (setUp) {
         // This row is rebuilt as the channels change, so the name typed so far is kept outside it.
-        const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "on:input": () => (layoutName.value = name.value) });
+        const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "data-explain": "mixer.layout-name", "on:input": () => (layoutName.value = name.value) });
         const save = h(
           "button",
           {
             type: "button",
             "data-testid": "layout-save",
+            "data-explain": "mixer.layout-save",
             title: "Save these channels, groups and mix names as a layout any device of this model can start from",
             "on:click": () => {
               try {
@@ -210,7 +212,7 @@ export class GaMixer extends GaElement {
       const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
       const select = h(
         "select",
-        { "aria-label": "Starting layout", "data-testid": "profile-select" },
+        { "aria-label": "Starting layout", "data-testid": "profile-select", "data-explain": "mixer.profile" },
         h("optgroup", { label: "Starting layouts" }, choices.map((p) => h("option", { value: p.id, title: p.description }, p.name))),
         saved.length > 0 ? h("optgroup", { label: "Saved" }, saved.map((l) => h("option", { value: `saved:${l.id}` }, l.name))) : undefined,
       );
@@ -220,6 +222,7 @@ export class GaMixer extends GaElement {
         {
           type: "button",
           "data-testid": "profile-apply",
+          "data-explain": "mixer.profile-apply",
           title: "Replace these channels with the chosen layout and route it",
           "on:click": () => {
             const id = chosenSaved();
@@ -233,6 +236,7 @@ export class GaMixer extends GaElement {
         {
           type: "button",
           "data-testid": "layout-remove",
+          "data-explain": "mixer.layout-remove",
           title: "Delete the chosen saved layout",
           "on:click": () => {
             const id = chosenSaved();
@@ -251,17 +255,18 @@ export class GaMixer extends GaElement {
     });
 
     const strips = h("div", { class: "strips" });
-    const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "on:click": () => channels.add() }, "+");
+    const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "data-explain": "mixer.add-channel", "on:click": () => channels.add() }, "+");
     const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
 
-    const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width in px", "data-testid": "strip-width" });
-    const autoWidth = h("button", { type: "button", title: "Fit channels to the window", "data-testid": "strip-width-auto", "on:click": () => store.setMixerWidth({ auto: true }) }, "Auto");
+    const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width in px", "data-testid": "strip-width", "data-explain": "mixer.width-px" });
+    const autoWidth = h("button", { type: "button", title: "Fit channels to the window", "data-testid": "strip-width-auto", "data-explain": "mixer.width-auto", "on:click": () => store.setMixerWidth({ auto: true }) }, "Auto");
     const fixedWidth = h(
       "button",
       {
         type: "button",
         title: "Set a channel width; channels scroll when they do not fit",
         "data-testid": "strip-width-fixed",
+        "data-explain": "mixer.width-fixed",
         "on:click": () => {
           store.setMixerWidth({ auto: false });
           stripWidth.focus();

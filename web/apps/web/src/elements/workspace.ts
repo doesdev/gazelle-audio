@@ -113,16 +113,16 @@ export class GaWorkspace extends GaElement {
 
   protected override render(): void {
     const store = useStore();
-    const saving = h("span", { class: "saving", slot: "actions", role: "status" });
+    const saving = h("span", { class: "saving", slot: "actions", role: "status", "data-explain": "workspace.saving" });
     const names = h("tbody");
     const groups = h("div");
     this.root.replaceChildren(
-      h("ga-section", { heading: "Device names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"), h("th", {}, "Colour"))), names)),
-      h("ga-section", { heading: "Surfaces" }, this.#surfaces()),
-      h("ga-section", { heading: "Digital cables" }, this.#cables()),
-      h("ga-section", { heading: "Groups" }, groups),
-      h("ga-section", { heading: "Snapshots" }, this.#snapshots()),
-      h("ga-section", { heading: "Backup" }, this.#backup()),
+      h("ga-section", { heading: "Device names", explain: "workspace.names" }, saving, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Device"), h("th", {}, "Name"), h("th", {}, "Colour"))), names)),
+      h("ga-section", { heading: "Surfaces", explain: "workspace.surfaces" }, this.#surfaces()),
+      h("ga-section", { heading: "Digital cables", explain: "workspace.cables" }, this.#cables()),
+      h("ga-section", { heading: "Groups", explain: "workspace.groups" }, groups),
+      h("ga-section", { heading: "Snapshots", explain: "workspace.snapshots" }, this.#snapshots()),
+      h("ga-section", { heading: "Backup", explain: "workspace.backup" }, this.#backup()),
     );
 
     this.watch(() => {
@@ -139,6 +139,7 @@ export class GaWorkspace extends GaElement {
             value: workspace?.aliases[device.id] ?? "",
             placeholder: device.model ?? device.id,
             "aria-label": `Name for ${device.id}`,
+            "data-explain": "workspace.device-name",
             disabled: !connected,
           });
           commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "", store.view<string | undefined>(`draft:workspace:${device.id}:name`, undefined));
@@ -150,12 +151,13 @@ export class GaWorkspace extends GaElement {
             value: store.surfaces.deviceColor(device.id) ?? "#808080",
             "aria-label": `Colour for ${device.id}`,
             "data-testid": `device-colour-${device.id}`,
+            "data-explain": "workspace.device-colour",
             disabled: !connected,
             // On change, not input: the row is rebuilt as the workspace changes, which would close the picker.
             "on:change": () => store.surfaces.setDeviceColor(device.id, colour.value),
           });
-          const clear = h("button", { type: "button", class: "clear", "aria-label": `Clear the colour for ${device.id}`, title: "Back to the theme's colour", "data-testid": `device-colour-clear-${device.id}`, disabled: !connected || chosen === undefined, "on:click": () => store.surfaces.setDeviceColor(device.id, undefined) }, "Clear");
-          return h("tr", {}, h("td", {}, h("span", { class: "readout" }, device.id)), h("td", {}, input), h("td", { class: "colour-cell" }, colour, clear));
+          const clear = h("button", { type: "button", class: "clear", "aria-label": `Clear the colour for ${device.id}`, title: "Back to the theme's colour", "data-testid": `device-colour-clear-${device.id}`, "data-explain": "workspace.device-colour-clear", disabled: !connected || chosen === undefined, "on:click": () => store.surfaces.setDeviceColor(device.id, undefined) }, "Clear");
+          return h("tr", {}, h("td", {}, h("span", { class: "readout", "data-explain": "workspace.device-id" }, device.id)), h("td", {}, input), h("td", { class: "colour-cell" }, colour, clear));
         }),
       );
     });
@@ -183,9 +185,9 @@ export class GaWorkspace extends GaElement {
               h(
                 "div",
                 { class: "group" },
-                h("button", { type: "button", disabled: !connected, "aria-expanded": String(!group.collapsed), "on:click": () => store.toggleGroup(group.id) }, group.collapsed ? "▸" : "▾"),
+                h("button", { type: "button", disabled: !connected, "aria-expanded": String(!group.collapsed), "data-explain": "workspace.group-toggle", "on:click": () => store.toggleGroup(group.id) }, group.collapsed ? "▸" : "▾"),
                 h("span", { class: "group-name", style: group.color ? `border-left: 4px solid ${group.color}; padding-left: 6px;` : "" }, group.name),
-                h("button", { type: "button", class: "chip none", title: "No colour", "aria-label": `No colour for ${group.name}`, "aria-pressed": String(group.color === undefined), disabled: !connected, "on:click": () => store.setGroupColor(group.id, undefined) }),
+                h("button", { type: "button", class: "chip none", title: "No colour", "aria-label": `No colour for ${group.name}`, "aria-pressed": String(group.color === undefined), disabled: !connected, "data-explain": "workspace.group-no-colour", "on:click": () => store.setGroupColor(group.id, undefined) }),
                 palette.map((colour, i) =>
                   h("button", {
                     type: "button",
@@ -195,6 +197,7 @@ export class GaWorkspace extends GaElement {
                     "aria-label": `Colour ${i + 1} for ${group.name}`,
                     "aria-pressed": String(group.color === colour),
                     disabled: !connected,
+                    "data-explain": "workspace.group-colour",
                     "on:click": () => store.setGroupColor(group.id, colour),
                   }),
                 ),
@@ -215,8 +218,8 @@ export class GaWorkspace extends GaElement {
   #surfaces(): HTMLElement {
     const store = useStore();
     const list = h("div", { class: "surfaces", "data-testid": "surfaces" });
-    const name = h("input", { type: "text", placeholder: "Surface name", "aria-label": "New surface name", "data-testid": "surface-new-name" });
-    const create = h("button", { type: "button", "data-testid": "surface-create" }, "+ New surface");
+    const name = h("input", { type: "text", placeholder: "Surface name", "aria-label": "New surface name", "data-testid": "surface-new-name", "data-explain": "workspace.surface-new-name" });
+    const create = h("button", { type: "button", "data-testid": "surface-create", "data-explain": "workspace.surface-create" }, "+ New surface");
     const make = () => {
       if (name.value.trim() === "") {
         name.focus();
@@ -254,7 +257,7 @@ export class GaWorkspace extends GaElement {
       }
       list.replaceChildren(
         ...rows.map((row) => {
-          const field = h("input", { type: "text", class: "surface-name", value: row.name, "aria-label": `Name of ${row.name}`, "data-testid": `surface-rename-${row.id}`, disabled: !connected });
+          const field = h("input", { type: "text", class: "surface-name", value: row.name, "aria-label": `Name of ${row.name}`, "data-testid": `surface-rename-${row.id}`, "data-explain": "workspace.surface-name", disabled: !connected });
           commitOnEnter(field, (value) => {
             try {
               store.surfaces.rename(row.id, value);
@@ -266,6 +269,7 @@ export class GaWorkspace extends GaElement {
           const remove = h("button", {
             type: "button",
             "data-testid": `surface-delete-${row.id}`,
+            "data-explain": "workspace.surface-delete",
             title: "Delete this surface (click twice); nothing changes on the devices",
             disabled: !connected,
             "on:click": () => {
@@ -287,7 +291,7 @@ export class GaWorkspace extends GaElement {
             { class: "surface", "data-testid": `surface-row-${row.id}` },
             field,
             h("span", { class: "muted summary" }, summary),
-            h("a", { class: "open", href: href({ page: "surface", id: row.id }), "data-testid": `surface-open-${row.id}` }, "Open"),
+            h("a", { class: "open", href: href({ page: "surface", id: row.id }), "data-testid": `surface-open-${row.id}`, "data-explain": "workspace.surface-open" }, "Open"),
             remove,
           );
         }),
@@ -304,10 +308,10 @@ export class GaWorkspace extends GaElement {
   #cables(): HTMLElement {
     const store = useStore();
     const list = h("ul", { class: "cables", "data-testid": "cables" });
-    const from = h("select", { "aria-label": "Cable from", "data-testid": "cable-from" });
-    const to = h("select", { "aria-label": "Cable to", "data-testid": "cable-to" });
-    const channels = h("input", { type: "number", min: 1, max: 8, value: 2, "aria-label": "Channels", class: "channels", "data-testid": "cable-channels" });
-    const declare = h("button", { type: "button", "data-testid": "cable-declare" }, "Declare cable");
+    const from = h("select", { "aria-label": "Cable from", "data-testid": "cable-from", "data-explain": "workspace.cable-from" });
+    const to = h("select", { "aria-label": "Cable to", "data-testid": "cable-to", "data-explain": "workspace.cable-to" });
+    const channels = h("input", { type: "number", min: 1, max: 8, value: 2, "aria-label": "Channels", class: "channels", "data-testid": "cable-channels", "data-explain": "workspace.cable-channels" });
+    const declare = h("button", { type: "button", "data-testid": "cable-declare", "data-explain": "workspace.cable-declare" }, "Declare cable");
     const problem = h("p", { class: "problem", role: "alert", "data-testid": "cable-problem", hidden: true });
 
     // Each port of each attached device, by its ADAT ports' eights ("ADAT out 9 to 16") or whole.
@@ -393,7 +397,7 @@ export class GaWorkspace extends GaElement {
         }
         list.replaceChildren(
           ...cables.map((cable) => {
-            const health = h("span", { class: "health", "data-testid": `cable-health-${cable.id}` });
+            const health = h("span", { class: "health", "data-testid": `cable-health-${cable.id}`, "data-explain": "workspace.cable-health" });
             rows.push(
               effect(() => {
                 const problems = store.cables.health(cable);
@@ -406,6 +410,7 @@ export class GaWorkspace extends GaElement {
             const remove = h("button", {
               type: "button",
               "data-testid": `cable-remove-${cable.id}`,
+              "data-explain": "workspace.cable-remove",
               title: "Remove this cable (click twice); nothing changes on the devices",
               disabled: !connected,
               "on:click": () => {
@@ -455,8 +460,8 @@ export class GaWorkspace extends GaElement {
     const store = useStore();
     const snapshots = store.snapshots;
     const list = h("div", { class: "surfaces", "data-testid": "snapshots" });
-    const name = h("input", { type: "text", placeholder: "Snapshot name", "aria-label": "New snapshot name", "data-testid": "snapshot-new-name" });
-    const take = h("button", { type: "button", "data-testid": "snapshot-take" }, "Take snapshot");
+    const name = h("input", { type: "text", placeholder: "Snapshot name", "aria-label": "New snapshot name", "data-testid": "snapshot-new-name", "data-explain": "workspace.snapshot-new-name" });
+    const take = h("button", { type: "button", "data-testid": "snapshot-take", "data-explain": "workspace.snapshot-take" }, "Take snapshot");
     const problem = h("p", { class: "problem", role: "alert", "data-testid": "snapshot-problem", hidden: true });
     const diff = h("div", { "data-testid": "snapshot-diff" });
     const plan = h("div", { "data-testid": "snapshot-recall-plan" });
@@ -501,13 +506,14 @@ export class GaWorkspace extends GaElement {
       }
       list.replaceChildren(
         ...listed.map((summary) => {
-          const field = h("input", { type: "text", class: "surface-name", value: summary.name, "aria-label": `Name of ${summary.name}`, "data-testid": `snapshot-rename-${summary.id}`, disabled: !connected });
+          const field = h("input", { type: "text", class: "surface-name", value: summary.name, "aria-label": `Name of ${summary.name}`, "data-testid": `snapshot-rename-${summary.id}`, "data-explain": "workspace.snapshot-name", disabled: !connected });
           commitOnEnter(field, (value) => void snapshots.rename(summary.id, value), () => snapshots.list.peek().find((s) => s.id === summary.id)?.name ?? summary.name);
-          const compare = h("button", { type: "button", class: "open", "data-testid": `snapshot-compare-${summary.id}`, title: "Read every device again and show what differs; nothing is sent", disabled: !connected || busy !== undefined, "on:click": () => void snapshots.compare(summary.id) }, busy === "comparing" ? "Reading…" : "Compare with now");
+          const compare = h("button", { type: "button", class: "open", "data-testid": `snapshot-compare-${summary.id}`, "data-explain": "workspace.snapshot-compare", title: "Read every device again and show what differs; nothing is sent", disabled: !connected || busy !== undefined, "on:click": () => void snapshots.compare(summary.id) }, busy === "comparing" ? "Reading…" : "Compare with now");
           let armed: ReturnType<typeof setTimeout> | undefined;
           const remove = h("button", {
             type: "button",
             "data-testid": `snapshot-delete-${summary.id}`,
+            "data-explain": "workspace.snapshot-delete",
             title: "Delete this snapshot (click twice); nothing changes on the devices",
             disabled: !connected,
             "on:click": () => {
@@ -547,6 +553,7 @@ export class GaWorkspace extends GaElement {
         {
           type: "button",
           "data-testid": "snapshot-recall-prepare",
+          "data-explain": "workspace.snapshot-prepare",
           title: "Read every device again and show, in order, the commands that putting this snapshot back would send. Nothing is sent",
           disabled: busy !== undefined,
           "on:click": () => void snapshots.prepareRecall(shown.snapshot.id),
@@ -561,7 +568,7 @@ export class GaWorkspace extends GaElement {
           ...shown.devices.map((device) => this.#deviceDiff(device)),
           shown.workspace.length === 0 ? null : this.#sectionDiff("workspace-workspace", { section: "workspace", title: "Workspace", changes: shown.workspace }),
           plan,
-          h("div", { class: "actions" }, prepare, h("button", { type: "button", "data-testid": "snapshot-diff-close", "on:click": () => snapshots.closeDiff() }, "Close")),
+          h("div", { class: "actions" }, prepare, h("button", { type: "button", "data-testid": "snapshot-diff-close", "data-explain": "workspace.snapshot-close", "on:click": () => snapshots.closeDiff() }, "Close")),
         ),
       );
     });
@@ -690,10 +697,10 @@ export class GaWorkspace extends GaElement {
   /** Export and import. The chosen file and its confirmation live only as long as the page. */
   #backup(): HTMLElement {
     const store = useStore();
-    const exportButton = h("button", { type: "button", "data-testid": "workspace-export" }, "Export");
-    const exportAll = h("button", { type: "button", "data-testid": "workspace-export-backup" }, "Export with snapshots");
-    const file = h("input", { type: "file", class: "file", accept: ".json,application/json", "data-testid": "workspace-import-file", "aria-label": "Workspace file to import" });
-    const importButton = h("button", { type: "button", "data-testid": "workspace-import" }, "Import…");
+    const exportButton = h("button", { type: "button", "data-testid": "workspace-export", "data-explain": "workspace.export" }, "Export");
+    const exportAll = h("button", { type: "button", "data-testid": "workspace-export-backup", "data-explain": "workspace.export-all" }, "Export with snapshots");
+    const file = h("input", { type: "file", class: "file", accept: ".json,application/json", "data-testid": "workspace-import-file", "aria-label": "Workspace file to import", "data-explain": "workspace.import-file" });
+    const importButton = h("button", { type: "button", "data-testid": "workspace-import", "data-explain": "workspace.import" }, "Import…");
     const outcome = h("div");
     let busy = false;
 
@@ -741,8 +748,8 @@ export class GaWorkspace extends GaElement {
       }
       const connectedIds = new Set(store.devices.peek().map((device) => device.id));
       const absent = read.summary.devices.filter((id) => !connectedIds.has(id));
-      const replace = h("button", { type: "button", "data-testid": "workspace-import-replace" }, "Replace workspace");
-      const cancel = h("button", { type: "button", "data-testid": "workspace-import-cancel" }, "Cancel");
+      const replace = h("button", { type: "button", "data-testid": "workspace-import-replace", "data-explain": "workspace.import-replace" }, "Replace workspace");
+      const cancel = h("button", { type: "button", "data-testid": "workspace-import-cancel", "data-explain": "workspace.import-cancel" }, "Cancel");
       replace.addEventListener("click", async () => {
         if (busy) return;
         busy = true;

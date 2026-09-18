@@ -66,8 +66,8 @@ export class GaRouting extends GaElement {
       return `${base}${/\d$/.test(base) ? "·" : " "}${channel + 1}`;
     };
 
-    const reload = h("button", { type: "button", "on:click": () => void routing.loadAll() }, "Read from device");
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const reload = h("button", { type: "button", "data-explain": "routing.read", "on:click": () => void routing.loadAll() }, "Read from device");
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
 
     // The selection: a run of channels in one source group. It is kept per device for the tab.
     const kept = store.view<{ group: number; anchor: number; from: number; to: number } | undefined>(`routing:${deviceId}:selection`, undefined);
@@ -99,6 +99,8 @@ export class GaRouting extends GaElement {
             class: "chip",
             "data-source": `${g}:${c}`,
             "data-testid": `source-${g}-${c}`,
+            "data-explain": "routing.source",
+            "data-explain-name": `${group.name} ${c + 1}`,
             title: `${group.name} ${c + 1}`,
             "on:click": (event) => {
               if (suppressClick) {
@@ -127,6 +129,8 @@ export class GaRouting extends GaElement {
           "data-readonly": locked,
           "aria-label": `${group.name} ${c + 1}`,
           "aria-disabled": locked ? "true" : undefined,
+          "data-explain": locked ? "routing.cell-mixer" : "routing.cell",
+          "data-explain-name": `${group.name} ${c + 1}`,
           "on:click": () => {
             if (!locked && selection !== undefined) fill(d, c, selected());
           },
@@ -136,7 +140,7 @@ export class GaRouting extends GaElement {
           },
         }),
       );
-      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${group.name} channel`, "on:click": () => void routing.routeMany(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
+      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, "data-explain": locked ? "routing.mute-row-mixer" : "routing.mute-row", title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${group.name} channel`, "on:click": () => void routing.routeMany(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
       this.watch(() => {
         const slots = routing.destination(d).value;
         cells.forEach((cell, c) => {
@@ -153,8 +157,8 @@ export class GaRouting extends GaElement {
       return h("div", { class: "row" }, h("span", { class: "label", title: locked ? "Mixer inputs are set by the Mixer page's channels" : group.name }, group.name), h("span", { class: "tools" }, mute), h("div", { class: "cells" }, cells));
     });
 
-    const sources = h("section", {}, h("h2", {}, "Sources"), h("div", { class: "table" }, sourceRows));
-    const destinations = h("section", {}, h("h2", {}, "Destinations"), h("div", { class: "table" }, destinationRows));
+    const sources = h("section", {}, h("h2", { "data-explain": "routing.sources" }, "Sources"), h("div", { class: "table" }, sourceRows));
+    const destinations = h("section", {}, h("h2", { "data-explain": "routing.destinations" }, "Destinations"), h("div", { class: "table" }, destinationRows));
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
       h("p", { class: "note" }, "Pick sources (shift-click for a run) and click a destination cell, or drag them onto one; a run fills that cell and those after it. Delete mutes a cell. Mixer inputs are set on the Mixer page."),

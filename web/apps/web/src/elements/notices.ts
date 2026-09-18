@@ -4,6 +4,9 @@
 import { h } from "../core/dom.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 
+/** Each kind of notice's key for the explain mode. */
+const NOTICE_KEYS = { error: "notices.error", warning: "notices.warning", info: "notices.info" } as const;
+
 export class GaNotices extends GaElement {
   static override styles = [
     sheet(`
@@ -31,9 +34,9 @@ export class GaNotices extends GaElement {
         ...store.notices.value.map((notice) =>
           h(
             "div",
-            { class: "notice", role: notice.level === "error" ? "alert" : "status", "data-level": notice.level },
+            { class: "notice", role: notice.level === "error" ? "alert" : "status", "data-level": notice.level, "data-explain": NOTICE_KEYS[notice.level] },
             h("span", { class: "text" }, notice.message),
-            h("button", { type: "button", "aria-label": "Dismiss", "on:click": () => store.dismiss(notice.id) }, "×"),
+            h("button", { type: "button", "aria-label": "Dismiss", "data-explain": "notices.dismiss", "on:click": () => store.dismiss(notice.id) }, "×"),
           ),
         ),
       );

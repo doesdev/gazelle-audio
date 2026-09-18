@@ -11,6 +11,17 @@ import { href, PAGES, route } from "./router.ts";
 
 const STATUS_TEXT = { open: "Connected", reconnecting: "Reconnecting…", closed: "Disconnected" } as const;
 
+/** Each page tab's key for the explain mode. */
+const PAGE_KEYS: Record<string, string> = {
+  devices: "header.page.devices",
+  workspace: "header.page.workspace",
+  inputs: "header.page.inputs",
+  outputs: "header.page.outputs",
+  mixer: "header.page.mixer",
+  routing: "header.page.routing",
+  effects: "header.page.effects",
+};
+
 export class GaHeader extends GaElement {
   static override styles = [
     sheet(`
@@ -64,12 +75,12 @@ export class GaHeader extends GaElement {
 
   protected override render(): void {
     const store = useStore();
-    const links = PAGES.map((page) => h("a", { href: href({ page: page.page }), "data-page": page.page }, page.label));
-    const backend = h("span", { class: "badge backend", "data-testid": "backend" });
-    const dryRun = h("span", { class: "badge dry-run", "data-testid": "dry-run", title: "Commands report the bytes they would send; nothing is written to a device." }, "Dry run");
+    const links = PAGES.map((page) => h("a", { href: href({ page: page.page }), "data-page": page.page, "data-explain": PAGE_KEYS[page.page] }, page.label));
+    const backend = h("span", { class: "badge backend", "data-testid": "backend", "data-explain": "header.backend" });
+    const dryRun = h("span", { class: "badge dry-run", "data-testid": "dry-run", "data-explain": "header.dry-run", title: "Commands report the bytes they would send; nothing is written to a device." }, "Dry run");
     const statusText = h("span", { class: "status-text" });
-    const status = h("span", { class: "status", role: "status", "data-testid": "connection" }, statusText);
-    const picker = h("select", { class: "theme", "aria-label": "Theme", "on:change": (event) => store.selectTheme((event.target as HTMLSelectElement).value) });
+    const status = h("span", { class: "status", role: "status", "data-testid": "connection", "data-explain": "header.connection" }, statusText);
+    const picker = h("select", { class: "theme", "aria-label": "Theme", "data-explain": "header.theme", "on:change": (event) => store.selectTheme((event.target as HTMLSelectElement).value) });
 
     this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, picker, h("slot", { name: "menu" })));
 

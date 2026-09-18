@@ -88,9 +88,9 @@ export class GaSurfaceStrip extends GaElement {
     const surfaceId = this.getAttribute("surface-id") ?? "";
     const stripId = this.getAttribute("strip-id") ?? "";
     const compact = this.hasAttribute("compact");
-    const badge = h("div", { class: "badge", "data-testid": "device-badge" });
-    const caption = h("div", { class: "caption", "data-testid": "strip-caption" });
-    const provenance = h("div", { class: "provenance", "data-testid": "provenance", hidden: true });
+    const badge = h("div", { class: "badge", "data-testid": "device-badge", "data-explain": "surface.badge" });
+    const caption = h("div", { class: "caption", "data-testid": "strip-caption", "data-explain": "surface.caption" });
+    const provenance = h("div", { class: "provenance", "data-testid": "provenance", hidden: true, "data-explain": "surface.provenance" });
     const body = h("div", { class: "body" });
     this.root.replaceChildren(badge, caption, provenance, body);
 
@@ -121,6 +121,7 @@ export class GaSurfaceStrip extends GaElement {
       badge.hidden = deviceId === undefined;
       if (deviceId !== undefined) {
         badge.textContent = device === undefined ? deviceId : displayName(device, store.workspace.value);
+        badge.setAttribute("data-explain-name", badge.textContent);
         badge.title = device === undefined ? `${deviceId} (not connected)` : `${displayName(device, store.workspace.value)} (${device.id})`;
         const colour = store.surfaces.deviceColor(deviceId);
         if (colour === undefined) badge.style.removeProperty("--device-colour");
@@ -224,14 +225,14 @@ export class GaSurfaceStrip extends GaElement {
       const extras: HTMLElement[] = [];
       if (kind === "spdif" && store.hasSpdifSrc(deviceId)) {
         // The Studio+'s sample-rate converter on its S/PDIF input: on, it need not follow the sender's clock.
-        const src = h("button", { type: "button", class: "src", "data-control": "", "data-testid": "spdif-src", title: "S/PDIF SRC: convert the incoming rate, so this device need not follow the sender's clock", "on:click": () => store.setSpdifSrc(deviceId, !store.spdifSrc(deviceId)) }, "SRC");
+        const src = h("button", { type: "button", class: "src", "data-control": "", "data-testid": "spdif-src", "data-explain": "surface.src", title: "S/PDIF SRC: convert the incoming rate, so this device need not follow the sender's clock", "on:click": () => store.setSpdifSrc(deviceId, !store.spdifSrc(deviceId)) }, "SRC");
         host.watch(() => src.setAttribute("aria-pressed", String(store.spdifSrc(deviceId) === true)));
         extras.push(src);
       }
       if (meter === undefined) return [control, ...extras];
       // The input's signal as it arrives, on the meters' scale, so a strip shows whether anything is there.
       const mask = h("div", { class: "mask" });
-      const level = h("div", { class: "level", "data-testid": "input-level", title: "The input's level" }, mask);
+      const level = h("div", { class: "level", "data-testid": "input-level", title: "The input's level", "data-explain": "surface.input-level" }, mask);
       host.onDisconnect(
         animateMeter(meter.level, (motion) => {
           mask.style.width = `${100 - (motion.level >= METER_FLOOR ? 0 : meterDeflection(motion.level))}%`;
@@ -270,12 +271,13 @@ export class GaSurfaceStrip extends GaElement {
     const note = h("p", { class: "note", "data-testid": "port-note" });
     const choices = cables.routeChoices(deviceId);
     const rows = cables.feed(deviceId, port, first).map((pair) => {
-      const from = h("span", { class: "from", "data-testid": `port-feed-${pair.channel}` });
+      const from = h("span", { class: "from", "data-testid": `port-feed-${pair.channel}`, "data-explain": "surface.port-feed" });
       const menu = h(
         "select",
         {
           "aria-label": `Route to ${portName(port)} ${pair.label}`,
           "data-testid": `port-route-${pair.channel}`,
+          "data-explain": "surface.port-route",
           // A menu of actions, not a value: a wheel step would route something (P73).
           "data-no-wheel": true,
           "on:change": () => {
@@ -322,7 +324,7 @@ export class GaSurfaceStrip extends GaElement {
       host.onDisconnect(store.watchReport(deviceId, "0x73"));
       for (const side of [0, 1]) {
         const mask = h("div", { class: "mask" });
-        parts.push(h("div", { class: "level", "data-testid": `port-level-${side}`, title: side === 0 ? "Left" : "Right" }, mask));
+        parts.push(h("div", { class: "level", "data-testid": `port-level-${side}`, title: side === 0 ? "Left" : "Right", "data-explain": "surface.port-level" }, mask));
         let level = METER_FLOOR;
         host.watch(() => {
           const bytes = field.value;
@@ -343,7 +345,7 @@ export class GaSurfaceStrip extends GaElement {
         host.onDisconnect(store.mixer(deviceId, mix).activate());
         const label = channels.mixName(mix);
         feeds.append(
-          h("div", { class: "caption", "data-testid": `port-master-caption-${mix}` }, `${label} master, feeds ${portName(port)}`),
+          h("div", { class: "caption", "data-testid": `port-master-caption-${mix}`, "data-explain": "surface.port-master" }, `${label} master, feeds ${portName(port)}`),
           h("ga-strip", { "device-id": deviceId, mixer: String(mix), strip: "master", label, compact: compact ? "" : undefined }),
         );
       }

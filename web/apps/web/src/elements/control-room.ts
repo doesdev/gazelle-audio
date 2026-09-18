@@ -82,10 +82,10 @@ export class GaMonitor extends GaElement {
     const model = store.devices.peek().find((d) => d.id === deviceId)?.model ?? deviceId;
 
     /** A horizontal level slider on the outputs' scale: 0 dB at the right, -inf at the left. */
-    const slider = (label: string, testId: string, get: () => number, set: (volume: number) => void) => {
+    const slider = (label: string, testId: string, get: () => number, set: (volume: number) => void, explain: string, name?: string) => {
       const fill = h("div", { class: "fill" });
       const value = h("span", { class: "value" });
-      const element = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": label, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": testId }, fill, value);
+      const element = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": label, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": testId, "data-explain": explain, "data-explain-name": name }, fill, value);
       bindControl(element, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get, set, enabled });
       const show = (volume: number) => {
         fill.style.width = `${((VOLUME_MAX - Math.min(VOLUME_MAX, Math.max(0, volume))) / VOLUME_MAX) * 100}%`;
@@ -101,11 +101,11 @@ export class GaMonitor extends GaElement {
       const output = outputs.outputs[id];
       if (output === undefined) return [];
       const state = outputs.state(id);
-      const volume = slider(`${output.name} volume`, `cr-volume-${id}`, () => state.peek().volume, (v) => outputs.setVolume(id, v));
-      const mute = h("button", { type: "button", class: "mute", "data-testid": `cr-mute-${id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(id, !state.peek().mute) }, "Mute");
-      const dim = output.dim ? h("button", { type: "button", class: "dim", "data-testid": `cr-dim-${id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(id, !state.peek().dim) }, "Dim") : undefined;
+      const volume = slider(`${output.name} volume`, `cr-volume-${id}`, () => state.peek().volume, (v) => outputs.setVolume(id, v), "cr.volume", output.name);
+      const mute = h("button", { type: "button", class: "mute", "data-testid": `cr-mute-${id}`, "aria-label": `${output.name} mute`, "data-explain": "cr.mute", "data-explain-name": output.name, "on:click": () => outputs.setMute(id, !state.peek().mute) }, "Mute");
+      const dim = output.dim ? h("button", { type: "button", class: "dim", "data-testid": `cr-dim-${id}`, "aria-label": `${output.name} dim`, "data-explain": "cr.dim", "data-explain-name": output.name, "on:click": () => outputs.setDim(id, !state.peek().dim) }, "Dim") : undefined;
       // Mono is reported (Quadro) but has no command, so it is a badge; the button sums the mix that feeds the output.
-      const mono = h("span", { class: "badge", title: `The device reports ${output.name} in mono`, hidden: true }, "MONO");
+      const mono = h("span", { class: "badge", title: `The device reports ${output.name} in mono`, hidden: true, "data-explain": "cr.mono-badge", "data-explain-name": output.name }, "MONO");
       const sum = this.#mono(output);
       this.watch(() => {
         const s = state.value;
@@ -120,11 +120,11 @@ export class GaMonitor extends GaElement {
     // Talkback: the Studio+ only. The Quadro's panel has no talkback commands, so it shows nothing of it.
     let talkback: HTMLElement | undefined;
     if (outputs.talkback !== undefined) {
-      const talk = h("button", { type: "button", class: "talk", "data-testid": "cr-talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk" }, "Talk");
+      const talk = h("button", { type: "button", class: "talk", "data-testid": "cr-talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk", "data-explain": "cr.talk" }, "Talk");
       bindMomentary(talk, (on) => outputs.setTalk(on), enabled);
-      const level = slider("Talkback level", "cr-talk-volume", () => outputs.talk.peek().volume, (v) => outputs.setTalkbackVolume(v));
+      const level = slider("Talkback level", "cr-talk-volume", () => outputs.talk.peek().volume, (v) => outputs.setTalkbackVolume(v), "cr.talk-level");
       const destinations = outputs.talkback.destinations.map((d) =>
-        h("button", { type: "button", class: "to", "data-testid": `cr-talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
+        h("button", { type: "button", class: "to", "data-testid": `cr-talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "data-explain": "cr.talk-to", "data-explain-name": d.name, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
       );
       this.watch(() => {
         const t = outputs.talk.value;
@@ -142,7 +142,7 @@ export class GaMonitor extends GaElement {
     }
 
     this.root.replaceChildren(
-      h("div", { class: "device", title: model }, model),
+      h("div", { class: "device", title: model, "data-explain": "cr.device" }, model),
       ...rows,
       ...(talkback === undefined ? [] : [talkback]),
     );
@@ -168,8 +168,8 @@ export class GaMonitor extends GaElement {
     const topology = store.topology(deviceId);
     const destination = topology?.outputs.findIndex((g) => g.id === output.group) ?? -1;
     const feed = destination < 0 ? undefined : channels.outputFeed(destination);
-    const button = h("button", { type: "button", class: "mono", "data-testid": `cr-mono-${output.id}` }, "Mono");
-    const caption = h("span", { class: "caption", "data-testid": `cr-feed-${output.id}` });
+    const button = h("button", { type: "button", class: "mono", "data-testid": `cr-mono-${output.id}`, "data-explain": "cr.mono", "data-explain-name": output.name }, "Mono");
+    const caption = h("span", { class: "caption", "data-testid": `cr-feed-${output.id}`, "data-explain": "cr.feed", "data-explain-name": output.name });
     const mixLabel = (mix: number) => {
       const name = channels.layout.value.mixes[mix]?.name;
       return name ? `Mix ${mix + 1}: ${name}` : `Mix ${mix + 1}`;

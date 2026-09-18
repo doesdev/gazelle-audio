@@ -54,14 +54,14 @@ export class GaOutputMeters extends GaElement {
     this.onDisconnect(release);
     const autoClear = h(
       "select",
-      { "aria-label": "Clip lights clear after", title: "Clip lights clear this long after a clip ends", "data-testid": "clip-auto-clear", "on:change": () => store.setClipAutoClear(autoClear.value === "never" ? null : Number(autoClear.value)) },
+      { "aria-label": "Clip lights clear after", title: "Clip lights clear this long after a clip ends", "data-testid": "clip-auto-clear", "data-explain": "meter.auto-clear", "on:change": () => store.setClipAutoClear(autoClear.value === "never" ? null : Number(autoClear.value)) },
       ...CLIP_AUTO_CLEAR_CHOICES.map((ms) => h("option", { value: ms === null ? "never" : String(ms) }, ms === null ? "Hold" : `${ms / 1000} s`)),
     ) as HTMLSelectElement;
     this.watch(() => {
       const ms = store.clipAutoClear.value;
       autoClear.value = ms === null ? "never" : String(ms);
     });
-    const clearAll = h("button", { type: "button", title: "Clear every clip light", "aria-label": "Clear all clip lights", "data-testid": "clip-clear-all", "on:click": () => store.clearAllClips() }, "Clear");
+    const clearAll = h("button", { type: "button", title: "Clear every clip light", "aria-label": "Clear all clip lights", "data-testid": "clip-clear-all", "data-explain": "meter.clear-all", "on:click": () => store.clearAllClips() }, "Clear");
     const header = (...children: Node[]) => h("div", { class: "header" }, ...children, autoClear, clearAll);
     this.watch(() => {
       const current = route.value;
@@ -78,7 +78,7 @@ export class GaOutputMeters extends GaElement {
       const meters = store.outputMeters(device.id);
       const name = header(h("span", { class: "device" }, displayName(device, store.workspace.peek())));
       if (meters === undefined) {
-        this.root.replaceChildren(name, h("p", { class: "placeholder" }, "This model reports no output meters of its own: its output levels only reach its selectable meter bank."));
+        this.root.replaceChildren(name, h("p", { class: "placeholder", "data-explain": "meter.none" }, "This model reports no output meters of its own: its output levels only reach its selectable meter bank."));
         return;
       }
       held.push(store.watchReport(device.id, STATUS_REPORT));
@@ -103,13 +103,13 @@ export class GaOutputMeters extends GaElement {
             );
             return h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask, peakMark);
           };
-          const clip = h("button", { class: "clip", type: "button", "aria-label": `${meter.name} clip; select to clear`, "data-testid": `output-clip-${meter.name}`, "on:click": () => meter.clearClip() });
+          const clip = h("button", { class: "clip", type: "button", "aria-label": `${meter.name} clip; select to clear`, "data-testid": `output-clip-${meter.name}`, "data-explain": "meter.output-clip", "data-explain-name": meter.name, "on:click": () => meter.clearClip() });
           held.push(
             effect(() => {
               clip.toggleAttribute("data-on", meter.clipped.value);
             }),
           );
-          return h("div", { class: "output", "data-output": meter.name, title: `${meter.name}: peak, dB below full scale` }, h("span", { class: "output-name" }, meter.name), h("div", { class: "bars" }, bar("left"), bar("right")), clip, peak);
+          return h("div", { class: "output", "data-output": meter.name, "data-explain": "meter.output", "data-explain-name": meter.name, title: `${meter.name}: peak, dB below full scale` }, h("span", { class: "output-name" }, meter.name), h("div", { class: "bars" }, bar("left"), bar("right")), clip, peak);
         }),
       ));
     });

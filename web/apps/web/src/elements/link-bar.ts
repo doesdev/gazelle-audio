@@ -69,20 +69,21 @@ function saveDraft(d: LinkDraft): void {
 /** The bar that shows the open draft: its members, the mode, Save, Unlink and Cancel. Hidden without a draft. */
 export function linkBar(watch: Watch, deviceId: string): HTMLElement {
   const store = useStore();
-  const members = h("span", { class: "members" });
+  const members = h("span", { class: "members", "data-explain": "link.bar" });
   const setMode = (mode: LinkMode) => {
     const d = draft.peek();
     if (d !== undefined) draft.value = { ...d, mode };
   };
   const modes = (["absolute", "relative"] as const).map((mode) =>
-    h("button", { type: "button", "data-testid": `link-mode-${mode}`, title: mode === "absolute" ? "Every member takes the same value" : "Every member moves by the same step, keeping its offset", "on:click": () => setMode(mode) }, mode === "absolute" ? "Same value" : "Relative"),
+    h("button", { type: "button", "data-testid": `link-mode-${mode}`, "data-explain": mode === "absolute" ? "link.mode-absolute" : "link.mode-relative", title: mode === "absolute" ? "Every member takes the same value" : "Every member moves by the same step, keeping its offset", "on:click": () => setMode(mode) }, mode === "absolute" ? "Same value" : "Relative"),
   );
-  const save = h("button", { type: "button", "data-testid": "link-save", "on:click": () => draft.peek() && saveDraft(draft.peek() as LinkDraft) }, "Save");
+  const save = h("button", { type: "button", "data-testid": "link-save", "data-explain": "link.save", "on:click": () => draft.peek() && saveDraft(draft.peek() as LinkDraft) }, "Save");
   const unlink = h(
     "button",
     {
       type: "button",
       "data-testid": "link-unlink",
+      "data-explain": "link.unlink",
       "on:click": () => {
         const d = draft.peek();
         if (d?.editing !== undefined) store.links.remove(d.editing);
@@ -91,7 +92,7 @@ export function linkBar(watch: Watch, deviceId: string): HTMLElement {
     },
     "Unlink",
   );
-  const cancel = h("button", { type: "button", "data-testid": "link-cancel", "on:click": () => (draft.value = undefined) }, "Cancel");
+  const cancel = h("button", { type: "button", "data-testid": "link-cancel", "data-explain": "link.cancel", "on:click": () => (draft.value = undefined) }, "Cancel");
   const bar = h("div", { class: "link-bar", "data-testid": "link-bar", role: "group", "aria-label": "Link" }, members, h("div", { class: "modes", role: "group", "aria-label": "Link mode" }, modes), save, unlink, cancel);
   watch(() => {
     const d = draft.value;
@@ -119,6 +120,7 @@ export function linkButton(watch: Watch, kind: LinkKind, deviceId: string, chann
       class: className,
       "data-control": "",
       "data-testid": testId,
+      "data-explain": kind === "mixer" ? "link.mixer" : "link.input",
       "on:click": () => {
         const d = draft.peek();
         if (d !== undefined && d.kind === kind) {

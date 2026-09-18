@@ -118,25 +118,25 @@ export class GaApp extends GaElement {
     this.onDisconnect(followHash());
 
     const title = h("h1", { class: "page-title" });
-    const banner = h("p", { class: "disconnected", role: "alert", hidden: true }, "The server is not connected. Controls are disabled until it reconnects.");
+    const banner = h("p", { class: "disconnected", role: "alert", hidden: true, "data-explain": "app.disconnected" },"The server is not connected. Controls are disabled until it reconnects.");
     const page = h("div", { class: "page" });
     const main = h("main", {}, banner, title, page);
 
     // The drawer is open for this page only: on a phone the sidebar starts closed.
     const drawer = signal(false);
-    const menu = h("button", { class: "menu", type: "button", slot: "menu", "aria-controls": "sidebar", "aria-label": "Open the sidebar", title: "Devices, meter and Control Room", "on:click": () => (drawer.value = !drawer.peek()) }, "☰");
+    const menu = h("button", { class: "menu", type: "button", slot: "menu", "aria-controls": "sidebar", "aria-label": "Open the sidebar", title: "Devices, meter and Control Room", "data-explain": "app.menu", "on:click": () => (drawer.value = !drawer.peek()) }, "☰");
     const closeDrawer = (returnFocus: boolean) => {
       if (!drawer.peek()) return;
       drawer.value = false;
       if (returnFocus) menu.focus();
     };
-    const fold = h("button", { class: "fold", type: "button", "data-testid": "sidebar-fold", "on:click": () => store.toggleSidebar() });
-    const move = h("button", { class: "move", type: "button", "data-testid": "sidebar-move", "on:click": () => store.moveSidebar() });
-    const close = h("button", { class: "close", type: "button", "aria-label": "Close the sidebar", "on:click": () => closeDrawer(true) }, "×");
+    const fold = h("button", { class: "fold", type: "button", "data-testid": "sidebar-fold", "data-explain": "sidebar.fold", "on:click": () => store.toggleSidebar() });
+    const move = h("button", { class: "move", type: "button", "data-testid": "sidebar-move", "data-explain": "sidebar.move", "on:click": () => store.moveSidebar() });
+    const close = h("button", { class: "close", type: "button", "aria-label": "Close the sidebar", "data-explain": "sidebar.close", "on:click": () => closeDrawer(true) }, "×");
     const sections: [SidebarSection, GaSection][] = [
-      ["devices", h("ga-section", { heading: "Devices" }, h("ga-device-list"))],
-      ["meter", h("ga-section", { heading: "Meter" }, h("ga-output-meters"))],
-      ["controlRoom", h("ga-section", { heading: "Control Room" }, h("ga-control-room"))],
+      ["devices", h("ga-section", { heading: "Devices", explain: "sidebar.devices" }, h("ga-device-list"))],
+      ["meter", h("ga-section", { heading: "Meter", explain: "sidebar.meter" }, h("ga-output-meters"))],
+      ["controlRoom", h("ga-section", { heading: "Control Room", explain: "sidebar.control-room" }, h("ga-control-room"))],
     ];
     for (const [id, section] of sections) {
       section.collapsed = store.sidebar.peek().sections[id] ?? false;
@@ -150,7 +150,8 @@ export class GaApp extends GaElement {
     );
     const backdrop = h("div", { class: "backdrop", "aria-hidden": "true", "on:click": () => closeDrawer(false) });
 
-    const header = h("ga-header", {}, menu);
+    // The explain mode's switch sits in the header beside the sidebar button (explain.ts).
+    const header = h("ga-header", {}, h("ga-explain", { slot: "menu" }), menu);
     // The dock styles its own zone, so on the Mixer page, where it hides, the footer takes no room.
     const footer = h("footer", { "aria-label": "Mixer" }, h("ga-mixer-dock"));
     this.root.replaceChildren(header, h("div", { class: "zones" }, main, sidebar, backdrop), footer, h("ga-notices"));
@@ -324,7 +325,7 @@ function showPage(into: HTMLElement, page: Page, id: string | undefined, current
     },
     (error: unknown) => {
       if (!current()) return;
-      const again = h("button", { type: "button", "data-testid": "page-retry", "on:click": () => location.reload() }, "Try again");
+      const again = h("button", { type: "button", "data-testid": "page-retry", "data-explain": "app.page-retry", "on:click": () => location.reload() }, "Try again");
       const reason = error instanceof Error ? error.message : String(error);
       into.replaceChildren(h("p", { class: "placeholder", role: "alert", "data-testid": "page-failed" }, `The ${pageTitle(page)} page could not be loaded: ${reason}. `, again));
     },
