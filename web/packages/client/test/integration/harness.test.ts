@@ -35,9 +35,15 @@ test("the harness starts the built server on a free port, stops it, and the port
 // backend — is asserted on the Rust side (crates/gazelle-audio-server/tests/cli.rs), where it can
 // be exercised without a suite that would open a device if it regressed.
 
-test("the harness refuses to start a server whose backend was not named", async () => {
-  await assert.rejects(() => startServer(["--dry-run"]), /--backend/, "a forgotten backend is an error, not a usb server");
-  await assert.rejects(() => startServer([]), /--backend/);
+// The message has to be the harness's own. A server spawned without the flag is refused by
+// GAZELLE_NO_HARDWARE too, and its refusal also says "--backend" — so a looser assertion passes
+// whether or not the harness checks anything, which is exactly the regression worth catching.
+const NOT_NAMED = /startServer needs an explicit backend/;
+
+test("the harness refuses to start a server whose backend was not named, before spawning one", async () => {
+  await assert.rejects(() => startServer(["--dry-run"]), NOT_NAMED, "a forgotten backend is an error, not a usb server");
+  await assert.rejects(() => startServer([]), NOT_NAMED);
+  await assert.rejects(() => startServer([], { webUi: true }), NOT_NAMED);
 });
 
 test("every server the harness starts runs under GAZELLE_NO_HARDWARE", () => {
