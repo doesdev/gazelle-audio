@@ -77,7 +77,7 @@ before(async () => {
       "",
     ].join("\n"),
   );
-  server = await startServer();
+  server = await startServer(["--backend", "loopback"]);
 });
 
 after(async () => {

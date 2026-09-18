@@ -59,10 +59,30 @@ export interface StartOptions {
   webUi?: boolean;
 }
 
+/**
+ * The variable that makes the server refuse the USB backend outright. Set on every server this
+ * harness starts, because `--backend` now defaults to `usb` (decision 0018) and a test suite must
+ * not be one forgotten flag away from opening the devices on the machine running it.
+ */
+export const NO_HARDWARE = "GAZELLE_NO_HARDWARE";
+
+/** The environment every server started here runs in: this process's, plus the refusal. */
+export function childEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, [NO_HARDWARE]: "1" };
+}
+
 export async function startServer(extraArgs: readonly string[] = [], options: StartOptions = {}): Promise<RunningServer> {
+  // Named, never assumed. The harness could quietly supply `--backend loopback` and every caller
+  // would be safe, but then "which backend is this server?" would be a fact about the harness
+  // rather than about the test, and the first suite that wanted something else would inherit a
+  // default it never saw. GAZELLE_NO_HARDWARE below is the guard; this is the rule the guard
+  // backs up.
+  if (!extraArgs.includes("--backend")) {
+    throw new Error("startServer needs an explicit backend: pass [\"--backend\", \"loopback\", ...]. --backend defaults to usb, which would open real devices.");
+  }
   const binary = buildServer();
   const args = ["--bind", "127.0.0.1:0", "--no-persist", "--no-tray", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
-  const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv() });
   live.add(child);
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
   exited.then(() => live.delete(child));

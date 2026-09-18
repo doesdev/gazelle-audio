@@ -61,10 +61,16 @@ Not affiliated with, endorsed by, or supported by Antelope Audio.
 
 ## Safety
 
-Driving audio hardware over a reverse-engineered protocol can fault the device. The server
-therefore defaults to a **loopback** device and requires an explicit flag to touch real
-hardware, and offers a dry-run mode that shows the bytes a command *would* send. Flash and
-firmware commands are out of scope and are never issued.
+Driving audio hardware over a reverse-engineered protocol can fault the device. **Reading is
+not writing:** the server attaches to a device by enumerating and opening it, and every write
+is its own deliberate act. `--dry-run` returns the exact bytes a command *would* send without
+sending them. Flash and firmware commands are out of scope and are never issued.
+
+The server talks to the attached interfaces by default, because that is what it is for
+(`.agent/decisions/0018-usb-backend-by-default.md`). **`--backend loopback` is a complete
+hardware-free emulator** — for trying the UI without an interface, for reproducing a bug, and
+for the test suites, all of which name it explicitly. Setting `GAZELLE_NO_HARDWARE=1` makes a
+server refuse the USB backend outright, which is how a test run is kept off real devices.
 
 ## Documentation
 

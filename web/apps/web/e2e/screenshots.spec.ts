@@ -10,7 +10,7 @@ import { putWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
   // A plausible session per model: named channels on preamps, playback and digital inputs, some sending to a second mix, one not set up yet.
   const channel = (id: string, name: string, slot: number, group: number | undefined, source: number, main: number | undefined, sends: number[] = []) => ({ id, name, slot, sends, ...(group === undefined ? {} : { source: { group, channel: source } }), ...(main === undefined ? {} : { main_mix: main }) });
   const mixers = {

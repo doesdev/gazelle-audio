@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 /// The name of the login entry.
 pub const ENTRY_NAME: &str = "Gazelle";
 
+/// What `--backend` does without being asked (decision `0018`), and so what a boot entry can
+/// leave unsaid.
+pub const DEFAULT_BACKEND: &str = "usb";
+
 /// Where login entries live: read, write and remove one command line by name.
 pub trait RunKey {
     fn read(&self, name: &str) -> io::Result<Option<String>>;
@@ -36,7 +40,8 @@ impl RunKey for NoRunKey {
 
 /// The arguments a boot entry carries over from the running server.
 ///
-/// Carried: what decides what the server serves and how safely — `--bind`, `--backend`,
+/// Carried: what decides what the server serves and how safely — `--bind`, `--backend` when it is
+/// not the default,
 /// `--dry-run`, `--workspace`, `--themes-dir`, `--no-web-ui`, and for the loopback backend its
 /// models and cyclic interval — and where it keeps its record, `--log-dir`. Not carried: `--no-persist`, which is for throwaway runs (a server
 /// that starts at every login and forgets the user's layouts at every logoff is not what anyone
@@ -71,7 +76,13 @@ impl BootArgs {
 
     /// The argument list, in a fixed order.
     pub fn arguments(&self) -> Vec<String> {
-        let mut args = vec!["--backend".to_string(), self.backend.clone(), "--bind".to_string(), self.bind.to_string()];
+        let mut args = Vec::new();
+        // `usb` is the default (decision `0018`), so the ordinary desktop entry names no backend
+        // at all; only a run that is deliberately on the emulator has to say so.
+        if self.backend != DEFAULT_BACKEND {
+            args.extend(["--backend".to_string(), self.backend.clone()]);
+        }
+        args.extend(["--bind".to_string(), self.bind.to_string()]);
         if self.dry_run {
             args.push("--dry-run".into());
         }
@@ -281,9 +292,13 @@ mod tests {
 
     const EXE: &str = r"C:\Program Files\Gazelle\gazelle-audio-server.exe";
 
+    /// The ordinary desktop run is `usb`, which is the default, so the entry a person reads in
+    /// Task Manager or the registry says nothing about backends at all (decision `0018`).
     #[test]
-    fn backend_and_bind_are_always_carried() {
-        assert_eq!(args().arguments(), ["--backend", "usb", "--bind", "127.0.0.1:8420"]);
+    fn the_default_backend_is_not_spelled_out_and_the_other_one_is() {
+        assert_eq!(args().arguments(), ["--bind", "127.0.0.1:8420"]);
+        let loopback = BootArgs { backend: "loopback".into(), ..args() };
+        assert_eq!(loopback.arguments()[..4], ["--backend", "loopback", "--bind", "127.0.0.1:8420"]);
     }
 
     #[test]
@@ -299,8 +314,8 @@ mod tests {
         assert_eq!(
             a.arguments(),
             [
-                "--backend", "usb", "--bind", "127.0.0.1:8420", "--dry-run", "--workspace", "/w/workspace.json",
-                "--themes-dir", "/w/themes", "--log-dir", "/w/logs", "--no-web-ui",
+                "--bind", "127.0.0.1:8420", "--dry-run", "--workspace", "/w/workspace.json", "--themes-dir",
+                "/w/themes", "--log-dir", "/w/logs", "--no-web-ui",
             ]
         );
     }
@@ -387,7 +402,7 @@ mod tests {
         boot.set(true).unwrap();
         assert_eq!(
             key.entries.borrow().get(ENTRY_NAME).map(String::as_str),
-            Some(r#""C:\Program Files\Gazelle\gazelle-audio-server.exe" --backend usb --bind 127.0.0.1:8420"#)
+            Some(r#""C:\Program Files\Gazelle\gazelle-audio-server.exe" --bind 127.0.0.1:8420"#)
         );
         assert!(boot.is_enabled());
         boot.set(false).unwrap();

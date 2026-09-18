@@ -500,6 +500,9 @@ fn the_command_line_installs_and_uninstalls_for_real() {
             .env("LOCALAPPDATA", root.0.join("Local"))
             .env("APPDATA", root.0.join("Roaming"))
             .env("GAZELLE_UNINSTALL_KEY", &key)
+            // An --install run never reaches the backend, but nothing that starts this binary
+            // from a test is allowed to be one flag away from opening a device.
+            .env(gazelle_audio_server::no_hardware::VAR, "1")
             .output()
             .unwrap()
     };
@@ -538,6 +541,7 @@ fn the_command_line_refuses_to_uninstall_nothing() {
         .args(["--uninstall", "--yes", "--uninstall-target", root.0.to_str().unwrap()])
         .env("LOCALAPPDATA", root.0.join("Local"))
         .env("APPDATA", root.0.join("Roaming"))
+        .env(gazelle_audio_server::no_hardware::VAR, "1")
         .output()
         .unwrap();
     assert!(!out.status.success());

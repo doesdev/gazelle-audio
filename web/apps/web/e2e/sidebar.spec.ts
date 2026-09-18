@@ -12,7 +12,7 @@ import { putWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
   // Enough channels on the Quadro that the Mixer's strips cannot fit a phone.
   const channels = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, name: `Ch ${i + 1}`, slot: 6 + i, sends: [], ...(i < 4 ? { source: { group: 0, channel: i }, main_mix: 0 } : {}) }));
   await putWorkspace(server, { mixers: { "loopback-0": { channels } } });

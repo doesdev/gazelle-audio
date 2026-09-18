@@ -12,7 +12,7 @@ let server: RunningServer;
 
 test.beforeAll(async () => {
   // Reports every 50 ms, so the cards have something to show.
-  server = await startServer(["--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run", "--loopback-cyclic-ms", "50"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));

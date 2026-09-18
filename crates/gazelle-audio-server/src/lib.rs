@@ -7,9 +7,12 @@
 //!
 //! # Safety posture
 //!
-//! The default transport backend is the hardware-free loopback, and binding is loopback-only
-//! unless explicitly overridden. Driving real hardware is a deliberate act. See
-//! `.agent/decisions/0012-loopback-default-and-dry-run.md`.
+//! The transport backend is the real hardware unless `--backend loopback` asks for the emulator,
+//! because driving the interfaces is the whole point of the shipped app; attaching is read-only,
+//! and a write is still a deliberate act, with `--dry-run` there to show the bytes instead of
+//! sending them. Binding is loopback-only unless explicitly overridden. See
+//! `.agent/decisions/0018-usb-backend-by-default.md`, which supersedes `0012`, and
+//! [`no_hardware`] for the variable that keeps a test harness off real devices.
 
 /// The build script's icon-resource writer, compiled into the test build so its own tests run.
 ///
@@ -29,6 +32,7 @@ pub mod http;
 pub mod icon;
 pub mod install;
 pub mod logging;
+pub mod no_hardware;
 pub mod notice;
 pub mod registry_set;
 pub mod snapshot;

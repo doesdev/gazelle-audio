@@ -12,7 +12,7 @@ import { resetWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
 });
 
 test.beforeEach(() => resetWorkspace(server));
@@ -197,7 +197,7 @@ test("with nothing read (dry run) the page says so, and chains are not shown as 
 });
 
 test("on the loopback, not in dry run, chains read back loaded and the reverb follows what was set", async ({ page }) => {
-  const live = await startServer(["--loopback-cyclic-ms", "50"], { webUi: true });
+  const live = await startServer(["--backend", "loopback", "--loopback-cyclic-ms", "50"], { webUi: true });
   try {
     await page.goto(`${live.url}/#/effects/loopback-0`);
     // The loopback loads every chain with a Guitar Amp and a FET-A76, so the page and its effect

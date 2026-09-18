@@ -10,7 +10,7 @@ import { putWorkspace } from "./workspace.ts";
 let server: RunningServer;
 
 test.beforeAll(async () => {
-  server = await startServer(["--dry-run"], { webUi: true });
+  server = await startServer(["--backend", "loopback", "--dry-run"], { webUi: true });
   // 26 channels (every free Quadro input): one active on Mix 1, so its master shows, and 25 inactive.
   const channels = Array.from({ length: 26 }, (_, i) => (i === 0 ? { id: "c0", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] } : { id: `c${i}`, name: "", slot: 6 + i, sends: [] }));
   // The Studio+ has the tallest channel: a grouped preamp channel over a strip with its own send section.
