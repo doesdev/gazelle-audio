@@ -43,6 +43,12 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
+    /// Allow the recall route to apply a snapshot to a device. Off by default, and off is not the
+    /// whole guard: the request must ask as well, and applying is not built yet — it waits for the
+    /// hardware session in the workspace spec's §6.
+    #[arg(long)]
+    enable_recall: bool,
+
     /// Where workspace state is stored. Defaults to a platform config path.
     #[arg(long)]
     workspace: Option<PathBuf>,
@@ -339,6 +345,7 @@ async fn prepare(
         store,
         snapshots,
         force_dry_run: args.dry_run,
+        enable_recall: args.enable_recall,
         backend: format!("{:?}", args.backend).to_lowercase(),
         themes_dir: Some(args.themes_dir.clone().unwrap_or_else(|| default_themes_dir(|k| std::env::var(k).ok()))),
         show_window,

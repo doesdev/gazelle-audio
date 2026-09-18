@@ -26,7 +26,7 @@ async fn serve_with(devices: Arc<DeviceManager>) -> String {
         devices,
         snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
-        force_dry_run: false,
+        force_dry_run: false, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         show_window: None,

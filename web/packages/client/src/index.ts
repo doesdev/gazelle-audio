@@ -25,5 +25,5 @@ export type { Bytes, CommandDescriptor, FamilySchema, FieldDescriptor, Scalar, T
 export { schemas, topologies } from "./generated/index.ts";
 export type { Family, FamilyTypes } from "./generated/index.ts";
 export { SNAPSHOT_VERSION } from "./snapshots.ts";
-export type { Change, ChangeKind, DeviceDiff, DeviceSnapshot, SectionDiff, Snapshot, SnapshotDeviceSummary, SnapshotDiff, SnapshotImport, SnapshotSummary, Unreadable } from "./snapshots.ts";
+export type { Change, ChangeKind, DeviceDiff, DeviceSnapshot, RecallAsk, RecallDevicePlan, RecallExcluded, RecallPart, RecallPlan, RecallRaisedOutput, RecallStep, SectionDiff, Snapshot, SnapshotDeviceSummary, SnapshotDiff, SnapshotImport, SnapshotSummary, Unreadable } from "./snapshots.ts";
 export type { ChannelRef, DeviceMixer, Group, InputRef, Link, LinkKind, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Cable, CableEnd, ControlRoom, DigitalPort, Surface, SurfaceStrip, SurfaceStripKind, Workspace } from "./workspace.ts";

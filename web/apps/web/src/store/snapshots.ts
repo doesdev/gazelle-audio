@@ -8,12 +8,24 @@
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
 import { SNAPSHOT_VERSION } from "gazelle-audio-client";
-import type { Change, DeviceDiff, SectionDiff, Snapshot, SnapshotDiff, SnapshotSummary } from "gazelle-audio-client";
+import type {
+  Change,
+  DeviceDiff,
+  RecallAsk,
+  RecallExcluded,
+  RecallPart,
+  RecallPlan,
+  RecallStep,
+  SectionDiff,
+  Snapshot,
+  SnapshotDiff,
+  SnapshotSummary,
+} from "gazelle-audio-client";
 
 // Elements do not import the client package, so what the Workspace page needs of a snapshot comes
 // through here with the rest of the model.
 export { SNAPSHOT_VERSION };
-export type { Change, DeviceDiff, SectionDiff, Snapshot, SnapshotDiff, SnapshotSummary };
+export type { Change, DeviceDiff, RecallAsk, RecallExcluded, RecallPart, RecallPlan, RecallStep, SectionDiff, Snapshot, SnapshotDiff, SnapshotSummary };
 
 /** What the model needs from the client, so it can be tested without one. */
 export interface SnapshotsContext {
@@ -24,10 +36,12 @@ export interface SnapshotsContext {
   delete(id: string): Promise<void>;
   compare(id: string): Promise<SnapshotDiff>;
   import(snapshots: Snapshot[]): Promise<{ added: string[]; skipped: string[] }>;
+  /** What recall would send. Reads every device and sends nothing. */
+  recallPlan(id: string, ask?: RecallAsk): Promise<RecallPlan>;
 }
 
 /** What the section is doing, so its controls can say so and not be pressed twice. */
-export type Busy = "loading" | "taking" | "comparing" | "renaming" | "deleting" | undefined;
+export type Busy = "loading" | "taking" | "comparing" | "planning" | "renaming" | "deleting" | undefined;
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -37,6 +51,7 @@ export class SnapshotsModel {
   readonly #busy = signal<Busy>(undefined);
   readonly #problem = signal<string | undefined>(undefined);
   readonly #diff = signal<SnapshotDiff | undefined>(undefined);
+  readonly #plan = signal<RecallPlan | undefined>(undefined);
   readonly #known = signal(false);
   #loaded = false;
 
@@ -121,6 +136,7 @@ export class SnapshotsModel {
       await this.#context.delete(id);
       this.#list.value = this.#list.peek().filter((s) => s.id !== id);
       if (this.#diff.peek()?.snapshot.id === id) this.#diff.value = undefined;
+      if (this.#plan.peek()?.snapshot.id === id) this.#plan.value = undefined;
       return true;
     });
     return removed === true;
@@ -137,6 +153,30 @@ export class SnapshotsModel {
 
   closeDiff(): void {
     this.#diff.value = undefined;
+    this.#plan.value = undefined;
+  }
+
+  /** The recall plan being previewed, if any. */
+  get plan(): ReadonlySignal<RecallPlan | undefined> {
+    return this.#plan;
+  }
+
+  /**
+   * Asks the server what recall would send to put this snapshot back: an ordered list of commands
+   * with their bytes and their guards. **Nothing is sent to a device**, here or on the server, and
+   * there is no way from this page to apply one — that waits for a session at the hardware
+   * (spec §2.3, decision 0012).
+   */
+  async prepareRecall(id: string, ask: RecallAsk = {}): Promise<RecallPlan | undefined> {
+    return this.#run("planning", async () => {
+      const plan = await this.#context.recallPlan(id, ask);
+      this.#plan.value = plan;
+      return plan;
+    });
+  }
+
+  closePlan(): void {
+    this.#plan.value = undefined;
   }
 
   /** Every snapshot whole, for a backup file (spec §3.3). */
@@ -211,6 +251,87 @@ export function describeSection(section: SectionDiff): string {
   if (changed > 0) parts.push(`${changed} ${changed === 1 ? "change" : "changes"}`);
   if (unknown > 0) parts.push(`${unknown} ${unknown === 1 ? "value" : "values"} unread`);
   return parts.join(", ");
+}
+
+// Recall's preview. Everything below describes a plan; none of it sends anything, and there is no
+// "apply" anywhere in this file (workspace spec §2.3, decision 0012).
+
+/** A plan's steps under the part they belong to, in running order, parts with no steps left out. */
+export function planByPart(plan: RecallPlan): { part: RecallPart; steps: RecallStep[] }[] {
+  return plan.parts.map((part) => ({ part, steps: plan.steps.filter((step) => step.part === part.name) })).filter(({ steps }) => steps.length > 0);
+}
+
+/** A plan's excluded values grouped by why, so one reason is read once rather than forty times. */
+export function excludedByKind(plan: RecallPlan): { kind: RecallExcluded["kind"]; title: string; entries: RecallExcluded[] }[] {
+  const order: RecallExcluded["kind"][] = ["device_missing", "unreadable", "withheld", "no_writer", "unmapped", "incomplete", "not_chosen"];
+  return order
+    .map((kind) => ({ kind, title: EXCLUDED_TITLES[kind], entries: plan.excluded.filter((entry) => entry.kind === kind) }))
+    .filter(({ entries }) => entries.length > 0);
+}
+
+const EXCLUDED_TITLES: Record<RecallExcluded["kind"], string> = {
+  device_missing: "Devices that are not attached",
+  unreadable: "Values that could not be read, on one side or the other",
+  withheld: "Values held back until a session at the hardware",
+  no_writer: "Values the devices report and no command sets",
+  unmapped: "Values with no writer mapped — a gap, not a decision",
+  incomplete: "Values the snapshot does not hold completely enough to put back",
+  not_chosen: "Devices left out of this plan",
+};
+
+/** What a plan amounts to in one sentence. */
+export function describePlan(plan: RecallPlan): string {
+  const held = plan.steps.length - plan.ready;
+  const devices = plan.devices.filter((device) => !device.missing).length;
+  const parts: string[] = [];
+  parts.push(plan.steps.length === 0 ? "Nothing would be sent" : `${plan.steps.length} ${plan.steps.length === 1 ? "command" : "commands"} to ${devices} ${devices === 1 ? "device" : "devices"}`);
+  if (held > 0) parts.push(`${held} held back by a guard`);
+  if (plan.excluded.length > 0) parts.push(`${plan.excluded.length} ${plan.excluded.length === 1 ? "value is" : "values are"} not recalled`);
+  if (plan.workspace_changes > 0) parts.push(`${plan.workspace_changes} workspace ${plan.workspace_changes === 1 ? "difference" : "differences"}, which are layout only`);
+  return `${parts.join(" · ")}.`;
+}
+
+/** One step's command and arguments on a line: "set_volume id 0, volume 11 · 24 bytes". */
+export function describeStep(step: RecallStep): string {
+  const args = Object.entries(step.args)
+    .map(([name, value]) => `${name} ${formatArg(value)}`)
+    .join(", ");
+  return `${step.command}${args === "" ? "" : ` ${args}`} · ${step.bytes_len} bytes`;
+}
+
+/** A long array argument (a routing group's 64 bytes) is said as its length, not listed. */
+function formatArg(value: unknown): string {
+  if (Array.isArray(value)) return value.length <= 4 ? `[${value.join(", ")}]` : `${value.length} bytes`;
+  return formatValue(value);
+}
+
+/** Why a step is held back, in words rather than guard names. */
+export function describeBlocked(step: RecallStep): string {
+  return step.blocked_by
+    .map((guard) => {
+      if (guard === "raised_outputs") return "needs the raised-output tick";
+      if (guard.endsWith(":confirm")) return `${guardTitle(guard.slice(0, -":confirm".length))} needs its own confirmation`;
+      if (guard.startsWith("not buildable")) return guard;
+      return `${guardTitle(guard)} is switched off`;
+    })
+    .join("; ");
+}
+
+const GUARD_TITLES: Record<string, string> = {
+  phantom: "48V",
+  clock: "Clock",
+  dc_coupling: "DC coupling",
+  settings: "Device settings",
+  inputs: "Inputs",
+  mixer: "Mixer",
+  routing: "Routing",
+  outputs: "Outputs",
+  silence: "Silencing",
+  restore: "Restoring",
+};
+
+export function guardTitle(name: string): string {
+  return GUARD_TITLES[name] ?? name;
 }
 
 /** What a comparison amounts to in one sentence. */

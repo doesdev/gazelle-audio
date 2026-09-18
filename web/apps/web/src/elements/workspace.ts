@@ -11,7 +11,24 @@ import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
 import { portName, portWidth } from "../store/cables.ts";
 import { displayName, type DigitalPort, type Group } from "../store/store.ts";
-import { describeChange, describeDiff, describeSection, describeSnapshot, formatWhen, SNAPSHOT_VERSION, type DeviceDiff, type SectionDiff } from "../store/snapshots.ts";
+import {
+  describeBlocked,
+  describeChange,
+  describeDiff,
+  describePlan,
+  describeSection,
+  describeSnapshot,
+  describeStep,
+  excludedByKind,
+  formatWhen,
+  planByPart,
+  SNAPSHOT_VERSION,
+  type DeviceDiff,
+  type RecallPart,
+  type RecallPlan,
+  type RecallStep,
+  type SectionDiff,
+} from "../store/snapshots.ts";
 import { backupFileName, backupFileText, readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
@@ -80,6 +97,17 @@ export class GaWorkspace extends GaElement {
       .change-value { flex: 0 0 auto; color: var(--ga-text-secondary); font-variant-numeric: tabular-nums; }
       /* A reason is a sentence, not a value: it takes the next line and wraps rather than running off the page. */
       .change.warn .change-value { flex: 1 1 100%; color: var(--ga-notice-warning, var(--ga-text-primary)); overflow-wrap: anywhere; }
+      .plan-part { margin-top: 10px; }
+      .plan-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 0 0 2px; font-size: 11px; color: var(--ga-text-secondary); }
+      .plan-guard { color: var(--ga-notice-warning, var(--ga-text-primary)); }
+      .steps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+      .step { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11px; }
+      .step::before { counter-increment: step; content: counter(step) "."; flex: 0 0 2.2em; color: var(--ga-text-secondary); font-variant-numeric: tabular-nums; text-align: right; }
+      .step-label { flex: 1 1 200px; min-width: 0; }
+      .step-command { flex: 0 1 auto; color: var(--ga-text-secondary); font-family: var(--ga-font-mono, monospace); overflow-wrap: anywhere; }
+      .step-bytes { flex: 1 1 100%; margin-left: 2.7em; color: var(--ga-text-secondary); font-family: var(--ga-font-mono, monospace); font-size: 10px; overflow-wrap: anywhere; }
+      .step-note, .step-held { flex: 1 1 100%; margin-left: 2.7em; color: var(--ga-notice-warning, var(--ga-text-primary)); overflow-wrap: anywhere; }
+      .plan-nothing-sent { margin: 10px 0 0; padding: 6px 8px; border: 1px solid var(--ga-border-subtle); font-size: 11px; }
     `),
   ];
 
@@ -431,6 +459,7 @@ export class GaWorkspace extends GaElement {
     const take = h("button", { type: "button", "data-testid": "snapshot-take" }, "Take snapshot");
     const problem = h("p", { class: "problem", role: "alert", "data-testid": "snapshot-problem", hidden: true });
     const diff = h("div", { "data-testid": "snapshot-diff" });
+    const plan = h("div", { "data-testid": "snapshot-recall-plan" });
 
     void snapshots.loadOnce();
 
@@ -512,6 +541,18 @@ export class GaWorkspace extends GaElement {
         diff.replaceChildren();
         return;
       }
+      const busy = snapshots.busy.value;
+      const prepare = h(
+        "button",
+        {
+          type: "button",
+          "data-testid": "snapshot-recall-prepare",
+          title: "Read every device again and show, in order, the commands that putting this snapshot back would send. Nothing is sent",
+          disabled: busy !== undefined,
+          "on:click": () => void snapshots.prepareRecall(shown.snapshot.id),
+        },
+        busy === "planning" ? "Reading the devices…" : "Prepare recall",
+      );
       diff.replaceChildren(
         h(
           "div",
@@ -519,9 +560,17 @@ export class GaWorkspace extends GaElement {
           h("p", { "data-testid": "snapshot-diff-summary" }, `${shown.snapshot.name}, taken ${formatWhen(shown.snapshot.created)}, against the devices now: ${describeDiff(shown)}`),
           ...shown.devices.map((device) => this.#deviceDiff(device)),
           shown.workspace.length === 0 ? null : this.#sectionDiff("workspace-workspace", { section: "workspace", title: "Workspace", changes: shown.workspace }),
-          h("div", { class: "actions" }, h("button", { type: "button", "data-testid": "snapshot-diff-close", "on:click": () => snapshots.closeDiff() }, "Close")),
+          plan,
+          h("div", { class: "actions" }, prepare, h("button", { type: "button", "data-testid": "snapshot-diff-close", "on:click": () => snapshots.closeDiff() }, "Close")),
         ),
       );
+    });
+
+    // The recall preview. It is a preview and only a preview: there is no button here that applies
+    // one, because applying waits for a session at the hardware (spec §2.3 and §6, decision 0012).
+    this.watch(() => {
+      const shown = snapshots.plan.value;
+      plan.replaceChildren(...(shown === undefined ? [] : this.#recallPlan(shown)));
     });
 
     return h(
@@ -531,7 +580,84 @@ export class GaWorkspace extends GaElement {
       h("div", { class: "actions" }, name, take),
       problem,
       diff,
-      h("p", { class: "note" }, "A snapshot records the workspace and, for each attached device, its mixer, routing, input settings, outputs, clock and device settings, read fresh. Taking one and comparing it only read: nothing is sent to a device, and putting a snapshot back is not built yet."),
+      h("p", { class: "note" }, "A snapshot records the workspace and, for each attached device, its mixer, routing, input settings, outputs, clock and device settings, read fresh. Taking one, comparing it and preparing a recall only read: nothing is sent to a device. Putting a snapshot back is not built yet — it waits for a session at the hardware — so a recall can be previewed and not applied."),
+    );
+  }
+
+  /**
+   * What recall would send, grouped by the part it belongs to, in the order it would run, with the
+   * guards on each part and each step, what is left out and why, and — the point of the whole
+   * thing — that nothing was sent.
+   */
+  #recallPlan(plan: RecallPlan): HTMLElement[] {
+    const devices = plan.devices.map((device) => device.model || device.device_id).join(" and ");
+    return [
+      h("h3", { class: "diff-heading", "data-testid": "snapshot-recall-summary" }, `Recall preview — ${describePlan(plan)}`),
+      plan.current_state_read
+        ? null
+        : h("p", { class: "change warn", "data-testid": "snapshot-recall-unread" }, "The server is in dry run and answered no reads, so nothing is known to be right already: every value that can be recalled is listed."),
+      plan.phantom_on.length === 0
+        ? null
+        : h("p", { class: "change warn", "data-testid": "snapshot-recall-phantom" }, `48V would be switched ON for ${plan.phantom_on.join(", ")}. Turning it on can damage a ribbon microphone or gear wired unbalanced, so it is off until it is ticked.`),
+      ...plan.raised_outputs.map((raised) =>
+        h(
+          "p",
+          { class: "change warn", "data-testid": `snapshot-recall-raised-${raised.device_id}-${raised.output}` },
+          raised.raised_db === null
+            ? `${raised.output} is at an unknown level now, so how far putting it back to −${raised.snapshot} dB would move it is not known. It needs the same tick as a raise over ${plan.raise_threshold_db} dB.`
+            : `${raised.output} would be raised by ${raised.raised_db} dB (−${raised.now} dB now, −${raised.snapshot} dB in the snapshot), more than the ${plan.raise_threshold_db} dB this asks about.`,
+        ),
+      ),
+      h("p", { class: "note" }, `Read just now from ${devices === "" ? "no devices" : devices}, in the order recall would run: silence, clock, settings, inputs with 48V last, routing, mixer, output levels, then the mutes back and the hard mute off.`),
+      ...planByPart(plan).map(({ part, steps }) => this.#planPart(part, steps)),
+      ...excludedByKind(plan).map(({ kind, title, entries }) =>
+        h(
+          "div",
+          { class: "diff-section", "data-testid": `snapshot-recall-excluded-${kind}` },
+          h("p", { class: "diff-heading" }, `${title} — ${entries.length}`),
+          h(
+            "ul",
+            { class: "changes" },
+            entries.slice(0, 40).map((entry) => h("li", { class: "change warn" }, h("span", { class: "change-label" }, entry.label || entry.path), h("span", { class: "change-value" }, entry.command === undefined ? entry.reason : `${entry.command}: ${entry.reason}`))),
+          ),
+          entries.length > 40 ? h("p", { class: "diff-heading" }, `and ${entries.length - 40} more of the same`) : null,
+        ),
+      ),
+      h(
+        "p",
+        { class: "plan-nothing-sent", role: "status", "data-testid": "snapshot-recall-nothing-sent" },
+        "Nothing has been sent to any device. This is a preview: putting a snapshot back is not built yet, and waits for a session at the hardware.",
+      ),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  /** One part of a recall plan: its guard, and its steps in order. */
+  #planPart(part: RecallPart, steps: RecallStep[]): HTMLElement {
+    const guard = part.chosen ? (part.needs_confirming && !part.confirmed ? "on, and needs its own confirmation each time" : "on") : `off by default${part.needs_confirming ? ", and needs its own confirmation each time" : ""}`;
+    return h(
+      "div",
+      { class: "plan-part", "data-testid": `snapshot-recall-part-${part.name}` },
+      h(
+        "p",
+        { class: "plan-heading" },
+        h("span", {}, `${part.title} — ${steps.length} ${steps.length === 1 ? "command" : "commands"}`),
+        h("span", { class: part.chosen && part.confirmed ? "" : "plan-guard" }, guard),
+      ),
+      h(
+        "ol",
+        { class: "steps" },
+        steps.map((step) =>
+          h(
+            "li",
+            { class: "step" },
+            h("span", { class: "step-label" }, `${step.model || step.device_id} · ${step.label}`),
+            h("span", { class: "step-command" }, describeStep(step)),
+            h("span", { class: "step-bytes" }, step.bytes),
+            step.note === undefined ? null : h("span", { class: "step-note" }, step.note),
+            step.blocked_by.length === 0 ? null : h("span", { class: "step-held" }, `Held back: ${describeBlocked(step)}`),
+          ),
+        ),
+      ),
     );
   }
 

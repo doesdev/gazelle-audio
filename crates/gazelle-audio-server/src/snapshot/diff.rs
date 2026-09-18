@@ -309,6 +309,11 @@ fn split_indices(part: &str) -> (&str, Vec<usize>) {
     (name, indices)
 }
 
+/// `MIXER_IN0` as `MIXER IN 0`. Public because recall labels its routing steps the same way.
+pub fn group_title(id: &str) -> String {
+    group_name(id)
+}
+
 /// `MIXER_IN0` as `MIXER IN 0`.
 fn group_name(id: &str) -> String {
     let spaced = id.replace('_', " ");

@@ -52,7 +52,7 @@ fn harness(backend: Backend, dry_run: bool, snapshots: Arc<dyn SnapshotStore>) -
         devices: devices.clone(),
         store,
         snapshots,
-        force_dry_run: dry_run,
+        force_dry_run: dry_run, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         show_window: None,

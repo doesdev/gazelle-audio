@@ -56,6 +56,10 @@ pub struct AppState {
     pub snapshots: Arc<dyn SnapshotStore>,
     /// When set, every command is non-mutating regardless of per-request options.
     pub force_dry_run: bool,
+    /// Whether this server may apply a snapshot to a device at all (`--enable-recall`). Off by
+    /// default, and off is not the whole guard: the request must ask as well, and applying is not
+    /// built (`http::recall`).
+    pub enable_recall: bool,
     pub backend: String,
     /// Where user theme JSON files for the web UI live; `None` lists no user themes.
     pub themes_dir: Option<std::path::PathBuf>,
