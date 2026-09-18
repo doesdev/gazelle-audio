@@ -40,7 +40,7 @@ pub mod stage;
 pub mod verify;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use semver::Version;
@@ -127,6 +127,9 @@ pub struct Updater {
     public_key: Option<String>,
     agent: ureq::Agent,
     inner: Mutex<Inner>,
+    /// Held for the length of a download, so two callers cannot fetch the same release twice
+    /// into the same temporary file.
+    downloading: Mutex<()>,
 }
 
 impl Updater {
@@ -156,6 +159,7 @@ impl Updater {
             public_key,
             agent,
             inner: Mutex::new(Inner { state: State::Unknown, found: None, last_check: None }),
+            downloading: Mutex::new(()),
         }
     }
 
@@ -239,6 +243,7 @@ impl Updater {
     /// Fetch the release found by the last check, verify it, and put it in place for the next
     /// start. Anything that fails deletes what was downloaded and says why.
     pub fn download(&self) -> State {
+        let _one_at_a_time = self.downloading.lock().unwrap_or_else(|e| e.into_inner());
         let Some(found) = self.inner.lock().unwrap().found.clone() else {
             return self.set_state(State::Failed { message: "nothing to download: no newer release has been found".into() });
         };
@@ -416,6 +421,49 @@ pub fn siblings(exe: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Start the binary that is now in place, with the arguments this process was given, and let
+/// this one exit. Called **after** the server has stopped and given up its port and its USB
+/// handles — never while it is running.
+pub fn relaunch() {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return tracing::error!("cannot restart into the update: {e}"),
+    };
+    match relaunch_command(&exe, std::env::args_os().skip(1)).spawn() {
+        Ok(child) => tracing::info!("restarted into {} as process {}", exe.display(), child.id()),
+        Err(e) => tracing::error!("starting {} again: {e}", exe.display()),
+    }
+}
+
+/// How a relaunch is spelled, so the arguments can be checked without starting anything. The
+/// working directory is the install folder: this process may have been started from anywhere,
+/// including a folder that is about to go away.
+pub fn relaunch_command(exe: &Path, args: impl IntoIterator<Item = std::ffi::OsString>) -> std::process::Command {
+    let mut command = std::process::Command::new(exe);
+    command.args(args);
+    // A bare name has a parent of "", which is not a directory anyone can be in.
+    if let Some(dir) = exe.parent().filter(|d| !d.as_os_str().is_empty()) {
+        command.current_dir(dir);
+    }
+    command
+}
+
+/// Check on start and then every `interval_hours`, on a thread of its own because the updater
+/// blocks. Does nothing when the settings name no interval, and never downloads by itself
+/// unless `auto_download` says so.
+pub fn spawn_background_checks(updater: Arc<Updater>) {
+    let Some(interval) = updater.settings().interval() else {
+        std::thread::spawn(move || {
+            updater.check(true);
+        });
+        return;
+    };
+    std::thread::spawn(move || loop {
+        updater.check(true);
+        std::thread::sleep(interval);
+    });
+}
+
 /// Tidy up after a previous update: delete the binaries it displaced. Called once at start, when
 /// nothing holds the old images any more. Never fatal — the files are inert, and a failure (a
 /// virus scanner still reading one, say) is retried at the next start.
@@ -443,4 +491,60 @@ pub fn clean_up_after(exe: &Path) -> usize {
         }
     }
     removed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn a_relaunch_repeats_this_processs_arguments_from_the_install_folder() {
+        let exe = Path::new(r"C:pps\gazelle\gazelle-audio-server.exe");
+        let args = ["--backend", "loopback", "--bind", "127.0.0.1:8420"].map(OsString::from);
+        let command = relaunch_command(exe, args.clone());
+
+        assert_eq!(command.get_program(), exe.as_os_str());
+        assert_eq!(command.get_args().collect::<Vec<_>>(), args.iter().collect::<Vec<_>>());
+        assert_eq!(command.get_current_dir(), Some(Path::new(r"C:pps\gazelle")));
+    }
+
+    #[test]
+    fn a_relaunch_with_no_arguments_passes_none() {
+        let command = relaunch_command(Path::new("gazelle-audio-server"), Vec::<OsString>::new());
+        assert_eq!(command.get_args().count(), 0);
+        // A bare name has no parent worth setting: "" is not a directory.
+        assert_eq!(command.get_current_dir(), None);
+    }
+
+    #[test]
+    fn the_download_is_written_beside_the_file_it_replaces() {
+        let target = Path::new(r"C:pps\gazelle\gazelle-audio-server.exe");
+        assert_eq!(temporary_path(target), PathBuf::from(r"C:pps\gazelle\gazelle-audio-server.exe.download"));
+        assert_eq!(temporary_path(target).parent(), target.parent(), "a rename, never a copy across volumes");
+    }
+
+    #[test]
+    fn both_binaries_are_named_beside_the_running_one() {
+        let exe = PathBuf::from(r"C:pps\gazelle\gazelle-audio-serverw.exe");
+        assert_eq!(
+            siblings(&exe),
+            [PathBuf::from(r"C:pps\gazelle\gazelle-audio-server.exe"), PathBuf::from(r"C:pps\gazelle\gazelle-audio-serverw.exe")]
+        );
+        // Without an extension — everywhere but Windows — the names stay bare.
+        assert_eq!(
+            siblings(Path::new("/usr/local/bin/gazelle-audio-server")),
+            [PathBuf::from("/usr/local/bin/gazelle-audio-server"), PathBuf::from("/usr/local/bin/gazelle-audio-serverw")]
+        );
+        assert_eq!(siblings(Path::new("gazelle-audio-server")), [PathBuf::from("gazelle-audio-server"), PathBuf::from("gazelle-audio-serverw")]);
+    }
+
+    #[test]
+    fn every_state_says_something_a_person_can_read() {
+        assert_eq!(State::Unknown.line(), "Updates: not checked yet");
+        assert_eq!(State::UpToDate.line(), "Updates: this is the newest version");
+        assert_eq!(State::Available { version: "0.2.0".into(), page: String::new() }.line(), "Update available: 0.2.0");
+        assert_eq!(State::Staged { version: "0.2.0".into() }.line(), "Update 0.2.0 is ready — restart to use it");
+        assert_eq!(State::Failed { message: "no route to host".into() }.line(), "Update check failed: no route to host");
+    }
 }

@@ -27,6 +27,10 @@ pub const ANTELOPE_SERVICE: &str = "Antelope-Manager-Service";
 
 /// Everything the tray needs from the server.
 pub struct Context {
+    /// The updater, when there is one. `None` leaves the menu without an update section.
+    pub update: Option<std::sync::Arc<crate::update::Updater>>,
+    /// Stop the server and start the staged binary, once the server has stopped.
+    pub restart: Option<Box<dyn Fn()>>,
     /// The address the listener really bound.
     pub address: SocketAddr,
     pub backend: String,
@@ -95,6 +99,10 @@ pub enum Command {
     Quit,
     OpenLogFolder,
     Rescan,
+    CheckUpdates,
+    DownloadUpdate,
+    /// Stop the server and start the staged binary. The only place the app restarts itself.
+    RestartToUpdate,
 }
 
 impl Command {
@@ -106,13 +114,28 @@ impl Command {
             Command::Quit => 3,
             Command::OpenLogFolder => 4,
             Command::Rescan => 5,
+            Command::CheckUpdates => 6,
+            Command::DownloadUpdate => 7,
+            Command::RestartToUpdate => 8,
         }
     }
 
     pub fn from_id(id: usize) -> Option<Command> {
-        [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan].into_iter().find(|c| c.id() == id)
+        ALL.into_iter().find(|c| c.id() == id)
     }
 }
+
+/// Every menu command, for the id round trip and for the Windows module's dispatch.
+pub const ALL: [Command; 8] = [
+    Command::Open,
+    Command::StartOnBoot,
+    Command::Quit,
+    Command::OpenLogFolder,
+    Command::Rescan,
+    Command::CheckUpdates,
+    Command::DownloadUpdate,
+    Command::RestartToUpdate,
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
@@ -139,6 +162,20 @@ pub struct Status {
     pub log_file: bool,
     /// Whether devices can come and go, so a rescan means something (the USB backend).
     pub can_rescan: bool,
+    /// What the updater has to say, or `None` when there is no updater — a non-loopback bind,
+    /// where update control is deliberately not offered.
+    pub update: Option<UpdateMenu>,
+}
+
+/// The updater as the menu shows it, read when the menu opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateMenu {
+    /// The one line of state, from `update::State::line`.
+    pub line: String,
+    /// A version found but not yet fetched, so there is something to download.
+    pub available: Option<String>,
+    /// A version verified and in place, so there is something to restart into.
+    pub staged: Option<String>,
 }
 
 /// Where to point a browser. A wildcard bind listens on every interface, but a browser cannot
@@ -191,6 +228,36 @@ pub fn menu(status: &Status) -> Vec<Item> {
             default: false,
         });
     }
+    if let Some(update) = &status.update {
+        items.push(Item::Separator);
+        items.push(Item::Info(update.line.clone()));
+        items.push(Item::Action {
+            command: Command::CheckUpdates,
+            label: "Check for updates".into(),
+            // Once something is staged there is nothing left to find until the restart.
+            enabled: update.staged.is_none(),
+            checked: None,
+            default: false,
+        });
+        if let Some(version) = &update.available {
+            items.push(Item::Action {
+                command: Command::DownloadUpdate,
+                label: format!("Download update {version}"),
+                enabled: true,
+                checked: None,
+                default: false,
+            });
+        }
+        if let Some(version) = &update.staged {
+            items.push(Item::Action {
+                command: Command::RestartToUpdate,
+                label: format!("Restart to update to {version}"),
+                enabled: true,
+                checked: None,
+                default: false,
+            });
+        }
+    }
     items.extend([
         Item::Separator,
         Item::Action {
@@ -229,7 +296,12 @@ mod tests {
             start_on_boot: false,
             log_file: true,
             can_rescan: false,
+            update: None,
         }
+    }
+
+    fn with_update(update: UpdateMenu) -> Status {
+        Status { update: Some(update), ..status() }
     }
 
     fn infos(items: &[Item]) -> Vec<&str> {
@@ -344,8 +416,78 @@ mod tests {
     }
 
     #[test]
+    fn without_an_updater_the_menu_says_nothing_about_updates() {
+        let items = menu(&status());
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command, .. }
+            if matches!(command, Command::CheckUpdates | Command::DownloadUpdate | Command::RestartToUpdate))));
+        assert!(!infos(&items).iter().any(|l| l.contains("date") || l.contains("Update")));
+    }
+
+    #[test]
+    fn a_checked_updater_offers_a_check_and_says_where_it_got_to() {
+        let items = menu(&with_update(UpdateMenu {
+            line: "Updates: this is the newest version".into(),
+            available: None,
+            staged: None,
+        }));
+        assert_eq!(infos(&items).last(), Some(&"Updates: this is the newest version"));
+        assert_eq!(
+            action(&items, Command::CheckUpdates),
+            &Item::Action { command: Command::CheckUpdates, label: "Check for updates".into(), enabled: true, checked: None, default: false }
+        );
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::DownloadUpdate, .. })));
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::RestartToUpdate, .. })));
+    }
+
+    /// Nothing is fetched unasked, so a found update is offered as a thing to download.
+    #[test]
+    fn a_found_update_is_offered_as_a_download() {
+        let items = menu(&with_update(UpdateMenu {
+            line: "Update available: 0.2.0".into(),
+            available: Some("0.2.0".into()),
+            staged: None,
+        }));
+        assert_eq!(
+            action(&items, Command::DownloadUpdate),
+            &Item::Action { command: Command::DownloadUpdate, label: "Download update 0.2.0".into(), enabled: true, checked: None, default: false }
+        );
+        assert!(matches!(action(&items, Command::CheckUpdates), Item::Action { enabled: true, .. }));
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::RestartToUpdate, .. })));
+    }
+
+    /// A staged update is the only thing the app will restart itself for, and only when asked.
+    #[test]
+    fn a_staged_update_offers_a_restart_and_stops_offering_a_check() {
+        let items = menu(&with_update(UpdateMenu {
+            line: "Update 0.2.0 is ready — restart to use it".into(),
+            available: None,
+            staged: Some("0.2.0".into()),
+        }));
+        assert_eq!(
+            action(&items, Command::RestartToUpdate),
+            &Item::Action { command: Command::RestartToUpdate, label: "Restart to update to 0.2.0".into(), enabled: true, checked: None, default: false }
+        );
+        assert!(matches!(action(&items, Command::CheckUpdates), Item::Action { enabled: false, .. }));
+        assert_eq!(infos(&items).last(), Some(&"Update 0.2.0 is ready — restart to use it"));
+    }
+
+    #[test]
+    fn the_update_section_sits_between_the_devices_and_start_on_boot() {
+        let items = menu(&with_update(UpdateMenu { line: "Updates: not checked yet".into(), available: Some("0.2.0".into()), staged: None }));
+        let commands: Vec<Command> =
+            items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
+        assert_eq!(
+            commands,
+            [Command::Open, Command::CheckUpdates, Command::DownloadUpdate, Command::StartOnBoot, Command::OpenLogFolder, Command::Quit]
+        );
+        assert_eq!(items.last(), Some(action(&items, Command::Quit)));
+        // Opening the UI stays the bold default; nothing about updates takes a click of the icon.
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { default: true, command, .. } if *command != Command::Open)));
+    }
+
+    #[test]
     fn command_ids_round_trip_and_zero_is_no_command() {
-        for c in [Command::Open, Command::StartOnBoot, Command::Quit, Command::OpenLogFolder, Command::Rescan] {
+        for c in ALL {
             assert_eq!(Command::from_id(c.id()), Some(c));
         }
         assert_eq!(Command::from_id(0), None);

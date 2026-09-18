@@ -35,7 +35,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::boot::{boot_program, RunKey, StartOnBoot};
-use super::{device_label, menu, ui_url, Command, Context, Item, Status, ANTELOPE_SERVICE};
+use super::{device_label, menu, ui_url, Command, Context, Item, Status, UpdateMenu, ANTELOPE_SERVICE};
 
 /// The message the icon sends to the window.
 const WM_TRAY: u32 = WM_APP + 1;
@@ -241,6 +241,11 @@ fn status(state: &State) -> Status {
         start_on_boot: state.boot.is_enabled(),
         log_file: c.log_dir.is_some(),
         can_rescan: c.rescan.is_some(),
+        update: c.update.as_ref().map(|updater| UpdateMenu {
+            line: updater.state().line(),
+            available: updater.available(),
+            staged: updater.staged(),
+        }),
     }
 }
 
@@ -305,12 +310,38 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
                 rescan();
             }
         }
+        // Both run on a thread of their own: the updater blocks, and this one is pumping the
+        // menu's messages. The result shows up the next time the menu opens.
+        Some(Command::CheckUpdates) => spawn_update(state, |updater| {
+            tracing::info!("checking for updates, from the tray");
+            updater.check(true);
+        }),
+        Some(Command::DownloadUpdate) => spawn_update(state, |updater| {
+            tracing::info!("downloading the update, from the tray");
+            updater.download();
+        }),
+        // The staged binary is already in place; the server has to stop before it can run.
+        Some(Command::RestartToUpdate) => {
+            if let Some(restart) = &state.context.restart {
+                tracing::info!("restarting into the staged update, from the tray");
+                restart();
+                (state.context.quit)();
+                unsafe { DestroyWindow(hwnd) };
+            }
+        }
         Some(Command::Quit) => {
             tracing::info!("quit from the tray");
             (state.context.quit)();
             unsafe { DestroyWindow(hwnd) };
         }
         None => {}
+    }
+}
+
+/// Run an updater call away from the message loop, so the menu does not freeze on a request.
+fn spawn_update(state: &Rc<State>, work: impl FnOnce(&crate::update::Updater) + Send + 'static) {
+    if let Some(updater) = state.context.update.clone() {
+        std::thread::spawn(move || work(&updater));
     }
 }
 

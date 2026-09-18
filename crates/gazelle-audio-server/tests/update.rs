@@ -126,30 +126,35 @@ async fn download(State(source): State<Source>, UrlPath((tag, name)): UrlPath<(S
     }
 }
 
-/// A running source. Dropping it stops the server.
+/// A running source, on a runtime of its own thread so a `#[tokio::test]` can drive a blocking
+/// client against it. Dropping it stops the server.
 struct Fake {
     base: String,
     seen: Arc<Mutex<Vec<String>>>,
-    runtime: Option<tokio::runtime::Runtime>,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Fake {
     fn start(releases: Vec<ReleaseSpec>) -> Fake {
-        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-        let listener = runtime.block_on(tokio::net::TcpListener::bind::<SocketAddr>("127.0.0.1:0".parse().unwrap())).unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let source = Source { releases, base: base.clone(), seen: seen.clone() };
-        let app = axum::Router::new()
-            .route("/repos/{owner}/{repo}/releases", get(list))
-            .route("/dl/{tag}/{name}", get(download))
-            .with_state(source);
+        let served = seen.clone();
+        let (address, bound) = std::sync::mpsc::channel();
         let (stop, stopped) = tokio::sync::oneshot::channel();
-        runtime.spawn(async move {
-            let _ = axum::serve(listener, app).with_graceful_shutdown(async { let _ = stopped.await; }).await;
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::TcpListener::bind::<SocketAddr>("127.0.0.1:0".parse().unwrap()).await.unwrap();
+                let base = format!("http://{}", listener.local_addr().unwrap());
+                address.send(base.clone()).unwrap();
+                let app = axum::Router::new()
+                    .route("/repos/{owner}/{repo}/releases", get(list))
+                    .route("/dl/{tag}/{name}", get(download))
+                    .with_state(Source { releases, base, seen: served });
+                let _ = axum::serve(listener, app).with_graceful_shutdown(async { let _ = stopped.await; }).await;
+            });
         });
-        Fake { base, seen, runtime: Some(runtime), stop: Some(stop) }
+        Fake { base: bound.recv().unwrap(), seen, stop: Some(stop), thread: Some(thread) }
     }
 
     fn requests(&self) -> Vec<String> {
@@ -162,8 +167,8 @@ impl Drop for Fake {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }
@@ -509,4 +514,100 @@ fn a_release_missing_the_windowless_build_still_updates_the_running_one() {
         "running gazelle-audio-serverw",
         "a binary the release does not carry is left alone"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The HTTP surface the web UI sees
+// ---------------------------------------------------------------------------------------------
+
+/// The routes as `main.rs` merges them, over a server with no devices.
+fn api(updater: Updater) -> axum::Router {
+    use gazelle_audio_server::registry_set::RegistrySet;
+    use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
+    let state = gazelle_audio_server::AppState {
+        devices: gazelle_audio_server::device::manager::DeviceManager::new(RegistrySet::builtin().unwrap()),
+        store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
+        force_dry_run: false,
+        backend: "loopback".into(),
+        themes_dir: None,
+    };
+    gazelle_audio_server::http::router(state).merge(gazelle_audio_server::http::update::routes(Arc::new(updater)))
+}
+
+async fn call(app: &axum::Router, method: &str, uri: &str) -> (axum::http::StatusCode, serde_json::Value) {
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+    let request = axum::http::Request::builder().method(method).uri(uri).body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+}
+
+#[tokio::test]
+async fn the_endpoint_reports_the_running_version_and_checks_when_asked() {
+    let install = Install::new("http");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    let (status, body) = call(&app, "GET", "/api/v1/update").await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["version"], "0.1.0");
+    assert_eq!(body["channel"], "stable");
+    assert_eq!(body["can_verify"], true);
+    assert_eq!(body["state"]["state"], "unknown");
+    assert_eq!(fake.requests(), Vec::<String>::new(), "reading the status asks nothing of the source");
+
+    let (status, body) = call(&app, "POST", "/api/v1/update/check").await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["state"]["state"], "available");
+    assert_eq!(body["version"], "0.1.0", "the version reported is the one running");
+    assert_eq!(fake.requests(), ["releases"]);
+}
+
+#[tokio::test]
+async fn the_endpoint_downloads_only_when_asked_and_says_what_came_of_it() {
+    let install = Install::new("http-download");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    call(&app, "POST", "/api/v1/update/check").await;
+    let (status, body) = call(&app, "POST", "/api/v1/update/download").await;
+
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["state"]["state"], "staged");
+    assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "NEW gazelle-audio-server");
+    assert_eq!(call(&app, "GET", "/api/v1/update").await.1["state"]["state"], "staged");
+}
+
+#[tokio::test]
+async fn a_failed_download_is_reported_through_the_endpoint_as_it_is_to_the_tray() {
+    let install = Install::new("http-failure");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &SigningKey::from_bytes(&[3u8; 32]))]);
+    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    call(&app, "POST", "/api/v1/update/check").await;
+    let (_, body) = call(&app, "POST", "/api/v1/update/download").await;
+
+    assert_eq!(body["state"]["state"], "failed");
+    assert!(body["state"]["message"].as_str().unwrap().contains("release signing key"), "{body}");
+}
+
+/// `main.rs` merges these routes only on a loopback bind; without them the paths are simply not
+/// served, and health still names the version.
+#[tokio::test]
+async fn without_the_updater_the_routes_are_not_there_but_health_still_names_the_version() {
+    use gazelle_audio_server::registry_set::RegistrySet;
+    use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
+    let app = gazelle_audio_server::http::router(gazelle_audio_server::AppState {
+        devices: gazelle_audio_server::device::manager::DeviceManager::new(RegistrySet::builtin().unwrap()),
+        store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
+        force_dry_run: false,
+        backend: "loopback".into(),
+        themes_dir: None,
+    });
+
+    assert_eq!(call(&app, "GET", "/api/v1/update").await.0, axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(call(&app, "POST", "/api/v1/update/check").await.0, axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(call(&app, "GET", "/api/v1/health").await.1["version"], gazelle_audio_server::VERSION);
 }

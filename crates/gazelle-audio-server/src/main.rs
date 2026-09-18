@@ -15,6 +15,7 @@ use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::tray::{self, boot::BootArgs};
+use gazelle_audio_server::update::{self, settings::Settings, Updater};
 use gazelle_audio_server::{http, logging, AppState};
 use tokio::sync::Notify;
 
@@ -72,6 +73,11 @@ struct Args {
     #[arg(long)]
     no_tray: bool,
 
+    /// Never look for, or offer, an update. The update settings in the config directory
+    /// (`update.json`) decide the rest: the channel, and whether checks happen unasked.
+    #[arg(long)]
+    no_update: bool,
+
     /// Also log to a size-capped file in DIR. Tray runs do by default, in the platform's state
     /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
     #[arg(long, value_name = "DIR")]
@@ -94,9 +100,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    // Before anything else: a binary an earlier update displaced is nothing but clutter now.
+    update::clean_up_after_previous_update();
+
     let runtime = tokio::runtime::Runtime::new()?;
-    let (listener, app, devices, hotplug) = runtime.block_on(prepare(args))?;
+    let updater = updater(args);
+    let (listener, app, devices, hotplug) = runtime.block_on(prepare(args, updater.clone()))?;
     let address = listener.local_addr()?;
+    // Set when the tray asks to restart into a staged update; acted on once the server is down.
+    let restart = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Quit in the tray and Ctrl-C both end the server the same way.
     let quit = Arc::new(Notify::new());
@@ -107,6 +119,9 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         None
     } else {
         let mut context = tray_context(args, address, &devices, &quit, log_dir);
+        context.update = updater.clone();
+        let asked = restart.clone();
+        context.restart = Some(Box::new(move || asked.store(true, std::sync::atomic::Ordering::SeqCst)));
         context.rescan = hotplug.as_ref().map(|hotplug| {
             let rescan = hotplug.rescan();
             Box::new(move || rescan.now()) as Box<dyn Fn()>
@@ -123,6 +138,10 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         }
     };
 
+    if let Some(updater) = updater {
+        update::spawn_background_checks(updater);
+    }
+
     let closer = tray.as_ref().map(tray::Tray::closer);
     let server = runtime.spawn(async move {
         let result = serve(listener, app, devices, hotplug, quit).await;
@@ -136,13 +155,45 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         tray.run();
     }
     runtime.block_on(server)??;
+    if restart.load(std::sync::atomic::Ordering::SeqCst) {
+        update::relaunch();
+    }
     Ok(())
+}
+
+/// The updater, when this server should have one.
+///
+/// Off with `--no-update` or when the settings say not to check, and **only on a loopback
+/// bind**: an update check and a download belong to the machine running the server, not to
+/// whoever can reach it over the network, so a server bound anywhere else offers neither the
+/// tray items nor the HTTP routes.
+fn updater(args: &Args) -> Option<Arc<Updater>> {
+    if args.no_update || !args.bind.ip().is_loopback() {
+        return None;
+    }
+    let path = update::settings::default_settings_path(|k| std::env::var(k).ok());
+    let (settings, warning) = Settings::load(&path);
+    if let Some(warning) = warning {
+        tracing::warn!("{warning}");
+    }
+    if !settings.check {
+        tracing::info!("update checks are off in {}", path.display());
+        return None;
+    }
+    match Updater::for_this_build(settings) {
+        Ok(updater) => Some(Arc::new(updater)),
+        Err(e) => {
+            tracing::warn!("no update checks: {e}");
+            None
+        }
+    }
 }
 
 /// Everything up to a bound listener: devices attached, workspace store chosen, routes built. For
 /// the USB backend, also the scanner that keeps attaching and detaching devices from then on.
 async fn prepare(
     args: &Args,
+    updater: Option<Arc<Updater>>,
 ) -> Result<(tokio::net::TcpListener, axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -189,6 +240,10 @@ async fn prepare(
     };
 
     let app = http::router(state);
+    let app = match updater {
+        Some(updater) => app.merge(http::update::routes(updater)),
+        None => app,
+    };
     #[cfg(feature = "web-ui")]
     let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
@@ -271,6 +326,8 @@ fn tray_context(
         log_dir,
         quit: Box::new(move || quit.notify_one()),
         rescan: None,
+        update: None,
+        restart: None,
     }
 }
 

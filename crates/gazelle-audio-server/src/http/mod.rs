@@ -4,6 +4,7 @@ pub mod commands;
 pub mod devices;
 pub mod health;
 pub mod themes;
+pub mod update;
 pub mod workspace;
 
 use axum::routing::{get, post};
