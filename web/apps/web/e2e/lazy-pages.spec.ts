@@ -106,6 +106,26 @@ test("the dock waits for the surface strip the same way, and the rest of the doc
   await expect(page.getByTestId("dock-loading")).toHaveCount(0);
 });
 
+test("a dock that has moved on before the strip arrives keeps what it is showing", async ({ page }) => {
+  await putWorkspace(server, {
+    mixers: { "loopback-0": { mixes: [{ name: "Monitors" }], groups: [], channels: [{ id: "vox", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } },
+    surfaces: [{ id: "s", name: "Cue rig", mixes: {}, strips: [{ id: "a", kind: "channel", device_id: "loopback-0", channel: "vox" }] }],
+  });
+  const strip = await hold(page, "surface-strip");
+
+  await page.goto(`${server.url}/#/routing/loopback-0`);
+  await page.getByTestId("dock-source-select").selectOption("s");
+  await expect(page.getByTestId("dock-loading")).toBeVisible();
+  // Back to the device in view, whose own strips the dock builds at once.
+  await page.getByTestId("dock-source-select").selectOption("");
+  await expect(page.locator("ga-mixer-dock ga-strip").first()).toBeVisible();
+
+  strip.arrive();
+  await page.waitForTimeout(500);
+  await expect(page.locator("ga-mixer-dock ga-strip").first()).toBeVisible();
+  await expect(page.locator("ga-mixer-dock ga-surface-strip")).toHaveCount(0);
+});
+
 // The surface page and the dock both build surface strips, and the page's chunk defines the strip
 // as well as the page: with both waiting on the same file, whichever is served first defines it and
 // the other must find it already there rather than defining it twice, which throws.

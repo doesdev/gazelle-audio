@@ -45,25 +45,23 @@ export function isReady(tag: string): boolean {
   return !isLazy(tag) || customElements.get(tag) !== undefined;
 }
 
-const loading = new Map<string, Promise<void>>();
-
 /**
- * Fetches `tag`'s chunk and defines what it holds. Callers that ask while a fetch is in flight share
- * it, however many pages or docks are waiting, and one that has arrived is never fetched twice.
+ * Fetches `tag`'s chunk and defines what it holds.
  *
- * A fetch that failed stays failed for this document: a browser remembers a module fetch that did
- * not work and refuses the same file again without going near the network, so there is nothing to
- * gain by forgetting it here. The way back is a reload, which is what the message the shell leaves
- * offers.
+ * Nothing here remembers a fetch, because the browser's module map already does: a file two callers
+ * ask for at once is fetched once and both are given it, and one that has arrived is handed over
+ * without going near the network. A cache of our own was written and then taken out — the mutation
+ * that dropped it killed nothing. What is left to do is define what came back, and only the parts
+ * of it nobody has defined yet: the surface page's chunk carries the surface strip, which the mixer
+ * dock may have asked for in the same breath, and defining a tag twice throws.
+ *
+ * A fetch that failed stays failed for this document, by the same module map, so asking again would
+ * fail at once however well the network is by then. The way back is a reload, which is what the
+ * message the shell leaves in the page's place offers.
  */
 export function loadElement(tag: string): Promise<void> {
   if (isReady(tag)) return Promise.resolve();
-  let started = loading.get(tag);
-  if (started === undefined) {
-    started = (loaders[tag] as () => Promise<Definitions>)().then((definitions) => {
-      for (const [name, element] of definitions) if (customElements.get(name) === undefined) customElements.define(name, element);
-    });
-    loading.set(tag, started);
-  }
-  return started;
+  return (loaders[tag] as () => Promise<Definitions>)().then((definitions) => {
+    for (const [name, element] of definitions) if (customElements.get(name) === undefined) customElements.define(name, element);
+  });
 }
