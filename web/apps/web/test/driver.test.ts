@@ -137,6 +137,8 @@ test("a write's result reads plainly, and a mismatch or failure is not dressed u
   assert.equal(writeText({ state: "done", report: report("unchanged", "The driver already has these settings, so nothing was sent.") }).problem, false);
   assert.deepEqual(writeText({ state: "sending", change: { buffer_size: 256 } }), { text: "Sending to the driver...", problem: false });
   assert.deepEqual(writeText({ state: "refused", code: "not_offered", message: "No.", change: { buffer_size: 3 } }), { text: "Not changed. No.", problem: true });
+  // In use: the line above already says why, and Change anyway is beside it; the server's API wording stays out.
+  assert.deepEqual(writeText({ state: "refused", code: "asio_in_use", message: "ask again with force", change: { buffer_size: 256 } }), { text: "Not changed.", problem: true });
 });
 
 test("the store sends a change, shows the driver's read-back, and keeps a refusal with the change it refused", async () => {

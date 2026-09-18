@@ -205,7 +205,7 @@ test("a program using ASIO is named, a change is refused, and Change anyway send
   await value(page, "buffer-menu").selectOption("256");
   await value(page, "buffer-confirm").click();
   await expect.poll(() => driver.puts).toEqual([{ buffer_size: 256 }]);
-  await expect(value(page, "result")).toContainText("Not changed. The driver's ASIO interface is in use");
+  await expect(value(page, "result")).toHaveText("Not changed.");
   await expect(value(page, "result")).toHaveClass(/warning/);
   await expect(value(page, "buffer-menu"), "the menu shows what the driver still has").toHaveValue("512");
   await expect(value(page, "input_latency")).toHaveText("571 samples (12.95 ms)");

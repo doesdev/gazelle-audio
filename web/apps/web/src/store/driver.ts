@@ -51,7 +51,10 @@ const OUTCOME_LEAD: Record<DriverWriteReport["outcome"], [lead: string, problem:
  */
 export function writeText(write: DriverWriteState): { text: string; problem: boolean } {
   if (write.state === "sending") return { text: "Sending to the driver...", problem: false };
-  if (write.state === "refused") return { text: `Not changed. ${write.message}`, problem: true };
+  if (write.state === "refused") {
+    // In use: the line above says why and Change anyway is beside it, so the server's wording stays out.
+    return { text: write.code === "asio_in_use" ? "Not changed." : `Not changed. ${write.message}`, problem: true };
+  }
   const [lead, problem] = OUTCOME_LEAD[write.report.outcome];
   const back = write.report.read_back;
   const latencies =
