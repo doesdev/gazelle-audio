@@ -56,6 +56,8 @@ wry = { version = "0.56", optional = true }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    # The audio driver's API DLL is told apart by its version resource (`driver/windows.rs`).
+    "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_Services",

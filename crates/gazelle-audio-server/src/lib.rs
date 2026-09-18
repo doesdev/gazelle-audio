@@ -26,6 +26,7 @@ mod build_resource;
 
 pub mod config;
 pub mod device;
+pub mod driver;
 pub mod error;
 pub mod handover;
 pub mod http;
