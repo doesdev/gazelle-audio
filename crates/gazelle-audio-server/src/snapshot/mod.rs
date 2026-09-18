@@ -13,5 +13,7 @@
 pub mod capture;
 pub mod diff;
 pub mod model;
+pub mod plan;
 pub mod store;
+pub mod writers;
 pub mod time;

@@ -23,7 +23,7 @@ fn app() -> axum::Router {
         devices,
         snapshots: Arc::new(MemorySnapshotStore::default()),
         store,
-        force_dry_run: false,
+        force_dry_run: false, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         show_window: None,

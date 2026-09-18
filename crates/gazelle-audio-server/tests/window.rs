@@ -21,7 +21,7 @@ async fn serve(show_window: Option<Arc<dyn Fn() + Send + Sync>>) -> SocketAddr {
     let app = http::router(AppState {
         devices,
         store,
-        force_dry_run: false,
+        force_dry_run: false, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         snapshots: std::sync::Arc::new(gazelle_audio_server::snapshot::store::MemorySnapshotStore::default()),

@@ -145,7 +145,7 @@ fn app(force_dry_run: bool) -> axum::Router {
     let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
     devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
     let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
-    http::router(AppState { devices, store, snapshots: Arc::new(MemorySnapshotStore::default()), force_dry_run, backend: "loopback".into(), themes_dir: None, show_window: None })
+    http::router(AppState { devices, store, snapshots: Arc::new(MemorySnapshotStore::default()), force_dry_run, enable_recall: false, backend: "loopback".into(), themes_dir: None, show_window: None })
 }
 
 async fn post(app: &axum::Router, uri: &str, body: Value) -> Value {

@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod devices;
 pub mod health;
+pub mod recall;
 pub mod snapshots;
 pub mod themes;
 pub mod update;
@@ -40,6 +41,10 @@ pub fn router(state: AppState) -> Router {
             get(snapshots::get_snapshot).patch(snapshots::rename_snapshot).delete(snapshots::delete_snapshot),
         )
         .route("/api/v1/snapshots/{id}/compare", get(snapshots::compare_snapshot))
+        // Recall: a plan is a description and sends nothing; the apply route is the seam, and it
+        // refuses unless --enable-recall and the request body both say otherwise.
+        .route("/api/v1/snapshots/{id}/recall/plan", post(recall::plan_recall))
+        .route("/api/v1/snapshots/{id}/recall", post(recall::apply_recall))
         .route("/api/v1/themes", get(themes::list_themes))
         .route("/api/v1/window/show", post(window::show))
         .route("/api/v1/ws", get(crate::ws::ws_handler))

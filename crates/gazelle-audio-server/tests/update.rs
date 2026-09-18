@@ -527,7 +527,7 @@ fn api(updater: Updater) -> axum::Router {
     let state = gazelle_audio_server::AppState {
         devices: gazelle_audio_server::device::manager::DeviceManager::new(RegistrySet::builtin().unwrap()),
         store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
-        force_dry_run: false,
+        force_dry_run: false, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         show_window: None,
@@ -604,7 +604,7 @@ async fn without_the_updater_the_routes_are_not_there_but_health_still_names_the
     let app = gazelle_audio_server::http::router(gazelle_audio_server::AppState {
         devices: gazelle_audio_server::device::manager::DeviceManager::new(RegistrySet::builtin().unwrap()),
         store: Arc::new(MemoryStore::default()) as Arc<dyn WorkspaceStore>,
-        force_dry_run: false,
+        force_dry_run: false, enable_recall: false,
         backend: "loopback".into(),
         themes_dir: None,
         show_window: None,
