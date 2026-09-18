@@ -45,10 +45,14 @@ export function compareCli(help: string, chapter: string): string[] {
   return problems;
 }
 
-/** The most recently built server binary, or the one GAZELLE_BIN names. */
+/** The most recently built server binary, or the one GAZELLE_BIN names (relative to the repository root). */
 export function findBinary(repoRoot: string): string | undefined {
   const named = process.env["GAZELLE_BIN"];
-  if (named) return existsSync(named) ? named : undefined;
+  if (named) {
+    const path = resolve(repoRoot, named);
+    if (!existsSync(path)) throw new Error(`GAZELLE_BIN names ${path}, which does not exist`);
+    return path;
+  }
   const target = resolve(repoRoot, process.env["CARGO_TARGET_DIR"] ?? "target");
   const exe = process.platform === "win32" ? "gazelle-audio-server.exe" : "gazelle-audio-server";
   const candidates = ["debug", "release"].map((profile) => join(target, profile, exe)).filter((path) => existsSync(path));
