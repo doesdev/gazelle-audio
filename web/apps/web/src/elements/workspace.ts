@@ -78,7 +78,8 @@ export class GaWorkspace extends GaElement {
       .change { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
       .change-label { flex: 1 1 220px; min-width: 0; }
       .change-value { flex: 0 0 auto; color: var(--ga-text-secondary); font-variant-numeric: tabular-nums; }
-      .change.warn .change-value { color: var(--ga-notice-warning, var(--ga-text-primary)); }
+      /* A reason is a sentence, not a value: it takes the next line and wraps rather than running off the page. */
+      .change.warn .change-value { flex: 1 1 100%; color: var(--ga-notice-warning, var(--ga-text-primary)); overflow-wrap: anywhere; }
     `),
   ];
 

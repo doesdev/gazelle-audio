@@ -209,9 +209,7 @@ async fn capture_device(devices: &DeviceManager, id: &DeviceId, descriptor: &Dev
                 }
             }
             Source::Cyclic(field) => match state.as_ref() {
-                None => Err(format!(
-                    "the device has not pushed its state report (0x{STATE_REPORT:X}) since the server started, so '{field}' is unknown"
-                )),
+                None => Err(format!("the device has not reported its state (0x{STATE_REPORT:X}) since the server started")),
                 Some(fields) => match fields.get(*field) {
                     Some(value) => Ok(value_to_json(value)),
                     None => Err(format!("the device's state report does not carry '{field}'")),

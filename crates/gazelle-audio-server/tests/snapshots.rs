@@ -184,7 +184,7 @@ async fn a_read_that_fails_is_recorded_as_unknown_rather_than_invented() {
     let paths: Vec<&str> = unreadable.iter().filter_map(|u| u["path"].as_str()).collect();
     assert!(paths.contains(&"clock.sync_source"), "{paths:?}");
     assert!(paths.contains(&"inputs.preamps"), "{paths:?}");
-    assert!(unreadable[0]["reason"].as_str().expect("a reason").contains("state report"), "{unreadable:?}");
+    assert!(unreadable[0]["reason"].as_str().expect("a reason").contains("has not reported its state"), "{unreadable:?}");
     assert!(device["sections"]["clock"].get("sync_source").is_none(), "an unread value is absent, not zero");
     assert!(device["current_preset"].is_null(), "the preset slot is not guessed either");
     // What could be read still is.

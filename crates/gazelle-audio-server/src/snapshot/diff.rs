@@ -166,14 +166,16 @@ fn unknowns(section: &str, then: &[Unreadable], now: &[Unreadable]) -> Vec<Chang
         .into_iter()
         .map(|path| {
             let full = format!("{prefix}{path}");
-            let when = |side: &[Unreadable], what: &str| {
-                side.iter().find(|u| u.path == full).map(|u| format!("{what} {}", u.reason))
+            let of = |side: &[Unreadable]| side.iter().find(|u| u.path == full).map(|u| u.reason.clone());
+            // The same reason on both sides is said once: a value the device has never reported is
+            // one fact, not two, and a diff of repeated sentences is a diff nobody reads.
+            let reason = match (of(then), of(now)) {
+                (Some(a), Some(b)) if a == b => a,
+                (Some(a), Some(b)) => format!("when the snapshot was taken, {a}; now, {b}"),
+                (Some(a), None) => format!("when the snapshot was taken, {a}"),
+                (None, Some(b)) => format!("now, {b}"),
+                (None, None) => String::new(),
             };
-            let reason = when(then, "when the snapshot was taken,")
-                .into_iter()
-                .chain(when(now, "now,"))
-                .collect::<Vec<_>>()
-                .join(" — ");
             Change {
                 path: path.to_string(),
                 label: label(section, path),
@@ -464,7 +466,7 @@ mod tests {
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].kind, ChangeKind::Unknown);
         assert_eq!(inputs[0].label, "Inputs · emulations");
-        assert!(inputs[0].reason.as_deref().unwrap().starts_with("when the snapshot was taken,"));
+        assert_eq!(inputs[0].reason.as_deref(), Some("when the snapshot was taken, device loopback-0 refused 'get_mic_emulations'"));
         assert!(!d.same, "an unread value is not agreement");
     }
 
