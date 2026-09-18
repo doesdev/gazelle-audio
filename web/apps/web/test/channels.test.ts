@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
-import type { MixerChannel } from "gazelle-audio-client";
+import type { MixerChannel, TopologyGroup } from "gazelle-audio-client";
 import { channelColor } from "../src/store/channels.ts";
 import { PROFILES } from "../src/store/profiles.ts";
 import { Store } from "../src/store/store.ts";
@@ -314,7 +314,7 @@ test("a starting layout replaces only a mixer with no channel set up, and every 
     assert.ok(PROFILES[family].length >= 2, `${family} has layouts to choose from`);
     for (const profile of PROFILES[family]) {
       for (const channel of profile.channels) {
-        const group = topology.inputs.find((g) => g.type === channel.input);
+        const group: TopologyGroup | undefined = topology.inputs.find((g) => g.type === channel.input);
         assert.ok(group !== undefined && channel.channel < group.channels, `${family} ${profile.id}: ${channel.name} is on a real input`);
         assert.ok(channel.main_mix < topology.mixers.count && channel.sends.every((m) => m < topology.mixers.count && m !== channel.main_mix));
       }

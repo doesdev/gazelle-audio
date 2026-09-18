@@ -25,11 +25,10 @@ updates:
       npm:
         patterns: ["*"]
     ignore:
-      # The Node types follow the Node we run (24, engines in web/package.json); raise them together.
+      # The Node types follow the Node we run: 24, the Active LTS (CI's node-version). Node 26
+      # becomes the Active LTS on 2026-10-28; after that, move Node and @types/node to 26
+      # together, by hand.
       - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      # A TypeScript major (7 is the native compiler) is its own change, not a weekly bump.
-      - dependency-name: typescript
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
