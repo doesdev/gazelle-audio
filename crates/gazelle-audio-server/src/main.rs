@@ -377,7 +377,8 @@ async fn prepare(
         show_window,
     };
 
-    let app = http::router(state);
+    // The audio driver's own settings, read only; a loopback device is answered without a DLL.
+    let app = http::router(state).merge(http::driver::routes(devices.clone(), gazelle_audio_server::driver::DriverService::for_this_pc()));
     let app = match updater {
         Some(updater) => app.merge(http::update::routes(updater)),
         None => app,

@@ -2,6 +2,7 @@
 
 pub mod commands;
 pub mod devices;
+pub mod driver;
 pub mod health;
 pub mod recall;
 pub mod snapshots;
