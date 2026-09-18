@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "gazelle-audio-capture"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "clap",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "gazelle-audio-protocol"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "gazelle-audio-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "clap",
@@ -1076,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "gazelle-audio-transport"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gazelle-audio-protocol",
  "serde_json",
@@ -4534,7 +4534,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ed25519-dalek",
  "gazelle-audio-server",

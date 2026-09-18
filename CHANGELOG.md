@@ -10,7 +10,7 @@ version that has not been published yet.
 
 ## [Unreleased]
 
-## [0.1.0]
+## [1.0.0]
 
 The first release: one app for Antelope Audio's Zen Quadro Synergy Core and Zen Studio+, for
 every attached interface at once, in its own window or in any browser on your network. Windows

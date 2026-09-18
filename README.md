@@ -23,7 +23,7 @@ The vendor's software gives each interface a panel application of its own, so tw
 
 ## How much it has been tested
 
-Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. Version 0.1.0; no release has been published yet.
+Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. Version 1.0.0; no release has been published yet.
 
 Over a thousand automated tests run against a built-in emulator of both devices, and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That shows Gazelle sends what it means to send; it cannot show what your device does with it.
 

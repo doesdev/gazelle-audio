@@ -1,6 +1,6 @@
 # Cut a release: build, check, collect, sign, and draft it on GitHub. A person publishes it.
 #
-# Pushing a tag that is the bare version (0.1.0, 0.2.0-rc.1; no v in front) runs the whole
+# Pushing a tag that is the bare version (1.0.0, 1.1.0-rc.1; no v in front) runs the whole
 # thing and ends in a DRAFT release carrying exactly the files `xtask verify` listed. Running the
 # workflow by hand (workflow_dispatch) is the dry run: everything up to the release itself, signed
 # with a throwaway key made on the spot, using no secret, creating nothing.

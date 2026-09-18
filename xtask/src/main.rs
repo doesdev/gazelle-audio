@@ -2,8 +2,8 @@
 //!
 //! ```text
 //! cargo run -p xtask -- keygen --out <outside-the-repo>/gazelle-release.key
-//! cargo run -p xtask -- check-version 0.1.0
-//! cargo run -p xtask -- release-notes 0.1.0
+//! cargo run -p xtask -- check-version 1.0.0
+//! cargo run -p xtask -- release-notes 1.0.0
 //! cargo run -p xtask -- smoke --pubkey <64 hex digits>
 //! cargo run -p xtask -- dist --out dist
 //! cargo run -p xtask -- pubkey --key <file> --expect <64 hex digits>
@@ -53,7 +53,7 @@ const USAGE: &str = "\
 gazelle release helper
 
     xtask keygen --out <file>        make a signing key pair; prints the public half
-    xtask check-version [<tag>]      the tag must be the server's version, bare (0.1.0, no v);
+    xtask check-version [<tag>]      the tag must be the server's version, bare (1.0.0, no v);
                                      prints version=, tag= and prerelease= lines
     xtask release-notes <version> [--changelog <file>]
                                      print that version's CHANGELOG.md section; fails if it is
@@ -112,7 +112,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("release-notes") => {
             only(&args, &["--changelog"])?;
-            let version = positional(&args).ok_or("release-notes needs a version, e.g. 0.1.0")?;
+            let version = positional(&args).ok_or("release-notes needs a version, e.g. 1.0.0")?;
             let file = flag(&args, "--changelog").unwrap_or_else(|| PathBuf::from("CHANGELOG.md"));
             let text = std::fs::read_to_string(&file).map_err(|e| format!("reading {}: {e}", file.display()))?;
             print!("{}", notes::section(&text, version).map_err(|e| format!("{}: {e}", file.display()))?);
@@ -158,7 +158,7 @@ fn value(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
-/// The argument after the command, when it is not a flag: `check-version 0.1.0`.
+/// The argument after the command, when it is not a flag: `check-version 1.0.0`.
 fn positional(args: &[String]) -> Option<&str> {
     args.get(1).map(String::as_str).filter(|a| !a.starts_with("--"))
 }

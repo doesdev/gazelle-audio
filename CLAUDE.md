@@ -42,7 +42,7 @@ release and refuses to release a version whose section is missing or empty
   and add a fresh empty `## [Unreleased]` above it; tidy the notes into a short, readable summary.
   Release tags are the bare version with no `v` (`0.2.0`, `0.2.0-rc.1`), and the heading must
   name the same version (tag `0.2.0` needs `## [0.2.0]`). A heading
-  with no date means "not yet released"; `0.1.0` stays undated until it is published. An
+  with no date means "not yet released"; `1.0.0` stays undated until it is published. An
   `xtask` test checks that the version in `Cargo.toml` always has a section, so a version bump
   without notes fails CI. The whole procedure is in
   `.agent/specs/2026-09-18-shipping-portable.md`, "Cutting a release".
