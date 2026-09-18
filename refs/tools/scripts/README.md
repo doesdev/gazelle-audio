@@ -20,8 +20,14 @@ see `.agent/reference/decompilation.md` for the full pipeline.
 | Read class attributes and literals (an effect's `description`, a widget's range) from bytecode | `bytecode_eval.py` | **no** |
 | Effect parameter commands and editor metadata, both panels (`afx_parameters.json`, then `extract_field_layouts.py --afx`) | `afx_parameters.py` | **no** |
 | Recover full statements as source | `decompile_panel.py` → `decompile_one.py` | yes |
+| Generate the app's Windows icon, `crates/gazelle-audio-server/assets/gazelle.ico` | `make_icon.py` | **no** |
 
-Only the last row needs a legacy interpreter. Everything else runs on any modern Python,
+`make_icon.py` is the odd one out: it recovers nothing, it **generates** something the build
+embeds. It is here because it is a script, and because the alternative — a binary `.ico` in the
+tree with no source — is a file nobody can change. Run it, commit what it writes; a Rust test
+(`crates/gazelle-audio-server/tests/icon.rs`) re-runs it and refuses a stale file.
+
+Only the row about full statements needs a legacy interpreter. Everything else runs on any modern Python,
 because `pyc_inspect.py` implements CPython's marshal format directly rather than calling
 `marshal.loads` under a matching interpreter.
 

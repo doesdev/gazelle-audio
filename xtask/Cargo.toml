@@ -14,5 +14,7 @@ sha2 = "0.10"
 getrandom = "0.3"
 
 [dev-dependencies]
-# So the tests prove the helper's output is what the app itself accepts.
+# So the tests prove the helper's output is what the app itself accepts — and, in
+# `tests/release_dry_run.rs`, that a release this tool signs is one the app's own updater
+# finds, verifies and stages. Already in the lock file; neither adds a package.
 gazelle-audio-server = { path = "../crates/gazelle-audio-server", default-features = false }

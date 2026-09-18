@@ -11,6 +11,16 @@
 //! unless explicitly overridden. Driving real hardware is a deliberate act. See
 //! `.agent/decisions/0012-loopback-default-and-dry-run.md`.
 
+/// The build script's icon-resource writer, compiled into the test build so its own tests run.
+///
+/// `cargo test` never builds a build script as a test target, so a module that only `build.rs`
+/// uses would have no tests at all. Including the same file here — and only here, under
+/// `cfg(test)` — means the bytes the linker is handed are the bytes a test checked.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../build/resource.rs"]
+mod build_resource;
+
 pub mod config;
 pub mod device;
 pub mod error;
