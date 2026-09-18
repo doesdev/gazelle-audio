@@ -41,7 +41,6 @@ impl Drop for TempDir {
 type Values = BTreeMap<(String, String), (&'static str, String)>;
 
 /// The registry, in memory.
-
 #[derive(Clone, Default)]
 struct FakeRegistry {
     values: std::rc::Rc<RefCell<Values>>,
@@ -480,7 +479,7 @@ fn the_command_line_installs_and_uninstalls_for_real() {
     use gazelle_audio_server::install::registry::CurrentUser;
 
     let root = TempDir::new("cli");
-    let key = format!(r"Software\gazelle-audio\test-{}\Uninstall\Gazelle", std::process::id());
+    let key = format!(r"Software\gazelle-audio-test-cli-{}", std::process::id());
     let layout = Layout::from_env(|k| match k {
         "GAZELLE_UNINSTALL_KEY" => Some(key.clone()),
         other => fake_env(&root.0)(other),
@@ -550,7 +549,7 @@ fn the_command_line_refuses_to_uninstall_nothing() {
 #[test]
 fn the_current_user_registry_writes_reads_and_removes() {
     use gazelle_audio_server::install::registry::CurrentUser;
-    let key = format!(r"Software\gazelle-audio\test-registry-{}", std::process::id());
+    let key = format!(r"Software\gazelle-audio-test-registry-{}", std::process::id());
 
     CurrentUser.set_string(&key, "DisplayName", "Gazelle").unwrap();
     CurrentUser.set_u32(&key, "EstimatedSize", 12345).unwrap();
@@ -559,7 +558,7 @@ fn the_current_user_registry_writes_reads_and_removes() {
     // and "there is something else there" are different answers and worth telling apart.
     assert!(CurrentUser.get_string(&key, "EstimatedSize").is_err(), "a DWORD read as a string");
     assert_eq!(CurrentUser.get_string(&key, "NeverWritten").unwrap(), None);
-    assert_eq!(CurrentUser.get_string(r"Software\gazelle-audio\no-such-key", "DisplayName").unwrap(), None);
+    assert_eq!(CurrentUser.get_string(r"Software\gazelle-audio-no-such-key", "DisplayName").unwrap(), None);
 
     CurrentUser.delete_tree(&key).unwrap();
     assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap(), None);
