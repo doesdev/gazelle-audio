@@ -35,7 +35,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::boot::{boot_program, RunKey, StartOnBoot};
-use super::{device_label, menu, ui_url, Command, Context, Item, Status, UpdateMenu, ANTELOPE_SERVICE};
+use super::{device_label, menu, ui_url, Command, Context, Item, Status, UpdateMenu, ANTELOPE_SERVICE, TITLE};
 
 /// The message the icon sends to the window.
 const WM_TRAY: u32 = WM_APP + 1;
@@ -155,14 +155,21 @@ fn icon_data(hwnd: HWND) -> NOTIFYICONDATAW {
     data
 }
 
-fn add_icon(hwnd: HWND, state: &State) -> Result<(), String> {
+/// What the shell is given when the icon is added: its messages, its image and its hover title.
+/// The title is [`TITLE`] alone; the address is in the menu, where it can be read and opened.
+fn add_data(hwnd: HWND, icon: HICON) -> NOTIFYICONDATAW {
     let mut data = icon_data(hwnd);
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     data.uCallbackMessage = WM_TRAY;
-    data.hIcon = state.icon;
-    let tip = wide(&format!("Gazelle — {}", ui_url(state.context.address)));
+    data.hIcon = icon;
+    let tip = wide(TITLE);
     let n = tip.len().min(data.szTip.len() - 1);
     data.szTip[..n].copy_from_slice(&tip[..n]);
+    data
+}
+
+fn add_icon(hwnd: HWND, state: &State) -> Result<(), String> {
+    let mut data = add_data(hwnd, state.icon);
     if unsafe { Shell_NotifyIconW(NIM_ADD, &data) } == 0 {
         return Err("the shell did not accept a notification icon (no desktop session?)".into());
     }
@@ -450,5 +457,24 @@ fn make_icon() -> HICON {
     }
     unsafe {
         CreateIcon(GetModuleHandleW(null()), size as i32, size as i32, 1, 32, mask.as_ptr(), color.as_ptr())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hover title as the shell would show it: up to the first NUL.
+    fn tip_text(data: &NOTIFYICONDATAW) -> String {
+        let end = data.szTip.iter().position(|&c| c == 0).unwrap_or(data.szTip.len());
+        String::from_utf16(&data.szTip[..end]).expect("the tip is UTF-16")
+    }
+
+    #[test]
+    fn the_hover_title_is_the_name_alone() {
+        let data = add_data(null_mut(), null_mut());
+        // The address is in the menu ("Listening on ..."); the title is only the app's name.
+        assert_eq!(tip_text(&data), "Gazelle");
+        assert_ne!(data.uFlags & NIF_TIP, 0, "the shell is told there is a tip to show");
     }
 }

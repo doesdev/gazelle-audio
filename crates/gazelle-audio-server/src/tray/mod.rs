@@ -25,6 +25,10 @@ use boot::BootArgs;
 /// whether it runs.
 pub const ANTELOPE_SERVICE: &str = "Antelope-Manager-Service";
 
+/// The icon's hover title: the app's name and nothing else. Where it is listening is the menu's
+/// first status line, so the title does not repeat it.
+pub const TITLE: &str = "Gazelle";
+
 /// Everything the tray needs from the server.
 pub struct Context {
     /// The updater, when there is one. `None` leaves the menu without an update section.
