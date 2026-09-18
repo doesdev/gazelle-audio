@@ -236,11 +236,30 @@ fn public_key() -> Option<String> {
     Some(to_hex(key().verifying_key().as_bytes()))
 }
 
-fn failure(state: &UpdateState) -> String {
+/// A failure's two halves: the short summary the tray shows, and the detail behind it.
+///
+/// Every assertion below names which half it is about. The summary is what the user reads and
+/// carries no URL, no HTTP status and no crate error text; the detail is what a support question
+/// needs and carries all three.
+fn failure(state: &UpdateState) -> (String, String) {
     match state {
-        UpdateState::Failed { message } => message.clone(),
+        UpdateState::Failed { message, detail } => {
+            assert!(!message.contains("://"), "a summary carries no URL: {message}");
+            assert!(message.chars().count() <= 39, "a summary must leave the tray line under 60: {message}");
+            (message.clone(), detail.clone())
+        }
         other => panic!("expected a failure, got {other:?}"),
     }
+}
+
+/// Only the summary, for the many tests that care what the user is told.
+fn summary(state: &UpdateState) -> String {
+    failure(state).0
+}
+
+/// Only the detail, for the tests that care what is kept for the log and the endpoint.
+fn detail(state: &UpdateState) -> String {
+    failure(state).1
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -313,8 +332,9 @@ fn a_source_that_cannot_be_reached_is_reported_and_is_not_fatal() {
     let updater = Updater::new(settings, install.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key());
 
     let state = updater.check(true);
-    assert!(matches!(state, UpdateState::Failed { .. }), "{state:?}");
-    assert!(state.line().starts_with("Update check failed:"), "{}", state.line());
+    assert_eq!(summary(&state), "no connection");
+    assert_eq!(state.line(), "Update check failed: no connection", "the tray gets the short line, not the URL");
+    assert!(detail(&state).contains("127.0.0.1"), "the log and the endpoint keep the URL: {}", detail(&state));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -364,9 +384,10 @@ fn a_download_whose_hash_is_wrong_is_deleted_and_nothing_is_replaced() {
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, public_key());
 
     updater.check(true);
-    let message = failure(&updater.download());
+    let state = updater.download();
 
-    assert!(message.contains("does not match SHA256SUMS"), "{message}");
+    assert_eq!(summary(&state), "the download could not be verified");
+    assert!(detail(&state).contains("does not match SHA256SUMS"), "{}", detail(&state));
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "running gazelle-audio-server");
     assert!(install.litter().is_empty(), "a failed download is deleted: {:?}", install.litter());
 }
@@ -380,9 +401,10 @@ fn a_sums_file_signed_by_another_key_is_refused_and_nothing_is_replaced() {
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, public_key());
 
     updater.check(true);
-    let message = failure(&updater.download());
+    let state = updater.download();
 
-    assert!(message.contains("not made by the release signing key"), "{message}");
+    assert_eq!(summary(&state), "the download could not be verified");
+    assert!(detail(&state).contains("not made by the release signing key"), "{}", detail(&state));
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "running gazelle-audio-server");
     assert!(install.litter().is_empty(), "an unverified download is deleted: {:?}", install.litter());
 }
@@ -404,9 +426,10 @@ fn a_sums_file_edited_after_signing_is_refused() {
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, public_key());
 
     updater.check(true);
-    let message = failure(&updater.download());
+    let state = updater.download();
 
-    assert!(message.contains("not made by the release signing key"), "{message}");
+    assert_eq!(summary(&state), "the download could not be verified");
+    assert!(detail(&state).contains("not made by the release signing key"), "{}", detail(&state));
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "running gazelle-audio-server");
     assert!(install.litter().is_empty(), "{:?}", install.litter());
 }
@@ -421,9 +444,10 @@ fn a_download_cut_short_is_deleted_and_nothing_is_replaced() {
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, public_key());
 
     updater.check(true);
-    let message = failure(&updater.download());
+    let state = updater.download();
 
-    assert!(message.contains(&asset_name("gazelle-audio-server")), "{message}");
+    assert_eq!(summary(&state), "the download did not finish");
+    assert!(detail(&state).contains(&asset_name("gazelle-audio-server")), "{}", detail(&state));
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "running gazelle-audio-server");
     assert!(install.litter().is_empty(), "a part-downloaded file is deleted: {:?}", install.litter());
 }
@@ -435,9 +459,10 @@ fn a_build_with_no_signing_key_refuses_to_download_at_all() {
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, None);
 
     assert_eq!(updater.check(true).line(), "Update available: 0.2.0");
-    let message = failure(&updater.download());
+    let state = updater.download();
 
-    assert!(message.contains("no release signing key"), "{message}");
+    assert_eq!(summary(&state), "this build cannot verify a download");
+    assert!(detail(&state).contains("no release signing key"), "{}", detail(&state));
     assert_eq!(fake.requests(), ["releases"], "it does not even fetch what it could not check");
     assert!(!updater.status().can_verify);
 }
@@ -448,7 +473,9 @@ fn nothing_is_downloaded_before_something_has_been_found() {
     let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
     let updater = updater(&fake, &install, "0.1.0", Channel::Stable, public_key());
 
-    assert!(failure(&updater.download()).contains("nothing to download"));
+    let state = updater.download();
+    assert_eq!(summary(&state), "nothing to download yet");
+    assert!(detail(&state).contains("no newer release has been found"), "{}", detail(&state));
     assert_eq!(fake.requests(), Vec::<String>::new());
 }
 
@@ -591,8 +618,11 @@ async fn a_failed_download_is_reported_through_the_endpoint_as_it_is_to_the_tray
     call(&app, "POST", "/api/v1/update/check").await;
     let (_, body) = call(&app, "POST", "/api/v1/update/download").await;
 
+    // The web UI gets both halves: the short line it can show, and the detail a support
+    // question needs. The tray is given only the first (P-entry `update-messages`).
     assert_eq!(body["state"]["state"], "failed");
-    assert!(body["state"]["message"].as_str().unwrap().contains("release signing key"), "{body}");
+    assert_eq!(body["state"]["message"], "the download could not be verified");
+    assert!(body["state"]["detail"].as_str().unwrap().contains("not made by the release signing key"), "{body}");
 }
 
 /// `main.rs` merges these routes only on a loopback bind; without them the paths are simply not

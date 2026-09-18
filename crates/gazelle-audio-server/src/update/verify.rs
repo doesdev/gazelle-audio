@@ -10,6 +10,8 @@ use std::path::Path;
 use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
+use super::{Failure, Summary};
+
 /// The release signing key, hex-encoded, baked in at build time:
 /// `GAZELLE_UPDATE_PUBKEY=<64 hex digits> cargo build --release`.
 ///
@@ -42,15 +44,20 @@ pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
 ///
 /// `verify_strict` rather than `verify`: it rejects small-order and non-canonical keys and
 /// signatures, so one signature cannot be made to verify under two keys.
-pub fn verify_signature(public_key_hex: &str, message: &[u8], signature: &[u8]) -> Result<(), String> {
+///
+/// Every way this can go wrong is one thing to the person looking — the download could not be
+/// verified — so they all carry [`Summary::Unverified`], and which of them it was stays in the
+/// detail, where whoever is diagnosing it can read it.
+pub fn verify_signature(public_key_hex: &str, message: &[u8], signature: &[u8]) -> Result<(), Failure> {
     let key_bytes = super::release::from_hex(public_key_hex.trim())
-        .ok_or("the built-in release signing key is not 32 hex-encoded bytes")?;
-    let key = VerifyingKey::from_bytes(&key_bytes).map_err(|e| format!("the built-in release signing key is not a valid ed25519 key: {e}"))?;
-    let signature: [u8; 64] = signature
-        .try_into()
-        .map_err(|_| format!("the signature is {} bytes, not the 64 an ed25519 signature is", signature.len()))?;
+        .ok_or_else(|| Summary::Unverified.with("the built-in release signing key is not 32 hex-encoded bytes"))?;
+    let key = VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|e| Summary::Unverified.with(format!("the built-in release signing key is not a valid ed25519 key: {e}")))?;
+    let signature: [u8; 64] = signature.try_into().map_err(|_| {
+        Summary::Unverified.with(format!("the signature is {} bytes, not the 64 an ed25519 signature is", signature.len()))
+    })?;
     key.verify_strict(message, &Signature::from_bytes(&signature))
-        .map_err(|_| "the signature over SHA256SUMS was not made by the release signing key".to_string())
+        .map_err(|_| Summary::Unverified.with("the signature over SHA256SUMS was not made by the release signing key"))
 }
 
 #[cfg(test)]
@@ -92,7 +99,9 @@ mod tests {
         let message = b"SHA256SUMS";
         let signature = key(9).sign(message).to_bytes();
         let public = to_hex(key(7).verifying_key().as_bytes());
-        assert!(verify_signature(&public, message, &signature).unwrap_err().contains("not made by the release signing key"));
+        let failure = verify_signature(&public, message, &signature).unwrap_err();
+        assert_eq!(failure.summary, Summary::Unverified, "one thing to the person looking: it could not be verified");
+        assert!(failure.detail.contains("not made by the release signing key"), "{}", failure.detail);
     }
 
     #[test]
@@ -106,16 +115,20 @@ mod tests {
     #[test]
     fn a_signature_of_the_wrong_length_is_named_as_such() {
         let public = to_hex(key(7).verifying_key().as_bytes());
-        let error = verify_signature(&public, b"x", &[0u8; 63]).unwrap_err();
-        assert!(error.contains("63 bytes"), "{error}");
+        let failure = verify_signature(&public, b"x", &[0u8; 63]).unwrap_err();
+        assert_eq!(failure.summary, Summary::Unverified);
+        assert!(failure.detail.contains("63 bytes"), "{}", failure.detail);
         assert!(verify_signature(&public, b"x", &[]).is_err());
     }
 
     #[test]
     fn a_key_that_is_not_a_key_is_named_as_such() {
         let signature = key(7).sign(b"x").to_bytes();
-        assert!(verify_signature("", b"x", &signature).unwrap_err().contains("32 hex-encoded bytes"));
-        assert!(verify_signature("nonsense", b"x", &signature).unwrap_err().contains("32 hex-encoded bytes"));
+        for key in ["", "nonsense"] {
+            let failure = verify_signature(key, b"x", &signature).unwrap_err();
+            assert_eq!(failure.summary, Summary::Unverified);
+            assert!(failure.detail.contains("32 hex-encoded bytes"), "{}", failure.detail);
+        }
     }
 
     /// A build with no key set must not pretend it has one.

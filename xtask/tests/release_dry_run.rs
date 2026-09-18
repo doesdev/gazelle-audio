@@ -357,7 +357,10 @@ fn a_release_signed_with_another_key_is_refused_and_nothing_is_staged() {
     let updater = updater(&installed, &source.base, "0.1.0", Some(&ours));
     assert!(matches!(updater.check(true), State::Available { .. }), "a check reads the listing, which is not signed");
     match updater.download() {
-        State::Failed { message } => assert!(message.contains("signature"), "the reason should name the signature: {message}"),
+        State::Failed { message, detail } => {
+            assert_eq!(message, "the download could not be verified", "the tray gets the short summary");
+            assert!(detail.contains("signature"), "the detail should name the signature: {detail}");
+        }
         other => panic!("a release signed with another key must not be staged: {other:?}"),
     }
     assert_eq!(std::fs::read(installed.join(format!("gazelle-audio-server{}", exe_suffix()))).unwrap(), before, "nothing replaced");
@@ -381,7 +384,10 @@ fn a_build_with_no_key_compiled_in_will_not_even_fetch_the_release() {
 
     assert!(matches!(updater.check(true), State::Available { .. }));
     match updater.download() {
-        State::Failed { message } => assert!(message.contains("signing key"), "{message}"),
+        State::Failed { message, detail } => {
+            assert_eq!(message, "this build cannot verify a download", "the tray gets the short summary");
+            assert!(detail.contains("signing key"), "{detail}");
+        }
         other => panic!("a build that cannot verify must not download: {other:?}"),
     }
     // Not one byte of the release was fetched: it refuses before it starts, rather than
@@ -435,7 +441,10 @@ fn an_asset_changed_after_signing_fails_its_hash_and_stages_nothing() {
 
     assert!(matches!(updater.check(true), State::Available { .. }));
     match updater.download() {
-        State::Failed { message } => assert!(message.contains("SHA256SUMS"), "{message}"),
+        State::Failed { message, detail } => {
+            assert_eq!(message, "the download could not be verified", "the tray gets the short summary");
+            assert!(detail.contains("SHA256SUMS"), "{detail}");
+        }
         other => panic!("an asset that does not match the sums file must not be staged: {other:?}"),
     }
     assert_eq!(std::fs::read(installed.join(format!("gazelle-audio-server{}", exe_suffix()))).unwrap(), before);

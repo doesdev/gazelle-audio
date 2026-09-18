@@ -263,7 +263,7 @@ pub fn menu(status: &Status) -> Vec<Item> {
     }
     items.extend(status.devices.iter().map(|d| Item::Info(format!("Device: {d}"))));
     if status.antelope_service_running {
-        items.push(Item::Info("Warning: Antelope Manager Service is running and holds the devices".into()));
+        items.push(Item::Info("Warning: Antelope’s service is holding the devices".into()));
     }
     if status.can_rescan {
         items.push(Item::Action {
@@ -415,7 +415,7 @@ mod tests {
     fn a_running_antelope_service_is_warned_about() {
         assert!(!infos(&menu(&status())).iter().any(|l| l.contains("Antelope")));
         let s = Status { antelope_service_running: true, ..status() };
-        assert_eq!(infos(&menu(&s)).last(), Some(&"Warning: Antelope Manager Service is running and holds the devices"));
+        assert_eq!(infos(&menu(&s)).last(), Some(&"Warning: Antelope’s service is holding the devices"));
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
             &Item::Action { command: Command::Rescan, label: "Rescan devices".into(), enabled: true, checked: None, default: false }
         );
         let at = items.iter().position(|i| i == action(&items, Command::Rescan)).unwrap();
-        assert_eq!(items[at - 1], Item::Info("Warning: Antelope Manager Service is running and holds the devices".into()));
+        assert_eq!(items[at - 1], Item::Info("Warning: Antelope’s service is holding the devices".into()));
         assert_eq!(items[at + 1], Item::Separator);
 
         // The loopback's devices never change, so there is nothing to offer.
@@ -553,6 +553,48 @@ mod tests {
         assert_eq!(items.last(), Some(action(&items, Command::Quit)));
         // Opening the UI stays the bold default; nothing about updates takes a click of the icon.
         assert!(!items.iter().any(|i| matches!(i, Item::Action { default: true, command, .. } if *command != Command::Open)));
+    }
+
+    /// A tray menu is one narrow column, read at a glance. Nothing in it may run long — and
+    /// nothing may leak a path, a URL beyond the one address the user needs, or an error's own
+    /// text (P-entry `update-messages`).
+    #[test]
+    fn no_menu_line_runs_long() {
+        let states = [
+            crate::update::State::Unknown,
+            crate::update::State::Checking,
+            crate::update::State::UpToDate,
+            crate::update::State::Available { version: "0.2.0".into(), page: "https://example.invalid/r".into() },
+            crate::update::State::Downloading { version: "0.2.0".into() },
+            crate::update::State::Staged { version: "0.2.0".into() },
+        ];
+        let mut menus: Vec<Status> = vec![
+            status(),
+            Status { backend: "usb".into(), dry_run: true, devices: vec![], can_rescan: true, antelope_service_running: true, ..status() },
+            Status { web_ui: false, log_file: false, has_window: true, ..status() },
+        ];
+        for state in states {
+            menus.push(with_update(UpdateMenu { line: state.line(), available: Some("0.2.0".into()), staged: Some("0.2.0".into()) }));
+        }
+        for summary in crate::update::SUMMARIES {
+            let state = crate::update::State::Failed {
+                message: summary.as_str().into(),
+                detail: "https://example.invalid/releases: status 503".into(),
+            };
+            menus.push(with_update(UpdateMenu { line: state.line(), available: None, staged: None }));
+        }
+        for status in &menus {
+            for item in menu(status) {
+                let line = match &item {
+                    Item::Action { label, .. } => label.clone(),
+                    Item::Info(line) => line.clone(),
+                    Item::Separator => continue,
+                };
+                let length = line.chars().count();
+                assert!(length <= crate::update::LINE_LIMIT, "{length} characters is too long for a menu line: {line:?}");
+                assert!(!line.contains("://") || line.starts_with("Listening on "), "only the address the user needs is a URL: {line:?}");
+            }
+        }
     }
 
     #[test]

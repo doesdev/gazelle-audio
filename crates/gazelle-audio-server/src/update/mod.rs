@@ -67,6 +67,77 @@ const MAX_SUMS: u64 = 256 * 1024;
 const MAX_BINARY: u64 = 256 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How long a line the tray will show. A tray menu is one narrow column read at a glance, so a
+/// line that runs past this is a line nobody reads; `State::line` and every menu item are held
+/// to it by test.
+pub const LINE_LIMIT: usize = 60;
+
+/// Every way an update can fail, as a person would say it.
+///
+/// Short by construction: there is no variant carrying a string, so a URL, an HTTP status or a
+/// crate's own error text cannot reach the tray through one. All of that is the [`Failure`]'s
+/// detail, which goes to the log and to the HTTP endpoint instead.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Summary {
+    NoConnection,
+    ReleaseListUnreadable,
+    ReleaseIncomplete,
+    DownloadUnfinished,
+    Unverified,
+    NotSaved,
+    NothingToDownload,
+    CannotVerify,
+}
+
+/// Every summary, so a test can measure the line each one makes.
+pub const SUMMARIES: [Summary; 8] = [
+    Summary::NoConnection,
+    Summary::ReleaseListUnreadable,
+    Summary::ReleaseIncomplete,
+    Summary::DownloadUnfinished,
+    Summary::Unverified,
+    Summary::NotSaved,
+    Summary::NothingToDownload,
+    Summary::CannotVerify,
+];
+
+impl Summary {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Summary::NoConnection => "no connection",
+            Summary::ReleaseListUnreadable => "the release list could not be read",
+            Summary::ReleaseIncomplete => "the release is incomplete",
+            Summary::DownloadUnfinished => "the download did not finish",
+            Summary::Unverified => "the download could not be verified",
+            Summary::NotSaved => "could not save the download",
+            Summary::NothingToDownload => "nothing to download yet",
+            Summary::CannotVerify => "this build cannot verify a download",
+        }
+    }
+
+    /// This summary with the detail behind it: the URL, the status, the underlying error.
+    pub fn with(self, detail: impl Into<String>) -> Failure {
+        Failure { summary: self, detail: detail.into() }
+    }
+}
+
+/// A failure said twice: once for the person looking at the tray, once for whoever reads the
+/// log or the HTTP endpoint.
+///
+/// The two are separated **here, at the failure site**, rather than by shortening a long string
+/// afterwards: only the code that failed knows which of its words are for a person.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub summary: Summary,
+    pub detail: String,
+}
+
+/// Report a failure: the whole story to the log, once, and the summary to whoever is looking.
+fn failed(failure: Failure) -> State {
+    tracing::warn!("update failed: {} — {}", failure.summary.as_str(), failure.detail);
+    State::Failed { message: failure.summary.as_str().to_string(), detail: failure.detail }
+}
+
 /// Where the updater has got to. Serialised as `{"state": "...", ...}` for the web UI.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -79,7 +150,9 @@ pub enum State {
     Downloading { version: String },
     /// Verified and in place; it runs after a restart.
     Staged { version: String },
-    Failed { message: String },
+    /// `message` is the short summary the tray shows; `detail` is everything behind it — the
+    /// URL, the HTTP status, the underlying error — for the web UI and a support question.
+    Failed { message: String, detail: String },
 }
 
 impl State {
@@ -92,7 +165,7 @@ impl State {
             State::Available { version, .. } => format!("Update available: {version}"),
             State::Downloading { version } => format!("Downloading {version}…"),
             State::Staged { version } => format!("Update {version} is ready — restart to use it"),
-            State::Failed { message } => format!("Update check failed: {message}"),
+            State::Failed { message, .. } => format!("Update check failed: {message}"),
         }
     }
 }
@@ -227,7 +300,7 @@ impl Updater {
                 self.inner.lock().unwrap().found = None;
                 State::UpToDate
             }
-            Err(message) => State::Failed { message },
+            Err(failure) => failed(failure),
         };
         {
             let mut inner = self.inner.lock().unwrap();
@@ -245,17 +318,18 @@ impl Updater {
     pub fn download(&self) -> State {
         let _one_at_a_time = self.downloading.lock().unwrap_or_else(|e| e.into_inner());
         let Some(found) = self.inner.lock().unwrap().found.clone() else {
-            return self.set_state(State::Failed { message: "nothing to download: no newer release has been found".into() });
+            let failure = Summary::NothingToDownload.with("no newer release has been found; check first");
+            return self.set_state(failed(failure));
         };
         let Some(key) = self.public_key.clone() else {
-            return self.set_state(State::Failed {
-                message: "this build carries no release signing key, so an update cannot be verified; download it by hand".into(),
-            });
+            let failure = Summary::CannotVerify
+                .with("this build carries no release signing key, so an update cannot be verified; download it by hand");
+            return self.set_state(failed(failure));
         };
         self.set_state(State::Downloading { version: found.version.to_string() });
         match self.fetch_and_stage(&found, &key) {
             Ok(()) => self.set_state(State::Staged { version: found.version.to_string() }),
-            Err(message) => self.set_state(State::Failed { message }),
+            Err(failure) => self.set_state(failed(failure)),
         }
     }
 
@@ -265,10 +339,11 @@ impl Updater {
     }
 
     /// One request to the release source, then a purely local decision.
-    fn look(&self) -> Result<Option<Release>, String> {
+    fn look(&self) -> Result<Option<Release>, Failure> {
         let url = format!("{}/repos/{}/releases?per_page=30", self.settings.api_base.trim_end_matches('/'), self.settings.repo);
-        let body = self.get(&url, MAX_LISTING)?;
-        let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| format!("the release list is not JSON: {e}"))?;
+        let body = self.get(&url, MAX_LISTING, Summary::ReleaseListUnreadable)?;
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| Summary::ReleaseListUnreadable.with(format!("{url} did not answer with JSON: {e}")))?;
         let releases = release::parse_releases(&json);
         let asset = binary_asset_name(self.stem(), &self.target);
         Ok(release::newest(&releases, self.settings.channel, &self.current, &asset).cloned())
@@ -295,11 +370,15 @@ impl Updater {
         targets
     }
 
-    fn fetch_and_stage(&self, found: &Release, key: &str) -> Result<(), String> {
-        let sums_asset = found.asset(SUMS_NAME).ok_or("the release has no SHA256SUMS")?;
-        let signature_asset = found.asset(SIGNATURE_NAME).ok_or("the release has no SHA256SUMS.sig")?;
-        let sums_bytes = self.get(&sums_asset.url, MAX_SUMS)?;
-        let signature = self.get(&signature_asset.url, MAX_SUMS)?;
+    fn fetch_and_stage(&self, found: &Release, key: &str) -> Result<(), Failure> {
+        let sums_asset = found
+            .asset(SUMS_NAME)
+            .ok_or_else(|| Summary::ReleaseIncomplete.with(format!("release {} has no {SUMS_NAME}", found.tag)))?;
+        let signature_asset = found
+            .asset(SIGNATURE_NAME)
+            .ok_or_else(|| Summary::ReleaseIncomplete.with(format!("release {} has no {SIGNATURE_NAME}", found.tag)))?;
+        let sums_bytes = self.get(&sums_asset.url, MAX_SUMS, Summary::Unverified)?;
+        let signature = self.get(&signature_asset.url, MAX_SUMS, Summary::Unverified)?;
         let sums = release::parse_sums(&String::from_utf8_lossy(&sums_bytes));
 
         let mut verified_signature = false;
@@ -309,8 +388,8 @@ impl Updater {
             let evidence = Evidence { sums: &sums, sums_bytes: &sums_bytes, signature: &signature, key };
             match self.fetch_one(found, &asset_name, &evidence, &target, &mut verified_signature) {
                 Ok(()) => staged.push(target),
-                Err(e) if required => return Err(e),
-                Err(e) => tracing::warn!("{} was not updated: {e}", target.display()),
+                Err(failure) if required => return Err(failure),
+                Err(failure) => tracing::warn!("{} was not updated: {}", target.display(), failure.detail),
             }
         }
         tracing::info!(
@@ -331,57 +410,71 @@ impl Updater {
         evidence: &Evidence,
         target: &Path,
         verified_signature: &mut bool,
-    ) -> Result<(), String> {
-        let asset = found.asset(asset_name).ok_or_else(|| format!("the release has no {asset_name}"))?;
-        let expected = *evidence.sums.get(asset_name).ok_or_else(|| format!("SHA256SUMS does not list {asset_name}"))?;
+    ) -> Result<(), Failure> {
+        let asset = found
+            .asset(asset_name)
+            .ok_or_else(|| Summary::ReleaseIncomplete.with(format!("release {} has no {asset_name}", found.tag)))?;
+        let expected = *evidence
+            .sums
+            .get(asset_name)
+            .ok_or_else(|| Summary::ReleaseIncomplete.with(format!("{SUMS_NAME} does not list {asset_name}")))?;
         let temporary = temporary_path(target);
 
-        let check = (|| -> Result<(), String> {
+        let check = (|| -> Result<(), Failure> {
             self.get_to_file(&asset.url, &temporary, MAX_BINARY)?;
-            let digest = verify::sha256_file(&temporary).map_err(|e| format!("reading {} back: {e}", temporary.display()))?;
+            let digest = verify::sha256_file(&temporary)
+                .map_err(|e| Summary::Unverified.with(format!("reading {} back: {e}", temporary.display())))?;
             if digest != expected {
-                return Err(format!(
-                    "{asset_name} does not match SHA256SUMS (got {}, expected {})",
+                return Err(Summary::Unverified.with(format!(
+                    "{asset_name} does not match {SUMS_NAME} (got {}, expected {})",
                     release::to_hex(&digest),
                     release::to_hex(&expected)
-                ));
+                )));
             }
             if !*verified_signature {
                 verify::verify_signature(evidence.key, evidence.sums_bytes, evidence.signature)?;
             }
             Ok(())
         })();
-        if let Err(e) = check {
+        if let Err(failure) = check {
             let _ = std::fs::remove_file(&temporary);
-            return Err(e);
+            return Err(failure);
         }
         *verified_signature = true;
         stage::stage(&temporary, target).map_err(|e| {
             let _ = std::fs::remove_file(&temporary);
-            format!("putting {} in place: {e}", target.display())
+            Summary::NotSaved.with(format!("putting {} in place: {e}", target.display()))
         })
     }
 
-    fn get(&self, url: &str, limit: u64) -> Result<Vec<u8>, String> {
+    /// One GET into memory. Not reaching the source at all is always [`Summary::NoConnection`];
+    /// what a half-read answer means depends on what was being read, so the caller names it.
+    fn get(&self, url: &str, limit: u64, unreadable: Summary) -> Result<Vec<u8>, Failure> {
         let mut response = self
             .agent
             .get(url)
             .header("accept", "application/octet-stream, application/vnd.github+json, */*")
             .call()
-            .map_err(|e| format!("{url}: {e}"))?;
+            .map_err(|e| Summary::NoConnection.with(format!("{url}: {e}")))?;
         response
             .body_mut()
             .with_config()
             .limit(limit)
             .read_to_vec()
-            .map_err(|e| format!("reading {url}: {e}"))
+            .map_err(|e| unreadable.with(format!("reading {url}: {e}")))
     }
 
-    fn get_to_file(&self, url: &str, path: &Path, limit: u64) -> Result<(), String> {
-        let mut response = self.agent.get(url).header("accept", "application/octet-stream").call().map_err(|e| format!("{url}: {e}"))?;
-        let mut file = std::fs::File::create(path).map_err(|e| format!("creating {}: {e}", path.display()))?;
+    fn get_to_file(&self, url: &str, path: &Path, limit: u64) -> Result<(), Failure> {
+        let mut response = self
+            .agent
+            .get(url)
+            .header("accept", "application/octet-stream")
+            .call()
+            .map_err(|e| Summary::NoConnection.with(format!("{url}: {e}")))?;
+        let mut file =
+            std::fs::File::create(path).map_err(|e| Summary::NotSaved.with(format!("creating {}: {e}", path.display())))?;
         let mut reader = response.body_mut().with_config().limit(limit).reader();
-        std::io::copy(&mut reader, &mut file).map_err(|e| format!("downloading {url}: {e}"))?;
+        std::io::copy(&mut reader, &mut file).map_err(|e| Summary::DownloadUnfinished.with(format!("downloading {url}: {e}")))?;
         Ok(())
     }
 }
@@ -565,12 +658,67 @@ mod tests {
         }
     }
 
+    fn every_state() -> Vec<State> {
+        let mut states = vec![
+            State::Unknown,
+            State::Checking,
+            State::UpToDate,
+            State::Available { version: "0.2.0-rc.1".into(), page: "https://example.invalid/releases/v0.2.0-rc.1".into() },
+            State::Downloading { version: "0.2.0-rc.1".into() },
+            State::Staged { version: "0.2.0-rc.1".into() },
+        ];
+        states.extend(SUMMARIES.map(|s| failed_state(s.with("https://api.example.invalid/repos/o/r/releases: status 503"))));
+        states
+    }
+
+    /// `failed` logs, which a unit test has no subscriber for; the state it builds is what is
+    /// being measured.
+    fn failed_state(failure: Failure) -> State {
+        State::Failed { message: failure.summary.as_str().to_string(), detail: failure.detail }
+    }
+
     #[test]
     fn every_state_says_something_a_person_can_read() {
         assert_eq!(State::Unknown.line(), "Updates: not checked yet");
         assert_eq!(State::UpToDate.line(), "Updates: this is the newest version");
         assert_eq!(State::Available { version: "0.2.0".into(), page: String::new() }.line(), "Update available: 0.2.0");
         assert_eq!(State::Staged { version: "0.2.0".into() }.line(), "Update 0.2.0 is ready — restart to use it");
-        assert_eq!(State::Failed { message: "no route to host".into() }.line(), "Update check failed: no route to host");
+        assert_eq!(
+            failed_state(Summary::NoConnection.with("https://api.github.com/x: status 503")).line(),
+            "Update check failed: no connection"
+        );
+    }
+
+    /// The complaint this came from: the tray showed the whole URL and the HTTP status.
+    #[test]
+    fn a_failure_line_is_short_and_keeps_the_detail_out_of_it() {
+        for state in every_state() {
+            let line = state.line();
+            let length = line.chars().count();
+            assert!(length <= LINE_LIMIT, "{length} characters is too long for the tray: {line:?}");
+            assert!(!line.contains("://"), "no URL belongs in the tray: {line:?}");
+            assert!(!line.contains("503"), "no HTTP status belongs in the tray: {line:?}");
+            assert!(!line.contains("status"), "no HTTP status belongs in the tray: {line:?}");
+        }
+    }
+
+    /// The detail is not thrown away: it is what the log and the endpoint carry.
+    #[test]
+    fn a_failure_keeps_the_whole_story_beside_the_summary() {
+        let failure = Summary::Unverified.with("gazelle-audio-server.exe does not match SHA256SUMS (got ab, expected cd)");
+        assert_eq!(failure.summary.as_str(), "the download could not be verified");
+        let State::Failed { message, detail } = failed_state(failure) else { panic!("a failure is a failure") };
+        assert_eq!(message, "the download could not be verified");
+        assert!(detail.contains("does not match SHA256SUMS"), "{detail}");
+    }
+
+    /// Two summaries reading the same would make the tray line ambiguous about what went wrong.
+    #[test]
+    fn no_two_summaries_read_the_same() {
+        let mut seen: Vec<&str> = SUMMARIES.iter().map(|s| s.as_str()).collect();
+        seen.sort_unstable();
+        let count = seen.len();
+        seen.dedup();
+        assert_eq!(seen.len(), count, "{seen:?}");
     }
 }
