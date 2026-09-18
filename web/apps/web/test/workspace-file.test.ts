@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { readWorkspaceFile, workspaceFileName, workspaceFileText } from "../src/store/workspace-file.ts";
+import { backupFileName, backupFileText, readWorkspaceFile, workspaceFileName, workspaceFileText } from "../src/store/workspace-file.ts";
 
 test("an export is named with the local date", () => {
   assert.equal(workspaceFileName(new Date(2026, 8, 16, 23, 59)), "gazelle-workspace-2026-09-16.json");
@@ -70,4 +70,47 @@ test("a read file is summarised for the confirmation, with every device it names
   assert.equal(read.ok, true);
   if (!read.ok) return;
   assert.deepEqual(read.summary, { names: 2, groups: 2, links: 1, mixers: 1, layouts: 1, surfaces: 1, cables: 1, controlRooms: 2, devices: ["loopback-0", "loopback-1", "serial-1", "serial-11", "serial-3", "serial-5", "serial-7", "serial-9"] });
+});
+
+test("a full backup carries the workspace and its snapshots, and reads back as both", () => {
+  const workspace = { version: 1, groups: [], links: [], aliases: { "loopback-0": "Desk" }, mixers: {} };
+  const snapshot = {
+    version: 1,
+    id: "snap-1",
+    name: "Take 1",
+    created: "2026-09-17T20:15:00Z",
+    note: "",
+    workspace,
+    devices: { "loopback-0": { family: "quadro", model: "Zen Quadro", read_at: "2026-09-17T20:15:00Z", sections: { clock: { sync_source: 0 } }, unreadable: [] } },
+  };
+  assert.equal(backupFileName(new Date(2026, 8, 16, 23, 59)), "gazelle-backup-2026-09-16.json");
+
+  const text = backupFileText(workspace as never, [snapshot as never]);
+  assert.equal((JSON.parse(text) as { kind: string }).kind, "gazelle-backup");
+  const read = readWorkspaceFile(text, 1);
+  assert.equal(read.ok, true);
+  if (!read.ok) return;
+  assert.deepEqual(read.workspace, workspace, "the workspace comes back as it went in");
+  assert.equal(read.summary.names, 1, "and is summarised as a plain export is");
+  assert.deepEqual(read.snapshots, [snapshot], "with the snapshots' values, not their summaries");
+});
+
+test("a plain workspace export still imports, and a backup that is not one says why", () => {
+  const plain = readWorkspaceFile(workspaceFileText({ version: 1, groups: [], links: [], aliases: {}, mixers: {} } as never), 1);
+  assert.equal(plain.ok, true);
+  if (plain.ok) assert.deepEqual(plain.snapshots, [], "a workspace file holds no snapshots, which is not a problem");
+
+  const problem = (document: unknown) => {
+    const read = readWorkspaceFile(JSON.stringify(document), 1);
+    return read.ok ? undefined : read.problem;
+  };
+  const backup = (parts: Record<string, unknown>) => ({ kind: "gazelle-backup", version: 1, workspace: { version: 1 }, ...parts });
+  assert.match(problem({ kind: "gazelle-backup", version: 2, workspace: { version: 1 } }) ?? "", /newer Gazelle \(backup version 2\)/);
+  assert.equal(problem({ kind: "gazelle-backup", version: 1 }), "is a backup with no workspace in it");
+  assert.equal(problem(backup({ snapshots: {} })), "is a backup whose snapshots are not a list");
+  assert.equal(problem(backup({ snapshots: ["not a snapshot"] })), "is a backup holding something that is not a snapshot");
+  assert.equal(problem(backup({ snapshots: [{ id: "s", name: "n" }] })), "is a backup holding a snapshot with no version number");
+  // A snapshot from a newer app is refused here rather than sent for the server to half-read.
+  assert.match(problem(backup({ snapshots: [{ id: "s", name: "n", version: 2 }] })) ?? "", /snapshot version 2/);
+  assert.equal(problem(backup({ snapshots: [{ id: "s", name: "n", version: 1 }] })), undefined);
 });

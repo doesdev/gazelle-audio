@@ -26,6 +26,7 @@ import { LEVEL_MAX, MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
+import { SnapshotsModel } from "./snapshots.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -722,6 +723,20 @@ export class Store {
     },
     inputLevel: (deviceId, source) => this.inputMeter(deviceId, source)?.level.value,
     rateNames: SAMPLE_RATES,
+  });
+
+  /**
+   * Snapshots the server keeps (workspace spec §2). Everything it does reads: taking one asks every
+   * attached device for its state, comparing reads them again. Nothing is ever sent to a device.
+   */
+  readonly snapshots: SnapshotsModel = new SnapshotsModel({
+    list: () => this.#client.snapshots.list(),
+    get: (id) => this.#client.snapshots.get(id),
+    create: (name, note) => this.#client.snapshots.create(name, note),
+    rename: (id, change) => this.#client.snapshots.rename(id, change),
+    delete: (id) => this.#client.snapshots.delete(id),
+    compare: (id) => this.#client.snapshots.compare(id),
+    import: (snapshots) => this.#client.snapshots.import(snapshots),
   });
 
   #knownInputs(deviceId: string): InputsModel | undefined {
