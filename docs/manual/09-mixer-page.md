@@ -22,21 +22,21 @@ A channel is a named strip for one input. Its head, above the fader, holds:
 | **⠿**, **‹**, **›** | Drag, or move one place left or right. Dropping a channel between two members of a group joins the group |
 | **×** | Removes the channel; click twice. Its routes into the mixer are muted |
 | Name and colour swatch | The swatch opens colours to choose from, a custom colour, and **Clear** |
-| **Input** | The source the channel carries. Changing it routes the source into the mixer at once |
-| **Main mix** | The mix the channel belongs to |
+| **Input** | The source the channel carries. Changing it routes the source into the mixer at once. Ignores the mouse wheel |
+| **Main mix** | The mix the channel belongs to. A routing change too, so it ignores the mouse wheel |
 | **Group** | A group to fold it into, or **New group...** |
 | **Add to** / **In** | Sends the channel to the selected mix too, or takes it out |
-| Preamp controls | For a preamp input: its type, gain, 48V (two clicks, the second on **Sure?**) and Ø, the same as the [Inputs page](07-inputs-page.md) |
+| Preamp controls | For a preamp input: its type, gain, 48V (two clicks, the second on **Confirm**) and Ø, the same as the [Inputs page](07-inputs-page.md) |
 
 A channel's colour comes from its group if the group has one, then its own, then its input's colour on the Routing page.
 
 Below the head is the **strip**:
 
 - **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. See [Doubled signals](02-safety.md#doubled-signals).
-- **Send** (Studio+, mix 1 only): the reverb send.
+- **Send** (Studio+, mix 1 only): the reverb send. Double-click for -20 dB, Ctrl+click for 0 dB.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
 - **M** (mute), **S** (solo), **⇆** (link).
-- **The fader**, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **0 dB**.
+- **The fader**, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **-20 dB**, and Ctrl+click (Cmd+click) puts it at **0 dB**, unity. The header's **Double-click** menu can make double-click unity instead.
 - **The meter** shows the channel's input before its fader: the signal arriving. It is shared by every channel on that input. A channel on an effect return is metered by the last effect in its chain, or, when the chain is empty, by the source feeding the chain; the tooltip says which. Some inputs report no meter, and say so.
 - The level and peak readouts, and the name bar in the channel's colour.
 

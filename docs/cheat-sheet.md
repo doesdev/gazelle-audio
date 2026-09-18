@@ -8,12 +8,12 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 
 - Silence first, investigate second: speakers down, then **Mute** (or **Hard mute** on a Quadro, Outputs page).
 - **48V** takes two clicks (or Ctrl+click). Check for ribbon mics; mind the thump.
-- **Clock and sample rate** changes interrupt audio at once. Stop playback first.
+- **Clock and sample rate** changes interrupt audio. Each asks for **Confirm**. Stop playback first.
 - **×2** on a strip: the same audio reaches that mix twice, about +6 dB.
-- **Test oscillator**: 0 dBFS is as loud as the device goes. Start at -18.
-- **DC coupling** (Quadro) can damage speakers. Leave it off.
-- **Presets** recall in one click and may change anything, 48V and clock included.
-- **Clicking** a fader jumps there; **double-click** on a fader is 0 dB.
+- **Test oscillator**: 0 dBFS is as loud as the device goes. Start at -18. Tone on takes two clicks.
+- **DC coupling** (Quadro) can damage speakers. Leave it off. On takes two clicks.
+- **Presets** recall on a second click and may change anything, 48V and clock included.
+- **Clicking** a fader jumps there; **double-click** is -20 dB; **Ctrl+click** is 0 dB.
 - Never run Antelope's panels on the same device at the same time.
 - Try new things on the emulator (`--backend loopback`) or in `--dry-run`.
 
@@ -82,15 +82,16 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Page Up/Down | 6 dB (faders, volumes, gains) |
 | Home / End | The ends: fader **Home = 0 dB**; volume **End = 0 dB** |
 | Double-click | Reset (below) |
+| Ctrl+click | A level to unity (0 dB; full for a return) |
 | Enter / Escape | Save / undo a name |
 | Shift-click (Routing) | Select a run of sources |
 | Delete (Routing) | Mute a cell |
 
-**Double-click resets:** fader **0 dB (unity)**; Studio+ Send **0 dB**; Quadro reverb return **full**; output and CR volume -30 dB; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default.
+**Double-click resets:** fader, Studio+ Send, output, CR and talkback volume, reverb send -20 dB; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
 
-**Two clicks (Confirm):** 48V on, Standby, Save preset, remove a channel, strip, surface, cable or snapshot.
+**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, Standby, remove a channel, strip, surface, cable or snapshot. Off is one click.
 
-**Wheel ignored:** clock source, sample rate, Add effect, + Output, Route, mix pin.
+**Wheel ignored:** clock source, sample rate, Add effect, a channel's Input and Main mix, + Output, Route, mix pin.
 
 **Hold:** Talk (mouse, Space or Enter).
 

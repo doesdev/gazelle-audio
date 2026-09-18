@@ -22,11 +22,11 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 **Where it can happen in Gazelle, specifically:**
 
 - **Clicking a bar or fader jumps to the point you clicked.** It does not nudge from where it was: a click near the top of a fader sets it near 0 dB at once.
-- **Double-click resets a control, and some resets are loud.** A mixer fader resets to **0 dB (unity)**, a Studio+ reverb Send to 0 dB, and a Quadro reverb return to full. Output volumes reset to -30 dB, gains to 0 dB, pans to centre. See the table in [Gestures](05-the-app.md#gestures).
+- **Double-click on a level goes to a safe level, and Ctrl+click to unity.** A mixer fader, a Studio+ reverb Send, an output, Control Room or talkback volume and a Quadro reverb send reset to **-20 dB**; the reverb level to -18 dB, the nearest it has; a Quadro reverb return to 20 steps below full. **Ctrl+click** (Cmd+click on a Mac keyboard) puts a level at **unity**, 0 dB or full for a return, wherever on the control you click. The header's **Double-click** menu can make double-click unity too, for this browser; a level's tooltip always says which it does. Gains reset to 0 dB, pans to centre. See the table in [Gestures](05-the-app.md#gestures).
 - **Home and End jump to the ends.** On a mixer fader, Home is 0 dB; on an output volume, End is 0 dB.
-- **The mouse wheel moves whatever is under the pointer**, one step per notch (1 dB on faders and volumes), and also steps drop-down menus. Scrolling the page with the pointer over a control changes that control. The menus where one notch would be disruptive (clock source, sample rate, adding an effect, routing a port) ignore the wheel.
+- **The mouse wheel moves whatever is under the pointer**, one step per notch (1 dB on faders and volumes), and also steps drop-down menus. Scrolling the page with the pointer over a control changes that control. The menus where one notch would be disruptive ignore the wheel: clock source, sample rate, adding an effect, and every menu that re-routes audio (a channel's input and main mix, a mix's **+ Output**, a port strip's **Route**).
 - **Routing changes are immediate.** Choosing a channel's input, a mix's output or a routing cell sends the change as soon as you choose it. A source routed directly to an output plays at its full level with no fader in the way.
-- **Device presets change many things at once.** A preset button on the Devices page recalls that preset on the device in one click, with no confirmation, and nobody has yet checked which settings a preset carries (it may include 48V and the clock).
+- **Device presets change many things at once.** A preset button on the Devices page recalls that preset on the device on a second, confirming click, and nobody has yet checked which settings a preset carries (it may include 48V and the clock).
 
 **What Gazelle does.**
 
@@ -50,7 +50,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **What Gazelle does.**
 
-- **Switching 48V on takes two clicks** within three seconds (the button reads **Confirm** after the first), or one click with Ctrl (Cmd on a Mac keyboard) held down, which is how the vendor's own Quadro panel does it. On a mixer channel's preamp controls the second click reads **Sure?**. Switching 48V off is one click.
+- **Switching 48V on takes two clicks** within three seconds (the button reads **Confirm** after the first, on the Inputs page and on a mixer channel alike), or one click with Ctrl (Cmd on a Mac keyboard) held down, which is how the vendor's own Quadro panel does it. Switching 48V off is one click.
 - **A linked preamp group asks once for all of them**, and says how many: **Confirm 3** switches three preamps on.
 - **48V is offered only for the Mic input type.** For Line and Hi-Z it is disabled.
 - A pending confirmation is forgotten when you leave the page, so a half-made confirmation is never completed later.
@@ -62,7 +62,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **The risk.** Changing an interface's clock source or sample rate interrupts its audio: playback and recording glitch or stop, your recording software may lose the device, and a clock source with no signal on it (an S/PDIF or ADAT input with nothing connected, a word clock input with no cable) leaves the device unlocked, which can mean silence, clicks or noise.
 
-**What Gazelle does.** The clock source and sample rate menus on the Devices page ignore the mouse wheel, so they change only when you choose a value. The choice is sent as soon as it is made; there is no confirmation. The Devices page and the device cards show the measured rate and **LOCKED** or **NO LOCK**. Surfaces warn when two cabled devices run at different rates or one is not locked.
+**What Gazelle does.** The clock source and sample rate menus on the Devices page ignore the mouse wheel, and choosing a value sends nothing by itself: a **Confirm** button appears beside the menu, and only pressing it within three seconds sends the change. Otherwise the button goes and the menu shows what the device has again. The Devices page and the device cards show the measured rate and **LOCKED** or **NO LOCK**. Surfaces warn when two cabled devices run at different rates or one is not locked.
 
 **What you should do.** Stop playback and recording first, turn monitors down, and change the clock only to a source that has a signal. Expect your recording software to need restarting or reconfiguring afterwards.
 
@@ -104,8 +104,8 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 ## Other hazards worth knowing
 
-- **The test oscillator** on the Devices page sends a sine tone straight to the outputs. At 0 dBFS it is as loud as the device can go. It starts with one click. Set its level to -18 dBFS and your monitors low before you turn it on.
-- **DC coupling** (Quadro only, Devices page) passes DC to or from what is connected, for modular synthesisers. DC into speakers or headphones can damage them. It switches with one click. Leave it off unless you know you need it.
+- **The test oscillator** on the Devices page sends a sine tone straight to the outputs. At 0 dBFS it is as loud as the device can go. Turning a **Tone** on takes two clicks, the second on **Confirm**; turning it off takes one. Set its level to -18 dBFS and your monitors low before you turn it on.
+- **DC coupling** (Quadro only, Devices page) passes DC to or from what is connected, for modular synthesisers. DC into speakers or headphones can damage them. Switching it on takes two clicks, the second on **Confirm**; off takes one. Leave it off unless you know you need it.
 - **Control Room Mono** sums a mix to mono by centring its pans, so every output that mix feeds goes mono, including a recording output. The button's tooltip names them.
 - **Standby** needs two clicks; **Power on** needs one.
 - **Network access.** Gazelle listens only on your own computer unless you start it with `--bind` on a network address. Then anyone who can reach that address can change your levels, with no password. Do it only on a network you trust.

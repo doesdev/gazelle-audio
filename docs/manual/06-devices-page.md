@@ -23,7 +23,9 @@ Power (**On** or **Standby**), the current **Preset**, and the **Sync source**, 
 
 While the device follows an external clock, it takes its rate from that source and ignores the sample rate chosen here.
 
-> **Warning.** A clock or sample rate change is sent the moment you choose it, and interrupts the device's audio and your recording software's stream. These two menus ignore the mouse wheel. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
+Choosing a source or a rate sends nothing yet: a **Confirm** button appears beside the menu, and pressing it within three seconds sends the change. Otherwise the menu goes back to what the device has.
+
+> **Warning.** A clock or sample rate change interrupts the device's audio and your recording software's stream. These two menus ignore the mouse wheel. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
 
 ## Panning law (Quadro)
 
@@ -33,19 +35,21 @@ While the device follows an external clock, it takes its rate from that source a
 
 **Inputs** and **Outputs** each have a **DC coupled** switch, for sending and receiving control voltages to and from modular synthesisers.
 
-> **Warning.** DC coupled outputs pass DC to whatever is connected, which can damage speakers and headphones. The switches act on one click. Leave them off for audio.
+> **Warning.** DC coupled outputs pass DC to whatever is connected, which can damage speakers and headphones. Switching one on takes two clicks, the second on **Confirm**; off takes one. Leave them off for audio.
 
 ## Test oscillator
 
 A sine tone sent straight to the outputs, for checking cables and levels. **Left** and **Right** each have a frequency (1 kHz or 440 Hz) and a **Tone** switch; **Level** (0, -6, -12 or -18 dBFS) applies to both.
 
-> **Warning.** At 0 dBFS the oscillator is as loud as the device can go, and **Tone** starts it with one click. Choose -18 dBFS and turn your monitors down first. Never tried on a real device.
+Turning a **Tone** on takes two clicks, the second on **Confirm**; turning it off takes one.
+
+> **Warning.** At 0 dBFS the oscillator is as loud as the device can go. Choose -18 dBFS and turn your monitors down first. Never tried on a real device.
 
 ## Presets
 
 The device's own five preset slots, stored in the device.
 
-- **1 to 5** recall that preset at once, with no confirmation. The current preset is highlighted.
+- **1 to 5** recall that preset on a second click: the button reads **Confirm** after the first, for three seconds. The current preset is highlighted.
 - **Save into** a slot, then **Save**, then **Confirm save** within three seconds. Saving overwrites what was in the slot.
 
 These are not Gazelle's snapshots: Gazelle cannot read what a preset holds, and nobody has checked yet exactly which settings a preset recall changes. Treat a recall as a change to anything, 48V and the clock included. Preset save and recall have never been tried from Gazelle on a real device.

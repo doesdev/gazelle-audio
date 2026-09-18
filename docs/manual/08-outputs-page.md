@@ -10,7 +10,7 @@ One row per output: Monitor, HP1, HP2 and Line out on both models, and Reamp on 
 
 | Control | What it does |
 |---|---|
-| **Volume** | From 0 dB (the loudest) down to -inf (silent), in 1 dB steps; Page Up and Page Down move 6 dB. Double-click for -30 dB |
+| **Volume** | From 0 dB (the loudest) down to -inf (silent), in 1 dB steps; Page Up and Page Down move 6 dB. Double-click for -20 dB, Ctrl+click for 0 dB |
 | **Mute** | Mutes the output |
 | **Dim** (Quadro) | Lowers the output by the device's dim amount |
 | **CR** | Shows this output in the sidebar's [Control Room](05-the-app.md#the-sidebar). Saved in the workspace; sends nothing to the device |
@@ -29,7 +29,7 @@ A trim sets an output's maximum level, from 20 dBu down to 14 dBu, to match what
 ## Talkback (Studio+)
 
 - **Talk**: hold it down (with the mouse, or with Space or Enter) to talk; release to stop.
-- **Level**: the talkback level. Double-click for -30 dB.
+- **Level**: the talkback level. Double-click for -20 dB, Ctrl+click for 0 dB.
 - **Send to**: which of HP1, HP2 and Monitor the talkback reaches.
 
 The same controls are in the sidebar's Control Room. Talkback has not yet been tried on a real device.

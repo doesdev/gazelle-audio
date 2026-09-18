@@ -32,7 +32,7 @@ Along the top: the page tabs, then three things worth a glance.
 - **Dry run**, shown only when Gazelle was started with `--dry-run`: commands report the bytes they would send, and nothing is written to a device.
 - **The connection**: Connected, Reconnecting or Disconnected. While it is not connected, a banner says so and every control is disabled.
 
-The **theme** menu at the right switches between Gazelle Dark, Gazelle Light and any community or user themes.
+At the right, two menus. **Double-click** chooses what a double-click does to a level: **-20 dB**, the safe level and the default, or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 
 ## The sidebar
 
@@ -77,6 +77,7 @@ Every bar, fader and knob-like control in Gazelle responds to the same gestures.
 | **Drag** | Follows the pointer. A pan dragged near the centre snaps to centre |
 | **Click** | Jumps straight to the value under the pointer |
 | **Double-click** | Resets to the control's default (below) |
+| **Ctrl+click** (Cmd+click) | On a level (faders, volumes, sends, returns): unity, wherever you click |
 | **Mouse wheel** | One step per notch, up for more; pan steps through centre without snapping |
 | **Arrow keys** | One step; Up and Right for more |
 | **Page Up / Page Down** | A larger step (6 dB on faders, volumes and preamp gains) |
@@ -86,24 +87,26 @@ What double-click resets to:
 
 | Control | Reset |
 |---|---|
-| Mixer fader, mix master | **0 dB (unity)** |
+| Mixer fader, mix master | -20 dB (Ctrl+click: 0 dB) |
 | Pan | Centre |
-| Studio+ reverb Send (Mixer page, mix 1) | **0 dB** |
-| Output volume, Control Room volume, talkback level | -30 dB |
+| Studio+ reverb Send (Mixer page, mix 1) | -20 dB (Ctrl+click: 0 dB) |
+| Output volume, Control Room volume, talkback level | -20 dB (Ctrl+click: 0 dB) |
 | Preamp gain, digital input gain | 0 dB |
 | Brightness | 50% |
-| Reverb level | 0 dB |
-| Quadro reverb returns | **Full** |
-| Quadro reverb sends | Silent |
+| Reverb level | -18 dB, the nearest it has to -20 (Ctrl+click: 0 dB) |
+| Quadro reverb returns | 20 steps below full (Ctrl+click: full) |
+| Quadro reverb sends | -20 dB (Ctrl+click: 0 dB) |
 | Effect settings | The vendor panel's starting value |
 
-> **Warning.** Home and End go to the raw ends of a control's scale, which point different ways on different controls: on a mixer fader **Home is 0 dB**, while on an output volume **End is 0 dB**. Several double-click resets are at full level. With monitors up, prefer the arrow keys.
+The rows with a Ctrl+click are **levels**. Their double-click goes to a safe level, and Ctrl+click to unity; with the header's **Double-click** menu on **unity**, double-click goes to unity as well. A level's tooltip says what its double-click and Ctrl+click do.
 
-**Drop-down menus take the wheel too**, one option per notch, and most send their change at once. The clock source, sample rate, **Add effect**, the mix master's **+ Output**, and a surface's **Route** and mix pin menus ignore the wheel, because one accidental notch there would interrupt audio or change routing. Ctrl with the wheel still zooms the page.
+> **Warning.** Home and End go to the raw ends of a control's scale, which point different ways on different controls: on a mixer fader **Home is 0 dB**, while on an output volume **End is 0 dB**. Ctrl+click, and double-click when you have chosen unity, put a level at full level. With monitors up, prefer the arrow keys.
+
+**Drop-down menus take the wheel too**, one option per notch, and most send their change at once. The clock source, sample rate, **Add effect**, a channel's **Input** and **Main mix**, the mix master's **+ Output**, a surface's **Route** and mix pin menus, and the header's **Double-click** menu ignore the wheel, because one accidental notch there would interrupt audio, change routing or change a safety setting. Ctrl with the wheel still zooms the page.
 
 **Text fields** (names) save on Enter or when you leave the field; Escape puts back what was there.
 
-**Buttons that ask twice** read **Confirm** (or **Sure?**, **Confirm save**, **Confirm standby**) after the first click, and forget it after three seconds: 48V on, Standby, saving a preset, and removing a channel, a surface, a strip, a cable or a snapshot.
+**Buttons that ask twice** read **Confirm** (or **Confirm N**, **Confirm save**, **Confirm standby**) after the first click, and forget it after three seconds: 48V on, a test tone on, DC coupling on, recalling or saving a device preset, Standby, and removing a channel, a surface, a strip, a cable or a snapshot. Turning a thing off never asks. The clock source and sample rate menus ask with a **Confirm** button beside them. Enter and Space press these buttons as a click does.
 
 Apart from those, the only keyboard shortcuts are Escape (to close the phone drawer or a colour picker) and the usual Tab to move between controls.
 
@@ -117,5 +120,6 @@ Apart from those, the only keyboard shortcuts are Escape (to close the phone dra
 | Control Room output choices | Selected device, and the selected mix per device |
 | Surfaces and digital cables | Mixer strip width |
 | | Clip light auto-clear time |
+| | What a double-click does to a level |
 
 The window's own size and position are kept in `%APPDATA%\gazelle\window.json`.
