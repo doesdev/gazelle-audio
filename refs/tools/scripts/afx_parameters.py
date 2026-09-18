@@ -12,7 +12,7 @@ seventy effects by hand, and writes:
   sends them (the set's field order, the get's ``ext3``, instance parameter and reply count), each
   parameter's range, default and presentation, and every effect left out with the reason.
   ``extract_field_layouts.py --afx`` reads it to add the commands to the command schemas.
-* ``web/apps/web/src/store/effect-parameters.ts``: the same, for the web app's editor.
+* ``web/apps/web/src/store/effect-parameters-data.ts``: the same, for the web app's editor.
 
 Where each value comes from
 ---------------------------
@@ -1027,6 +1027,8 @@ def render_ts(doc: dict[str, Any]) -> str:
         "// Every effect type whose parameters the app can edit: its set and get commands as the panel sends",
         "// them, and each parameter's range, default and presentation as the panel's code defines them. Values",
         "// only: no artwork, presets or impulse responses. A parameter with no unit shows the device's value.",
+        "// Big enough to be worth its own chunk, so nothing imports it directly: the app reaches it through",
+        "// ./effect-parameters.ts, which fetches this module when the Effects page opens.",
         "",
         "export type EffectFamily = \"quadro\" | \"studio\";",
         "",

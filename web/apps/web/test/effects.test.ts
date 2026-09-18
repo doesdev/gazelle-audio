@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { EFFECT_NAMES } from "../src/store/effect-catalogue.ts";
+import { loadCatalogue } from "../src/store/effect-parameters.ts";
 import { formatReverbLevel, formatRoomSize, REVERB_RETURN_MAX, REVERB_SEND_MAX } from "../src/store/effects.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocation } from "./fake-client.ts";
+
+// Reading an effect's settings needs the catalogue, which the Effects page fetches as it opens
+// (store/effect-parameters.ts); these tests stand in for the page, so they fetch it first.
+await loadCatalogue();
 
 type Replies = Record<string, (call: Invocation) => Record<string, unknown> | null>;
 
@@ -431,6 +436,30 @@ test("an added effect's settings are read again when it is opened, since the dev
   await flush();
   await effects.readParameters(39, 0);
   assert.equal(reads(), 2, "the instance it was given is read again");
+});
+
+test("the Studio+ forgets the whole type, since one read covers every instance of it", async () => {
+  const gate = { enabled: 1, threshold: 60, range: 4, attack: 250, decay: 80, hold: 1200, gain: 0, linked: 0 };
+  const studio = setup({
+    get_afx_order: () => ({ entries: Array.from({ length: 16 }, (_, i) => ({ slots: i === 0 ? slots([39, 0]) : slots() })) }),
+    get_afx_links: () => ({ entries: Array.from({ length: 8 }, () => ({ linked: 0 })) }),
+    get_reverb_config: () => ({ mixer_id: 0, room_size: 0, color: 0, predelay: 0, density: 100, early_ref_gain: 0, late_ref_delay: 0, richness: 0, reverb_time: 0, reverb_level: 25, on: 0 }),
+    get_powergate_configs: () => ({ entries: Array.from({ length: 16 }, () => gate) }),
+  });
+  const effects = studio.store.effects("loopback-1");
+  await effects.readOnce();
+  const reads = () => studio.sent("loopback-1", "get_powergate_configs").length;
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 1);
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 1, "read once until something changes");
+
+  // A second PowerGate goes into another chain, on instance 1: the read that covers instance 0 too
+  // is forgotten, so opening the first one reads the type again.
+  assert.equal(effects.addEffect(1, 39), true);
+  await flush();
+  await effects.readParameters(39, 0);
+  assert.equal(reads(), 2, "the type is forgotten, not only the instance that was given out");
 });
 
 test("readChainsOnce reads the chains alone, once, for pages that only need to know what is loaded", async () => {

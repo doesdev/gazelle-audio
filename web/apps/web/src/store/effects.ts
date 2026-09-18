@@ -32,7 +32,7 @@ import type { Topology } from "gazelle-audio-client";
 
 import { batch, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import { EFFECT_NAMES } from "./effect-catalogue.ts";
-import { EFFECT_PARAMETERS, UNSUPPORTED_EFFECTS, type EffectDescription, type EffectParameter } from "./effect-parameters.ts";
+import { catalogue, loadCatalogue, type EffectDescription, type EffectParameter } from "./effect-parameters.ts";
 import { clampPan, PAN_CENTRE } from "./mixer.ts";
 
 /** Effect chains the app shows: the Quadro's AFX IN 1-6 (its AFX2DAW chains belong to the plugin), the Studio+'s 16. */
@@ -669,11 +669,14 @@ export class EffectsModel {
     return free;
   }
 
-  /** An instance whose chain changed: read its settings again when its editor is next opened. */
+  /**
+   * An instance whose chain changed: read its settings again when its editor is next opened. Both
+   * keys go, the type's (the Studio+ reads every instance at once) and this instance's, so that a
+   * chain changed before the catalogue arrived is forgotten too.
+   */
   #forgetParameters(type: number, inst: number): void {
-    const description = this.description(type);
-    if (description === undefined) return;
-    this.#parametersRead.delete(description.instanceParam === undefined ? `${type}` : `${type}:${inst}`);
+    this.#parametersRead.delete(`${type}`);
+    this.#parametersRead.delete(`${type}:${inst}`);
   }
 
   /**
@@ -783,15 +786,31 @@ export class EffectsModel {
     return true;
   }
 
-  /** What the editor knows of an effect type on this model; undefined when it is left out (see `unsupportedReason`). */
+  /**
+   * Fetches the parameter catalogue, which travels in a chunk of its own: nothing below knows an
+   * effect's parameters until it is here. The Effects page calls this as it opens.
+   */
+  loadCatalogue(): Promise<unknown> {
+    return loadCatalogue();
+  }
+
+  /** True once the catalogue is here; reactive, so a page reading it is built again when it arrives. */
+  get catalogueReady(): boolean {
+    return catalogue.value !== undefined;
+  }
+
+  /**
+   * What the editor knows of an effect type on this model; undefined when it is left out (see
+   * `unsupportedReason`) and until the catalogue is here.
+   */
   description(type: number): EffectDescription | undefined {
-    return EFFECT_PARAMETERS[this.family].get(type);
+    return catalogue.peek()?.parameters[this.family].get(type);
   }
 
   /** Why an effect type's parameters are not editable, when they are not. */
   unsupportedReason(type: number): string | undefined {
     if (this.description(type) !== undefined) return undefined;
-    return UNSUPPORTED_EFFECTS[this.family].get(type) ?? "Its parameters were not found in the vendor panel's code.";
+    return catalogue.peek()?.unsupported[this.family].get(type) ?? "Its parameters were not found in the vendor panel's code.";
   }
 
   /** An instance's parameters; undefined until read. */
