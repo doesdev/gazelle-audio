@@ -45,7 +45,7 @@ The audio driver's settings for this device on this computer: the USB audio driv
 
 After either change the section shows what the driver reports now, latencies included, and a line saying what happened. If the driver reports something other than what was sent, the line says so and shows what it reports; nothing is hidden.
 
-**A program using the driver.** When a program (a DAW, most likely) is using the driver's ASIO interface, the section says so, and a change is refused with nothing sent. **Change anyway** (two clicks) sends it regardless; that program then restarts its audio, and may stop or complain. Close it or stop its audio first if you can.
+**A program using the driver.** When a program (a DAW, most likely) is using the driver's ASIO interface, the section says so, and a change is refused with nothing sent. A DAW counts as long as it has the driver open, even when it is neither playing nor recording. **Change anyway** (two clicks) sends it regardless; that program then restarts its audio, and may stop or complain. Close it or stop its audio first if you can.
 
 > **Warning.** Changing the buffer size or Safe Mode restarts the audio of any program using the driver, even when the section does not know it is in use. See [Clock and sample rate changes](02-safety.md#clock-and-sample-rate-changes).
 
