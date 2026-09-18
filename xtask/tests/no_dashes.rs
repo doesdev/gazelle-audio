@@ -20,10 +20,11 @@ use std::path::{Path, PathBuf};
 
 /// The dashes themselves, and each way the product's languages can spell one without writing it:
 /// a JavaScript or JSON escape (what `json.dumps` writes), a Rust escape, an HTML entity. Matched
-/// against the line lower-cased.
+/// against the line lower-cased. The four-digit escapes are built with `concat!` so that this file
+/// never holds one written out, which some tools turn into the character itself.
 const NEEDLES: &[&str] = &[
     "\u{2013}", "\u{2014}",
-    r"–", r"—", r"\u{2013}", r"\u{2014}",
+    concat!("\\", "u2013"), concat!("\\", "u2014"), r"\u{2013}", r"\u{2014}",
     "&ndash;", "&mdash;", "&#8211;", "&#8212;", "&#x2013;", "&#x2014;",
 ];
 
@@ -105,15 +106,19 @@ fn the_product_source_has_no_en_or_em_dashes() {
     assert!(files.len() > 100, "only {} files found under the product roots", files.len());
 
     let mut found = Vec::new();
+    let mut lines = 0;
     for file in &files {
         let bytes = std::fs::read(file).unwrap_or_else(|e| panic!("cannot read {}: {e}", file.display()));
         // Binary files (the icon, fonts) cannot hold a dash as text; skip what is not UTF-8.
         let Ok(text) = std::str::from_utf8(&bytes) else { continue };
+        lines += text.lines().count();
         let shown = file.strip_prefix(&root).unwrap_or(file).display().to_string().replace('\\', "/");
         for (line, content) in dashes(text) {
             found.push(format!("{shown}:{line}: {content}"));
         }
     }
+    // Nor would one that read nothing of what it found.
+    assert!(lines > 20_000, "only {lines} lines read under the product roots");
     assert!(
         found.is_empty(),
         "{} line(s) in the product hold an en dash (U+2013) or em dash (U+2014); rewrite each one:\n{}",
@@ -130,13 +135,15 @@ fn the_check_finds_both_dashes_and_names_the_line() {
 
 #[test]
 fn the_check_finds_a_dash_spelled_as_an_escape_or_an_entity() {
-    for spelled in [r"—", r"–", r"\u{2014}", "&mdash;", "&ndash;", "&#8211;", "&#X2014;"] {
+    // A JSON or JavaScript escape (built with `concat!`, as NEEDLES says why), a Rust one, entities.
+    for spelled in [concat!("\\", "u2014"), concat!("\\", "u2013"), r"\u{2014}", "&mdash;", "&ndash;", "&#8211;", "&#X2014;"] {
         let text = format!("a\nb {spelled} c");
         let expected = format!("b {spelled} c");
         assert_eq!(dashes(&text), vec![(2, expected.as_str())], "{spelled}");
     }
     // Neighbours that are not en or em dashes: the minus sign, a hyphen, a double hyphen.
-    assert!(dashes(r"− &minus; ‐ - --").is_empty());
+    let neighbours = format!("\u{2212} {} &minus; \u{2010} {} - --", concat!("\\", "u2212"), concat!("\\", "u2010"));
+    assert!(dashes(&neighbours).is_empty());
 }
 
 #[test]

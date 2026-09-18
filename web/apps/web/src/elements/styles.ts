@@ -17,9 +17,10 @@ export const shared = stylesheet(`
   [hidden] { display: none !important; }
 
   /* A drag across the UI must not light up labels, readouts and headings. Text can still be
-     selected (on purpose, or while testing); the selection is simply not drawn. A shadow root does
-     not take the page's ::selection rule, so this is here, in every element's shared sheet, as
-     well as in index.html. Fields a person types in keep a visible selection. */
+     selected (on purpose, or while testing); the selection is simply not drawn. A shadow root
+     cannot be relied on to take the page's ::selection rule (Chromium passes it down by highlight
+     inheritance; that is newer than shadow DOM and not universal), so this is here, in every
+     element's shared sheet, as well as in index.html. Fields a person types in keep theirs. */
   ::selection { background: transparent; }
   :is(input, textarea, select, [contenteditable]:not([contenteditable="false"]))::selection,
   [contenteditable]:not([contenteditable="false"]) ::selection {

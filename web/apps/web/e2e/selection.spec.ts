@@ -1,7 +1,8 @@
 // Dragging across the UI must not light up labels, readouts and headings, which looks broken.
 // Selection is not switched off (user-select stays as it was, so text can still be selected on
-// purpose, e.g. while testing); it is drawn transparent. A shadow root does not take the document's
-// ::selection rule, so the rule sits in the stylesheet every element shares as well as in the page.
+// purpose, e.g. while testing); it is drawn transparent. A shadow root cannot be relied on to take
+// the document's ::selection rule (Chromium passes it down by highlight inheritance, which is newer
+// than shadow DOM), so the rule sits in the stylesheet every element shares as well as in the page.
 // Fields a person types in keep a visible selection in the theme's accent.
 //
 // Chrome reports a transparent ::selection background whether or not a page styles it (its own
@@ -77,6 +78,24 @@ test("labels, readouts and headings inside a shadow root look the same selected,
     const colours = await target.evaluate((el) => ({ own: getComputedStyle(el).color, selected: getComputedStyle(el, "::selection").color }));
     expect(colours.selected).toBe(colours.own);
   }
+
+  // Chromium carries the page's ::selection into shadow roots by inheritance, but that is not a
+  // promise every engine keeps, and the shared sheet must hold on its own: with the page's rules
+  // taken away, the same text still looks the same selected.
+  const removed = await page.evaluate(() => {
+    let count = 0;
+    for (const sheet of Array.from(document.styleSheets)) {
+      for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
+        if ((sheet.cssRules[i] as CSSStyleRule).selectorText?.includes("::selection")) {
+          sheet.deleteRule(i);
+          count++;
+        }
+      }
+    }
+    return count;
+  });
+  expect(removed).toBeGreaterThan(0);
+  for (const target of [label, readout, heading]) expect(await selectionShows(page, target)).toBe(false);
 });
 
 test("a field keeps a visible selection in the theme's accent, in a shadow root", async ({ page }) => {
