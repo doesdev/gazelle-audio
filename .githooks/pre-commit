@@ -71,7 +71,11 @@ done <<< "$staged"
 
 if [ "$fail" -ne 0 ]; then
     echo >&2
-    echo "Commit aborted. Remove the secret, or use --no-verify if this is a false positive." >&2
+    if [ "${1:-}" = "--range" ]; then
+        echo "The change adds what looks like a secret. Remove it from the history, and revoke it if it was real." >&2
+    else
+        echo "Commit aborted. Remove the secret, or use --no-verify if this is a false positive." >&2
+    fi
     exit 1
 fi
 exit 0
