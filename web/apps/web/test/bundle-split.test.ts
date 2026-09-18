@@ -93,6 +93,18 @@ test("a page only one route shows travels with that route, not with the app", as
   }
 });
 
+test("the explanations travel in a chunk of their own, fetched when the explain mode is first turned on", async () => {
+  const built = await chunks();
+  const module = "elements/explain-catalogue.ts";
+  const where = built.filter((chunk) => holds(chunk, module));
+  assert.equal(where.length, 1, `${module} is in exactly one chunk, not ${where.length}`);
+  assert.deepEqual(where[0]?.moduleIds.map((id) => id.replace(/\\/g, "/").replace(/^.*\/src\//, "")), [module], "and that chunk holds nothing else");
+  const loaded = onStartup(built).filter((chunk) => holds(chunk, module)).map((c) => c.fileName);
+  assert.deepEqual(loaded, [], `the explanations are loaded with the app, through ${loaded.join(", ")}`);
+  // The mode's own plumbing is in the app, since it has to be there to be turned on.
+  assert.equal(onStartup(built).some((chunk) => holds(chunk, "elements/explain.ts")), true, "the mode itself comes with the app");
+});
+
 test("the entry chunk has room for the next page, not a few kB", async () => {
   const built = await chunks();
   const entry = built.find((chunk) => chunk.isEntry) as Rollup.OutputChunk;

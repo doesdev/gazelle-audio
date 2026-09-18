@@ -161,11 +161,12 @@ export class GaEffects extends GaElement {
       type: "button",
       "data-control": "",
       "data-testid": "effects-read",
+      "data-explain": "effects.read",
       "on:click": async () => {
         if (!(await effects.load()) && !store.server.peek().dry_run) store.reportError("The effects could not all be read from the device.");
       },
     }, "Read from device");
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     const note = h("p", { class: "note", "data-testid": "effects-note" });
 
     const chains = h("div", { class: "chains" });
@@ -213,7 +214,7 @@ export class GaEffects extends GaElement {
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
       note,
-      h("section", {}, h("h2", {}, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX IN channel and returns on AFX OUT. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, removing and moving an effect writes the whole chain and reads it back; the device switches an effect on as it is added and off as it goes. Inserting and removing one effect have been checked on a Quadro; moving one, several effects in a chain and the Studio+ have not."), chains),
+      h("section", {}, h("h2", { "data-explain": "effects.chains" }, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX IN channel and returns on AFX OUT. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, removing and moving an effect writes the whole chain and reads it back; the device switches an effect on as it is added and off as it goes. Inserting and removing one effect have been checked on a Quadro; moving one, several effects in a chain and the Studio+ have not."), chains),
       editor,
       reverb,
       ...returnsAndSends,
@@ -253,7 +254,7 @@ export class GaEffects extends GaElement {
     const store = useStore();
     const topology = store.topology(deviceId);
     const name = chain?.name ?? `AFX IN ${index + 1}`;
-    const source = h("span", { class: "source", "data-testid": `chain-source-${index}` });
+    const source = h("span", { class: "source", "data-testid": `chain-source-${index}`, "data-explain": "effects.chain-source" });
     if (destination >= 0) {
       disposers.push(
         this.#effect(() => {
@@ -263,7 +264,7 @@ export class GaEffects extends GaElement {
         }),
       );
     }
-    const link = h("span", { class: "link", "data-testid": `chain-link-${index}`, title: chain === undefined ? "" : `Linked with AFX IN ${chain.partner + 1}`, hidden: chain?.linked !== true }, "LINK");
+    const link = h("span", { class: "link", "data-testid": `chain-link-${index}`, "data-explain": "effects.chain-link", title: chain === undefined ? "" : `Linked with AFX IN ${chain.partner + 1}`, hidden: chain?.linked !== true }, "LINK");
     const head = h("div", { class: "chain-head" }, h("span", { class: "name" }, name), link, source);
 
     if (chain === undefined || !chain.known) {
@@ -273,12 +274,12 @@ export class GaEffects extends GaElement {
     const rows = chain.slots.map((slot) => {
       const bypass = effects.bypass(slot.type, slot.inst);
       const move = (by: number, where: string, arrow: string, testId: string) =>
-        h("button", { type: "button", class: "move", "data-testid": `${testId}-${index}-${slot.position}`, "aria-label": `Move ${slot.name} ${slot.inst + 1} ${where} in ${name}`, title: `Move ${where}. Reordering a chain has never been tried on a device.`, "on:click": () => effects.moveEffect(index, slot.position, by) }, arrow);
+        h("button", { type: "button", class: "move", "data-testid": `${testId}-${index}-${slot.position}`, "data-explain": by < 0 ? "effects.move-up" : "effects.move-down", "aria-label": `Move ${slot.name} ${slot.inst + 1} ${where} in ${name}`, title: `Move ${where}. Reordering a chain has never been tried on a device.`, "on:click": () => effects.moveEffect(index, slot.position, by) }, arrow);
       const up = move(-1, "earlier", "\u2191", "move-up");
       const down = move(1, "later", "\u2193", "move-down");
-      const remove = h("button", { type: "button", class: "remove", "data-testid": `remove-${index}-${slot.position}`, "aria-label": `Remove ${slot.name} ${slot.inst + 1} from ${name}`, title: `Remove ${slot.name} ${slot.inst + 1} from the chain. The device switches the effect off as it goes.`, "on:click": () => effects.removeEffect(index, slot.position) }, "\u2715");
-      const process = h("button", { type: "button", class: "process", "data-testid": `active-${index}-${slot.position}`, "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, false) }, "On");
-      const off = h("button", { type: "button", class: "bypass", "data-testid": `bypass-${index}-${slot.position}`, "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, true) }, "Bypass");
+      const remove = h("button", { type: "button", class: "remove", "data-testid": `remove-${index}-${slot.position}`, "data-explain": "effects.remove", "aria-label": `Remove ${slot.name} ${slot.inst + 1} from ${name}`, title: `Remove ${slot.name} ${slot.inst + 1} from the chain. The device switches the effect off as it goes.`, "on:click": () => effects.removeEffect(index, slot.position) }, "\u2715");
+      const process = h("button", { type: "button", class: "process", "data-testid": `active-${index}-${slot.position}`, "data-explain": "effects.on", "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, false) }, "On");
+      const off = h("button", { type: "button", class: "bypass", "data-testid": `bypass-${index}-${slot.position}`, "data-explain": "effects.bypass", "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(index, slot.position, true) }, "Bypass");
       const meter = this.#slotMeter(deviceId, index, slot, disposers);
       disposers.push(
         this.#effect(() => {
@@ -301,6 +302,8 @@ export class GaEffects extends GaElement {
             type: "button",
             class: "effect",
             "data-testid": `edit-${index}-${slot.position}`,
+            "data-explain": "effects.effect",
+            "data-explain-name": `${slot.name} #${slot.inst + 1}`,
             "aria-expanded": String(chosen?.chain === index && chosen.type === slot.type && chosen.inst === slot.inst),
             title: `Settings of ${slot.name} ${slot.inst + 1} (effect type ${slot.type})`,
             "on:click": () => {
@@ -318,7 +321,7 @@ export class GaEffects extends GaElement {
     });
     const empty = chain.slots.length === 0;
     const all = (bypassed: boolean, label: string, testId: string) =>
-      h("button", { type: "button", "data-control": "", "data-testid": `${testId}-${index}`, ...(empty ? { "data-empty": "" } : {}), disabled: empty || !store.connected.peek(), "on:click": () => effects.setChainBypass(index, bypassed) }, label);
+      h("button", { type: "button", "data-control": "", "data-testid": `${testId}-${index}`, "data-explain": bypassed ? "effects.bypass-all" : "effects.process-all", ...(empty ? { "data-empty": "" } : {}), disabled: empty || !store.connected.peek(), "on:click": () => effects.setChainBypass(index, bypassed) }, label);
     return h(
       "div",
       { class: "chain", "data-testid": `chain-${index}` },
@@ -339,6 +342,7 @@ export class GaEffects extends GaElement {
     const select = h("select", {
       class: "add",
       "data-testid": `chain-add-${index}`,
+      "data-explain": "effects.add",
       "aria-label": `Add an effect to ${name}`,
       // The wheel steps a select and sends (P73); this menu acts on being chosen, not on being scrolled past.
       "data-no-wheel": true,
@@ -378,10 +382,10 @@ export class GaEffects extends GaElement {
   #editor(effects: EffectsModel, chain: number, slot: EffectSlot, disposers: (() => void)[]): HTMLElement {
     const store = useStore();
     const description = effects.description(slot.type);
-    const close = h("button", { type: "button", "data-testid": "editor-close", "aria-label": "Close the effect's settings", "on:click": () => (this.#chosen.value = undefined) }, "Close");
+    const close = h("button", { type: "button", "data-testid": "editor-close", "aria-label": "Close the effect's settings", "data-explain": "effects.editor-close", "on:click": () => (this.#chosen.value = undefined) }, "Close");
     const bypass = effects.bypass(slot.type, slot.inst);
-    const process = h("button", { type: "button", class: "process", "data-testid": "editor-active", "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(chain, slot.position, false) }, "On");
-    const off = h("button", { type: "button", class: "bypass", "data-testid": "editor-bypass", "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(chain, slot.position, true) }, "Bypass");
+    const process = h("button", { type: "button", class: "process", "data-testid": "editor-active", "data-explain": "effects.on", "aria-label": `Process with ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(chain, slot.position, false) }, "On");
+    const off = h("button", { type: "button", class: "bypass", "data-testid": "editor-bypass", "data-explain": "effects.bypass", "aria-label": `Bypass ${slot.name} ${slot.inst + 1}`, "on:click": () => effects.setBypass(chain, slot.position, true) }, "Bypass");
     disposers.push(
       this.#effect(() => {
         process.setAttribute("aria-pressed", String(bypass.value === false));
@@ -392,7 +396,7 @@ export class GaEffects extends GaElement {
     const head = h(
       "div",
       { class: "editor-head" },
-      h("h2", {}, `${slot.name} #${slot.inst + 1}`),
+      h("h2", { "data-explain": "effects.editor", "data-explain-name": `${slot.name} #${slot.inst + 1}` }, `${slot.name} #${slot.inst + 1}`),
       h("span", { class: "where" }, `AFX IN ${chain + 1}, slot ${slot.position + 1}`),
       h("span", { class: "spacer" }),
       h("span", { class: "pair", role: "group", "aria-label": `${slot.name} bypass` }, process, off),
@@ -512,7 +516,7 @@ export class GaEffects extends GaElement {
           });
           return h("div", { class: "param" }, h("span", { class: "label", title: parameter.label }, parameter.label), control);
         });
-      return h("section", { class: "band", "data-testid": `band-${b}`, "aria-label": `Band ${b + 1}` }, h("h3", {}, `Band ${b + 1}`), ...controls);
+      return h("section", { class: "band", "data-testid": `band-${b}`, "aria-label": `Band ${b + 1}` }, h("h3", { "data-explain": "effects.band", "data-explain-name": `Band ${b + 1}` }, `Band ${b + 1}`), ...controls);
     });
     disposers.push(
       this.#effect(() => {
@@ -528,7 +532,7 @@ export class GaEffects extends GaElement {
     const label = parameter.label;
     switch (parameter.control) {
       case "switch": {
-        const button = h("button", { type: "button", class: "toggle", "data-testid": testId, "aria-label": label, "on:click": () => set(get() === 0 ? 1 : 0), "on:dblclick": reset });
+        const button = h("button", { type: "button", class: "toggle", "data-testid": testId, "aria-label": label, "data-explain": "effects.param-switch", "data-explain-name": label, "on:click": () => set(get() === 0 ? 1 : 0), "on:dblclick": reset });
         disposers.push(
           this.#effect(() => {
             const value = current();
@@ -539,7 +543,7 @@ export class GaEffects extends GaElement {
         return button;
       }
       case "menu": {
-        const select = h("select", { "data-testid": testId, "aria-label": label, "on:change": (event: Event) => set(Number((event.target as HTMLSelectElement).value)), "on:dblclick": reset }, (parameter.options ?? []).map(([value, text]) => h("option", { value: String(value) }, text)));
+        const select = h("select", { "data-testid": testId, "aria-label": label, "data-explain": "effects.param-menu", "data-explain-name": label, "on:change": (event: Event) => set(Number((event.target as HTMLSelectElement).value)), "on:dblclick": reset }, (parameter.options ?? []).map(([value, text]) => h("option", { value: String(value) }, text)));
         disposers.push(
           this.#effect(() => {
             select.value = String(current());
@@ -549,9 +553,9 @@ export class GaEffects extends GaElement {
       }
       case "bits": {
         const buttons = (parameter.options ?? []).map(([bit, text]) =>
-          h("button", { type: "button", "data-testid": `${testId}-${Math.log2(bit)}`, "aria-label": `${label} ${text}`, "on:click": () => set(get() ^ bit) }, text),
+          h("button", { type: "button", "data-testid": `${testId}-${Math.log2(bit)}`, "aria-label": `${label} ${text}`, "data-explain": "effects.param-bits", "data-explain-name": `${label}: ${text}`, "on:click": () => set(get() ^ bit) }, text),
         );
-        const group = h("div", { class: "bits", role: "group", "data-testid": testId, "aria-label": label, "on:dblclick": reset }, buttons);
+        const group = h("div", { class: "bits", role: "group", "data-testid": testId, "aria-label": label, "data-explain": "effects.param-bits", "data-explain-name": label, "on:dblclick": reset }, buttons);
         disposers.push(
           this.#effect(() => {
             const value = current();
@@ -564,7 +568,7 @@ export class GaEffects extends GaElement {
       default: {
         const min = parameter.min ?? 0;
         const max = parameter.max ?? 0;
-        const bar = barControl(testId, label);
+        const bar = barControl(testId, label, "effects.param-range");
         bindControl(bar.element, { axis: "x", min, max, up: 1, page: Math.max(1, Math.round((max - min) / 20)), reset: parameter.default ?? min, get, set, enabled });
         disposers.push(
           this.#effect(() => {
@@ -598,12 +602,12 @@ export class GaEffects extends GaElement {
     const reduction = h("span", { class: "reduction" });
     if (meter === undefined) {
       reduction.textContent = "no meter";
-      return h("span", { class: "effect-meter", title: "The device reports no meter for this effect" }, reduction);
+      return h("span", { class: "effect-meter", title: "The device reports no meter for this effect", "data-explain": "effects.no-meter" }, reduction);
     }
     const mask = h("div", { class: "mask" });
     const peakMark = h("div", { class: "peak-mark", hidden: "" });
     const bar = h("div", { class: "bar", "aria-hidden": "true" }, h("div", { class: "gradient" }), mask, peakMark);
-    const clip = h("button", { type: "button", class: "clip", "data-testid": `clip-${chain}-${slot.position}`, "aria-label": `${slot.name} ${slot.inst + 1} clip; select to clear`, "on:click": () => meter.clearClip() });
+    const clip = h("button", { type: "button", class: "clip", "data-testid": `clip-${chain}-${slot.position}`, "data-explain": "effects.clip", "aria-label": `${slot.name} ${slot.inst + 1} clip; select to clear`, "on:click": () => meter.clearClip() });
     disposers.push(
       animateMeter(meter.level, (motion) => {
         mask.style.width = `${100 - meterDeflection(motion.level)}%`;
@@ -616,13 +620,13 @@ export class GaEffects extends GaElement {
         reduction.textContent = gr === undefined ? "GR …" : `GR ${gr}`;
       }),
     );
-    return h("span", { class: "effect-meter", "data-testid": `meter-${chain}-${slot.position}`, title: "The effect's level, dB below full scale, and the gain reduction the device reports, in its own steps" }, bar, clip, reduction);
+    return h("span", { class: "effect-meter", "data-testid": `meter-${chain}-${slot.position}`, "data-explain": "effects.meter", title: "The effect's level, dB below full scale, and the gain reduction the device reports, in its own steps" }, bar, clip, reduction);
   }
 
   #reverb(effects: EffectsModel, enabled: () => boolean): HTMLElement {
     const store = useStore();
-    const on = h("button", { type: "button", class: "toggle on", "data-testid": "reverb-on", "aria-label": "Reverb on", "on:click": () => effects.setReverbOn(!(effects.reverb.peek()?.on ?? false)) }, "On");
-    const level = barControl("reverb-level", "Reverb level");
+    const on = h("button", { type: "button", class: "toggle on", "data-testid": "reverb-on", "aria-label": "Reverb on", "data-explain": "reverb.on", "on:click": () => effects.setReverbOn(!(effects.reverb.peek()?.on ?? false)) }, "On");
+    const level = barControl("reverb-level", "Reverb level", "reverb.level");
     bindControl(level.element, {
       axis: "x",
       min: REVERB_LEVEL_MIN,
@@ -655,12 +659,12 @@ export class GaEffects extends GaElement {
               ["Late reflection delay", String(config.lateRefDelay)],
               ["Richness", String(config.richness)],
             ];
-      params.replaceChildren(...shown.flatMap(([term, detail]) => [h("dt", {}, term), h("dd", {}, h("span", { class: "readout" }, detail))]));
+      params.replaceChildren(...shown.flatMap(([term, detail]) => [h("dt", {}, term), h("dd", {}, h("span", { class: "readout", "data-explain": "reverb.param", "data-explain-name": term }, detail))]));
     });
     return h(
       "section",
       {},
-      h("h2", {}, "Reverb"),
+      h("h2", { "data-explain": "reverb.heading" }, "Reverb"),
       h(
         "div",
         { class: "rows" },
@@ -675,7 +679,7 @@ export class GaEffects extends GaElement {
   #returns(effects: EffectsModel, enabled: () => boolean): HTMLElement {
     const store = useStore();
     const rows = RETURN_NAMES.map((name, mix) => {
-      const level = barControl(`return-level-${mix}`, `Reverb return to ${name}`);
+      const level = barControl(`return-level-${mix}`, `Reverb return to ${name}`, "reverb.return-level");
       bindControl(level.element, {
         axis: "x",
         min: REVERB_RETURN_MAX,
@@ -690,7 +694,7 @@ export class GaEffects extends GaElement {
         set: (v) => effects.setReturn(mix, { level: v }),
         enabled: () => enabled() && effects.returns.peek() !== undefined,
       });
-      const mute = h("button", { type: "button", class: "toggle mute", "data-testid": `return-mute-${mix}`, "aria-label": `Mute the reverb return to ${name}`, "on:click": () => effects.setReturn(mix, { mute: !(effects.returns.peek()?.entries[mix]?.mute ?? false) }) }, "Mute");
+      const mute = h("button", { type: "button", class: "toggle mute", "data-testid": `return-mute-${mix}`, "data-explain": "reverb.return-mute", "aria-label": `Mute the reverb return to ${name}`, "on:click": () => effects.setReturn(mix, { mute: !(effects.returns.peek()?.entries[mix]?.mute ?? false) }) }, "Mute");
       this.watch(() => {
         const entry = effects.returns.value?.entries[mix];
         const value = entry?.level ?? 0;
@@ -701,13 +705,13 @@ export class GaEffects extends GaElement {
       });
       return h("div", { class: "row" }, h("span", { class: "name" }, name), level.element, mute);
     });
-    return h("section", {}, h("h2", {}, "Reverb returns"), h("p", { class: "note" }, "How much reverb each mix gets back. The vendor panel shows no scale for these, so they are shown in its own steps, 0 at full to 90; not yet checked on the device."), h("div", { class: "rows" }, rows));
+    return h("section", {}, h("h2", { "data-explain": "reverb.returns" }, "Reverb returns"), h("p", { class: "note" }, "How much reverb each mix gets back. The vendor panel shows no scale for these, so they are shown in its own steps, 0 at full to 90; not yet checked on the device."), h("div", { class: "rows" }, rows));
   }
 
   #sends(effects: EffectsModel, enabled: () => boolean): HTMLElement {
     const rows = Array.from({ length: 16 }, (_, i) => {
       const channel = i + 1;
-      const level = barControl(`send-level-${channel}`, `Reverb send from mix 1 channel ${channel}`);
+      const level = barControl(`send-level-${channel}`, `Reverb send from mix 1 channel ${channel}`, "reverb.send-level");
       bindControl(level.element, {
         axis: "x",
         min: REVERB_SEND_MAX,
@@ -721,7 +725,7 @@ export class GaEffects extends GaElement {
         set: (v) => effects.setSend(channel, { level: v }),
         enabled: () => enabled() && effects.sends.peek() !== undefined,
       });
-      const pan = barControl(`send-pan-${channel}`, `Reverb send pan, mix 1 channel ${channel}`);
+      const pan = barControl(`send-pan-${channel}`, `Reverb send pan, mix 1 channel ${channel}`, "reverb.send-pan");
       bindControl(pan.element, {
         axis: "x",
         min: PAN_MIN,
@@ -743,15 +747,15 @@ export class GaEffects extends GaElement {
       });
       return h("div", { class: "send" }, h("span", { class: "label" }, `Ch ${channel}`), level.element, pan.element);
     });
-    return h("section", {}, h("h2", {}, "Reverb sends"), h("p", { class: "note" }, "How much of each of mix 1's channels 1 to 16 goes to the reverb, and where it sits in it, as the vendor panel offers."), h("div", { class: "sends" }, rows));
+    return h("section", {}, h("h2", { "data-explain": "reverb.sends" }, "Reverb sends"), h("p", { class: "note" }, "How much of each of mix 1's channels 1 to 16 goes to the reverb, and where it sits in it, as the vendor panel offers."), h("div", { class: "sends" }, rows));
   }
 }
 
 /** A horizontal value bar with a text readout, as the Outputs page's volumes; a centred one (a pan) fills from the middle. */
-function barControl(testId: string, label: string): { element: HTMLElement; show(fraction: number, text: string, now: number, centred?: boolean): void } {
+function barControl(testId: string, label: string, explain: string): { element: HTMLElement; show(fraction: number, text: string, now: number, centred?: boolean): void } {
   const fill = h("div", { class: "fill" });
   const value = h("span", { class: "value" });
-  const element = h("div", { class: "bar-control", role: "slider", tabindex: 0, "aria-label": label, "data-testid": testId }, fill, value);
+  const element = h("div", { class: "bar-control", role: "slider", tabindex: 0, "aria-label": label, "data-testid": testId, "data-explain": explain, "data-explain-name": label }, fill, value);
   return {
     element,
     show(fraction, text, now, centred = false) {

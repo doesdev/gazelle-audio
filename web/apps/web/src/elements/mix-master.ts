@@ -45,12 +45,13 @@ export class GaMixMaster extends GaElement {
     const channels = store.channels(deviceId);
     const outputs = channels.mixOutputs(mix);
 
-    const name = h("input", { type: "text", "aria-label": `Mix ${mix + 1} name`, placeholder: `Mix ${mix + 1}`, "data-testid": `mix-name-${mix}` });
+    const name = h("input", { type: "text", "aria-label": `Mix ${mix + 1} name`, placeholder: `Mix ${mix + 1}`, "data-testid": `mix-name-${mix}`, "data-explain": "master.name" });
     const showName = commitOnEnter(name, (value) => channels.renameMix(mix, value.trim()), () => channels.layout.peek().mixes[mix]?.name ?? "", store.view<string | undefined>(`draft:mixer:${deviceId}:mix:${mix}:name`, undefined));
-    const chips = h("div", { class: "chips", "data-testid": `mix-outputs-${mix}` });
+    const chips = h("div", { class: "chips", "data-testid": `mix-outputs-${mix}`, "data-explain": "master.outputs" });
     const add = h("select", {
       "aria-label": `Add an output for mix ${mix + 1}`,
       "data-testid": `mix-add-output-${mix}`,
+      "data-explain": "master.add-output",
       // A menu of actions rather than a value: each wheel step would add an output (P73).
       "data-no-wheel": true,
       "on:change": () => {
@@ -62,7 +63,7 @@ export class GaMixMaster extends GaElement {
     // Mono (P57): the app centres the mix's pans and restores them after; the device has no switch for it.
     const mono = h(
       "button",
-      { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, title: "Sum this mix to mono: pans every channel to centre, and restores the pans when turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },
+      { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, "data-explain": "master.mono", title: "Sum this mix to mono: pans every channel to centre, and restores the pans when turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },
       "Mono",
     );
     this.watch(() => mono.setAttribute("aria-pressed", String(channels.isMono(mix))));
@@ -80,9 +81,9 @@ export class GaMixMaster extends GaElement {
           : playing.map((pair) =>
               h(
                 "span",
-                { class: "chip", title: pair.label },
+                { class: "chip", title: pair.label, "data-explain": "master.output", "data-explain-name": pair.label },
                 h("span", {}, pair.label),
-                h("button", { type: "button", "aria-label": `Stop ${mixName} feeding ${pair.label}`, "on:click": () => void channels.setMixOutput(mix, pair, false) }, "×"),
+                h("button", { type: "button", "aria-label": `Stop ${mixName} feeding ${pair.label}`, "data-explain": "master.output-stop", "data-explain-name": pair.label, "on:click": () => void channels.setMixOutput(mix, pair, false) }, "×"),
               ),
             )),
       );

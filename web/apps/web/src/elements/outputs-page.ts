@@ -86,7 +86,7 @@ export class GaOutputs extends GaElement {
     this.onDisconnect(outputs.activate());
     const enabled = () => store.connected.peek();
 
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     // The Quadro's one switch over all four outputs; the vendor panel throws it while it restores a
     // session, and it is the same thing to reach for before changing monitors.
     const hardMute = !outputs.hasHardMute
@@ -96,6 +96,7 @@ export class GaOutputs extends GaElement {
           class: "hard-mute",
           "data-control": "",
           "data-testid": "hard-mute",
+          "data-explain": "outputs.hard-mute",
           "aria-label": "Hard mute: mute every output",
           title: "Mutes every output at once",
           "on:click": () => outputs.setHardMute(!outputs.hardMute.peek()),
@@ -104,7 +105,7 @@ export class GaOutputs extends GaElement {
     const host = { watch: (fn: () => void) => this.watch(fn), onDisconnect: (fn: () => void) => this.onDisconnect(fn) };
     const rows = h("div", { class: "rows" }, outputs.outputs.map((output) => outputRow(host, outputs, output, enabled, this.#inControlRoom(deviceId, output))));
 
-    const trims = h("section", {}, h("h2", {}, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
+    const trims = h("section", {}, h("h2", { "data-explain": "outputs.trims" }, "Trims"), h("div", { class: "settings" }, outputs.trims.map((trim) => this.#trim(outputs, trim))));
     const talkback = outputs.talkback === undefined ? undefined : this.#talkback(outputs, enabled);
     this.root.replaceChildren(
       h("div", { class: "bar" }, ...(hardMute === undefined ? [] : [hardMute]), h("span", { class: "spacer" }), lastSent),
@@ -150,6 +151,8 @@ export class GaOutputs extends GaElement {
         type: "button",
         class: "in-cr",
         "data-testid": `out-in-cr-${output.id}`,
+        "data-explain": "outputs.in-cr",
+        "data-explain-name": output.name,
         "aria-label": `${output.name} in the Control Room`,
         title: `Show ${output.name} in the Control Room panel`,
         "on:click": () => store.setInControlRoom(deviceId, output.id, !shown.peek().includes(output.id)),
@@ -167,7 +170,7 @@ export class GaOutputs extends GaElement {
     const state = outputs.trim(trim.id);
     const select = h(
       "select",
-      { "aria-label": `${trim.name} trim`, "data-testid": `trim-${trim.id}`, "on:change": () => outputs.setTrim(trim.id, Number(select.value)) },
+      { "aria-label": `${trim.name} trim`, "data-testid": `trim-${trim.id}`, "data-explain": "outputs.trim", "data-explain-name": trim.name, "on:change": () => outputs.setTrim(trim.id, Number(select.value)) },
       TRIM_LABELS.map((label, index) => h("option", { value: String(index) }, label)),
     );
     this.watch(() => {
@@ -180,15 +183,15 @@ export class GaOutputs extends GaElement {
 
   #talkback(outputs: OutputsModel, enabled: () => boolean): HTMLElement {
     // Talk is momentary: on only while held.
-    const talk = h("button", { type: "button", class: "talk", "data-control": "", "data-testid": "talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk" }, "Talk");
+    const talk = h("button", { type: "button", class: "talk", "data-control": "", "data-testid": "talk", "aria-label": "Talkback (hold to talk)", title: "Hold to talk", "data-explain": "outputs.talk" }, "Talk");
     bindMomentary(talk, (on) => outputs.setTalk(on), enabled);
     const fill = h("div", { class: "fill" });
     const value = h("span", { class: "value" });
     // The panel's talkback control is a level fader, on the outputs' scale: 0 dB at the right, -inf at the left.
-    const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback level", "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": "talk-volume" }, fill, value);
+    const volume = h("div", { class: "volume", role: "slider", tabindex: 0, "aria-label": "Talkback level", "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": "talk-volume", "data-explain": "outputs.talk-level" }, fill, value);
     bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => outputs.talk.peek().volume, set: (v) => outputs.setTalkbackVolume(v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => this.watch(fn), 0, "-30 dB") });
     const destinations = (outputs.talkback?.destinations ?? []).map((d) =>
-      h("button", { type: "button", "data-control": "", "data-testid": `talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
+      h("button", { type: "button", "data-control": "", "data-testid": `talk-to-${d.id}`, "aria-label": `Talkback to ${d.name}`, "data-explain": "outputs.talk-to", "data-explain-name": d.name, "on:click": () => outputs.setTalkbackTo(d.id, !(outputs.talk.peek().to[d.id] ?? false)) }, d.name),
     );
     this.watch(() => {
       const t = outputs.talk.value;
@@ -202,7 +205,7 @@ export class GaOutputs extends GaElement {
     return h(
       "section",
       {},
-      h("h2", {}, "Talkback"),
+      h("h2", { "data-explain": "outputs.talkback" }, "Talkback"),
       h(
         "div",
         { class: "settings" },
@@ -224,15 +227,15 @@ export function outputRow(host: ControlHost, outputs: OutputsModel, output: Outp
   const value = h("span", { class: "value" });
   const volume = h(
     "div",
-    { class: "volume", role: "slider", tabindex: 0, "aria-label": `${output.name} volume`, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": `out-volume-${output.id}` },
+    { class: "volume", role: "slider", tabindex: 0, "aria-label": `${output.name} volume`, "aria-valuemin": -VOLUME_MAX, "aria-valuemax": 0, "data-testid": `out-volume-${output.id}`, "data-explain": "outputs.volume", "data-explain-name": output.name },
     fill,
     value,
   );
   bindControl(volume, { axis: "x", min: VOLUME_MAX, max: 0, up: -1, page: 6, reset: VOLUME_RESET, get: () => state.peek().volume, set: (v) => outputs.setVolume(output.id, v), enabled, level: levelReset(useStore().doubleClickUnity, (fn) => host.watch(fn), 0, "-30 dB") });
-  const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
-  const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
+  const mute = h("button", { type: "button", class: "mute", "data-control": "", "data-testid": `out-mute-${output.id}`, "aria-label": `${output.name} mute`, "data-explain": "outputs.mute", "data-explain-name": output.name, "on:click": () => outputs.setMute(output.id, !state.peek().mute) }, "Mute");
+  const dim = output.dim ? h("button", { type: "button", class: "dim", "data-control": "", "data-testid": `out-dim-${output.id}`, "aria-label": `${output.name} dim`, "data-explain": "outputs.dim", "data-explain-name": output.name, "on:click": () => outputs.setDim(output.id, !state.peek().dim) }, "Dim") : undefined;
   // Mono is reported (Quadro) but has no command, so it is a badge, not a button.
-  const mono = h("span", { class: "mono", "data-testid": `out-mono-${output.id}`, title: "The device reports this output in mono", hidden: true }, "MONO");
+  const mono = h("span", { class: "mono", "data-testid": `out-mono-${output.id}`, title: "The device reports this output in mono", hidden: true, "data-explain": "outputs.mono" }, "MONO");
 
   host.watch(() => {
     const s = state.value;

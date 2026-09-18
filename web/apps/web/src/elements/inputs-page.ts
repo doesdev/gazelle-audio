@@ -21,6 +21,9 @@ const testId = <E extends Element>(element: E, id: string): E => {
 
 const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db} dB`;
 
+/** Each preamp type's key for the explain mode. */
+const TYPE_KEYS: Record<PreampType, string> = { 0: "inputs.type-mic", 1: "inputs.type-line", 2: "inputs.type-hiz" };
+
 /** A microphone or emulation's name in a list, saying so when the device's licence does not cover it. */
 const unlicensed = (name: string, licensed: boolean) => (licensed ? name : `${name} (not licensed)`);
 
@@ -141,11 +144,11 @@ export class GaInputs extends GaElement {
     const enabled = () => store.connected.peek();
     const host: ControlHost = { watch: (fn) => this.watch(fn), onDisconnect: (fn) => this.onDisconnect(fn) };
 
-    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent" });
+    const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     const note = h("p", { class: "note" });
 
     const preamps = h("div", { class: "grid" }, Array.from({ length: inputs.preampCount }, (_, i) => preampCard(host, inputs, i, enabled)));
-    const sections = inputs.digital.filter((group) => group.count > 0).map((group) => h("section", {}, h("h2", {}, group.label), h("div", { class: "grid" }, Array.from({ length: group.count }, (_, i) => digitalCell(host, inputs, group, i, enabled)))));
+    const sections = inputs.digital.filter((group) => group.count > 0).map((group) => h("section", {}, h("h2", { "data-explain": "inputs.digital", "data-explain-name": group.label }, group.label), h("div", { class: "grid" }, Array.from({ length: group.count }, (_, i) => digitalCell(host, inputs, group, i, enabled)))));
 
     // Mic emulation, Quadro only: which Antelope microphone is on a preamp and what it is made to
     // sound like. It has its own section because two catalogues do not fit in a preamp's column,
@@ -155,7 +158,7 @@ export class GaInputs extends GaElement {
       : h(
           "section",
           {},
-          h("h2", {}, "Mic emulation"),
+          h("h2", { "data-explain": "inputs.mic-emulation" }, "Mic emulation"),
           h("div", { class: "mics" }, Array.from({ length: inputs.preampCount }, (_, i) => this.#emulation(inputs, i))),
           h("p", { class: "note-inline" }, "For Antelope's own microphones on a preamp set to Mic. An Edge Duo covers two preamps and an Edge Quadro four, and picking one links them. A polar pattern runs from omni through cardioid to figure-8, as far as the emulated microphone allows, and its plot draws a lobe of inverted polarity dashed. A stereo technique also wants the top head turned 90°, which is yours to do: the Edge Quadro's plot shows the heads as the technique wants them turned, not as they sit."),
         );
@@ -167,7 +170,7 @@ export class GaInputs extends GaElement {
       h("div", { class: "bar" }, h("span", { class: "spacer" }), lastSent),
       links,
       note,
-      h("section", {}, h("h2", {}, "Preamps"), preamps),
+      h("section", {}, h("h2", { "data-explain": "inputs.preamps" }, "Preamps"), preamps),
       ...sections,
       ...(emulation === undefined ? [] : [emulation]),
     );
@@ -201,11 +204,11 @@ export class GaInputs extends GaElement {
     const name = h("span", { class: "name" });
     const target = h(
       "select",
-      { "aria-label": `Preamp ${i + 1} microphone`, "data-testid": `mic-target-${i}`, "on:change": () => inputs.setEmulationTarget(i, Number(target.value)) },
+      { "aria-label": `Preamp ${i + 1} microphone`, "data-testid": `mic-target-${i}`, "data-explain": "mic.target", "data-explain-name": `Preamp ${i + 1}`, "on:change": () => inputs.setEmulationTarget(i, Number(target.value)) },
       inputs.micTargets.map((t) => h("option", { value: String(t.value) }, t.name)),
     );
     const models = h("span", { class: "models" });
-    const preset = h("select", { class: "preset", "aria-label": `Preamp ${i + 1} stereo technique`, "data-testid": `mic-preset-${i}`, "on:change": () => inputs.setEmulationPreset(i, Number(preset.value)) });
+    const preset = h("select", { class: "preset", "aria-label": `Preamp ${i + 1} stereo technique`, "data-testid": `mic-preset-${i}`, "data-explain": "mic.preset", "data-explain-name": `Preamp ${i + 1}`, "on:change": () => inputs.setEmulationPreset(i, Number(preset.value)) });
     // The technique, and beside it both heads' patterns in one plot, which is how a technique reads best.
     const stereo = h("span", { class: "stereo", hidden: "" }, preset);
     const swap = h("button", {
@@ -213,6 +216,7 @@ export class GaInputs extends GaElement {
       class: "swap",
       "data-control": "",
       "data-testid": `mic-swap-${i}`,
+      "data-explain": "mic.swap",
       "aria-label": `Preamp ${i + 1} swap the microphone's front and rear membranes`,
       title: "Swap the microphone's front and rear membranes",
       "on:click": () => inputs.setEmulationSwap(i, !state.peek().swap),
@@ -250,7 +254,7 @@ export class GaInputs extends GaElement {
           const which = head.name === "" ? "" : `-${head.name.toLowerCase()}`;
           const select = h(
             "select",
-            { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": `mic-model-${i}${which}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
+            { "aria-label": `Preamp ${i + 1} ${head.name === "" ? "emulation" : `${head.name} head emulation`}`, "data-testid": `mic-model-${i}${which}`, "data-explain": "mic.model", "data-explain-name": `Preamp ${i + 1}`, "on:change": () => inputs.setEmulationModel(head.channel, Number(select.value)) },
             catalogue.map((label, index) => {
               const licensed = inputs.emulationLicensed(current.target, index);
               return h("option", { value: String(index), ...(licensed ? {} : { disabled: "" }) }, unlicensed(label, licensed));
@@ -264,7 +268,7 @@ export class GaInputs extends GaElement {
             const steps = pattern.steps ?? Array.from({ length: 11 }, (_, k) => ({ value: Math.round(pattern.min + (k / 10) * (pattern.max - pattern.min)), label: "" }));
             const polar = h(
               "select",
-              { class: "polar", "aria-label": `Preamp ${i + 1} ${head.name === "" ? "polar pattern" : `${head.name} head polar pattern`}`, "data-testid": `mic-pattern-${i}${which}`, "on:change": () => inputs.setEmulationPattern(head.channel, Number(polar.value)) },
+              { class: "polar", "aria-label": `Preamp ${i + 1} ${head.name === "" ? "polar pattern" : `${head.name} head polar pattern`}`, "data-testid": `mic-pattern-${i}${which}`, "data-explain": "mic.pattern", "data-explain-name": `Preamp ${i + 1}`, "on:change": () => inputs.setEmulationPattern(head.channel, Number(polar.value)) },
               steps.map((step) => h("option", { value: String(step.value) }, step.label === "" ? String(step.value) : step.label)),
             );
             polar.value = String(pattern.value);
@@ -289,7 +293,7 @@ export class GaInputs extends GaElement {
         stereo.append(...this.#overlay(inputs, i, heads, presets[inputs.emulationPreset(i)]?.name ?? "None"));
       }
       // With no microphone named there is nothing to emulate and nothing to swap.
-      if (heads.length === 0) models.replaceChildren(h("select", { "aria-label": `Preamp ${i + 1} emulation`, "data-testid": `mic-model-${i}`, disabled: "" }));
+      if (heads.length === 0) models.replaceChildren(h("select", { "aria-label": `Preamp ${i + 1} emulation`, "data-testid": `mic-model-${i}`, "data-explain": "mic.model", "data-explain-name": `Preamp ${i + 1}`, disabled: "" }));
       swap.toggleAttribute("data-unavailable", span === 1);
       swap.setAttribute("aria-pressed", String(current.swap));
       // The panel offers emulation only on a preamp set to Mic, and so does this. A microphone on
@@ -344,6 +348,8 @@ export function preampCard(host: ControlHost, inputs: InputsModel, i: number, en
         "data-control": "",
         "data-testid": `pre-type-${i}-${t.label.toLowerCase()}`,
         "aria-label": `${label} ${t.label}`,
+        "data-explain": TYPE_KEYS[t.value],
+        "data-explain-name": label,
         "on:click": () => {
           try {
             inputs.setType(i, t.value);
@@ -358,7 +364,7 @@ export function preampCard(host: ControlHost, inputs: InputsModel, i: number, en
 
   const fill = h("div", { class: "fill" });
   const value = h("span", { class: "value" });
-  const gain = h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "data-testid": `pre-gain-${i}` }, fill, value);
+  const gain = h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "data-testid": `pre-gain-${i}`, "data-explain": "inputs.gain", "data-explain-name": label }, fill, value);
   const range: ControlOptions = { axis: "x", min: 0, max: 65, up: 1, page: 6, reset: 0, get: () => state.peek().gain, set: (v) => inputs.setGain(i, v), enabled };
   bindControl(gain, range);
 
@@ -377,6 +383,8 @@ export function preampCard(host: ControlHost, inputs: InputsModel, i: number, en
       "data-control": "",
       "data-testid": `pre-48v-${i}`,
       "aria-label": `${label} 48V phantom power`,
+      "data-explain": "inputs.48v",
+      "data-explain-name": label,
       title: "48V: click twice, or Ctrl/Cmd+click, to turn on",
       "on:click": (event) => {
         if (state.peek().phantom) {
@@ -398,8 +406,8 @@ export function preampCard(host: ControlHost, inputs: InputsModel, i: number, en
     "48V",
   );
   host.onDisconnect(disarm);
-  const phase = h("button", { type: "button", class: "phase", "data-control": "", "data-testid": `pre-phase-${i}`, "aria-label": `${label} phase invert`, "on:click": () => inputs.setPhaseInvert(i, !state.peek().phaseInvert) }, "Ø");
-  const hpf = h("span", { class: "hpf", "data-testid": `pre-hpf-${i}`, title: "High-pass filter, as the device reports it" }, "HPF");
+  const phase = h("button", { type: "button", class: "phase", "data-control": "", "data-testid": `pre-phase-${i}`, "aria-label": `${label} phase invert`, "data-explain": "inputs.phase", "data-explain-name": label, "on:click": () => inputs.setPhaseInvert(i, !state.peek().phaseInvert) }, "Ø");
+  const hpf = h("span", { class: "hpf", "data-testid": `pre-hpf-${i}`, title: "High-pass filter, as the device reports it", "data-explain": "inputs.hpf" }, "HPF");
   const link = links ? linkButton((fn) => host.watch(fn), "preamp", inputs.deviceId, i, `pre-link-${i}`) : undefined;
 
   host.watch(() => {
@@ -437,8 +445,8 @@ export function digitalCell(host: ControlHost, inputs: InputsModel, group: Digit
   const fill = h("div", { class: "fill" });
   // Read-only gains (the Quadro's panel never sets them) get the same bar, without the slider role or input.
   const gain = group.editable
-    ? h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "aria-valuemin": DIGITAL_GAIN.min, "aria-valuemax": DIGITAL_GAIN.max, "data-testid": `${group.kind}-gain-${i}` }, fill, value)
-    : h("div", { class: "gain readonly", "aria-label": `${label} gain`, title: "This device's panel does not set this gain", "data-testid": `${group.kind}-gain-${i}` }, fill, value);
+    ? h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "aria-valuemin": DIGITAL_GAIN.min, "aria-valuemax": DIGITAL_GAIN.max, "data-testid": `${group.kind}-gain-${i}`, "data-explain": "inputs.digital-gain", "data-explain-name": label }, fill, value)
+    : h("div", { class: "gain readonly", "aria-label": `${label} gain`, title: "This device's panel does not set this gain", "data-testid": `${group.kind}-gain-${i}`, "data-explain": "inputs.digital-gain-readonly", "data-explain-name": label }, fill, value);
   if (group.editable) bindControl(gain, { axis: "x", min: DIGITAL_GAIN.min, max: DIGITAL_GAIN.max, up: 1, page: 3, reset: 0, get: () => gainOf.peek() ?? 0, set: (v) => inputs.setDigitalGain(group.kind, i, v), enabled });
   host.watch(() => {
     const g = gainOf.value ?? 0;

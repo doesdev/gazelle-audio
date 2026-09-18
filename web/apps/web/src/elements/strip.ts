@@ -168,12 +168,12 @@ export class GaStrip extends GaElement {
     const state = mixer.strip(id);
 
     const cap = h("div", { class: "cap" });
-    const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}` }, h("div", { class: "groove" }), cap);
+    const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}`, "data-explain": id === "master" ? "strip.master-fader" : "strip.fader", "data-explain-name": label }, h("div", { class: "groove" }), cap);
     bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
     // Marks share the cap's travel, so the cap's centre line sits on the mark for its level.
     const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: calc(${FADER_CAP_PX / 2}px + (100% - ${FADER_CAP_PX}px) * ${faderPosition(mark)})` }, mark === 0 ? "0" : `-${mark}`)));
-    const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}` });
-    const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "on:click": () => mixer.toggleMute(id) }, "M");
+    const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}`, "data-explain": "strip.level" });
+    const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "data-explain": id === "master" ? "strip.master-mute" : "strip.mute", "data-explain-name": label, "on:click": () => mixer.toggleMute(id) }, "M");
 
     const buttons: HTMLElement[] = [mute];
     const top: HTMLElement[] = [];
@@ -181,7 +181,7 @@ export class GaStrip extends GaElement {
     const readouts = h("div", { class: "readouts" }, levelReadout);
 
     if (id !== "master") {
-      const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "on:click": () => mixer.toggleSolo(id) }, "S");
+      const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "data-explain": "strip.solo", "data-explain-name": label, "on:click": () => mixer.toggleSolo(id) }, "S");
       buttons.push(solo);
       this.watch(() => {
         solo.setAttribute("aria-pressed", String(state.value.solo));
@@ -192,7 +192,7 @@ export class GaStrip extends GaElement {
 
         const panFill = h("div", { class: "fill" });
         const panValue = h("span", { class: "value" });
-        const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}` }, h("div", { class: "centre" }), panFill, panValue);
+        const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}`, "data-explain": "strip.pan", "data-explain-name": label }, h("div", { class: "centre" }), panFill, panValue);
         // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
         bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, valueAt: panAtPosition, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
         top.push(pan);
@@ -214,7 +214,7 @@ export class GaStrip extends GaElement {
         const sendFill = h("div", { class: "fill" });
         const sendValue = h("span", { class: "value" });
         // Send is attenuation like the fader: 0 dB at the right, off (−inf) at the left.
-        const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send`, "aria-valuemin": -SEND_MAX, "aria-valuemax": 0 }, sendFill, sendValue);
+        const send = h("div", { class: "bar send", role: "slider", tabindex: 0, "aria-label": `${label} send`, "aria-valuemin": -SEND_MAX, "aria-valuemax": 0, "data-explain": "strip.send", "data-explain-name": label }, sendFill, sendValue);
         bindControl(send, { axis: "x", min: SEND_MAX, max: 0, up: -1, page: 6, reset: SEND_MAX, get: () => state.peek().send, set: (v) => mixer.setSend(id, v), enabled, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn), 0, "off") });
         top.unshift(h("span", { class: "caption" }, "Send"), send);
         this.watch(() => {
@@ -226,18 +226,18 @@ export class GaStrip extends GaElement {
         });
       }
 
-      const clip = h("button", { class: "clip", type: "button", "aria-label": `${label} clip; select to clear`, "on:click": () => inputMeter?.clearClip() });
+      const clip = h("button", { class: "clip", type: "button", "aria-label": `${label} clip; select to clear`, "data-explain": "strip.clip", "data-explain-name": label, "on:click": () => inputMeter?.clearClip() });
       const mask = h("div", { class: "mask" });
       const peakMark = h("div", { class: "peak-mark", hidden: "" });
       const meter = h(
         "div",
-        { class: "meter", "data-testid": `meter-${testId}` },
+        { class: "meter", "data-testid": `meter-${testId}`, "data-explain": "strip.meter", "data-explain-name": label },
         h("div", { class: "gradient" }),
         mask,
         peakMark,
         METER_MARKS.map((mark) => h("div", { class: "tick", style: `bottom: ${meterDeflection(mark)}%` })),
       );
-      const peakReadout = h("span", { class: "readout muted", title: "Peak, dB below full scale" });
+      const peakReadout = h("span", { class: "readout muted", title: "Peak, dB below full scale", "data-explain": "strip.peak" });
       levelArea.append(h("div", { class: "meter-column" }, clip, meter));
       // Compact strips keep the level readout only; the meter's held peak marker still shows.
       if (!compact) readouts.append(peakReadout);
@@ -271,7 +271,7 @@ export class GaStrip extends GaElement {
       // The same audio can reach one mix twice: two channels on one input, or a channel whose empty
       // effect chain passes the other's input through (the user, at the hardware, 2026-09-18).
       const doubled = store.doubledFeed(deviceId, Number(this.getAttribute("mixer") ?? "0"), id);
-      const badge = h("div", { class: "doubled", "data-testid": `doubled-${testId}`, hidden: "" }, "\u00d72");
+      const badge = h("div", { class: "doubled", "data-testid": `doubled-${testId}`, hidden: "", "data-explain": "strip.doubled" }, "\u00d72");
       top.unshift(badge);
       this.watch(() => {
         const message = doubled.value;
@@ -288,7 +288,7 @@ export class GaStrip extends GaElement {
     }
 
     this.root.replaceChildren(
-      h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, h("div", { class: "name", title: label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1))),
+      h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, h("div", { class: "name", title: label, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1))),
     );
 
     this.watch(() => {

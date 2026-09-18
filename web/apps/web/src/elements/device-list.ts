@@ -84,6 +84,8 @@ export class GaDeviceList extends GaElement {
       "a",
       {
         "data-device-id": device.id,
+        "data-explain": "devicelist.card",
+        "data-explain-name": name,
         "on:click": (event: Event) => {
           // The Workspace page shows no one device: select it and stay. A page that needs a device of
           // known model cannot show one of unknown model, so its card does nothing there.
@@ -115,16 +117,16 @@ export class GaDeviceList extends GaElement {
     );
 
     if (device.family === null) {
-      card.append(h("span", { class: "unknown" }, "Unknown model"));
+      card.append(h("span", { class: "unknown", "data-explain": "devicelist.unknown" }, "Unknown model"));
       return card;
     }
 
     const rate = h("span", { class: "rate" }, "…");
-    const lock = h("span", { class: "lock" }, "NO LOCK");
+    const lock = h("span", { class: "lock", "data-explain": "devicelist.lock" }, "NO LOCK");
     const power = h("span", { class: "power" }, "…");
     const preset = h("span", { class: "preset" }, "…");
-    const input = h("span", { class: "input", "data-level": "quiet", role: "img", "aria-label": "Inputs: quiet" });
-    card.append(input, h("span", { class: "clock" }, rate, lock), h("span", { class: "state" }, power, h("span", { "aria-hidden": "true" }, "·"), preset));
+    const input = h("span", { class: "input", "data-level": "quiet", role: "img", "aria-label": "Inputs: quiet", "data-explain": "devicelist.input" });
+    card.append(input, h("span", { class: "clock", "data-explain": "devicelist.clock" }, rate, lock), h("span", { class: "state", "data-explain": "devicelist.state" }, power, h("span", { "aria-hidden": "true" }, "·"), preset));
 
     disposers.push(store.watchReport(device.id, STATUS_REPORT));
     disposers.push(

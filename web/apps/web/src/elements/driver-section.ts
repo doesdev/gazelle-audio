@@ -6,6 +6,16 @@ import { h } from "../core/dom.ts";
 import { driverView } from "../store/driver.ts";
 import type { Store } from "../store/store.ts";
 
+/** Each row's key for the explain mode. */
+const ROW_KEYS: Record<string, string> = {
+  driver_version: "devices.driver-version",
+  sample_rate: "devices.driver-rate",
+  buffer_size: "devices.driver-buffer",
+  input_latency: "devices.driver-latency",
+  output_latency: "devices.driver-latency",
+  safe_mode: "devices.driver-safe-mode",
+};
+
 /** Builds the section and keeps it current through the page's own `watch`. */
 export function driverSection(store: Store, deviceId: string, watch: (fn: () => void) => void): HTMLElement {
   const fields = h("dl", { class: "fields", "data-testid": "driver-fields" });
@@ -13,12 +23,12 @@ export function driverSection(store: Store, deviceId: string, watch: (fn: () => 
   const readAt = h("span", { "data-testid": "driver-read-at" });
   const again = h(
     "button",
-    { type: "button", "data-testid": "driver-refresh", title: "Ask the driver again", "on:click": () => void store.loadDriver(deviceId, true) },
+    { type: "button", "data-testid": "driver-refresh", "data-explain": "devices.driver-refresh", title: "Ask the driver again", "on:click": () => void store.loadDriver(deviceId, true) },
     "Read again",
   );
   const section = h(
     "ga-section",
-    { heading: "Driver" },
+    { heading: "Driver", explain: "devices.driver" },
     message,
     fields,
     h("p", { class: "note-inline", "data-testid": "driver-note" }, "These are the audio driver's settings on this PC, not the device's. They are shown here only; changing them from Gazelle is a later step."),
@@ -33,7 +43,7 @@ export function driverSection(store: Store, deviceId: string, watch: (fn: () => 
     message.textContent = view.message ?? "";
     fields.hidden = view.rows.length === 0;
     fields.replaceChildren(
-      ...view.rows.flatMap((row) => [h("dt", {}, row.label), h("dd", {}, h("span", { class: row.unread ? "muted" : "readout", "data-testid": `driver-${row.field}` }, row.value))]),
+      ...view.rows.flatMap((row) => [h("dt", {}, row.label), h("dd", {}, h("span", { class: row.unread ? "muted" : "readout", "data-testid": `driver-${row.field}`, "data-explain": ROW_KEYS[row.field] }, row.value))]),
     );
     readAt.textContent = report.state === "no_driver" ? "" : `Read at ${new Date(report.read_at_ms).toLocaleTimeString()}.`;
     again.hidden = report.state === "no_driver";

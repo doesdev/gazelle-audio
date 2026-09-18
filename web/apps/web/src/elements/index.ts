@@ -16,6 +16,7 @@ import { GaMixer } from "./mixer-page.ts";
 import { GaMixerDock } from "./mixer-dock.ts";
 import { GaStrip } from "./strip.ts";
 import { GaNotices } from "./notices.ts";
+import { GaExplain } from "./explain.ts";
 import { GaSection } from "./section.ts";
 
 import { installSelectWheel } from "./select-wheel.ts";
@@ -36,6 +37,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["ga-mixer", GaMixer],
   ["ga-mixer-dock", GaMixerDock],
   ["ga-notices", GaNotices],
+  ["ga-explain", GaExplain],
   ["ga-app", GaApp],
 ];
 

@@ -109,7 +109,7 @@ export function polarPlot(heads: readonly PlotHead[], label: string, size = 32):
   title.textContent = label;
   return svg(
     "svg",
-    { class: "polar-plot", width: size, height: size, viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": label },
+    { class: "polar-plot", width: size, height: size, viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": label, "data-explain": "mic.plot" },
     title,
     svg("circle", { class: "grid", cx: centre, cy: centre, r: radius }),
     svg("line", { class: "axis", x1: centre, y1: centre - radius, x2: centre, y2: centre + radius }),

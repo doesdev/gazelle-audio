@@ -41,6 +41,7 @@ export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
+export const EXPLAIN_STORAGE_KEY = "gazelle.explain";
 export const DOUBLE_CLICK_UNITY_STORAGE_KEY = "gazelle.controls.doubleClickUnity";
 
 // Elements may not import the client (spec §6.1), so the store passes on the data types they show.
@@ -359,6 +360,7 @@ export class Store {
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
   readonly #clipAutoClear: Signal<number | null>;
   readonly #mixerDockCollapsed: Signal<boolean>;
+  readonly #explainMode: Signal<boolean>;
   readonly #mixerDockSurface: Signal<string | null>;
   readonly #doubleClickUnity: Signal<boolean>;
   /** The surface the mixer dock shows, while it exists; undefined for the device in view. */
@@ -392,6 +394,7 @@ export class Store {
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
     this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
+    this.#explainMode = persisted(this.#storage, EXPLAIN_STORAGE_KEY, false, (stored) => (stored === true ? true : stored === false ? false : undefined));
     this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
     this.#doubleClickUnity = persisted(this.#storage, DOUBLE_CLICK_UNITY_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     // A surface deleted here or elsewhere hands the dock back to the device in view.
@@ -1339,6 +1342,15 @@ export class Store {
 
   setMixerDockCollapsed(collapsed: boolean): void {
     if (this.#mixerDockCollapsed.peek() !== collapsed) this.#mixerDockCollapsed.value = collapsed;
+  }
+
+  /** Whether the explain mode is on: hovering or focusing a control shows what it does. Off until turned on; remembered per browser. */
+  get explainMode(): ReadonlySignal<boolean> {
+    return this.#explainMode;
+  }
+
+  setExplainMode(on: boolean): void {
+    if (this.#explainMode.peek() !== on) this.#explainMode.value = on;
   }
 
   /** Shows a surface in the mixer dock (remembered per browser), or the device in view again (undefined). False for a surface that does not exist. */
