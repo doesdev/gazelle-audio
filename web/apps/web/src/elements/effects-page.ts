@@ -22,7 +22,7 @@ import { formatPan, meterDeflection, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition
 import { formatVolume } from "../store/outputs.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { bindControl, levelReset } from "./controls.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 
 /** The Quadro panel's names for its two reverb returns, by the mix they feed. */
@@ -44,8 +44,7 @@ export class GaEffects extends GaElement {
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       h2 { margin: 8px 0 6px; }
       .chains { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 6px; }
       .chain { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); min-width: 0; }
@@ -229,6 +228,7 @@ export class GaEffects extends GaElement {
       else note.textContent = "";
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       if (sent === undefined || sent.deviceId !== deviceId) {
         lastSent.textContent = store.server.value.dry_run ? "Dry run: nothing is written to the device" : "";

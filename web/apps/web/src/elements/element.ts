@@ -110,6 +110,24 @@ export function commitOnEnter(input: HTMLInputElement, commit: (value: string) =
   };
 }
 
+/**
+ * The CSS every page's "last sent" line shares. The line shows the exact bytes of the last command
+ * the app sent, which is what the app is for when something is being worked out, and debug output
+ * the rest of the time (the user, 2026-09-19). It is shown only while the explain mode is on, or
+ * while the server is in dry run, where the bytes are the whole point and the line says so. It
+ * sits after a flexible spacer at the end of a bar, so taking it away shifts nothing.
+ */
+export const LAST_SENT_STYLES = `
+  .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
+  .last-sent:not([data-shown]) { display: none; }
+  .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+`;
+
+/** Shows or hides a page's "last sent" line as the explain mode and dry run say. Read inside a watch. */
+export function showLastSent(element: HTMLElement, store: Store): void {
+  element.toggleAttribute("data-shown", store.explainMode.value || store.server.value.dry_run);
+}
+
 export function sheet(css: string): CSSStyleSheet {
   const stylesheet = new CSSStyleSheet();
   stylesheet.replaceSync(css);

@@ -5,7 +5,7 @@
 import { h } from "../core/dom.ts";
 import { formatVolume, TRIM_LABELS, VOLUME_MAX, type OutputInfo, type OutputsModel, type TrimInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary, levelReset } from "./controls.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import type { ControlHost } from "./inputs-page.ts";
 
 /** Where a double-click puts a volume: -20 dB, the safe level every level resets to (the user, 2026-09-18). */
@@ -53,8 +53,7 @@ export class GaOutputs extends GaElement {
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       .rows { display: grid; gap: 6px; max-width: 640px; }
       ${OUTPUT_CONTROL_STYLES}
       h2 { margin: 8px 0 6px; }
@@ -126,6 +125,7 @@ export class GaOutputs extends GaElement {
       note.textContent = outputs.outputs.length > 0 && !outputs.state(0).value.known ? "The device has not reported its output levels yet, so controls start at defaults and send when changed." : "";
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       if (sent === undefined || sent.deviceId !== deviceId) {
         lastSent.textContent = store.server.value.dry_run ? "Dry run: nothing is written to the device" : "";

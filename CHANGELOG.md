@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Changed
+
+- The line showing the last command's bytes appears only while the explain mode is on, or in dry
+  run. It used to sit on every page all the time, where it read as debug output.
+
 ## [1.1.0] - 2026-09-19
 
 A simpler way to install, and a fix for PCs without Microsoft's Visual C++ runtime.
