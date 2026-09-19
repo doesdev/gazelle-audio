@@ -28,7 +28,7 @@ import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
-import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
+import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
 export { SIDEBAR_SECTIONS } from "./preferences.ts";
@@ -38,6 +38,7 @@ export const PANELS_STORAGE_KEY = "gazelle.layout.panels";
 export const SIDEBAR_STORAGE_KEY = "gazelle.layout.sidebar";
 export const SELECTED_DEVICE_STORAGE_KEY = "gazelle.selection.device";
 export const SELECTED_MIXES_STORAGE_KEY = "gazelle.selection.mixes";
+export const SHOW_ALL_CHANNELS_STORAGE_KEY = "gazelle.mixer.showAllChannels";
 export const CLIP_AUTO_CLEAR_STORAGE_KEY = "gazelle.meters.clipAutoClear";
 export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
@@ -187,6 +188,17 @@ const AFX_IN = "AFX_IN";
 
 /** What a strip's meter shows, by default: the input's level before the fader. */
 const INPUT_METER_NOTE = "The input's level, before the fader";
+
+/**
+ * What to say about one source reaching a mix `times` over: the x2 badge's text, and the same
+ * words in the warning shown before a channel is put there. `chain` names the empty effect chain
+ * carrying it, when that is how the second copy arrives.
+ */
+function doublingText(topology: Topology, source: RouteSource, times: number, chain: number | undefined): string {
+  const label = sourceLabel(topology, source);
+  const how = chain === undefined ? `${label} is in this mix twice` : `${label} also reaches this mix through AFX OUT ${chain + 1}`;
+  return `${how}, so it is summed ${times === 2 ? "twice (about +6 dB)" : `${times} times`}`;
+}
 
 /** One stereo output's meter, from the fixed output fields only the Quadro reports. */
 export interface OutputMeter {
@@ -358,6 +370,7 @@ export class Store {
   readonly #sidebar: Signal<SidebarState>;
   readonly #selectedDevice: Signal<string | undefined>;
   readonly #selectedMixes: Signal<Readonly<Record<string, number>>>;
+  readonly #showAllChannels: Signal<Readonly<Record<string, boolean>>>;
   readonly #clipAutoClear: Signal<number | null>;
   readonly #mixerDockCollapsed: Signal<boolean>;
   readonly #explainMode: Signal<boolean>;
@@ -367,6 +380,7 @@ export class Store {
   readonly mixerDockSurface: ReadonlySignal<string | undefined>;
   readonly #clipLights = new Set<ClipLight>();
   readonly #selectedMix = new Map<string, ReadonlySignal<number>>();
+  readonly #showAll = new Map<string, ReadonlySignal<boolean>>();
   readonly #views = new Map<string, Signal<unknown>>();
 
   constructor(client: Client, dependencies: StoreDependencies = {}) {
@@ -392,6 +406,7 @@ export class Store {
     this.#sidebar = persisted(this.#storage, SIDEBAR_STORAGE_KEY, carried ?? SIDEBAR_DEFAULT, parseSidebar);
     this.#selectedDevice = persisted<string | undefined>(this.#storage, SELECTED_DEVICE_STORAGE_KEY, undefined, parseSelectedDevice);
     this.#selectedMixes = persisted<Readonly<Record<string, number>>>(this.#storage, SELECTED_MIXES_STORAGE_KEY, {}, parseSelectedMixes);
+    this.#showAllChannels = persisted<Readonly<Record<string, boolean>>>(this.#storage, SHOW_ALL_CHANNELS_STORAGE_KEY, {}, parseShowAllChannels);
     this.#clipAutoClear = persisted<number | null>(this.#storage, CLIP_AUTO_CLEAR_STORAGE_KEY, CLIP_AUTO_CLEAR_DEFAULT, parseClipAutoClear);
     this.#mixerDockCollapsed = persisted(this.#storage, MIXER_DOCK_STORAGE_KEY, dependencies.narrow ?? false, (stored) => (typeof stored === "boolean" ? stored : undefined));
     this.#explainMode = persisted(this.#storage, EXPLAIN_STORAGE_KEY, false, (stored) => (stored === true ? true : stored === false ? false : undefined));
@@ -550,6 +565,25 @@ export class Store {
       this.#selectedMix.set(deviceId, mix);
     }
     return mix;
+  }
+
+  /**
+   * Whether the Mixer page shows every configured channel for a device, or only the ones in the
+   * selected mix. Off by default: a mix shows what is routed to it (the user, 2026-09-19).
+   */
+  showAllChannels(deviceId: string): ReadonlySignal<boolean> {
+    let all = this.#showAll.get(deviceId);
+    if (all === undefined) {
+      all = computed(() => this.#showAllChannels.value[deviceId] ?? false);
+      this.#showAll.set(deviceId, all);
+    }
+    return all;
+  }
+
+  /** Remembers whether a device's Mixer page shows every channel. Kept in this browser. */
+  setShowAllChannels(deviceId: string, all: boolean): void {
+    const stored = this.#showAllChannels.peek();
+    if ((stored[deviceId] ?? false) !== all) this.#showAllChannels.value = { ...stored, [deviceId]: all };
   }
 
   /** Remembers a device's mix. Returns false for a mix the device does not have. */
@@ -1191,8 +1225,11 @@ export class Store {
    *
    * A chain **with** an effect is not counted: dry and wet in one mix is a parallel setup someone
    * may well want. Neither is a channel that adds nothing to the mix, muted or with its fader at
-   * the floor. This is only what the app can see from the layout, routing and the chains; nothing
-   * is sent to a device, and the device is never asked.
+   * the floor: an unread mixer holds unity and unmuted, so nothing is ruled out on a guess. That
+   * makes the badge a picture of the mix as it stands, which is why putting a channel into a mix
+   * asks first instead (`doublingIfAdded`), whatever the faders happen to be doing. This is only
+   * what the app can see from the layout, routing and the chains; nothing is sent to a device,
+   * and the device is never asked.
    */
   doubledFeed(deviceId: string, mix: number, slot: number): ReadonlySignal<string | undefined> {
     const key = `${deviceId}|${mix}|${slot}`;
@@ -1205,38 +1242,72 @@ export class Store {
 
   readonly #doubled = new Map<string, ReadonlySignal<string | undefined>>();
 
+  /**
+   * Whether putting `source` into a mix would bring in audio the mix already has on another
+   * channel, and what to say about it, in the same words as the x2 badge, so the warning before
+   * the fact and the badge after it read alike. Undefined when nothing would be doubled.
+   *
+   * Unlike the badge, this asks only about routing, never about levels: a strip sitting at the
+   * floor or muted today is still that input in the mix, and the person is about to route a second
+   * one (the user, 2026-09-19). `exceptChannel` is the channel being changed, never counted
+   * against itself. Reading it is reactive.
+   */
+  doublingIfAdded(deviceId: string, mix: number, exceptChannel: string, source: RouteSource | undefined): string | undefined {
+    const topology = this.topology(deviceId);
+    if (topology === undefined || source === undefined || mix >= topology.mixers.count) return undefined;
+    const joining = this.#carries(deviceId, topology, source);
+    const clash = this.#carriedInto(deviceId, mix, false).filter(
+      (entry) => entry.id !== exceptChannel && entry.source.group === joining.source.group && entry.source.channel === joining.source.channel,
+    );
+    if (clash.length === 0) return undefined;
+    return doublingText(topology, joining.source, clash.length + 1, clash.find((entry) => entry.chain !== undefined)?.chain ?? joining.chain);
+  }
+
   /** Every doubled strip of one mix, by slot, with what to say about it. Reading it is reactive. */
   #doubledFeeds(deviceId: string, mix: number): ReadonlyMap<number, string> {
     const warnings = new Map<number, string>();
     const topology = this.topology(deviceId);
     if (topology === undefined || mix >= topology.mixers.count) return warnings;
-    const channels = this.channels(deviceId);
-    const mixer = this.mixer(deviceId, mix);
-    // What each strip of the mix actually carries: its own source, or, through an empty chain, the
-    // source routed into that chain. A strip that adds nothing to the mix is left out.
-    const carried = channels.layout.value.channels.flatMap((channel) => {
-      if (!channels.strip(channel, mix).inMix || channel.source === undefined) return [];
-      const state = mixer.strip(channel.slot).value;
-      if (state.mute || state.level >= LEVEL_MAX) return [];
-      // Only an empty chain passes its input on: one with an effect makes a different signal, and
-      // dry plus wet in one mix is a parallel setup rather than a doubling.
-      const chain = topology.inputs[channel.source.group]?.type === AFX_OUT ? channel.source.channel : undefined;
-      const empty = chain !== undefined && this.effects(deviceId).chains.value?.[chain]?.slots.length === 0;
-      const through = empty ? this.#chainInput(deviceId, chain).source : undefined;
-      const source = through ?? channel.source;
-      return [{ slot: channel.slot, source, ...(through === undefined ? {} : { chain }) }];
-    });
+    const carried = this.#carriedInto(deviceId, mix, true);
     const shared = new Map<string, typeof carried>();
     for (const entry of carried) shared.set(`${entry.source.group}:${entry.source.channel}`, [...(shared.get(`${entry.source.group}:${entry.source.channel}`) ?? []), entry]);
     for (const sharing of shared.values()) {
       if (sharing.length < 2) continue;
-      const label = sourceLabel(topology, sharing[0]?.source as RouteSource);
-      const times = sharing.length === 2 ? "twice (about +6 dB)" : `${sharing.length} times`;
-      const chain = sharing.find((entry) => entry.chain !== undefined)?.chain;
-      const how = chain === undefined ? `${label} is in this mix twice` : `${label} also reaches this mix through AFX OUT ${chain + 1}`;
-      for (const entry of sharing) warnings.set(entry.slot, `${how}, so it is summed ${times}`);
+      const text = doublingText(topology, sharing[0]?.source as RouteSource, sharing.length, sharing.find((entry) => entry.chain !== undefined)?.chain);
+      for (const entry of sharing) warnings.set(entry.slot, text);
     }
     return warnings;
+  }
+
+  /**
+   * What each channel of a mix carries into it: its own source, or, through an empty chain, the
+   * source routed into that chain. With `audibleOnly`, a channel that adds nothing right now is
+   * left out: muted, or with its fader at the floor. Before the mixer has been read every strip
+   * stands at 0 dB and unmuted, so nothing is ruled out on a guess. Reading it is reactive.
+   */
+  #carriedInto(deviceId: string, mix: number, audibleOnly: boolean): { id: string; slot: number; source: RouteSource; chain?: number }[] {
+    const topology = this.topology(deviceId);
+    if (topology === undefined) return [];
+    const channels = this.channels(deviceId);
+    const mixer = this.mixer(deviceId, mix);
+    return channels.layout.value.channels.flatMap((channel) => {
+      if (!channels.strip(channel, mix).inMix || channel.source === undefined) return [];
+      if (audibleOnly) {
+        const state = mixer.strip(channel.slot).value;
+        if (state.mute || state.level >= LEVEL_MAX) return [];
+      }
+      return [{ id: channel.id, slot: channel.slot, ...this.#carries(deviceId, topology, channel.source) }];
+    });
+  }
+
+  /** The audio a source really brings: itself, or what feeds it when it is an empty effect chain. */
+  #carries(deviceId: string, topology: Topology, source: RouteSource): { source: RouteSource; chain?: number } {
+    // Only an empty chain passes its input on: one with an effect makes a different signal, and
+    // dry plus wet in one mix is a parallel setup rather than a doubling.
+    const chain = topology.inputs[source.group]?.type === AFX_OUT ? source.channel : undefined;
+    const empty = chain !== undefined && this.effects(deviceId).chains.value?.[chain]?.slots.length === 0;
+    const through = empty ? this.#chainInput(deviceId, chain).source : undefined;
+    return through === undefined || chain === undefined ? { source } : { source: through, chain };
   }
 
   /**

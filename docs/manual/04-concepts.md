@@ -49,7 +49,7 @@ Two channels can be **linked** so that a change to one follows on the other; see
 
 Each device has **four mixes**, numbered 1 to 4 and nameable ("Monitors", "Cue"). A mix has 32 inputs and a master. Every input has a level, pan, mute and solo in each mix, so one signal can be loud in the monitors and quiet in the headphones.
 
-Gazelle presents the mixer as **channels**: a named, coloured strip that knows its input, its **main mix**, and any other mixes it is **sent** to. Choosing a channel's input routes that source into the mixer for you; you never have to find a free mixer input yourself. On the Quadro the first six mixer inputs carry the effect returns (AFX OUT 1 to 6) and are not free for channels.
+Gazelle presents the mixer as **channels**: a named, coloured strip that knows its input, its **main mix**, and any other mixes it is **sent** to. A channel has its own level, pan, mute and solo in *every* mix it is in; the Mixer page shows one mix at a time, and a strip's fader is that channel's level in the mix on show, main mix or send alike. Choosing a channel's input routes that source into the mixer for you; you never have to find a free mixer input yourself. On the Quadro the first six mixer inputs carry the effect returns (AFX OUT 1 to 6) and are not free for channels.
 
 A mix's output is a source like any other, so a mix plays wherever it is routed: the Monitor output, a headphone output, a recording channel for a talkback or a loopback recording, or a digital output.
 

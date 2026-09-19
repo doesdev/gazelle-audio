@@ -69,30 +69,30 @@ test("the device last opened follows you to every page, and across a reload", as
 test("each device keeps its selected mix: the address names it, and a page without one uses the last", async ({ page }) => {
   // A deep link still opens its mix.
   await page.goto(`${server.url}/#/mixer/loopback-0/2`);
-  const metered = page.getByTestId("mix-select");
-  await expect(metered).toHaveValue("2");
+  await expect(page.getByTestId("mix-2")).toHaveAttribute("aria-checked", "true");
 
   // Choosing a mix puts it in the address without rebuilding the page.
   await page.locator("ga-mixer").evaluate((el) => ((el as unknown as { __kept: boolean }).__kept = true));
-  await metered.selectOption("1");
+  await page.getByTestId("mix-1").click();
   await expect(page).toHaveURL(/#\/mixer\/loopback-0\/1$/);
   expect(await page.locator("ga-mixer").evaluate((el) => (el as unknown as { __kept?: boolean }).__kept)).toBe(true);
 
+  const chosen = (mix: number) => expect(page.getByTestId(`mix-${mix}`)).toHaveAttribute("aria-checked", "true");
   await page.locator('ga-device-list a[data-device-id="loopback-1"]').click();
-  await expect(metered).toHaveValue("0");
-  await metered.selectOption("3");
+  await chosen(0);
+  await page.getByTestId("mix-3").click();
 
   await open(page, "inputs");
   await open(page, "mixer");
   await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-1");
-  await expect(metered).toHaveValue("3");
+  await chosen(3);
   await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
-  await expect(metered).toHaveValue("1");
+  await chosen(1);
 
   await page.goto(`${server.url}/#/mixer`);
   await page.reload();
   await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-0");
-  await expect(metered).toHaveValue("1");
+  await chosen(1);
 });
 
 test("a page that is not shown is gone and sends nothing; choosing a mix or coming back re-reads no mix", async ({ page }) => {
@@ -113,7 +113,7 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
   await page.goto(`${server.url}/#/mixer/loopback-1`);
   await expect.poll(() => count("get_mixer")).toBe(4);
 
-  await page.getByTestId("mix-select").selectOption("2");
+  await page.getByTestId("mix-2").click();
   await page.waitForTimeout(500);
   expect(count("set_peak_source"), "strips meter their inputs, so no meter bank is pointed").toBe(0);
   expect(count("get_mixer"), "a new mix does not rebuild the page and read every mix again").toBe(4);

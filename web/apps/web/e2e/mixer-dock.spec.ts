@@ -110,7 +110,7 @@ test("moving a dock fader sends set_mixer for the selected mix, and the Mixer pa
   await expect.poll(() => frames.filter((f) => f.command === "set_mixer").at(-1)?.args).toMatchObject({ mixer_id: 1, channel: 8, level: 18 });
 
   await page.locator('ga-header nav a[data-page="mixer"]').click();
-  await expect(page.getByTestId("mix-select")).toHaveValue("1");
+  await expect(page.getByTestId("mix-1")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("ga-mixer").getByTestId("level-7")).toHaveText("-18 dB");
 });
 
@@ -128,7 +128,7 @@ test("the dock follows a device picked from the cards and a mix picked on the Mi
   await page.locator('ga-device-list a[data-device-id="loopback-0"]').click();
   await expect.poll(() => slots(page)).toEqual(["8", "6"]);
   await page.locator('ga-header nav a[data-page="mixer"]').click();
-  await page.getByTestId("mix-select").selectOption("1");
+  await page.getByTestId("mix-1").click();
   await page.locator('ga-header nav a[data-page="outputs"]').click();
   await expect(page.locator("ga-outputs")).toBeVisible();
   await expect.poll(() => slots(page)).toEqual(["6", "7"]);

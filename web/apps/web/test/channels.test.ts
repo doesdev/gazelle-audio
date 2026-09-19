@@ -404,6 +404,14 @@ test("a mix's strips are the channels set up in it, main or send, in the Mixer p
   assert.deepEqual(strip(c as string, 1), { label: channels.sourceLabel({ group: USB1, channel: 0 }), color: "#b5473a", source: { group: USB1, channel: 0 }, inMix: true }, "a group's colour");
   assert.deepEqual(strip(d as string, 0), { label: channels.sourceLabel({ group: USB1, channel: 1 }), color: inputColour(USB1), source: { group: USB1, channel: 1 }, inMix: false }, "an inactive channel is in no mix");
   assert.equal(strip(e as string, 0).inMix, false, "not even its main mix, until it has an input");
+
+  // The other way round: the mixes one channel is in, which is what the Mixer page filters on.
+  const mixesOf = (id: string) => channels.mixesOf(channels.channel(id) as MixerChannel);
+  assert.deepEqual(mixesOf(a as string), [0], "its main mix alone");
+  assert.deepEqual(mixesOf(b as string), [1, 0], "its main mix first, then its sends");
+  assert.deepEqual(mixesOf(c as string), [1]);
+  assert.deepEqual(mixesOf(d as string), [], "an input but no main mix: in no mix");
+  assert.deepEqual(mixesOf(e as string), [], "a main mix but no input: in no mix either");
 });
 
 test("a channel's own colour is set and cleared, and saved in the workspace; an unset colour is omitted", async () => {

@@ -258,6 +258,15 @@ export class ChannelsModel {
     return { label: this.displayName(channel), color, source: channel.source, inMix: this.isActive(channel) && (channel.main_mix === mix || channel.sends.includes(mix)) };
   }
 
+  /**
+   * The mixes a channel is in, its main mix first and then its sends in order: the mixes its fader
+   * has a level in. Empty until the channel has an input and a main mix. Reading it is reactive
+   * only through the layout the channel came from.
+   */
+  mixesOf(channel: MixerChannel): readonly number[] {
+    return this.#fed(channel);
+  }
+
   /** The channels set up in a mix, in the Mixer page's order: the strips the mixer dock shows. Reading it is reactive. */
   inMix(mix: number): readonly MixerChannel[] {
     this.#checkMix(mix);

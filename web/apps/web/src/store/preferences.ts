@@ -143,3 +143,12 @@ export function parseSelectedMixes(stored: unknown): Record<string, number> | un
   if (!isRecord(stored)) return undefined;
   return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, number] => Number.isInteger(entry[1]) && (entry[1] as number) >= 0));
 }
+
+/**
+ * Whether the Mixer page shows every configured channel, per device id, rather than only the ones
+ * in the selected mix. Missing means the default, which is to show only the selected mix's.
+ */
+export function parseShowAllChannels(stored: unknown): Record<string, boolean> | undefined {
+  if (!isRecord(stored)) return undefined;
+  return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+}

@@ -1,12 +1,13 @@
 # The Mixer page
 
-The Mixer page (`#/mixer`) shows one of the shown device's four mixes as a row of channel strips with the mix's master at the right. Every channel moves, meters and mutes in the mix chosen at the top.
+The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels routed to it, as a row of strips, with that mix's master at the right. A strip's fader is that channel's level **in the mix you have picked**, whether the mix is the channel's main mix or one it is sent to, and so are its pan, mute and solo. Each mix keeps its own balance, so riding one leaves the others alone.
 
 ![The Mixer page for a Studio+: a Drums group of four channels, then bass, keys and tracks, in the Main mix.](../images/mixer-studio.png)
 
 ## The top bar
 
-- **Mix** chooses which of the four mixes the strips show. The choice is kept per device and in the page's address, so `#/mixer/<device>/1` opens mix 2.
+- **Mix** is a row of buttons, one per mix, with exactly one active. Click one, or move between them with the arrow keys, Home and End. It ignores the mouse wheel, because one accidental notch would move every strip to another mix. The choice is kept per device and in the page's address, so `#/mixer/<device>/1` opens mix 2, and the mixer dock follows it.
+- **Show all channels** shows every channel you have made, not only the ones in this mix. The ones outside it are dimmed, with no meter; their heads still work, so you can put one in the mix from there. Off, the page shows only what is routed to the mix, plus any channel that is not set up yet. The choice is remembered per device in this browser.
 - **Width**: **Auto** fits the strips to the window; **Fixed** sets a width in pixels.
 - **How this mixer works** opens a short explanation.
 - **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from.
@@ -25,22 +26,24 @@ A channel is a named strip for one input. Its head, above the fader, holds:
 | **Input** | The source the channel carries. Changing it routes the source into the mixer at once. Ignores the mouse wheel |
 | **Main mix** | The mix the channel belongs to. A routing change too, so it ignores the mouse wheel |
 | **Group** | A group to fold it into, or **New group...** |
-| **Add to** / **In** | Sends the channel to the selected mix too, or takes it out |
+| **Add to** / **In** | Sends the channel to the selected mix too, or takes it out. If that mix already has this channel's input on another channel, the button reads **Confirm** first and says what would be summed twice; a second click does it anyway |
 | Preamp controls | For a preamp input: its type, gain, 48V (two clicks, the second on **Confirm**) and Ø, the same as the [Inputs page](07-inputs-page.md) |
 
 A channel's colour comes from its group if the group has one, then its own, then its input's colour on the Routing page.
 
 Below the head is the **strip**:
 
-- **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. See [Doubled signals](02-safety.md#doubled-signals).
-- **Send** (Studio+, mix 1 only): the reverb send. Double-click turns it off, Ctrl+click puts it at 0 dB.
+- **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. Gazelle also asks before it happens: choosing an **Input** or a **Main mix** that would put one input into a mix twice holds the change behind a **Confirm** button beside the menu, with the reason on it; press Confirm to do it anyway, or leave it and the menu goes back. Dry alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about. See [Doubled signals](02-safety.md#doubled-signals).
+- **Send** (Studio+, mix 1 only): the reverb send, which is a different thing from being sent to another mix. Double-click turns it off, Ctrl+click puts it at 0 dB. There is no per-mix send control: the fader is the level in the mix you have picked, so pick the mix and use the fader.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
 - **M** (mute), **S** (solo), **⇆** (link).
-- **The fader**, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **-20 dB**, and Ctrl+click (Cmd+click) puts it at **0 dB**, unity. The header's **Double-click** menu can make double-click unity instead.
+- **The fader**, this channel's level in the selected mix, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **-20 dB**, and Ctrl+click (Cmd+click) puts it at **0 dB**, unity. The header's **Double-click** menu can make double-click unity instead.
 - **The meter** shows the channel's input before its fader: the signal arriving. It is shared by every channel on that input. A channel on an effect return is metered by the last effect in its chain, or, when the chain is empty, by the source feeding the chain; the tooltip says which. Some inputs report no meter, and say so.
 - The level and peak readouts, and the name bar in the channel's colour.
 
-A channel with no input or no main mix is greyed. A channel not in the selected mix has no meter.
+A channel with no input or no main mix is greyed, and stays on the row whichever mix is picked: it belongs to none of them yet, and it is the channel you are still making. A channel that belongs to another mix is hidden unless **Show all channels** is on, and is then dimmed and unmetered.
+
+A mix with nothing routed to it says so, in the strip row, and says how to put something there.
 
 The **+** after the last channel adds one. Each mix has 32 inputs; on the Quadro the first six carry the effect returns.
 
