@@ -49,6 +49,6 @@ Its **Route...** menu changes that routing on the device that owns the port, at 
 A cable tells Gazelle that one device's S/PDIF or ADAT output is connected to another's input of the same kind. Declare them on the [Workspace page](12-workspace-page.md#digital-cables). With a cable declared, Gazelle:
 
 - labels a channel or input fed by it with where the signal comes from, for example "from Live room ADAT out 1", and, once the sender's routing is read, which source or mix it carries;
-- warns when the two devices' sample rates differ, when the receiver is not locked to its clock, and when signal leaves the sender but none arrives ("check the cable, the routing and the clock").
+- warns when the two devices' sample rates differ, when the receiver is not locked to its clock, and when signal leaves the sender but none arrives ("check the cable, the routing and the clock"). A cable into an S/PDIF input whose **Converter** is on is not warned about on either count: the rate is converted, and that device need not follow the sender's clock. Signal that never arrives is still reported.
 
 Cables change nothing on the devices. Switching clocks stays on the Devices page. Surfaces and cables have been tested against the emulator only.

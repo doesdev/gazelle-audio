@@ -72,6 +72,8 @@ export interface CablesContext {
   deviceName(deviceId: string): string;
   /** What the device reports about its clock, or undefined before it reports. Reactive. */
   clock(deviceId: string): { rate: number; locked: boolean } | undefined;
+  /** Whether the receiving device's S/PDIF converter is on, or undefined for a model without one. Reactive. */
+  spdifSrc(deviceId: string): boolean | undefined;
   /** An input's meter byte, or undefined without one. Reactive. */
   inputLevel(deviceId: string, source: RouteSource): number | undefined;
   rateNames: readonly string[];
@@ -259,11 +261,15 @@ export class CablesModel {
     const problems: string[] = [];
     const sent = this.#context.clock(sender);
     const received = this.#context.clock(receiver);
-    if (sent !== undefined && received !== undefined && sent.rate !== received.rate) {
+    // The receiver's sample-rate converter, on the S/PDIF input it converts: with it on, this cable
+    // may carry another rate and the receiver need not follow the sender's clock, so neither is
+    // worth saying (the user, 2026-09-19). A real failure still shows as signal that never arrives.
+    const converted = cable.to.port === "SPDIF_IN" && this.#context.spdifSrc(receiver) === true;
+    if (!converted && sent !== undefined && received !== undefined && sent.rate !== received.rate) {
       const rate = (index: number) => this.#context.rateNames[index] ?? `rate ${index}`;
       problems.push(`The sample rates differ: ${rate(sent.rate)} on ${this.#context.deviceName(sender)}, ${rate(received.rate)} on ${this.#context.deviceName(receiver)}.`);
     }
-    if (received !== undefined && !received.locked) problems.push(`${this.#context.deviceName(receiver)} is not locked to its clock.`);
+    if (!converted && received !== undefined && !received.locked) problems.push(`${this.#context.deviceName(receiver)} is not locked to its clock.`);
     const input = this.position(receiver, cable.to.port);
     for (let i = 0; i < cable.channels && input >= 0; i++) {
       const source = this.#sentFrom(cable, cable.from.first + i);

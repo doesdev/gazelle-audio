@@ -188,6 +188,25 @@ test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the 
     await expect(page.locator('ga-section[heading="Clock"]').getByTestId("spdif-src")).toHaveCount(1);
     // With nothing reported the switch is off, so a click turns it on.
     await expect(src).toHaveAttribute("aria-pressed", "false");
+    // On, it has to LOOK on: the button carried the state but no style for it, so the Devices page
+    // never showed the converter as active while the surface's own SRC button did (the user, 2026-09-19).
+    // On, it has to LOOK on. The button carried the state but the page had no style for it, so on a
+    // real device the converter never showed as active while a surface's SRC button did (the user,
+    // 2026-09-19). The loopback never reports the converter back, so the state is set here; what is
+    // being checked is that the page draws a pressed converter differently. Resting, since a click
+    // leaves hover and focus behind and those colour a button too.
+    const background = async () => {
+      await page.mouse.move(0, 0);
+      await src.evaluate((e) => (e as HTMLElement).blur());
+      return src.evaluate((e) => getComputedStyle(e).backgroundColor);
+    };
+    const off = await background();
+    await src.evaluate((e) => e.setAttribute("aria-pressed", "true"));
+    const accent = await src.evaluate((e) => getComputedStyle(e).getPropertyValue("--ga-accent").trim());
+    const on = await background();
+    expect(on, "the converter shows as on, in the accent").not.toBe(off);
+    expect(await src.evaluate((e, want) => { const probe = document.createElement("span"); probe.style.color = want; document.body.append(probe); const rgb = getComputedStyle(probe).color; probe.remove(); return rgb; }, accent), "and it is the accent, not the faint lift any pressed button gets").toBe(on.replace("rgba", "rgb").replace(/,\s*1\)/, ")"));
+    await src.evaluate((e) => e.setAttribute("aria-pressed", "false"));
     await src.click();
     await expect.poll(() => frames.filter((f) => f.command === "set_spdif_src").map((f) => f.args?.["spdif_src"])).toEqual([1]);
   } finally {

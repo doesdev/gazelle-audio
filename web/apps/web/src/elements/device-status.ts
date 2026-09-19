@@ -57,6 +57,9 @@ export class GaDeviceStatus extends GaElement {
       .presets button[data-armed], .tone[data-armed], .dc[data-armed], .confirm { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .driver-safe, .driver-force { min-width: 44px; min-height: 24px; font-size: 12px; font-weight: 600; }
       .driver-safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      /* The converter shows whether it is on in the accent, as a surface's SRC button does: the
+         faint lift a pressed button gets by default read as no indicator at all (the user). */
+      .spdif-src[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .driver-safe[data-armed], .driver-force[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .note-inline.warning { color: var(--ga-state-mute); }
     `),
@@ -247,6 +250,7 @@ export class GaDeviceStatus extends GaElement {
       const spdifSrc = store.hasSpdifSrc(id)
         ? h("button", {
             type: "button",
+            class: "spdif-src",
             "data-control": "",
             "data-testid": "spdif-src",
             "data-explain": "devices.spdif-src",

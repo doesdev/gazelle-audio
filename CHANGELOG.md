@@ -48,6 +48,12 @@ version that has not been published yet.
 
 ### Fixed
 
+- The Devices page shows whether the S/PDIF converter is on. The button held the right state, but
+  it looked the same either way, so the converter seemed to do nothing.
+- A cable into a converted S/PDIF input no longer warns that the rates differ or that the device is
+  not locked. With the converter on, the incoming rate is converted and that device need not follow
+  the sender's clock.
+
 - Channels and inputs can be linked from a surface. The link badges were there, but the bar that
   finishes the pick was not, so a link started on a surface could not be completed.
 - The **×2** badge now shows on the mixer dock's slim strips too, not only on the Mixer page.

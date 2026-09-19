@@ -184,3 +184,36 @@ test("a cable warns when the two clocks disagree, the receiver is not locked, or
   assert.deepEqual(cables.health(cable()), [], "signal arrives");
   for (const off of offs) off();
 });
+
+test("the S/PDIF converter answers the clock warnings: with it on, rates need not match and the receiver need not lock", async () => {
+  const { client, store } = setup();
+  await store.start();
+  const cables = store.cables;
+  // The Quadro's S/PDIF out into the Studio+, whose converter can take another rate (the user, 2026-09-19).
+  const id = cables.declare(spdif.from, spdif.to, spdif.channels) as string;
+  const cable = () => cables.list.value.find((c) => c.id === id)!;
+  const offs = [store.watchReport(STUDIO, "0x73"), store.watchReport(QUADRO, "0x73")];
+  const report = (deviceId: string, fields: Record<string, unknown>) => client.cyclic.get(`${deviceId}|0x73`)?.(fields);
+
+  report(QUADRO, { power_on: 1, base_index: 4, locked: 1 });
+  report(STUDIO, { power_on: 1, base_index: 2, locked_wc: 0, spdif_src: 0 });
+  assert.deepEqual(
+    cables.health(cable()),
+    ["The sample rates differ: 96 kHz on Zen Quadro, 48 kHz on Zen Studio+.", "Zen Studio+ is not locked to its clock."],
+    "with the converter off, both are worth saying",
+  );
+
+  report(STUDIO, { spdif_src: 1 });
+  assert.deepEqual(cables.health(cable()), [], "with the converter on, the rate is converted and the clock need not follow");
+
+  // It only answers for the S/PDIF input it converts: an ADAT cable into the same device still warns.
+  const adatId = cables.declare(adat.from, adat.to, adat.channels) as string;
+  const adatCable = () => cables.list.value.find((c) => c.id === adatId)!;
+  report(QUADRO, { locked: 0 });
+  assert.deepEqual(
+    cables.health(adatCable()),
+    ["The sample rates differ: 48 kHz on Zen Studio+, 96 kHz on Zen Quadro.", "Zen Quadro is not locked to its clock."],
+    "the converter is on the Studio+'s S/PDIF input, not on the Quadro's ADAT input",
+  );
+  for (const off of offs) off();
+});

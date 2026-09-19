@@ -797,6 +797,7 @@ export class Store {
       const card = this.deviceCard(deviceId);
       return card?.clock === undefined ? undefined : { rate: card.clock.rate, locked: card.clock.locked };
     },
+    spdifSrc: (deviceId) => this.spdifSrc(deviceId),
     inputLevel: (deviceId, source) => this.inputMeter(deviceId, source)?.level.value,
     rateNames: SAMPLE_RATES,
   });
