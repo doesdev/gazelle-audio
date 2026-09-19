@@ -30,6 +30,14 @@ Choose a device, a kind of strip, the item, and **+ Strip**:
 
 Each strip has a grip to drag it, **‹ ›** to move it, a mix pin menu on channels and masters, and **×** to take it off the surface (click twice).
 
+### Linking from a surface
+
+Channel and input strips carry the same link badge as the Mixer and Inputs pages, and the link bar
+appears here too, so a pair that spans two devices can be made where you can see both. Pick one
+strip's badge, then another's, choose **Same value** or **Relative**, and **Save**. The bar names
+every member with its device, since a surface spans devices. Links are the workspace's own, so one
+made here is the same link the Mixer shows.
+
 ### Digital out strips
 
 Digital outputs have no level of their own on either model. A port strip shows what feeds each pair: a mix by name (with that mix's master strip beside it, as the level control), a source ("Bit for bit: no level on <device>"), or Muted.

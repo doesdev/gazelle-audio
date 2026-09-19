@@ -218,7 +218,9 @@ export class GaSurfaceStrip extends GaElement {
       const inputs = store.inputs(deviceId);
       host.onDisconnect(inputs.activate());
       const { kind, channel } = strip.input;
-      const control = kind === "preamp" ? preampCard(host, inputs, channel, enabled, { links: false }) : digitalCell(host, inputs, inputs.digital.find((g) => g.kind === kind) ?? { kind, label: kind, count: 0, editable: false, linkPairs: 0 }, channel, enabled, { links: false });
+      // Links are offered here as on the Inputs page: a surface is where a cross-device pair is
+      // most wanted, and the page carries the same link bar to finish the pick (the user, 2026-09-19).
+      const control = kind === "preamp" ? preampCard(host, inputs, channel, enabled) : digitalCell(host, inputs, inputs.digital.find((g) => g.kind === kind) ?? { kind, label: kind, count: 0, editable: false, linkPairs: 0 }, channel, enabled);
       const topology = store.topology(deviceId);
       const group = topology?.inputs.findIndex((g) => g.type === INPUT_TYPES[kind]) ?? -1;
       const meter = group < 0 ? undefined : store.inputMeter(deviceId, { group, channel });

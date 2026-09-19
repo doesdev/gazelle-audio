@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Fixed
+
+- Channels and inputs can be linked from a surface. The link badges were there, but the bar that
+  finishes the pick was not, so a link started on a surface could not be completed.
+
 ### Added
 
 - **See which version you are running.** The tray menu's first line now names it, and with the

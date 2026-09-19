@@ -15,6 +15,7 @@ import { meterDeflection } from "../store/mixer.ts";
 import { channelSpan, portName, portWidth } from "../store/cables.ts";
 import { displayName, SAMPLE_RATES, type Cable, type NewStrip, type SurfaceStrip } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
+import { LINK_STYLES, linkBar } from "./link-bar.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href } from "./router.ts";
 import { keepScroll } from "./view-state.ts";
@@ -38,6 +39,7 @@ export class GaSurface extends GaElement {
       .caption { font-size: 11px; color: var(--ga-text-secondary); }
       .device-mix { display: flex; align-items: center; gap: 4px; }
       .dot { width: 10px; height: 10px; border-radius: 2px; background: var(--device-colour, var(--ga-border-strong)); }
+      ${LINK_STYLES}
       .clocks { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--ga-text-secondary); }
       .clock { display: flex; align-items: center; gap: 4px; }
       .health { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 11px; }
@@ -89,7 +91,7 @@ export class GaSurface extends GaElement {
     const strips = h("div", { class: "strips", "data-testid": "surface-strips" });
     const indicator = h("div", { class: "drop", hidden: true });
     const missing = h("p", { class: "placeholder", hidden: true }, "This surface does not exist; it may have been deleted. ", h("a", { href: href({ page: "workspace" }), "data-explain": "surface.to-workspace" }, "Surfaces are on the Workspace page."));
-    const content = h("div", { class: "content" }, h("div", { class: "bar" }, title, mixes, h("span", { class: "spacer" }), lastSent), clocks, health, this.#picker(surfaceId), strips);
+    const content = h("div", { class: "content" }, h("div", { class: "bar" }, title, mixes, h("span", { class: "spacer" }), lastSent), clocks, health, linkBar((fn) => this.watch(fn), ""), this.#picker(surfaceId), strips);
     this.root.replaceChildren(missing, content);
 
     this.watch(() => {

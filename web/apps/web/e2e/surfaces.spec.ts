@@ -307,3 +307,32 @@ test("a surface fits a phone: the page does not scroll sideways, the strips do",
   expect(row.overflow, "the person can scroll them").toBe("auto");
   expect(row.scroll).toBeGreaterThan(row.client);
 });
+
+test("channels and inputs are linked from a surface, across both devices, through the same link bar as the Mixer", async ({ page }) => {
+  const strips = [
+    { id: "vox", kind: "channel", device_id: "loopback-0", channel: "vox" },
+    { id: "kick", kind: "channel", device_id: "loopback-1", channel: "kick" },
+    { id: "pre", kind: "input", device_id: "loopback-0", input: { kind: "preamp", channel: 2 } },
+  ];
+  await putWorkspace(server, { mixers: MIXERS, surfaces: [{ id: "s", name: "Cue", mixes: {}, strips }] });
+  await page.goto(`${server.url}/#/surface/s`);
+  await expect(page.getByTestId("link-bar")).toBeHidden();
+
+  // A channel of each device: the bar names both, since a surface spans devices.
+  await slot(page, "vox").getByTestId("mixer-link-6").click();
+  await expect(page.getByTestId("link-bar")).toBeVisible();
+  await expect(page.getByTestId("link-bar")).toContainText("Zen Quadro");
+  await expect(page.getByTestId("link-save")).toBeDisabled();
+  await slot(page, "kick").getByTestId("mixer-link-0").click();
+  await expect(page.getByTestId("link-bar")).toContainText("Zen Studio");
+  await page.getByTestId("link-save").click();
+  await expect(page.getByTestId("link-bar")).toBeHidden();
+  await expect.poll(async () => ((await serverWorkspace())["links"] as { members: unknown[] }[] | undefined)?.[0]?.members).toHaveLength(2);
+  await expect(slot(page, "vox").getByTestId("mixer-link-6")).toHaveAttribute("aria-pressed", "true");
+
+  // An input strip links the same way: its preamp badge is there and opens the bar.
+  await slot(page, "pre").getByTestId("pre-link-2").click();
+  await expect(page.getByTestId("link-bar")).toBeVisible();
+  await page.getByTestId("link-cancel").click();
+  await expect(page.getByTestId("link-bar")).toBeHidden();
+});
