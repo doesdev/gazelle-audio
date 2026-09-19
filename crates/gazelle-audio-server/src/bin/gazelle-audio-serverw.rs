@@ -8,6 +8,9 @@
 //! started from a terminal does not write to it. A server that stops with an error says so in a
 //! message box, since nothing else would show it.
 //!
+//! It is also the setup program: the release's `Gazelle-Setup.exe` is this file under another
+//! name, and double-clicked with no arguments it offers to install itself (`install::setup`).
+//!
 //! On other platforms the subsystem does not exist and this is the ordinary server.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
@@ -16,6 +19,12 @@
 mod server;
 
 fn main() -> std::process::ExitCode {
+    // Double-clicked as the release's setup file, or for the first time from an unzipped release:
+    // offer to install before anything else. Never with arguments (`install::setup`).
+    use gazelle_audio_server::install::setup::{from_windowless, Next};
+    if from_windowless() == Some(Next::Exit) {
+        return std::process::ExitCode::SUCCESS;
+    }
     match server::main() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {

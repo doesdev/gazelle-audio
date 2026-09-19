@@ -290,6 +290,94 @@ fn install_does_not_create_a_login_entry_that_was_never_asked_for() {
     assert!(w.run_key.read(ENTRY_NAME).unwrap().is_none(), "Start on boot is a setting, not something an install turns on");
 }
 
+// --- installing from the setup file ------------------------------------------------------
+
+impl World {
+    /// The release's setup file, downloaded on its own: a copy of the windowless build under a
+    /// name of its own, with nothing beside it.
+    fn setup_file(&self, body: &str) -> PathBuf {
+        let dir = self.root.join(&format!("setup-{body}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Gazelle-Setup.exe");
+        std::fs::write(&path, format!("gazelle-audio-serverw.exe {body}").repeat(64)).unwrap();
+        path
+    }
+}
+
+#[test]
+fn a_setup_file_on_its_own_installs_as_the_windowless_build() {
+    let w = World::new("setup-plant");
+    let setup = w.setup_file("v1");
+
+    let report = install::install_windowless(&w.context(&never), &setup).unwrap();
+
+    assert_eq!(report.copied, vec![w.installed("gazelle-audio-serverw.exe")]);
+    assert_eq!(std::fs::read(w.installed("gazelle-audio-serverw.exe")).unwrap(), std::fs::read(&setup).unwrap());
+    assert!(!w.installed("Gazelle-Setup.exe").exists(), "the setup file's own name is not the installed one");
+    assert!(!w.installed("gazelle-audio-server.exe").exists(), "there was no console build to copy");
+    assert_eq!(report.launch, w.installed("gazelle-audio-serverw.exe"));
+    let target = install::shortcut::target_of(&std::fs::read(w.shortcut()).unwrap()).unwrap();
+    assert_eq!(PathBuf::from(target), w.installed("gazelle-audio-serverw.exe"));
+    // With no console build installed, Add/Remove Programs uninstalls through the windowless one.
+    assert_eq!(
+        w.registry.get("UninstallString").as_deref(),
+        Some(format!("\"{}\" --uninstall", w.installed("gazelle-audio-serverw.exe").display()).as_str())
+    );
+    assert_eq!(
+        w.registry.get("QuietUninstallString").as_deref(),
+        Some(format!("\"{}\" --uninstall --yes", w.installed("gazelle-audio-serverw.exe").display()).as_str())
+    );
+    assert_eq!(w.registry.get("DisplayVersion").as_deref(), Some(env!("CARGO_PKG_VERSION")));
+
+    // And that uninstall takes it all away again.
+    let removed = install::uninstall(&w.context(&never), &w.layout.programs, false).unwrap();
+    assert!(!w.installed("gazelle-audio-serverw.exe").exists());
+    assert!(removed.dir_removed);
+    assert!(w.registry.is_empty());
+}
+
+#[test]
+fn a_setup_file_over_a_full_install_replaces_the_windowless_build_and_keeps_the_console_one() {
+    let w = World::new("setup-over");
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let setup = w.setup_file("v2");
+
+    let report = install::install_windowless(&w.context(&never), &setup).unwrap();
+
+    assert!(report.upgraded);
+    assert_eq!(std::fs::read(w.installed("gazelle-audio-serverw.exe")).unwrap(), std::fs::read(&setup).unwrap());
+    assert!(w.installed("gazelle-audio-server.exe").exists());
+    assert_eq!(
+        w.registry.get("UninstallString").as_deref(),
+        Some(format!("\"{}\" --uninstall", w.installed("gazelle-audio-server.exe").display()).as_str()),
+        "the console build is still there to uninstall with"
+    );
+}
+
+#[test]
+fn a_setup_file_refuses_to_replace_a_running_copy_and_changes_nothing() {
+    let w = World::new("setup-running");
+    install::install_windowless(&w.context(&never), &w.setup_file("v1")).unwrap();
+    let running = w.installed("gazelle-audio-serverw.exe");
+    let busy = |p: &Path| p == running;
+
+    let error = install::install_windowless(&w.context(&busy), &w.setup_file("v2")).unwrap_err();
+
+    assert!(error.to_lowercase().contains("quit"), "{error}");
+    assert_eq!(std::fs::read(&running).unwrap(), std::fs::read(w.setup_file("v1")).unwrap());
+}
+
+#[test]
+fn the_windowless_build_under_its_own_name_installs_with_its_sibling_as_ever() {
+    let w = World::new("setup-plain");
+    let windowless = w.portable("v1").with_file_name("gazelle-audio-serverw.exe");
+
+    let report = install::install_windowless(&w.context(&never), &windowless).unwrap();
+
+    assert_eq!(report.copied.len(), 2, "both builds from an unzipped release: {:?}", report.copied);
+    assert!(w.installed("gazelle-audio-server.exe").exists());
+}
+
 // --- uninstalling -------------------------------------------------------------------------
 
 #[test]
