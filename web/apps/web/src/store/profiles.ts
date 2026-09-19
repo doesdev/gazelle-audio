@@ -1,6 +1,6 @@
 // Starting layouts per device model: named sets of channels a mixer with no channel set up can
 // start from, beside the default of one inactive channel (the user's request, 2026-09-16). They are
-// drafts (decision P53) meant to be edited or replaced: each channel names an input by topology
+// drafts meant to be edited or replaced: each channel names an input by topology
 // type and channel, a main mix and sends. ChannelsModel.applyProfile places them on the first free
 // slots and routes them.
 

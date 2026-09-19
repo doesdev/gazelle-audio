@@ -3,7 +3,7 @@
 //!
 //! **Preparing a plan sends nothing.** It reads every device fresh (the same capture a comparison
 //! makes), diffs the snapshot against what came back, and turns each difference into the command
-//! that would undo it, in the order spec §2.3.4 requires. Applying a plan is phase 6 and waits for a
+//! that would undo it, in a volume-safe order. Applying a plan is not built and waits for a
 //! hardware session; [`crate::http::recall`] holds the seam, disabled.
 //!
 //! The order, and why:
@@ -38,17 +38,17 @@ use crate::value::to_hex;
 use crate::workspace::model::Workspace;
 use crate::workspace::topology;
 
-/// An output raised by more than this needs its own tick (spec §2.3.3, the user's answer to Q3).
+/// An output raised by more than this needs its own tick.
 pub const RAISE_THRESHOLD_DB: i64 = 6;
 
 /// What the caller asked for. Everything is optional: with an empty request the plan takes the
-/// spec's defaults, which is what the Workspace page's preview shows.
+/// defaults, which is what the Workspace page's preview shows.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct RecallRequest {
     /// Per-part opt-in, overriding [`Part::default_on`].
     pub parts: BTreeMap<String, bool>,
-    /// The ticks the dangerous parts need every time, never remembered (§2.3.3).
+    /// The ticks the dangerous parts need every time, never remembered.
     pub confirm: BTreeMap<String, bool>,
     /// "I have checked" for outputs raised by more than [`RAISE_THRESHOLD_DB`].
     pub confirm_raised_outputs: bool,
@@ -165,11 +165,11 @@ pub struct RecallPlan {
     pub steps: Vec<Step>,
     pub excluded: Vec<Excluded>,
     pub raised_outputs: Vec<RaisedOutput>,
-    /// Inputs this plan would switch 48V **on** for, by name (§2.3.3).
+    /// Inputs this plan would switch 48V **on** for, by name.
     pub phantom_on: Vec<String>,
     /// How many of `steps` no guard is holding back.
     pub ready: usize,
-    /// Workspace-side differences. Layout only: recalling them sends nothing to a device (§2.6),
+    /// Workspace-side differences. Layout only: recalling them sends nothing to a device,
     /// so they are counted here and are not steps.
     pub workspace_changes: usize,
     /// Always false. A plan is a description; sending it is phase 6.
@@ -188,7 +188,7 @@ pub async fn prepare(
     force_dry_run: bool,
     request: &RecallRequest,
 ) -> Result<RecallPlan, ServerError> {
-    // Guard 1 (§2.3): nothing is planned from a stale view. In dry run the server answers no reads
+    // Guard 1: nothing is planned from a stale view. In dry run the server answers no reads
     // at all, so instead of pretending, the plan says the present is unknown and lists everything.
     let now = if force_dry_run {
         unread_present(devices, workspace)
@@ -255,7 +255,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
                 kind: if device.missing { "device_missing" } else { "not_chosen" },
                 command: None,
                 reason: if device.missing {
-                    format!("{} is in the snapshot and is not attached now, so none of it can be put back (spec §2.6)", if device.model.is_empty() { &id } else { &device.model })
+                    format!("{} is in the snapshot and is not attached now, so none of it can be put back", if device.model.is_empty() { &id } else { &device.model })
                 } else {
                     "this device was not chosen for recall".into()
                 },
@@ -265,7 +265,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
         }
         let family = device.family.clone();
         // Both sides' unread paths, not only the snapshot's: a value the devices would not give up
-        // just now is a stale view, and guard 1 of §2.3 is that nothing is sent from one.
+        // just now is a stale view, and the first recall guard is that nothing is sent from one.
         let present = now.devices.get(&crate::device::descriptor::DeviceId(id.clone()));
         let unreadable: Vec<&str> = recorded
             .unreadable
@@ -340,8 +340,8 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
             }
         }
 
-        // Silencing, and the restoring that undoes it, are not differences: they are how the spec
-        // makes a recall safe. They are planned whenever anything else would be sent.
+        // Silencing, and the restoring that undoes it, are not differences: they are how
+        // a recall is made safe. They are planned whenever anything else would be sent.
         let silences = !wanted.is_empty();
         if silences {
             for target in restore_targets(&family) {
@@ -440,7 +440,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
             }
         }
         // If anything the restore needs is missing, every step of this device is held back: a plan
-        // that silences the outputs and cannot put them back is not one to run (§2.3.4, §2.3.5).
+        // that silences the outputs and cannot put them back is not one to run.
         if silences && !restore_incomplete.is_empty() {
             for step in steps.iter_mut().filter(|s| s.device_id == id) {
                 step.blocked_by.push("restore_incomplete".to_string());
@@ -456,7 +456,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
         });
     }
 
-    // Across devices, the order is the spec's stages: every device is silenced before any of them
+    // Across devices, the order is in stages: every device is silenced before any of them
     // is written to, and nothing is unmuted until everything is in place.
     steps.sort_by_key(|s| PARTS.iter().position(|p| p.name() == s.part).unwrap_or(usize::MAX));
     let ready = steps.iter().filter(|s| s.blocked_by.is_empty()).count();
@@ -490,7 +490,7 @@ fn build(snapshot: &Snapshot, now: &Snapshot, differences: &Diff, request: &Reca
         ready,
         workspace_changes: differences.workspace.len(),
         sent: false,
-        note: "Nothing has been sent to any device. This is what recall would send, in order; applying it waits for a session at the hardware (spec §2.3, decision 0012).".into(),
+        note: "Nothing has been sent to any device. This is what recall would send, in order; applying it waits for a session at the hardware.".into(),
     }
 }
 
@@ -514,7 +514,7 @@ fn expand(target: Target, _family: &str, change: &Change) -> Vec<Target> {
         .collect()
 }
 
-/// The mixer moves quieter first (§2.3.4): within the mixer stage, a step whose level rises (more
+/// The mixer moves quieter first: within the mixer stage, a step whose level rises (more
 /// attenuation) comes before one whose level falls.
 fn sort_mixer_quieter_first(ordered: &mut [Planned]) {
     ordered.sort_by_key(|p| {
@@ -538,7 +538,7 @@ fn restore_targets(family: &str) -> Vec<Target> {
 }
 
 /// Silence every output before anything else is written, as the vendor panel does around a session
-/// restore (`devices.md`, "Hard mute"; spec §2.3.4). The Studio+ has no hard mute, so its five
+/// restore (`docs/protocol.md`, "Hard mute"). The Studio+ has no hard mute, so its five
 /// outputs are muted one by one.
 fn silence_steps(device_id: &str, model: &str, family: &str) -> Vec<Step> {
     let step = |label: String, command: &str, args: Json| Step {
@@ -781,7 +781,7 @@ mod tests {
         assert!(!plan.sent);
         assert!(plan.note.contains("Nothing has been sent"));
         assert!(plan.current_state_read);
-        assert_eq!(plan.raise_threshold_db, 6, "the user's answer to Q3");
+        assert_eq!(plan.raise_threshold_db, 6, "the threshold the user chose");
     }
 
     #[test]

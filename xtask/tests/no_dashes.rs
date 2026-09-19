@@ -8,7 +8,8 @@
 //!
 //! The roots are everything that is built into, or served by, the app: the web app and the client
 //! package, every crate's sources and build script, the release helper, the themes, and the
-//! schemas the server embeds. Tests, `.agent/` and `refs/` notes are not product. Generated files
+//! schemas the server embeds. Tests and `refs/` notes are not product; `docs/` and `README.md` are
+//! checked by `pnpm -C web docs:check`. Generated files
 //! (the effect catalogues and mic emulations from `refs/tools/scripts/`) sit inside these roots,
 //! so a generator that emitted a dash again would fail here too; each generator also refuses to
 //! write one.

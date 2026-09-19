@@ -1,4 +1,4 @@
-//! Field maps and reports from synthetic probes (spec §8, field map; §11 row 2).
+//! Field maps and reports from synthetic probes.
 
 use gazelle_audio_capture::analysis::encoding::Model;
 use gazelle_audio_capture::analysis::fieldmap::{descriptor_hash, field_map, report, short_template, FieldMap, ProbeInput, SCHEMA_VERSION};

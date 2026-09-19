@@ -102,7 +102,7 @@ def struct_size(d):
          -> ceil(sum(field bits) / 8) * N
       2. {'elem_type': 'ubyte * K', 'count': N}               -> elem_size * N
 
-    A struct element packs its fields bit by bit (reference/protocol.md, "Cyclic reports"),
+    A struct element packs its fields bit by bit (docs/protocol.md, "Cyclic reports"),
     so a field with a bit width contributes those bits, not its type's whole bytes. Summing
     byte sizes made `preamps` 5 bytes per element instead of 1; the live Studio+ capture puts
     `peaks_mixer` and `peaks_preamp` where the bit-packed layout does.

@@ -1,4 +1,4 @@
-// Cross-device mix surfaces (workspace spec §4, phase 2): made on the Workspace page, opened at
+// Cross-device mix surfaces: made on the Workspace page, opened at
 // #/surface/<id>, holding strips from both loopback devices (Quadro loopback-0, Studio+ loopback-1),
 // each with its device's badge. Every control sends its own device's command, and nothing is sent
 // by building or rearranging a surface.

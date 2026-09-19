@@ -32,7 +32,7 @@ pub struct Snapshot {
     #[serde(default)]
     pub devices: BTreeMap<DeviceId, DeviceSnapshot>,
     /// Top-level fields a newer app wrote, kept as they came so a snapshot exported from a newer
-    /// server and imported back is still whole (workspace spec Q7, as the workspace does).
+    /// server and imported back is still whole (as the workspace does).
     #[serde(flatten)]
     pub extra: BTreeMap<String, Json>,
 }
@@ -45,13 +45,13 @@ pub struct DeviceSnapshot {
     /// RFC 3339, UTC: when this device was read, which is not quite when the snapshot was made.
     pub read_at: String,
     /// The preset slot the device says is current. **Recorded, never recalled**: nobody has yet
-    /// established what a preset recall changes (spec §2.4), so this is a note for the user.
+    /// established what a preset recall changes, so this is a note for the user.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_preset: Option<i64>,
     /// Section name (one of [`SECTIONS`]) to its values.
     #[serde(default)]
     pub sections: BTreeMap<String, Json>,
-    /// What could not be read, rather than a value invented for it (P96, spec §2.2).
+    /// What could not be read, rather than a value invented for it.
     #[serde(default)]
     pub unreadable: Vec<Unreadable>,
 }

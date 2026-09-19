@@ -1,5 +1,5 @@
 //! What the user has said about updating, kept beside the workspace in the config directory
-//! (`%APPDATA%\gazelle\update.json` on Windows; P82).
+//! (`%APPDATA%\gazelle\update.json` on Windows).
 //!
 //! The defaults are the quiet ones: **check, never download by itself**. A check costs one
 //! request and tells the user something they can act on; a download writes megabytes beside a

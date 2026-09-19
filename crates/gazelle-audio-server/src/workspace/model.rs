@@ -5,7 +5,8 @@
 //! survives a reload and is shared between clients.
 //!
 //! Profiles (full device state: routing, levels, preamps, phantom) are deliberately **not**
-//! here; see `.agent/decisions/0011-json-profiles-behind-storage-trait.md`.
+//! here: they are separate JSON documents behind their own storage, so the layout stays small
+//! and a device's state is never saved as a side effect of moving a strip.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -31,16 +32,16 @@ pub struct Workspace {
     /// documents without it load with none.
     #[serde(default)]
     pub mixers: BTreeMap<DeviceId, DeviceMixer>,
-    /// Mixer layouts the user saved, per device model (decision P56). Additive like `mixers`.
+    /// Mixer layouts the user saved, per device model. Additive like `mixers`.
     #[serde(default)]
     pub layouts: Vec<SavedLayout>,
-    /// Per-device badge colours, `#rrggbb`, for the strips a surface shows (workspace spec Q15).
+    /// Per-device badge colours, `#rrggbb`, for the strips a surface shows.
     #[serde(default)]
     pub device_colors: BTreeMap<DeviceId, String>,
-    /// Cross-device mix surfaces (workspace spec §4). Additive like `mixers`.
+    /// Cross-device mix surfaces. Additive like `mixers`.
     #[serde(default)]
     pub surfaces: Vec<Surface>,
-    /// Digital connections between devices, as the user declares them (workspace spec §4.5).
+    /// Digital connections between devices, as the user declares them.
     #[serde(default)]
     pub cables: Vec<Cable>,
     /// Per device, what its Control Room panel shows. A device without an entry shows the client's
@@ -48,7 +49,7 @@ pub struct Workspace {
     #[serde(default)]
     pub control_room: BTreeMap<DeviceId, ControlRoom>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
-    /// so an export always imports back whole (workspace spec, Q7).
+    /// so an export always imports back whole.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -93,7 +94,7 @@ pub struct ControlRoom {
     pub outputs: Vec<u32>,
 }
 
-/// A user-built row of strips drawn from any attached device (workspace spec §4). It holds only
+/// A user-built row of strips drawn from any attached device. It holds only
 /// what to show: every control sends what the device's own page would, and nothing is shared
 /// between devices.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -200,7 +201,7 @@ pub struct DeviceMixer {
 pub struct MixConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Present while the mix is summed to mono (decision P57): its channels are panned to centre on
+    /// Present while the mix is summed to mono: its channels are panned to centre on
     /// the device, and these are the pans to restore.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mono: Option<MonoMix>,
@@ -282,7 +283,7 @@ pub struct ChannelRef {
     pub channel: u32,
 }
 
-/// Channels of one kind, on any devices, that change together (decision P51). Links belong to the
+/// Channels of one kind, on any devices, that change together. Links belong to the
 /// workspace, not the device: a client sends each change to every member. `channel` in a member is
 /// the index within the kind (preamp, line, ADAT or S/PDIF input; mixer channels by input slot).
 #[derive(Clone, Debug, Serialize, Deserialize)]

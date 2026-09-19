@@ -279,7 +279,7 @@ fn label(section: &str, path: &str) -> String {
         }
         let (name, indices) = split_indices(part);
         parts.push(match (name, indices.as_slice()) {
-            // A mix is the master and 32 strips, master first (P47, P48).
+            // A mix is the master and 32 strips, master first.
             ("mixes", [mix]) => format!("Mix {}", mix + 1),
             ("mixes", [mix, 0]) if mixer => format!("Mix {} · master", mix + 1),
             ("mixes", [mix, strip]) if mixer => format!("Mix {} · strip {strip}", mix + 1),

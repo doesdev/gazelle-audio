@@ -1,4 +1,4 @@
-//! Closed step windows paired with the events inside them (spec §8 step 1).
+//! Closed step windows paired with the events inside them.
 
 use crate::capture::event::UsbEvent;
 use crate::session::plan::StepKind;

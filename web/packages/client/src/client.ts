@@ -1,5 +1,5 @@
-// The connection (spec §4). Invocation goes over the WebSocket, the workspace over HTTP. Choices
-// agreed with the user (decisions log, P4-P7): a 5 s default timeout; reconnect from 250 ms
+// The connection. Invocation goes over the WebSocket, the workspace over HTTP. Choices
+// agreed with the user: a 5 s default timeout; reconnect from 250 ms
 // doubling to 5 s with jitter until close(), replaying nothing; coalescing keeps at most one call
 // per key waiting on the server and rejects the one it replaces with `superseded`; server error
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
@@ -118,7 +118,7 @@ export interface Client {
     /**
      * What recall would send to put this snapshot back: an ordered list of commands with their
      * bytes and their guards. Reads every device and **sends nothing**; there is deliberately no
-     * way here to apply one (workspace spec §2.3, decision 0012).
+     * way here to apply one.
      */
     recallPlan(id: string, ask?: RecallAsk): Promise<RecallPlan>;
   };

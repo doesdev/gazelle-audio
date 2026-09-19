@@ -1,9 +1,9 @@
-// Cross-device mix surfaces (workspace spec §4): named rows of strips drawn from any device, kept in
+// Cross-device mix surfaces: named rows of strips drawn from any device, kept in
 // the workspace. A surface holds only what to show. Its strips are the devices' own controls (a
 // mixer channel in a mix, a mix master, an input, an output), and every change they make goes
 // through the same models the device's pages use, so nothing here sends anything to a device.
 //
-// Mixes are per device: a surface keeps one selected mix for each device (the user's answer to Q8),
+// Mixes are per device: a surface keeps one selected mix for each device (the user's choice),
 // separate from the Mixer page's selection, and a channel or master strip may pin its own. Each
 // device has a badge colour, chosen in the workspace or taken from the theme palette, so that two
 // devices' strips side by side are never read as one mixer.

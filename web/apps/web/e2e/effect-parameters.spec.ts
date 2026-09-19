@@ -1,5 +1,4 @@
-// The effect parameter editor on the Effects page (specs/2026-09-17-effects-and-reverb.md, "Effect
-// parameters"). The server runs in dry run, which answers no reads, so the device's replies are supplied
+// The effect parameter editor on the Effects page. The server runs in dry run, which answers no reads, so the device's replies are supplied
 // through the WebSocket as effects.spec.ts does; every write still goes to the server, and what the page
 // would send is compared with the bytes the server gives for the same command and arguments. Where one
 // change sends two writes (a linked partner), their replies can return in either order, so the order is

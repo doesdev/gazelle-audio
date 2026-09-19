@@ -1,10 +1,10 @@
-// Digital cables between devices (workspace spec §4.5): the user says that one device's S/PDIF or
+// Digital cables between devices: the user says that one device's S/PDIF or
 // ADAT output is plugged into another's input. A cable is a fact about the room, kept in the
 // workspace. It never routes, clocks or links anything; it lets the app say
 //   - what feeds a digital output, pair by pair (a mix, or a source played bit for bit, since
-//     neither model has a level of its own for its digital outputs, §4.2), and route a different
+//     neither model has a level of its own for its digital outputs), and route a different
 //     mix or source there: a real routing change on the device that owns the port, through its
-//     RoutingModel, which reads the group before it writes (the user's answer to Q10);
+//     RoutingModel, which reads the group before it writes (the user's choice);
 //   - where a digital input's signal comes from ("from Drum rack ADAT out 3 ← PREAMP 3 (Snare)");
 //   - when the two ends disagree: sample rates, a receiver that is not locked, or signal leaving the
 //     sender with none arriving.

@@ -26,7 +26,7 @@
 //!
 //! # TLS
 //!
-//! `ureq` with rustls and the ring provider: A35's crypto choice, a different client from
+//! `ureq` with rustls and the ring provider: the capture crate's crypto choice, a different client from
 //! `drive`'s `reqwest` because it is the smaller tree (no hyper, no encoding_rs) for one request
 //! at a time. Certificates verify against ureq's bundled Mozilla roots rather than the OS trust
 //! store (`rustls-platform-verifier` is left out). That is stricter in the common case and
@@ -54,7 +54,7 @@ pub const TARGET: &str = env!("GAZELLE_TARGET");
 
 /// The binaries a release carries for each platform. The running one is always updated; the
 /// other is updated too when it sits beside it, so Start on boot (which runs the windowless
-/// build, P78) does not quietly stay a version behind.
+/// build) does not quietly stay a version behind.
 pub const BINARIES: [&str; 2] = ["gazelle-audio-server", "gazelle-audio-serverw"];
 
 /// How long a check's answer stands. A tray menu opening, a web UI polling and a background
@@ -496,7 +496,7 @@ pub fn temporary_path(target: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// rustls needs a process-wide crypto provider before any client is built (A35). Idempotent:
+/// rustls needs a process-wide crypto provider before any client is built. Idempotent:
 /// installing a second time is the error this ignores.
 pub fn ensure_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();

@@ -1,4 +1,4 @@
-//! Field attribution by the rules of spec §8 step 5, decided by majority vote (the user's choice
+//! Field attribution by the rules below, decided by majority vote (the user's choice
 //! on 2026-09-14, over all-or-nothing). A byte of a channel is attributed to parameter P when more
 //! than half of its votes agree that it
 //! 1. carries P's value on Set steps: each UI value's raw is the most common raw among the Set

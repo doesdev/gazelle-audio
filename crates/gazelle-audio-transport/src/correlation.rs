@@ -7,25 +7,10 @@
 //! `refs/decompiled/manager/antelope_dev_base.py`. An earlier version of this module
 //! matched responses by `seq`, which the project notes asserted but nothing verified.
 //!
-//! That was wrong. The logic below is read directly from the bytecode with
+//! That was wrong. The rule below was read from the bytecode with
 //! `refs/tools/scripts/pyc_dis.py`, which decodes 3.5-3.8 opcodes without needing the
-//! original interpreter. `_sanitize_response` validates a response like this:
-//!
-//! ```text
-//! resp = input_queue.get(timeout=request_timeout)      # the NEXT report, not a search
-//! resp_structure = req_proto.process_response(resp, len(resp))
-//! if resp_structure is None: return (False, None)
-//! h = resp_structure.header
-//! if mode is DeviceMode.APP and _do_sanitize is True:
-//!     if h.cmd & 0x80000000 == 0:
-//!         valid |= (h.cmd == 255)
-//!         valid |= (h.cmd == r_structure.report_id + 1)
-//!         valid &= (h.ext2 == r_structure.ext2)
-//! else:
-//!     valid = True
-//! ```
-//!
-//! So a response is accepted when
+//! original interpreter. The vendor takes the **next** report off its input queue (it does not
+//! search for a match), decodes it, and in application mode accepts it when
 //!
 //! * the top bit of `cmd` is clear, **and**
 //! * `cmd` is either `255` or the request's `report_id + 1`, **and**

@@ -1,6 +1,6 @@
 //! Read-only probe: lists HID interfaces, and the Antelope ones in particular, with what the
 //! transport needs. It opens nothing and writes nothing, so it is safe to run while the devices are
-//! in use (decision 0012: never drive real hardware blindly).
+//! in use (never drive real hardware blindly).
 //!
 //! `cargo run -p gazelle-audio-server --example hid_probe`
 
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // With `--read`, listen to each device for a moment. This only receives: nothing is sent, so the
-    // devices keep doing whatever they were doing (decision 0012).
+    // devices keep doing whatever they were doing.
     if std::env::args().any(|a| a == "--read") {
         for info in all.iter().filter(|d| d.vendor_id() == ANTELOPE_VID) {
             let device = match info.open_device(&api) {

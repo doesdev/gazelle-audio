@@ -1,5 +1,5 @@
-// `pnpm -C web e2e`: Chromium against the real gazelle-audio-server serving the built UI (spec §9,
-// §10 row 3). Global setup builds the web app; each spec starts its own server through the client's
+// `pnpm -C web e2e`: Chromium against the real gazelle-audio-server serving the built UI.
+// Global setup builds the web app; each spec starts its own server through the client's
 // integration harness, which builds the server once so it embeds that build.
 
 import { defineConfig, devices } from "@playwright/test";

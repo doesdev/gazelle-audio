@@ -1,4 +1,4 @@
-//! Spec §5/§9: only the panel can mark done, redo or skip. `OperatorAuthority::grant` is the
+//! Only the panel can mark done, redo or skip. `OperatorAuthority::grant` is the
 //! only way to obtain the proof those commands require; it may be called only by the panel,
 //! by the synthetic operator, and by in-crate unit test files (`*_tests.rs`).
 

@@ -109,7 +109,7 @@ export interface SnapshotImport {
   skipped: string[];
 }
 
-// Recall (workspace spec §2.3, phase 6). A **plan** is a description: the server reads every device
+// Recall. A **plan** is a description: the server reads every device
 // fresh, compares, and answers the commands recall would send, in order, with the bytes each one
 // would carry. Asking for a plan sends nothing to a device, and this client has no way to apply one.
 

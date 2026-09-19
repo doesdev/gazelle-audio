@@ -541,7 +541,7 @@ test("a device that will not answer get_mic_emulations leaves emulation unknown,
   await store.start();
   const quadro = store.inputs("loopback-0");
   // The Inputs page reads this on its own every time it opens, so a refusal is not the user's
-  // problem (P63) — the loopback, for one, answers every read with an empty payload.
+  // problem; the loopback, for one, answers every read with an empty payload.
   client.respond = async (call) => ({
     device_id: call.deviceId,
     command: call.command,

@@ -1,4 +1,4 @@
-//! OpenAI-compatible tools (spec §9): `GET /openai/tools` returns function definitions generated
+//! OpenAI-compatible tools: `GET /openai/tools` returns function definitions generated
 //! from the operation set, and `POST /openai/call` executes one tool call. Both require the
 //! helper's bearer token, checked before the body is read.
 

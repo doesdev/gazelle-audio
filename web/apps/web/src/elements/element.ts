@@ -66,7 +66,7 @@ function trackLinkPresses(): void {
  * Escape puts back the saved one. Relying on `change` alone left Enter doing nothing in some
  * browsers until focus moved.
  *
- * With `draft` (view state, P80), a value typed and not yet committed is kept there and put back
+ * With `draft` (view state), a value typed and not yet committed is kept there and put back
  * when the field is built again, so a half-typed name survives leaving the page. Leaving the page
  * does not commit it: a field left for a link (the header, the device list) keeps its draft, and
  * a page going away takes its fields without committing them. Enter commits the draft, Escape

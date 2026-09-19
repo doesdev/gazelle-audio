@@ -1,4 +1,4 @@
-//! Effect chain reads (`specs/2026-09-17-effects-and-reverb.md`).
+//! Effect chain reads.
 //!
 //! The Quadro panel reads each effect chain on its own with `get_afx_strip_order`, naming the
 //! chain in the header's `ext3` (`AfxModelController.get_device_data`), and never asks the Quadro

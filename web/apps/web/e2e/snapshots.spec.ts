@@ -1,8 +1,8 @@
 // The Snapshots section on the Workspace page, against a real server with loopback devices that
-// answer reads (P95) and push cyclic reports.
+// answer reads and push cyclic reports.
 //
-// This server is **not** in dry run, unlike most specs here: reads answer nothing in dry run
-// (decision 0012), so a snapshot could record nothing. It also runs without `--loopback-cyclic-ms`,
+// This server is **not** in dry run, unlike most specs here: reads answer nothing in dry run,
+// so a snapshot could record nothing. It also runs without `--loopback-cyclic-ms`,
 // because a cyclic loopback sweeps the values it reports, so every comparison would find dozens of
 // differences that nobody made; here the values only change when this spec changes them, and what
 // the cyclic report alone carries is recorded as unread, which is worth seeing too.

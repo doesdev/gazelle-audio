@@ -23,7 +23,7 @@ const themeSources: ThemeSource[] = [
 
 async function boot(): Promise<void> {
   try {
-    // At phone width the open mixer dock would take a quarter of the screen (P93, P98).
+    // At phone width the open mixer dock would take a quarter of the screen.
     const narrow = matchMedia(`(max-width: ${DRAWER_MAX_PX}px)`).matches;
     const store = await openStore(location.origin, { themeSources, narrow });
     provideStore(store);

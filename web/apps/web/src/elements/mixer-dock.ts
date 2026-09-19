@@ -6,7 +6,7 @@
 // stays at the right. A mix with no channel set up is one short line pointing to the Mixer page,
 // without its master: there is nothing in it to ride, and a fader needs the full row's height.
 //
-// Its Show menu can put a cross-device surface there instead (workspace spec §4.7): the surface's
+// Its Show menu can put a cross-device surface there instead: the surface's
 // strips at dock width, each with its device's badge (`ga-surface-strip compact`), so the Quadro's cue
 // faders stay in reach on the Studio+'s Inputs page. The choice is kept per browser, and falls back
 // to the device in view once the surface is deleted.
@@ -88,7 +88,7 @@ export class GaMixerDock extends GaElement {
     const follow = (deviceId: string): (() => void)[] => {
       const channels = store.channels(deviceId);
       const own: (() => void)[] = [];
-      // Levels come from the device, read once as the Mixer page reads them (P80).
+      // Levels come from the device, read once as the Mixer page reads them.
       own.push(
         effect(() => {
           if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));

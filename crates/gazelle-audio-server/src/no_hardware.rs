@@ -28,7 +28,7 @@ pub fn refusal(backend: &str, value: Option<&str>) -> Option<String> {
     (backend == "usb" && forbidden(value)).then(|| {
         format!(
             "{VAR} is set, so this server will not open real devices, but --backend is usb, \
-             which is now the default (decision 0018). Pass --backend loopback to run against the \
+             which is now the default. Pass --backend loopback to run against the \
              emulator, or unset {VAR} to drive the hardware deliberately."
         )
     })

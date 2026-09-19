@@ -147,7 +147,7 @@ async fn state_endpoint_requires_the_bearer_token() {
     assert_eq!(state["elevated"], false);
 }
 
-/// Plan amendments, Task 12: `router` no longer carries the Host layer, since in axum a layer
+/// `router` no longer carries the Host layer, since in axum a layer
 /// only covers routes added before it — a caller (sub-project 3) merges `/mcp` and `/openai/*`
 /// onto `router`'s output before applying `with_host_check` as the outermost layer. This proves
 /// that placement actually protects routes merged in ahead of it, not just the panel's own.
@@ -326,7 +326,7 @@ async fn scripted_operator_drives_a_probe_over_the_websocket() {
     op(&mut ws, json!({"op": "actual_value", "value": "-0.5 dB"})).await;
     wait_state(&mut ws, |s| s["probe"]["actual_value"] == "-0.5 dB").await;
 
-    // Plan amendments, Task 12: don't compare `step_index` on possibly-stale queued states —
+    // Don't compare `step_index` on possibly-stale queued states:
     // the websocket can have several published states queued up before the client reads them,
     // so a match on a captured `step_index` can be satisfied by a message that predates the
     // Done just sent. Instead wait for a state whose `seq` is strictly newer than the one on

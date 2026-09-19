@@ -92,7 +92,7 @@ test("the index maps each family to its command and cyclic types", () => {
 
 test("zero-length arrays are generated with a warning, not omitted", () => {
   const schema = tiny({ commands: { set_x: { report_id: "0x70", params: [{ name: "data", type: "ubyte * 0", size: 0 }] } } });
-  assert.match(generate([schema]).get("quadro.ts") ?? "", /zero-length array; see \.agent\/reference\/devices\.md/);
+  assert.match(generate([schema]).get("quadro.ts") ?? "", /zero-length array; the extractor could not resolve its count/);
 });
 
 test("an unrecognised type fails generation, naming the command", () => {

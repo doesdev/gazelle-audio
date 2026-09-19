@@ -1,4 +1,4 @@
-// The client against the real gazelle-audio-server (spec §9, §10 row 2): generated types agree
+// The client against the real gazelle-audio-server: generated types agree
 // with the server's own registry, invocation round-trips, cyclic events arrive decoded, and the
 // workspace persists for the server's lifetime.
 

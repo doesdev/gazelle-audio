@@ -143,7 +143,7 @@ export class GaWorkspace extends GaElement {
             disabled: !connected,
           });
           commitOnEnter(input, (value) => store.renameDevice(device.id, value), () => store.workspace.peek()?.aliases[device.id] ?? "", store.view<string | undefined>(`draft:workspace:${device.id}:name`, undefined));
-          // The badge colour a surface's strips carry for this device (Q15): chosen, or the palette's until then.
+          // The badge colour a surface's strips carry for this device: chosen, or the palette's until then.
           const chosen = workspace?.device_colors?.[device.id];
           const colour = h("input", {
             type: "color",
@@ -303,7 +303,7 @@ export class GaWorkspace extends GaElement {
   /**
    * Digital cables: each declared cable with what is wrong along it (from both devices' reports,
    * followed while the page is open), removed behind a second click; and a form to declare one from
-   * a device's digital output to another's input. A cable routes nothing (§4.5).
+   * a device's digital output to another's input. A cable routes nothing.
    */
   #cables(): HTMLElement {
     const store = useStore();
@@ -453,7 +453,7 @@ export class GaWorkspace extends GaElement {
    * and compare one with the devices as they are now.
    *
    * Everything here reads. Taking a snapshot asks every attached device for its state and changes
-   * nothing on one; comparing reads them again. Putting a snapshot back is not built (spec §2.3):
+   * nothing on one; comparing reads them again. Putting a snapshot back is not built:
    * it waits for a session at the hardware, and until then the diff is what a snapshot is for.
    */
   #snapshots(): HTMLElement {
@@ -574,7 +574,7 @@ export class GaWorkspace extends GaElement {
     });
 
     // The recall preview. It is a preview and only a preview: there is no button here that applies
-    // one, because applying waits for a session at the hardware (spec §2.3 and §6, decision 0012).
+    // one, because applying waits for a session at the hardware.
     this.watch(() => {
       const shown = snapshots.plan.value;
       plan.replaceChildren(...(shown === undefined ? [] : this.#recallPlan(shown)));
@@ -719,7 +719,7 @@ export class GaWorkspace extends GaElement {
       download(workspaceFileText(workspace), workspaceFileName(new Date()));
     });
 
-    // A full backup (spec §3.3): the workspace plus every snapshot whole, in one file that imports
+    // A full backup: the workspace plus every snapshot whole, in one file that imports
     // back as both. Fetching the snapshots' values is why it is a second button rather than the
     // only one: an export of names and groups should not wait on a megabyte of captured state.
     exportAll.addEventListener("click", async () => {
@@ -757,7 +757,7 @@ export class GaWorkspace extends GaElement {
         const refused = await store.replaceWorkspace(read.workspace);
         // Snapshots are added after the workspace, and only if it went in: a backup half applied
         // should leave the snapshots out rather than beside a workspace that is not theirs. They
-        // are add-only, so one already here keeps the moment it recorded (spec §3.3).
+        // are add-only, so one already here keeps the moment it recorded.
         const added = refused !== undefined || read.snapshots.length === 0 ? undefined : await store.snapshots.importAll(read.snapshots);
         busy = false;
         if (refused !== undefined) {

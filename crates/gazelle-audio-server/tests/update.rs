@@ -351,7 +351,7 @@ fn a_verified_update_is_staged_for_the_next_start_and_the_old_binaries_are_kept(
     assert_eq!(updater.download(), UpdateState::Staged { version: "0.2.0".into() });
     assert_eq!(updater.staged().as_deref(), Some("0.2.0"));
 
-    // Both binaries are replaced: Start on boot runs the windowless one (P78), which must not
+    // Both binaries are replaced: Start on boot runs the windowless one, which must not
     // be left a version behind.
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "NEW gazelle-audio-server");
     assert_eq!(std::fs::read_to_string(install.windowless()).unwrap(), "NEW gazelle-audio-serverw");

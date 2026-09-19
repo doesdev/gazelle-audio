@@ -5,7 +5,7 @@ Why
 ---
 Effect parameters travel as one command pair per effect type (``set_<effect>_conf`` /
 ``get_<effect>_conf``), not as a generic command, and their ranges and defaults are the panels'
-code (``specs/2026-09-17-effects-and-reverb.md``). This script reads them so nobody transcribes
+code. This script reads them so nobody transcribes
 seventy effects by hand, and writes:
 
 * ``refs/schemas/afx_parameters.json``: per model, every supported effect's commands as the panel
@@ -96,7 +96,7 @@ WIRE_TYPES = {
 }
 
 #: Effects left out, by model and type id, with the reason. Each was read and could not be driven
-#: with confidence; see `specs/2026-09-17-effects-and-reverb.md`, "Effect parameters".
+#: with confidence.
 UNSUPPORTED: dict[str, dict[int, str]] = {
     "quadro": {
         1: "The panel's read names no instance (get_eq_configs has no parameters, so its instance id never reaches the wire), and each change sends one band; which EQ the device answers is unknown.",

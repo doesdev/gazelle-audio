@@ -1,4 +1,4 @@
-//! Localhost-only access: per-start bearer token, Host and Origin checks (spec §9).
+//! Localhost-only access: per-start bearer token, Host and Origin checks.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

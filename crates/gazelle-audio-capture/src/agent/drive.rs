@@ -1,4 +1,4 @@
-//! `drive`: a chat-completions agent loop (spec §9) for models behind an OpenAI-compatible API.
+//! `drive`: a chat-completions agent loop for models behind an OpenAI-compatible API.
 //! The system message is the shared guidance, the tools are [`openai_tools`], and each tool call
 //! runs through [`execute`] against the helper's own [`Ops`], so the loop has exactly the powers
 //! an MCP or `/openai/call` client has. Operation failures go back to the model as tool results;

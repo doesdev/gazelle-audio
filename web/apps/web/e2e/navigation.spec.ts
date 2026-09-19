@@ -1,4 +1,4 @@
-// Moving between pages keeps your place (hands-on feedback items 2-4, decision P71): the device last
+// Moving between pages keeps your place: the device last
 // opened follows you to pages whose address names none, each device keeps its selected mix, and a
 // page left and come back to finds its scroll, open sections and selections as they were. The
 // device and mix are remembered per browser; the rest for the tab.
@@ -125,7 +125,7 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
   expect(sent.slice(before)).toEqual([]);
 
   // Coming back reads no mix, nor the device's link flags that follow a read, nor where each mix
-  // plays (P80): the store has them from the first visit.
+  // plays: the store has them from the first visit.
   await open(page, "mixer");
   await expect(page.locator("ga-mixer")).toBeVisible();
   await page.waitForTimeout(1000);
@@ -337,7 +337,7 @@ test("a page left and come back to finds its scroll, sections and selections as 
   // before the layout below is written, or it lands on top of it: the page then shows one channel,
   // the row is no wider than the window, and setting its scroll does nothing. (Waiting for it is
   // what makes this test deterministic; it failed 8 runs in 20 under load without it. The app is
-  // right to save what it imported, and last writer wins is the workspace's design, P91.)
+  // right to save what it imported, and last writer wins is the workspace's design.)
   await expect.poll(async () => (await onServer()).mixers["loopback-0"]?.channels.length, { message: "the imported layout has been saved" }).toBe(1);
   await putWorkspace(server, { mixers: { "loopback-0": { channels } } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);

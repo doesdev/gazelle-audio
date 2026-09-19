@@ -1,4 +1,4 @@
-// Link badges and the link bar (decision P51), shared by the Inputs and Mixer pages. A badge starts
+// Link badges and the link bar, shared by the Inputs and Mixer pages. A badge starts
 // a draft, or opens its link as one. While a draft is open, badges of the same kind add or remove
 // channels, on this device or another picked from the device menu (the draft outlives a page's
 // re-render), and Save makes the link.

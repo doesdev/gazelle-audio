@@ -1,7 +1,6 @@
 # Weekly dependency updates, grouped so each ecosystem is at most one pull request a week.
 #
-# Cargo: an update can lift the Rust 1.88 floor (.agent/reference/rust-crates.md, "Toolchain
-# floor"). Nothing is held back for it: the msrv job in ci.yml builds the workspace with a real
+# Cargo: an update can lift the Rust 1.88 floor the workspace declares. Nothing is held back for it: the msrv job in ci.yml builds the workspace with a real
 # Rust 1.88.0, so read its result before merging a cargo update.
 #
 # npm: web/ is a pnpm workspace (pnpm-lock.yaml); Dependabot's npm ecosystem reads pnpm lockfiles.

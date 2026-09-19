@@ -1,10 +1,10 @@
-// Snapshots (workspace spec §2): the list the Workspace page shows, taking one, renaming, deleting,
+// Snapshots: the list the Workspace page shows, taking one, renaming, deleting,
 // and comparing one with the devices as they are now.
 //
 // Every read and every write here is to the server's snapshot store or its capture, which only asks
 // the devices for their state. **Nothing in this file sends a setting to a device**, and taking or
 // comparing a snapshot changes nothing on one. Recall (putting a snapshot back) is phase 6 and
-// waits for a hardware session (spec §2.3, decision 0012).
+// waits for a hardware session.
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
 import { SNAPSHOT_VERSION } from "gazelle-audio-client";
@@ -164,8 +164,7 @@ export class SnapshotsModel {
   /**
    * Asks the server what recall would send to put this snapshot back: an ordered list of commands
    * with their bytes and their guards. **Nothing is sent to a device**, here or on the server, and
-   * there is no way from this page to apply one: that waits for a session at the hardware
-   * (spec §2.3, decision 0012).
+   * there is no way from this page to apply one: that waits for a session at the hardware.
    */
   async prepareRecall(id: string, ask: RecallAsk = {}): Promise<RecallPlan | undefined> {
     return this.#run("planning", async () => {
@@ -179,7 +178,7 @@ export class SnapshotsModel {
     this.#plan.value = undefined;
   }
 
-  /** Every snapshot whole, for a backup file (spec §3.3). */
+  /** Every snapshot whole, for a backup file. */
   async all(): Promise<Snapshot[] | undefined> {
     return this.#run("loading", async () => {
       const listed = await this.#context.list();
@@ -254,7 +253,7 @@ export function describeSection(section: SectionDiff): string {
 }
 
 // Recall's preview. Everything below describes a plan; none of it sends anything, and there is no
-// "apply" anywhere in this file (workspace spec §2.3, decision 0012).
+// "apply" anywhere in this file.
 
 /** A plan's steps under the part they belong to, in running order, parts with no steps left out. */
 export function planByPart(plan: RecallPlan): { part: RecallPart; steps: RecallStep[] }[] {

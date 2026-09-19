@@ -9,7 +9,7 @@
 // outside it, or a new address; it always starts closed there. While it is open it holds focus:
 // the page behind is inert and Tab and Shift+Tab go round the drawer's own controls.
 //
-// A page is built for each change of what is shown: page and device (decision P71). The device
+// A page is built for each change of what is shown: page and device. The device
 // an address names is remembered as the selected one; an address that names none shows the one
 // last selected. Leaving a page disposes of it, so a page that is not shown follows nothing; its
 // scroll position and other view state are kept in the store and put back when it is built again.

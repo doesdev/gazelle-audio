@@ -454,8 +454,8 @@ fn the_layout_is_read_from_the_windows_environment() {
     let layout = Layout::from_env(fake_env(root)).unwrap();
     assert_eq!(layout.programs, root.join("Local").join("Programs").join("Gazelle"));
     assert_eq!(layout.start_menu, root.join("Roaming").join("Microsoft/Windows/Start Menu/Programs".replace('/', "\\")));
-    assert_eq!(layout.config, Some(root.join("Roaming").join("gazelle")), "where the workspace already lives (P82)");
-    assert_eq!(layout.logs, Some(root.join("Local").join("gazelle").join("logs")), "where the tray already logs (P78)");
+    assert_eq!(layout.config, Some(root.join("Roaming").join("gazelle")), "where the workspace already lives");
+    assert_eq!(layout.logs, Some(root.join("Local").join("gazelle").join("logs")), "where the tray already logs");
     assert_eq!(layout.uninstall_key, install::UNINSTALL_KEY, "Add/Remove Programs, unless a test says otherwise");
     let scratch = Layout::from_env(|k| match k {
         "GAZELLE_UNINSTALL_KEY" => Some(r"Software\somewhere\else".to_string()),

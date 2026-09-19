@@ -150,7 +150,7 @@ export class GaMixer extends GaElement {
     const mixer0 = store.mixer(deviceId, 0);
     // Every mix's strips and links are read (sends show other mixes' levels), once: coming back to
     // the page uses what the store has. They are read again once the connection or the device has
-    // come back (P80): at once while the page is open, else when it next opens.
+    // come back: at once while the page is open, else when it next opens.
     this.watch(() => {
       if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
     });

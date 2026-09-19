@@ -208,7 +208,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
 }
 
 /// What Open, and clicking the icon, does: the desktop window if there is one, otherwise the
-/// browser, which is what this always did (P70).
+/// browser, which is what this always did.
 fn open_ui(state: &State) {
     if !state.context.web_ui {
         return;

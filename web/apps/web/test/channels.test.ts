@@ -10,7 +10,7 @@ import { builtInThemes, device, FakeClient, flush, MemoryStorage, type Invocatio
 
 const Q = "loopback-0";
 const S = "loopback-1";
-// Quadro topology positions (P38): sources PREAMP 0, USB 1 PLAY 1, AFX OUT 5, MUTE 10; MIX CH1-4 are destinations 8-11.
+// Quadro topology positions: sources PREAMP 0, USB 1 PLAY 1, AFX OUT 5, MUTE 10; MIX CH1-4 are destinations 8-11.
 const PREAMP = 0;
 const USB1 = 1;
 const AFX_OUT = 5;

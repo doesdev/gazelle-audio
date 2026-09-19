@@ -1,4 +1,4 @@
-//! The operation set (spec §9): the names the spec lists, well-formed schemas, and no way for an
+//! The operation set: the names it promises, well-formed schemas, and no way for an
 //! agent to act for the operator.
 
 use gazelle_audio_capture::ops::types::operations;

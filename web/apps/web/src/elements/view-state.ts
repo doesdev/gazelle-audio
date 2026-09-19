@@ -1,4 +1,4 @@
-// Keeping a page's view state across rebuilds (decision P71). The router builds a new page element
+// Keeping a page's view state across rebuilds. The router builds a new page element
 // on every change of address, and a page element stops everything it follows when it goes, so
 // nothing runs for a page that is not shown. What a person would expect to find again (scroll,
 // open sections, a selection in progress) is kept in the store's `view` state instead, and these

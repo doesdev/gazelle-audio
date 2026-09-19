@@ -1,4 +1,4 @@
-//! Field map (spec §8, versioned JSON) and its Markdown report, built from one probe.
+//! Field map (versioned JSON) and its Markdown report, built from one probe.
 
 use serde::Serialize;
 

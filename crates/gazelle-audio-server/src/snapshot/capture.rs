@@ -2,7 +2,7 @@
 //!
 //! **Nothing here writes to a device.** Every read is a `get_*` through the ordinary request path
 //! or a value from the last cyclic report, and each one is fresh: the mixer and routing caches the
-//! pages keep (P80) are the client's, and a snapshot that quoted them would record what someone
+//! pages keep are the client's, and a snapshot that quoted them would record what someone
 //! looked at rather than what the device holds.
 //!
 //! What is captured is an **allow list per family**, not everything the device reports. A value
@@ -10,8 +10,8 @@
 //! contents can one day be put back:
 //!
 //! - the **test oscillator** (`osc_*`, the Quadro's `freq_*`/`level`/`mute_*`): a tone is not a
-//!   state anyone wants back (spec §2.1);
-//! - **power**, `usb_mode`, `set_monitor_out` and `set_usb_channels` (meaning unknown, P63, P76);
+//!   state anyone wants back;
+//! - **power**, `usb_mode`, `set_monitor_out` and `set_usb_channels` (meaning unknown);
 //! - **talkback's momentary switch** (`talkback_on`): it is a button being held, not a setting.
 //!   Its level and destinations are captured;
 //! - **meters, lock and presence flags, sync frequency, available channel counts**: what the
@@ -19,7 +19,7 @@
 //! - **effects and reverb**: out of scope until the effects work lands;
 //! - **`reserved*`**: unknown by name.
 //!
-//! The device's **current preset slot** is recorded but nothing that would recall it (spec §2.4).
+//! The device's **current preset slot** is recorded but nothing that would recall it.
 
 use gazelle_audio_protocol::payload::{PayloadValues, Value};
 use serde_json::{json, Map, Value as Json};
@@ -67,7 +67,7 @@ fn cyclic(section: &'static str, key: &str, field: &'static str) -> Read {
 /// Every read a snapshot of this family makes, in the order it makes them.
 ///
 /// Routing is keyed by topology group id, not wire position, so a snapshot survives a topology
-/// re-extraction that reorders groups (spec §2.5).
+/// re-extraction that reorders groups.
 fn plan(family: &str) -> Vec<Read> {
     let mut reads = Vec::new();
 
@@ -100,7 +100,7 @@ fn plan(family: &str) -> Vec<Read> {
     match family {
         "quadro" => {
             // Preamps 1-2 only: the reply declares two entries, so an Edge Quadro across preamps
-            // 3-4 is half-captured and must never be recalled from a guess (P81, spec §2.2).
+            // 3-4 is half-captured and must never be recalled from a guess.
             reads.push(command("inputs", "emulations", "get_mic_emulations", None));
             reads.push(cyclic("outputs", "volumes", "volumes"));
             reads.push(cyclic("outputs", "hard_mute", "hard_mute"));
@@ -149,8 +149,8 @@ pub async fn capture(
     note: String,
     force_dry_run: bool,
 ) -> Result<Snapshot, ServerError> {
-    // In dry run the request path stops before the device, so every read answers nothing
-    // (decision 0012, spec §2.2). A snapshot of nothing is worse than no snapshot: it would look
+    // In dry run the request path stops before the device, so every read answers nothing. A
+    // snapshot of nothing is worse than no snapshot: it would look
     // like a record of a device that had every value unset.
     if force_dry_run {
         return Err(ServerError::Unsupported(

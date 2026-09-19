@@ -450,7 +450,7 @@ mod tests {
     }
 
     /// With a desktop window, Open shows it and a second item still opens a browser: the app is
-    /// served over HTTP either way, and a phone or a second machine is the point of that (P70).
+    /// served over HTTP either way, and a phone or a second machine is the point of that.
     #[test]
     fn a_window_adds_open_in_browser_beside_open() {
         let items = menu(&Status { has_window: true, ..status() });

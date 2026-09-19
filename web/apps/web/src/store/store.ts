@@ -1,8 +1,8 @@
-// The app's state (spec §6): the only layer that imports gazelle-audio-client. Elements read
+// The app's state: the only layer that imports gazelle-audio-client. Elements read
 // signals and call methods here; they never talk to the client or the server.
 //
 // - Connection: status, server info and devices follow the client's events. Controls are only
-//   enabled while `connected` (spec §6.3).
+//   enabled while `connected`.
 // - Workspace: edits apply at once and are saved by a debounced PUT. A failed save restores the
 //   last workspace the server accepted and posts an error notice; unsaved edits made meanwhile
 //   are discarded with it.
@@ -44,7 +44,7 @@ export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
 export const EXPLAIN_STORAGE_KEY = "gazelle.explain";
 export const DOUBLE_CLICK_UNITY_STORAGE_KEY = "gazelle.controls.doubleClickUnity";
 
-// Elements may not import the client (spec §6.1), so the store passes on the data types they show.
+// Elements may not import the client, so the store passes on the data types they show.
 export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
 export type { NewStrip } from "./surfaces.ts";
 
@@ -63,7 +63,7 @@ import { BASE_THEME, resolveThemes, type ResolvedTheme, type ThemeProblem, type 
 export const SAVE_DEBOUNCE_MS = 300;
 /**
  * The device's own preset slots, numbered 1..5 as both panels number them (`bind_presets`
- * enumerates from 1). These are the device's memory, not the workspace layouts (decision 0011).
+ * enumerates from 1). These are the device's memory, not the workspace layouts.
  */
 export const PRESET_SLOTS = 5;
 
@@ -161,7 +161,7 @@ export interface InputMeter {
   clipped: ReadonlySignal<boolean>;
   clearClip(): void;
   /**
-   * What the meter shows, for a strip's tooltip. A meter that reads nothing says why (P85): an
+   * What the meter shows, for a strip's tooltip. A meter that reads nothing says why: an
    * effect chain may be empty or simply not read yet, and either way the device reports nothing
    * for it.
    */
@@ -429,7 +429,7 @@ export class Store {
               if (!this.#notices.peek().some((notice) => notice.message === message)) this.#notify("warning", message);
             }
           }
-          // Mixes and routing are read once and kept (P80). While the connection is down the server
+          // Mixes and routing are read once and kept. While the connection is down the server
           // may restart or the device change, so they are read again once it is back.
           if (status !== "open") {
             for (const mixer of this.#mixers.values()) mixer.forget();
@@ -625,7 +625,7 @@ export class Store {
   }
 
   /**
-   * Whether a device's mixes want reading now (P80): the connection is open, the device is attached,
+   * Whether a device's mixes want reading now: the connection is open, the device is attached,
    * and some mix has not been read since it was last forgotten. Reading it is reactive.
    */
   mixesToRead(deviceId: string): boolean {
@@ -693,7 +693,7 @@ export class Store {
     return model;
   }
 
-  /** Workspace channel links (decision P51). */
+  /** Workspace channel links. */
   readonly links: LinksModel = new LinksModel({
     links: computed(() => this.#workspace.value?.links ?? []),
     edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, links: update([...workspace.links]) })),
@@ -704,7 +704,7 @@ export class Store {
     },
   });
 
-  /** Cross-device mix surfaces and each device's badge colour (workspace spec §4). */
+  /** Cross-device mix surfaces and each device's badge colour. */
   readonly surfaces: SurfacesModel = new SurfacesModel({
     surfaces: computed(() => this.#workspace.value?.surfaces ?? []),
     edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, surfaces: update([...(workspace.surfaces ?? [])]) })),
@@ -718,7 +718,7 @@ export class Store {
     },
   });
 
-  /** Digital cables between devices: where a digital input's signal comes from, and what is wrong along one (workspace spec §4.5). */
+  /** Digital cables between devices: where a digital input's signal comes from, and what is wrong along one. */
   readonly cables: CablesModel = new CablesModel({
     cables: computed(() => this.#workspace.value?.cables ?? []),
     edit: (update) => this.editWorkspace((workspace) => ({ ...workspace, cables: update([...(workspace.cables ?? [])]) })),
@@ -742,7 +742,7 @@ export class Store {
   });
 
   /**
-   * Snapshots the server keeps (workspace spec §2). Everything it does reads: taking one asks every
+   * Snapshots the server keeps. Everything it does reads: taking one asks every
    * attached device for its state, comparing reads them again. Nothing is ever sent to a device.
    */
   readonly snapshots: SnapshotsModel = new SnapshotsModel({
@@ -1124,7 +1124,7 @@ export class Store {
    * The meter of one effect in a chain, from the effect-meter report (0x83), or undefined when that
    * position holds no effect.
    *
-   * The models report the same two numbers differently (`reference/devices.md`, "Effects (AFX) and
+   * The models report the same two numbers differently (`docs/protocol.md`, "Effects (AFX) and
    * reverb"). The Quadro sends two bytes -- peak, then gain reduction -- per **loaded** effect,
    * chain by chain in chain order, so an effect's place in the report depends on how many effects
    * the chains before it hold; that is the one place this mapping lives. The Studio+ sends fixed
@@ -1153,8 +1153,8 @@ export class Store {
    * so the strip is carrying audio and is metered by whatever routing feeds **AFX IN k**, on the
    * ordinary input path (`INPUT_METER_FIELDS`), as if the strip sat on that input. A source with no
    * meter of its own -- MUTE, another chain's output, a mixer output, or an input the status report
-   * does not meter -- shows none, and the title says which it is (P85). Routing is what was read
-   * once (P97); nothing is sent to make any of this work.
+   * does not meter -- shows none, and the title says which it is. Routing is what was read
+   * once; nothing is sent to make any of this work.
    */
   #chainMeter(deviceId: string, family: "quadro" | "studio", chain: number): EffectMeter {
     const key = `${deviceId}|chain|${chain}`;
@@ -1726,7 +1726,7 @@ export class Store {
       return undefined;
     } catch (error) {
       if (pending) this.#saveTimer = this.#timers.setTimeout(() => void this.#save(), SAVE_DEBOUNCE_MS);
-      // A server from before workspace spec phase 1 answers a document it cannot deserialise in plain
+      // An older server answers a document it cannot deserialise in plain
       // text, so the client knows only the status; newer ones say which part in a `bad_value`.
       if (error instanceof GazelleError && /^http_4\d\d$/.test(error.code)) return "The server could not read it as a workspace: a part of it is missing or has the wrong type.";
       return `The server refused it: ${message(error)}`;

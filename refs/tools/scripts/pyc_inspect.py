@@ -15,7 +15,7 @@ This module implements the marshal format directly, so **any** modern Python can
 * verify that decompiled source actually kept what the bytecode contained.
 
 It does **not** decompile. Recovering statements still needs uncompyle6 (see
-``.agent/reference/decompilation.md``); this covers the data-extraction and verification
+``docs/reverse-engineering.md``); this covers the data-extraction and verification
 cases, which is most of what a protocol-recovery project needs.
 
 Supported: CPython 3.5-3.8 marshal version 4 (the format PyInstaller emits). Type codes

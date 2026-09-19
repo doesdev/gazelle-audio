@@ -133,10 +133,10 @@ export interface InputsContext {
   invoke(command: string, args: Record<string, number>, options: { coalesce?: string }): Promise<boolean>;
   /**
    * Reads a command's reply; `response` is null in dry run or when it failed. The store reports a
-   * failure, unless `quiet`: a read the page makes on its own leaves the value unknown instead (P63).
+   * failure, unless `quiet`: a read the page makes on its own leaves the value unknown instead.
    */
   read(command: string, ext3?: number, quiet?: boolean): Promise<{ response: Record<string, unknown> | null; dryRun: boolean }>;
-  /** The other members of this input's workspace link, if it is in one (LinksModel, decision P51). */
+  /** The other members of this input's workspace link, if it is in one (LinksModel). */
   peers(kind: InputLinkKind, index: number): readonly { model: InputsModel; index: number; mode: "absolute" | "relative" }[];
   /**
    * Links or unlinks these preamps in the workspace, absolute. A microphone that covers more than

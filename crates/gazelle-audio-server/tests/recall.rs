@@ -2,8 +2,8 @@
 //!
 //! **Nothing here writes to a device**, and nothing here is a device: the loopback answers every
 //! `get_*` and pushes its cyclic report, and the bytes every step carries come from the server's own
-//! dry run, which stops before the wire. Applying a plan is phase 6 and waits for a hardware session
-//! (workspace spec §2.3 and §6, decision 0012); the route that will do it refuses here.
+//! dry run, which stops before the wire. Applying a plan waits for a hardware session; the
+//! route that will do it refuses here.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -236,7 +236,7 @@ async fn a_plan_in_dry_run_says_the_present_was_not_read() {
     let app = harness(true, false);
     let (status, added) = call(&app, "POST", "/api/v1/snapshots/import", Some(json!([snapshot]))).await;
     assert_eq!(status, StatusCode::OK, "{added}");
-    // A capture is refused in dry run (P124); a plan is not, because it is a description.
+    // A capture is refused in dry run; a plan is not, because it is a description.
     let (status, refused) = call(&app, "POST", "/api/v1/snapshots", Some(json!({"name": "x"}))).await;
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{refused}");
 
@@ -277,9 +277,9 @@ async fn the_flag_alone_is_not_enough_and_a_run_that_is_not_dry_still_refuses() 
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("is not built"), "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("hardware session"), "{refused}");
-    // The gate is the workspace spec's section 10, what the hardware session must confirm (P137).
-    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("§10"), "{refused}");
-    assert!(!refused["error"]["message"].as_str().unwrap_or_default().contains("§6"), "{refused}");
+    // The message says what the hardware session must confirm, not where some document says so.
+    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("hard mute"), "{refused}");
+    assert!(!refused["error"]["message"].as_str().unwrap_or_default().contains('§'), "{refused}");
 }
 
 #[tokio::test]

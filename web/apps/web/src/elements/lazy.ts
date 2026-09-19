@@ -3,7 +3,7 @@
 // `index.ts` registers everything the shell shows at once: the header, the sidebar's device list,
 // meter and Control Room, the mixer and its dock, and the notices. The pages below are each built
 // by one route, so each travels in a chunk of its own, fetched when that route opens
-// (P125 did the same for the effect parameter catalogue). A **static** import of one of these
+// (the effect parameter catalogue was split out the same way). A **static** import of one of these
 // modules from anywhere the app loads eagerly would put it straight back in the entry chunk, which
 // `test/bundle-split.test.ts` guards against by looking at what the build wrote.
 //

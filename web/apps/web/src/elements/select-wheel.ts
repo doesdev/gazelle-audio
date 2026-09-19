@@ -1,4 +1,4 @@
-// The wheel steps a select (feedback item 6), everywhere in the app: one listener on the document
+// The wheel steps a select, everywhere in the app: one listener on the document
 // finds the select under the pointer through the event's composed path, so selects in any shadow
 // root, and ones built later, need nothing of their own. A step picks the previous or next option
 // that may be picked and fires `input` and `change` as a pick from the list does, so each page's

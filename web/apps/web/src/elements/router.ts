@@ -1,4 +1,4 @@
-// Hash routes (spec §6.2): #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
+// Hash routes: #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
 // #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing, #/effects[/<device id>], and
 // #/surface/<surface id>, which has no tab of its own: surfaces are opened from the Workspace page.
 

@@ -14,5 +14,5 @@ edition = "2021"
 license = "MIT"
 # What the product needs: the shipped app is the `window` build, whose `wry` -> `url` -> ICU tree
 # declares 1.88, and the capture crate's `rmcp` does too. CI's msrv job builds everything with a
-# real Rust 1.88.0 (reference/rust-crates.md, "Toolchain floor"). Developed on current stable.
+# real Rust 1.88.0, which catches a dependency update that lifts the floor. Developed on current stable.
 rust-version = "1.88"

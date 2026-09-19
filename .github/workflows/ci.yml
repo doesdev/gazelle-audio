@@ -70,7 +70,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: msrv
-      # .agent/reference/rust-crates.md, "Toolchain floor": the workspace declares 1.88, what the
+      # The toolchain floor: the workspace declares 1.88, what the
       # shipped app (the window build, through wry's url and ICU tree) and the capture crate
       # (rmcp) need. A real build on that toolchain is the gate: it is what catches a dependency
       # update that lifts the floor, including an edition Cargo 1.88 cannot parse.

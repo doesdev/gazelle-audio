@@ -9,7 +9,7 @@ import { device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 const OFFERED = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
-/** The Quadro as its driver answered on 2026-09-18 (`.agent/reference/driver-api.md`). */
+/** The Quadro as its driver answered on 2026-09-18. */
 export const QUADRO_REPORT: DriverReport = {
   device_id: "serial:1000000000001",
   read_at_ms: 1_789_700_000_000,

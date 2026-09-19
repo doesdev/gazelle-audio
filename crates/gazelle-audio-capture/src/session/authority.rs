@@ -10,7 +10,7 @@ pub struct OperatorAuthority {
 }
 
 impl OperatorAuthority {
-    // Called by the synthetic operator (Task 10) and the panel (Task 12); until then only
+    // Called by the synthetic operator and the panel; until then only
     // the state machine's unit tests use it.
     pub(crate) fn grant() -> Self {
         Self { _private: () }

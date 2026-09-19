@@ -34,7 +34,7 @@ pub enum Shape {
     Sweep(usize),
     /// The Quadro's effect meters: two bytes (peak, gain reduction) per loaded effect, chain by
     /// chain, then the mic emulation meters. Its length is the loaded effects', not the declared
-    /// 304 (`reference/devices.md`, "Effects (AFX) and reverb").
+    /// 304 (`docs/protocol.md`, "The effect-meter report").
     QuadroEffectMeters,
     /// The Studio+'s effect meters: 16 chains of 8 slot peaks, then the same of gain reductions.
     /// Slots with no effect meter silence.

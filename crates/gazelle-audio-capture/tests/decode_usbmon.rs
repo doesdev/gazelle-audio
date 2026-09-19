@@ -114,7 +114,7 @@ fn encode_round_trips_non_iso_transfers() {
     }
 }
 
-// --- Amendment (Task 3): data_len comes from `length` (offset 32), not `len_cap` (offset
+// --- Amendment: data_len comes from `length` (offset 32), not `len_cap` (offset
 // 36); payload_dropped = len_cap < length. These exercise that distinction directly, plus
 // truncated-record / hostile-input paths that must error or cap safely, never panic.
 

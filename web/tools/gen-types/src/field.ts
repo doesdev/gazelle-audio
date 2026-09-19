@@ -1,5 +1,5 @@
 // The schema field grammar, ported from crates/gazelle-audio-protocol/src/field.rs so the Rust and
-// TypeScript readings of refs/schemas/*.json stay independent (spec §5). Unlike the Rust parser,
+// TypeScript readings of refs/schemas/*.json stay independent. Unlike the Rust parser,
 // which only has to load what exists, anything unrecognised here throws: a generated type must
 // never guess.
 

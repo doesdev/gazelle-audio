@@ -1,4 +1,4 @@
-//! Traffic channels and the messages carried on them (spec §8 step 2).
+//! Traffic channels and the messages carried on them.
 
 use std::collections::HashMap;
 

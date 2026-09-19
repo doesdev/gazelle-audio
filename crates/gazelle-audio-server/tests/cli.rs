@@ -381,7 +381,7 @@ fn help_for(option: &str) -> String {
     found.join(" ")
 }
 
-/// The texts the documentation overhaul found wrong (P137), checked against what the code does.
+/// The texts the documentation overhaul found wrong, checked against what the code does.
 #[test]
 fn the_help_says_what_the_options_really_do() {
     // `ask` takes its default, yes, when nobody is at a terminal to answer.
@@ -391,7 +391,7 @@ fn the_help_says_what_the_options_really_do() {
     let snapshots = help_for("--snapshots-dir");
     assert!(!snapshots.contains("beside the workspace file"), "{snapshots}");
     assert!(snapshots.contains("config folder") && snapshots.contains("--workspace"), "{snapshots}");
-    // The recall gate is the workspace spec's section 10.
+    // The recall gate is a session at the hardware, and the help names no private document.
     let recall = help_for("--enable-recall");
-    assert!(recall.contains("§10") && !recall.contains("§6"), "{recall}");
+    assert!(recall.contains("session at the hardware") && !recall.contains('§'), "{recall}");
 }

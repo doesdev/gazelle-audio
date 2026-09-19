@@ -3,7 +3,7 @@
 //! These belong to the USB audio driver (Thesycon's TUSBAudio, branded for Antelope), not to the
 //! device, so they never cross the HID protocol the rest of the server speaks. Each driver installs
 //! a user-mode API DLL beside its control panel; this module finds it, loads it, and calls the read
-//! functions named in `.agent/reference/driver-api.md` and **one setter**,
+//! functions in [`READ_EXPORTS`] and **one setter**,
 //! `SetASIOBufferPreferredSize`, which sets the preferred buffer and Safe Mode together
 //! ([`write_device`]). Nothing here loads firmware, starts, enables or sets anything else, and the
 //! Windows side resolves nothing outside [`READ_EXPORTS`] and [`WRITE_EXPORTS`].

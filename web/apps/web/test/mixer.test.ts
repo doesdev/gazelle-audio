@@ -81,7 +81,7 @@ test("Studio+ strips send set_mixer_cfg including send", async () => {
   const { client, store } = setup();
   const mixer = store.mixer("loopback-1", 3);
   assert.equal(mixer.hasSend, true);
-  // The send byte is the reverb send, which the vendor panel shows on Mix 1 only (effects spec Q8, the user's answer).
+  // The send byte is the reverb send, which the vendor panel shows on Mix 1 only (the user's choice).
   assert.deepEqual([0, 1, 2, 3].map((mix) => store.mixer("loopback-1", mix).hasReverbSend), [true, false, false, false]);
   mixer.setSend(0, 300);
   mixer.toggleSolo(0);
@@ -195,7 +195,7 @@ test("loading reads the mixer's strips (master first) and its links from the dev
   assert.equal(dry.strip(3).value.level, 0);
 });
 
-test("a mix is read once and then reused, and read again after the connection drops or the device goes (P80)", async () => {
+test("a mix is read once and then reused, and read again after the connection drops or the device goes", async () => {
   const { client, store } = setup();
   const strips = Array.from({ length: 33 }, (_, i) => ({ level: i === 4 ? 20 : 0, pan: PAN_CENTRE, mute: 0, solo: 0 }));
   const reply = (call: { deviceId: string; command: string }, response: unknown, dryRun = false) => ({ device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: dryRun, response, response_error: null });
@@ -267,7 +267,7 @@ test("a mix is read once and then reused, and read again after the connection dr
   assert.equal(late.needsRead.value, false);
 });
 
-test("a device's mixes want reading only while connected and attached; they are read together, then its linked pairs once (P80)", async () => {
+test("a device's mixes want reading only while connected and attached; they are read together, then its linked pairs once", async () => {
   const { client, store } = setup();
   assert.equal(store.mixesToRead("loopback-1"), true);
   assert.equal(store.mixesToRead("usb:1"), false, "an unknown model has no mixes");

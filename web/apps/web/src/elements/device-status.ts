@@ -220,7 +220,7 @@ export class GaDeviceStatus extends GaElement {
     }
 
     // Clock: the source and sample rate the device runs at, and what it measures. Neither takes the
-    // wheel (P73): each step would reclock the device, interrupting everything playing through it,
+    // wheel: each step would reclock the device, interrupting everything playing through it,
     // and a source with no signal behind it loses lock. For the same reason a choice is only sent
     // from a Confirm button beside the menu, which a wait takes away again, putting the menu back.
     let clockSection: HTMLElement | undefined;

@@ -1,4 +1,4 @@
-//! Spec §3: the crate stays vendor-neutral and independent of the other Gazelle crates.
+//! The crate stays vendor-neutral and independent of the other Gazelle crates.
 
 use std::fs;
 use std::path::{Path, PathBuf};

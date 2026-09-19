@@ -23,7 +23,7 @@ export interface Group {
 export type LinkKind = "preamp" | "line" | "adat" | "spdif" | "mixer";
 
 /**
- * Channels of one kind, on any devices, that change together (decision P51). `absolute` members
+ * Channels of one kind, on any devices, that change together. `absolute` members
  * take the same value; `relative` members keep their offsets.
  */
 export interface Link {
@@ -157,7 +157,7 @@ export interface SurfaceStrip {
   first?: number;
 }
 
-/** A user-built row of strips from any devices (workspace spec §4), each strip naming its device. */
+/** A user-built row of strips from any devices, each strip naming its device. */
 export interface Surface {
   id: string;
   name: string;

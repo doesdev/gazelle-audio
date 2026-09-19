@@ -8,7 +8,7 @@
 // Links are shown, not changed. The reverb has on/off and
 // level as controls and its other parameters as the panel displays them; the Quadro adds its reverb
 // returns into mixes 1-2 and sends from mix 1's channels. Everything is read once when the page opens
-// (P80); Read from device reads again.
+// and kept; Read from device reads again.
 // Choosing an effect opens its editor below the chains: its own parameters, read once for that instance,
 // a control per parameter as the vendor panel's code describes it (a bar for a range, a switch, a menu, or
 // a button per bit), each set back to the panel's starting value on double-click, and the effect's bypass.
@@ -344,7 +344,7 @@ export class GaEffects extends GaElement {
       "data-testid": `chain-add-${index}`,
       "data-explain": "effects.add",
       "aria-label": `Add an effect to ${name}`,
-      // The wheel steps a select and sends (P73); this menu acts on being chosen, not on being scrolled past.
+      // The wheel steps a select and sends; this menu acts on being chosen, not on being scrolled past.
       "data-no-wheel": true,
       "on:change": (event: Event) => {
         const menu = event.target as HTMLSelectElement;
@@ -588,13 +588,13 @@ export class GaEffects extends GaElement {
   }
 
   /**
-   * One effect's meter: its peak on the mixer's scale with the same ballistics (P86) and clip light
-   * (P88), and the gain reduction the device reports beside it.
+   * One effect's meter: its peak on the mixer's scale with the same ballistics and clip light,
+   * and the gain reduction the device reports beside it.
    *
    * The gain reduction is shown in the device's own steps. The vendor panel reads it as dB for some
    * effects and as quarter-dB for others, depending on the meter widget each effect's view uses, so
    * a single figure in dB would be wrong for half of them; what it means is a hardware check
-   * (`reference/devices.md`).
+   * (`docs/protocol.md`, "The effect-meter report").
    */
   #slotMeter(deviceId: string, chain: number, slot: EffectSlot, disposers: (() => void)[]): HTMLElement {
     const store = useStore();

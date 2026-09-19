@@ -1,5 +1,5 @@
 // The Control Room in dry run: trims and a read-only mono badge on the Outputs page and Studio+
-// talkback there (decision P56), and the right zone's Control Room panel, which follows the device
+// talkback there, and the right zone's Control Room panel, which follows the device
 // on the page: the outputs chosen on the Outputs page, talkback on the Studio+, and mono for the mix
 // that feeds each output. Expected bytes are the protocol crate's ground-truth vectors with the payload
 // fields set: a one-byte payload header, then the fields from byte 17 (set_trim_config's two-byte

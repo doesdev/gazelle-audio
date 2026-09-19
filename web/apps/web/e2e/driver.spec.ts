@@ -110,7 +110,7 @@ test("a driver's reading shows the version, rate, a buffer menu, both latencies 
 });
 
 test("a buffer size is sent only from its Confirm, and the driver's read-back is shown with its latencies", async ({ page }) => {
-  // The Quadro's driver after 256 samples with Safe Mode kept on (reference/driver-api.md).
+  // The Quadro's driver after 256 samples with Safe Mode kept on, as measured.
   const after = quadro("loopback-0", { buffer_size: 256, input_latency: 315, output_latency: 367 });
   const driver = await fakeDriver(page, quadro("loopback-0"), () => applied(after, "The driver now reports a buffer of 256 samples with Safe Mode on."));
   await page.goto(`${server.url}/#/devices/loopback-0`);

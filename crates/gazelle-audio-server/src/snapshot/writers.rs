@@ -2,9 +2,8 @@
 //!
 //! **Nothing here sends anything.** A [`Writer`] is a description (a command name, the arguments
 //! it would carry and the label a person reads) and [`plan`](crate::snapshot::plan) turns a set of
-//! them into an ordered list that a later, hardware-gated step could send. Recall itself is phase 6
-//! of `specs/2026-09-16-workspace-snapshots-and-cross-device-mixer.md` and waits for a session at
-//! the devices (spec §2.3, decision 0012).
+//! them into an ordered list that a later, hardware-gated step could send. Recall itself is not
+//! built and waits for a session at the devices.
 //!
 //! The table is **exhaustive over what capture records**: every leaf path a snapshot can hold maps
 //! to one of
@@ -27,7 +26,7 @@ use std::collections::BTreeMap;
 
 use crate::workspace::topology;
 
-/// `set_volume` / `set_mute` / `set_dim` ids, in order (`reference/devices.md`, "Output ids").
+/// `set_volume` / `set_mute` / `set_dim` ids, in order (`docs/protocol.md`, "Output ids").
 pub const OUTPUT_NAMES: &[&str] = &["Monitor", "HP1", "HP2", "Line out", "Reamp"];
 
 /// The Studio+'s output keys in the snapshot, in `set_volume` id order.
@@ -39,11 +38,11 @@ pub const TRIM_KEYS: &[(&str, &str)] = &[("monitor", "Monitor"), ("line_out", "L
 /// `set_tbk_enable` ids, in the order the snapshot names them.
 pub const TALKBACK_KEYS: &[(&str, &str)] = &[("to_hp1", "HP1"), ("to_hp2", "HP2"), ("to_monitor", "Monitor")];
 
-/// `set_trim_config` carries 32 two-byte entries; the Quadro panel fills the first (P56).
+/// `set_trim_config` carries 32 two-byte entries; the Quadro panel fills the first.
 const TRIM_LEVEL_ENTRIES: usize = 32;
 
 /// `set_routing` replaces exactly 32 slots. The Quadro's `get_routing` answers **64** entries, so a
-/// group read from a Quadro is written back from its first 32 (spec §2.2; hardware checklist).
+/// group read from a Quadro is written back from its first 32.
 pub const ROUTING_SLOTS: usize = 32;
 
 /// What recall would do about one captured path.
@@ -127,7 +126,7 @@ impl GainKind {
     }
 }
 
-/// Which opt-in group a step belongs to. The spec's per-section opt-in (§2.3.2) plus the two
+/// Which opt-in group a step belongs to. The per-section opt-in plus the two
 /// dangerous parts that are their own tick: 48V inside Inputs, DC coupling inside Settings.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Part {
@@ -174,18 +173,18 @@ impl Part {
         }
     }
 
-    /// Whether the part is on unless the user turns it off (spec §2.3.2). 48V, clock, DC coupling
+    /// Whether the part is on unless the user turns it off. 48V, clock, DC coupling
     /// and device settings are off; silencing and restoring are not the user's to choose.
     pub fn default_on(self) -> bool {
         !matches!(self, Part::Phantom | Part::Clock | Part::DcCoupling | Part::Settings)
     }
 
-    /// Whether it needs its own confirmation every time, never remembered (spec §2.3.3).
+    /// Whether it needs its own confirmation every time, never remembered.
     pub fn needs_confirming(self) -> bool {
         matches!(self, Part::Phantom | Part::Clock | Part::DcCoupling)
     }
 
-    /// Where the part sits in the volume-safe order (spec §2.3.4).
+    /// Where the part sits in the volume-safe order.
     pub fn stage(self) -> u32 {
         match self {
             Part::Silence => 0,
@@ -230,8 +229,8 @@ pub struct Write {
 }
 
 impl Target {
-    /// Inputs run in the order the spec gives: 48V off, type, gain, phase, emulation, 48V on
-    /// (§2.3.4). Within a part, this orders the steps.
+    /// Inputs run in a volume-safe order: 48V off, type, gain, phase, emulation, 48V on. Within a
+    /// part, this orders the steps.
     pub fn order(&self) -> (u32, u32, u32) {
         let within = match self {
             Target::PreampType { .. } => 1,
@@ -334,7 +333,7 @@ impl Target {
                     return Err(format!("the snapshot has {} slots for {group}, and set_routing replaces {ROUTING_SLOTS}", slots.len()));
                 }
                 // The wire position is the topology's, not the snapshot's: a snapshot is keyed by
-                // group id exactly so it survives a re-extraction that renumbers them (spec §2.5).
+                // group id exactly so it survives a re-extraction that renumbers them.
                 let bank_idx = topology::destination_groups(family)
                     .unwrap_or_default()
                     .into_iter()
@@ -417,7 +416,7 @@ impl Target {
                         "emu_model": field("emu_model")?,
                         "ch_swap": field("ch_swap")?,
                         // A pair-wide value the panel never changes on its own and every write
-                        // carries back unchanged (P81).
+                        // carries back unchanged.
                         "pattern": field("pattern")?,
                     }),
                     label: format!("Inputs · preamp {} · mic emulation", channel + 1),
@@ -473,7 +472,7 @@ impl Target {
                     .ok_or_else(|| format!("the snapshot has no {name} trim"))?;
                 let (command, args) = if family == "quadro" {
                     // The Quadro's panel sends the whole 32-entry level array with the step in the
-                    // first entry and `control` 1 (P56, `outputs.ts`).
+                    // first entry and `control` 1 (`outputs.ts`).
                     let mut level = vec![Json::from(0); TRIM_LEVEL_ENTRIES * 2];
                     level[0] = Json::from(value);
                     ("set_trim_config", json!({ "trim_id": id, "control": 1, "level": Json::Array(level) }))
@@ -613,7 +612,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
             }
             ("links", [_], 2) if tail == "linked" => Writer::Withheld {
                 command: "set_stereo_link",
-                reason: "a linked pair may mirror a write to its partner, which would undo the value recall had just put on the other channel. Until a hardware session shows whether it does, recall writes every channel its own captured value and never sets a link flag (spec §2.3.6)",
+                reason: "a linked pair may mirror a write to its partner, which would undo the value recall had just put on the other channel. Until a hardware session shows whether it does, recall writes every channel its own captured value and never sets a link flag",
             },
             _ => Writer::Unmapped,
         },
@@ -632,7 +631,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
                 "phantom" => Writer::Command(Target::PreampPhantom { id: *id }),
                 "phase_inv" => Writer::Command(Target::PreampPhase { id: *id }),
                 "hpf" => Writer::NoWriter {
-                    reason: "neither panel has a command for the high-pass filter: the device reports it and nothing sets it (spec §2.2)",
+                    reason: "neither panel has a command for the high-pass filter: the device reports it and nothing sets it",
                 },
                 "zero_cross" => Writer::NoWriter { reason: "the device reports zero-crossing; no command in either registry sets it" },
                 _ => Writer::Unmapped,
@@ -641,18 +640,18 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
             ("line_gains", []) => Writer::Command(Target::Gains { kind: GainKind::Line }),
             ("adat_gains", []) if family == "quadro" => Writer::Withheld {
                 command: "set_adat_gain",
-                reason: "the Quadro's panel never sends set_adat_gain, so nobody knows whether the Quadro accepts it. Captured, and not recalled until a hardware probe (P40, spec §2.2, Q11)",
+                reason: "the Quadro's panel never sends set_adat_gain, so nobody knows whether the Quadro accepts it. Captured, and not recalled until a hardware probe",
             },
             ("spdif_gains", []) if family == "quadro" => Writer::Withheld {
                 command: "set_spdif_gain",
-                reason: "the Quadro's panel never sends set_spdif_gain, so nobody knows whether the Quadro accepts it. Captured, and not recalled until a hardware probe (P40, spec §2.2, Q11)",
+                reason: "the Quadro's panel never sends set_spdif_gain, so nobody knows whether the Quadro accepts it. Captured, and not recalled until a hardware probe",
             },
             ("adat_gains", []) => Writer::Command(Target::Gains { kind: GainKind::Adat }),
             ("spdif_gains", []) => Writer::Command(Target::Gains { kind: GainKind::Spdif }),
             ("links", []) => match (split_indices(tail).0, parts.len()) {
                 ("preamp" | "line" | "adat" | "spdif", 3) if parts[2] == "linked" => Writer::Withheld {
                     command: "set_stereo_link",
-                    reason: "a linked pair may mirror a write to its partner. Until a hardware session shows whether it does, recall writes every channel its own captured value and never sets a link flag (spec §2.3.6); on the Quadro only pair 1 is even readable (P47, P50)",
+                    reason: "a linked pair may mirror a write to its partner. Until a hardware session shows whether it does, recall writes every channel its own captured value and never sets a link flag; on the Quadro only pair 1 is even readable",
                 },
                 _ => Writer::Unmapped,
             },
@@ -662,7 +661,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
         "outputs" => match (head, indices.as_slice()) {
             ("volumes", [id]) => match tail {
                 _ if *id >= topology::output_ids(family).unwrap_or(0) => Writer::NoWriter {
-                    reason: "the Quadro reports six volume words and its set_volume ids stop at Line out: volumes 5 and 6 are bound to no command (spec Q12)",
+                    reason: "the Quadro reports six volume words and its set_volume ids stop at Line out: volumes 5 and 6 are bound to no command",
                 },
                 "volume" => Writer::Command(Target::OutputVolume { id: *id }),
                 "mute" => Writer::Command(Target::OutputMute { id: *id }),
@@ -676,7 +675,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
             ("hard_mute", []) => Writer::Command(Target::HardMute),
             ("trims", []) => match (tail, family) {
                 ("adc", "quadro") => Writer::NoWriter {
-                    reason: "the Quadro's panel offers Monitor and Line out trims only; its ADC trim is reported and not set (P56)",
+                    reason: "the Quadro's panel offers Monitor and Line out trims only; its ADC trim is reported and not set",
                 },
                 (key, _) => match TRIM_KEYS.iter().position(|(k, _)| *k == key) {
                     Some(id) => Writer::Command(Target::Trim { id: id as u32 }),
@@ -717,7 +716,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
             "dc_coupled_out" => Writer::Command(Target::DcCoupled { io: 1 }),
             // The diff puts the device's preset slot in the settings section.
             "current_preset" => Writer::NoWriter {
-                reason: "the preset slot is recorded and never recalled: nobody has established what preset_recall changes on the device (spec §2.4)",
+                reason: "the preset slot is recorded and never recalled: nobody has established what preset_recall changes on the device",
             },
             _ => Writer::Unmapped,
         },

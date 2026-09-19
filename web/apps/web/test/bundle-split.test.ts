@@ -1,6 +1,6 @@
 // The build is more than one file, and neither the effect parameter catalogue nor a page only one
 // route shows is in what the app loads. The catalogue is about 116 kB of generated tables that only
-// the Effects page needs (P125); the pages are the Effects, Workspace, Inputs, Outputs, Routing,
+// the Effects page needs; the pages are the Effects, Workspace, Inputs, Outputs, Routing,
 // Devices and surface pages, each fetched when its route opens (elements/lazy.ts). This builds the
 // app into a temporary directory and looks at what came out: a static import of any of them from
 // somewhere the app loads eagerly would put it back in the app's own chunks and fail here.
@@ -20,7 +20,7 @@ const IN_THE_CATALOGUE = "The panel's read names no instance";
 const CHUNK_WARNING_KB = 500;
 /**
  * What the entry chunk has to come in under. The point of the page split is room for the next page
- * as well, not another few kB of headroom: P125 left about 9 kB and the snapshots UI used all of it.
+ * as well, not another few kB of headroom: splitting out the effect catalogue left about 9 kB and the snapshots UI used all of it.
  */
 const ENTRY_BUDGET_KB = 420;
 

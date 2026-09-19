@@ -1,4 +1,4 @@
-//! Idle noise model (spec §8 step 3): how each byte of each channel behaves while the operator
+//! Idle noise model: how each byte of each channel behaves while the operator
 //! does nothing.
 
 use std::collections::HashMap;

@@ -483,7 +483,7 @@ export class ChannelsModel {
     return this.#startFrom({ mixes: structuredClone(saved.mixer.mixes), groups: saved.mixer.groups.map((g) => ({ ...g, id: groupIds.get(g.id) as string })), channels });
   }
 
-  /** Whether a mix is summed to mono (decision P57). Reading it is reactive. */
+  /** Whether a mix is summed to mono. Reading it is reactive. */
   isMono(mix: number): boolean {
     this.#checkMix(mix);
     return this.layout.value.mixes[mix]?.mono !== undefined;

@@ -1,4 +1,4 @@
-// The safety decisions of 2026-09-18, after the documentation overhaul named the risks (P137):
+// The safety decisions of 2026-09-18, after the documentation overhaul named the risks:
 // a two-click confirm, as 48V has, for recalling a device preset, turning a test tone on, turning
 // DC coupling on and changing the clock source or sample rate; and a double-click on a level that
 // goes to a safe -20 dB, with Ctrl+click for unity and a setting, remembered per browser, that

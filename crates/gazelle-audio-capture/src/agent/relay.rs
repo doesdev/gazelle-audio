@@ -1,4 +1,4 @@
-//! `mcp-stdio`: an MCP server on stdio that relays to a running helper's `/mcp` (spec §9), for
+//! `mcp-stdio`: an MCP server on stdio that relays to a running helper's `/mcp`, for
 //! clients such as Claude Code that launch MCP servers as child processes. Every list, call and
 //! prompt request is forwarded unchanged with the helper's bearer token, and the helper's
 //! handshake info (its instructions included) is served as the relay's own, so the helper stays

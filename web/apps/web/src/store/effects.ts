@@ -1,11 +1,11 @@
-// A device's effect chains and reverb (specs/2026-09-17-effects-and-reverb.md; reference/devices.md,
+// A device's effect chains and reverb (docs/protocol.md,
 // "Effects (AFX) and reverb"), as both vendor panels read and bind them:
 // - Chains are fed by routing (AFX IN k), up to eight slots each, a slot being {type, inst}: `type` an
 //   AfxType id (0 is empty), `inst` that type's instance. The Quadro has six user chains, read one at a
 //   time with get_afx_strip_order and the chain in ext3; the Studio+ sixteen, read with get_afx_order.
 //   Link byte k pairs chains 2k and 2k+1.
 // - A chain is changed by writing all eight slots with set_afx_order, the effects packed from the first
-//   slot and the rest empty, which is the shape the hardware probe confirmed (P114): it inserts, removes
+//   slot and the rest empty, which is the shape the hardware probe confirmed: it inserts, removes
 //   and, untried on a device, reorders. The device sets the instance's `enabled` to 1 on insert and 0 on
 //   removal by itself, so no bypass goes with either. A linked chain's partner gets the same change on
 //   its own instances. Which instances are free comes from get_afx_available_instances, on the Quadro
@@ -23,7 +23,7 @@
 //   instance, as the panels do, and a linked chain's partner gets the same settings on its own instance at
 //   the same slot. The Studio+ Equalizer is the exception: it is read in two parts (ext3 0 and 1, eight
 //   instances each), both before any write, and set one band per command, coalesced per band.
-// Reads are the page's own, so quiet (P63), and kept until forgotten (P80). A dry run reads nothing and
+// Reads are the page's own, so quiet, and kept until forgotten. A dry run reads nothing and
 // counts as read, with the panels' starting values, so the controls still show what they would send.
 // Writes that carry more than the value changed wait for a read: a default must not overwrite the
 // device's reverb or an effect's settings.
@@ -334,7 +334,7 @@ export class EffectsModel {
    * The Mixer needs to know what each chain holds to meter a strip fed by AFX OUT, and its last
    * effect is as far as the device meters the chain. That is a fraction of what the Effects page
    * reads, so it asks for the orders and the links only, and leaves `needsRead` set for the page's
-   * own read. Quiet, like every read a page makes of its own accord (P63).
+   * own read. Quiet, like every read a page makes of its own accord.
    */
   /**
    * Follows the effect meters and makes sure the chains are read, for a page that shows them.
@@ -581,7 +581,7 @@ export class EffectsModel {
     const writes: [number, EffectSlot[]][] = [[index, [...chain.slots, slot(chain.slots.length, free[0] as number)]]];
     if (partner !== undefined) writes.push([partner.index, [...partner.slots, slot(partner.slots.length, free[1] as number)]]);
     for (const inst of free) {
-      // The device sets an inserted instance's `enabled` to 1 itself (P114), so no bypass goes with it.
+      // The device sets an inserted instance's `enabled` to 1 itself, so no bypass goes with it.
       this.#bypassOf(type, inst).value = false;
       // Its settings survive, but the device may have changed them: read them again when it is opened.
       this.#forgetParameters(type, inst);
@@ -602,7 +602,7 @@ export class EffectsModel {
     const writes: [number, EffectSlot[]][] = [[index, chain.slots.filter((s) => s !== slot)]];
     const mirror = this.#mirror(chain, position, slot.type);
     if (mirror !== undefined) writes.push([mirror.chain.index, mirror.chain.slots.filter((s) => s !== mirror.slot)]);
-    // Removal clears the instance's `enabled` on the device (P114), which is bypassed as this app shows it.
+    // Removal clears the instance's `enabled` on the device, which is bypassed as this app shows it.
     this.#bypassOf(slot.type, slot.inst).value = true;
     if (mirror !== undefined) this.#bypassOf(mirror.slot.type, mirror.slot.inst).value = true;
     this.#writeChains(writes);
@@ -612,7 +612,7 @@ export class EffectsModel {
   /**
    * Moves the effect in a slot `by` places earlier (negative) or later in its chain, and the same effect in
    * a linked partner's slot with it. Refused (false) when it would leave the chain.
-   * **Reordering has never been tried on a device** (P114 covered only inserting and removing).
+   * **Reordering has never been tried on a device** (a hardware probe covered only inserting and removing).
    */
   moveEffect(index: number, position: number, by: number): boolean {
     const chain = this.#chain(index);

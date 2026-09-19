@@ -1,4 +1,4 @@
-// The user's two cross-device workflows (workspace spec §4.3, §4.4) on the loopback devices, with
+// The user's two cross-device workflows on the loopback devices, with
 // digital cables (phase 3): the Quadro is loopback-0, the Studio+ loopback-1.
 //   (a) Drums on the Studio+ preamps go out of its ADAT port into the Quadro's ADAT inputs, and are
 //       mixed on the Quadro beside its own channels.

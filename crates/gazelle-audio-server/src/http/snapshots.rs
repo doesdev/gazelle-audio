@@ -2,7 +2,7 @@
 //!
 //! **No route here writes to a device.** `POST /snapshots` and `GET /snapshots/{id}/compare` both
 //! only read. Recall (phase 6) will be a route of its own, and deliberately is not one yet: it
-//! needs a hardware session first (spec §2.3, decision 0012).
+//! needs a hardware session first.
 //!
 //! A snapshot is a record of reads, so a client cannot PUT one: only its name and note can be
 //! changed, through `PATCH`. A snapshot whose values a client could write would be indistinguishable
@@ -99,7 +99,7 @@ pub async fn compare_snapshot(State(state): State<AppState>, Path(id): Path<Stri
     Ok(Json(serde_json::to_value(diff(&snapshot, &now)).map_err(|e| ServerError::Storage(e.to_string()))?))
 }
 
-/// Add snapshots from a backup file, keeping the ones already stored (spec §3.3).
+/// Add snapshots from a backup file, keeping the ones already stored.
 ///
 /// Add-only: an id that is already here is skipped and named, never silently replaced, because a
 /// snapshot is a record of a moment and two of them with one id would be a lie about which moment.

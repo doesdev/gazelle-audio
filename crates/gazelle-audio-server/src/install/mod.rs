@@ -14,7 +14,7 @@
 //! the real Programs folder, the real Start Menu or the real `HKCU`.
 //!
 //! What it deliberately does not do: an MSI, a WiX or NSIS build step, elevation, a service, or
-//! anything machine-wide. See `specs/2026-09-18-shipping-portable.md`.
+//! anything machine-wide: the app is portable, and installing is copying it into place.
 
 pub mod registry;
 pub mod shortcut;
@@ -50,16 +50,16 @@ pub const CONSOLE_BINARY: &str = "gazelle-audio-server";
 ///
 /// `programs` and `start_menu` are the installer's own; `config` and `logs` are the app's data,
 /// named here only so `--purge` can offer to remove them and so an ordinary uninstall can say
-/// plainly what it is leaving behind. They are exactly the folders P82 and P78 already chose.
+/// plainly what it is leaving behind. They are exactly the folders the workspace and the tray's logs already use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Layout {
     /// `%LOCALAPPDATA%\Programs\Gazelle`.
     pub programs: PathBuf,
     /// `%APPDATA%\Microsoft\Windows\Start Menu\Programs`.
     pub start_menu: PathBuf,
-    /// `%APPDATA%\gazelle`: workspace, layouts, themes, snapshots (P82).
+    /// `%APPDATA%\gazelle`: workspace, layouts, themes, snapshots.
     pub config: Option<PathBuf>,
-    /// `%LOCALAPPDATA%\gazelle\logs` (P78).
+    /// `%LOCALAPPDATA%\gazelle\logs`.
     pub logs: Option<PathBuf>,
     /// The Add/Remove Programs key, [`UNINSTALL_KEY`] unless [`UNINSTALL_KEY_VAR`] names another.
     pub uninstall_key: String,
@@ -268,7 +268,7 @@ fn write_uninstall_entry(ctx: &Context, dir: &Path, console: &Path, launch: &Pat
 
 /// Point an existing login entry at the installed windowless binary, keeping its options.
 ///
-/// Start on boot is a setting the person turned on (P78), and after an install the copy they
+/// Start on boot is a setting the person turned on, and after an install the copy they
 /// turned it on for may be a download folder that is about to be deleted. So an entry that
 /// exists is re-pointed, with everything after the program name carried over untouched. An entry
 /// that does not exist is **not** created: installing an app is not asking it to start at login.
@@ -522,7 +522,7 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
     Ok(())
 }
 
-/// Start the copy that has just been installed, honouring the single-instance handover (P122):
+/// Start the copy that has just been installed, honouring the single-instance handover:
 /// a Gazelle already listening on the default address is brought to the front rather than a
 /// second one started behind it.
 fn start_installed(launch: &Path) -> Result<(), String> {

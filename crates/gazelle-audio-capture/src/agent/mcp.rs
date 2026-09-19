@@ -1,4 +1,4 @@
-//! MCP over streamable HTTP (spec §9) at `/mcp`, behind the helper's bearer token. Tools come
+//! MCP over streamable HTTP at `/mcp`, behind the helper's bearer token. Tools come
 //! from the operation table and the `probe-parameter` prompt from the shared guidance, so the
 //! MCP and OpenAI interfaces cannot drift apart.
 

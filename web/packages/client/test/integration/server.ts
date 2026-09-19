@@ -1,4 +1,4 @@
-// Starts the real gazelle-audio-server for integration tests (decision P8). The server is built
+// Starts the real gazelle-audio-server for integration tests. The server is built
 // with cargo once per process, then the built binary is spawned directly, not through
 // `cargo run`, so killing it stops the server itself. It binds port 0 and the tests read the
 // port it logs. It runs with --no-tray, or every test server would add an icon to the taskbar.
@@ -61,7 +61,7 @@ export interface StartOptions {
 
 /**
  * The variable that makes the server refuse the USB backend outright. Set on every server this
- * harness starts, because `--backend` now defaults to `usb` (decision 0018) and a test suite must
+ * harness starts, because `--backend` now defaults to `usb` and a test suite must
  * not be one forgotten flag away from opening the devices on the machine running it.
  */
 export const NO_HARDWARE = "GAZELLE_NO_HARDWARE";

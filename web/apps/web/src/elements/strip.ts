@@ -187,7 +187,7 @@ export class GaStrip extends GaElement {
         solo.setAttribute("aria-pressed", String(state.value.solo));
       });
       if (!compact) {
-        // Channel links are the workspace's (P51); the badge opens the link bar on the Mixer page.
+        // Channel links are the workspace's; the badge opens the link bar on the Mixer page.
         buttons.push(linkButton((fn) => this.watch(fn), "mixer", deviceId, id, `mixer-link-${id}`, "toggle link"));
 
         const panFill = h("div", { class: "fill" });

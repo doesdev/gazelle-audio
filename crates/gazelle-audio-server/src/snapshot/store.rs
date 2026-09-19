@@ -1,7 +1,7 @@
 //! Where snapshots are kept: one JSON document each, beside the workspace.
 //!
 //! Decision 0011 puts full device state in JSON documents behind a storage trait, and the
-//! workspace deliberately does not hold them (workspace spec §2.5, the user's answer B): a
+//! workspace deliberately does not hold them: a
 //! snapshot is ~100 KB, so keeping them inside `workspace.json` would re-send every one of them
 //! on every debounced rename, and two clients capturing at once would overwrite each other.
 

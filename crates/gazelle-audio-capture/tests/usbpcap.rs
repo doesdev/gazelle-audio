@@ -207,7 +207,7 @@ fn discovery_stops_before_a_later_target_descriptor_once_live_traffic_begins() {
     assert_eq!(discover_target(frames, 0x1234, 0xABCD, 4096).unwrap(), None);
 }
 
-/// Amendment (plan-amendments.md, Task 13): discovery must stop at the first live frame only
+/// Discovery must stop at the first live frame only
 /// after at least one descriptor has been learned, not merely after the first frame overall
 /// (the old `seen > 0` condition). This constructs two live (non-injected) frames *before* any
 /// descriptor has been recorded, followed by the target's descriptor exchange. With `seen > 0`,

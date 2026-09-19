@@ -2,9 +2,9 @@
 //!
 //! Both of them so far are about an empty device list, which is the one thing that must never be
 //! all the app says. Antelope's own Manager Service opens the interfaces exclusively while it
-//! runs, so a USB server started beside it attaches nothing (`reference/usb-access.md`): the
-//! commonest way the app looks broken when it is not. And with the USB backend the default
-//! (decision `0018`), a first run with nothing plugged in is empty for the ordinary reason, which
+//! runs, so a USB server started beside it attaches nothing: the
+//! commonest way the app looks broken when it is not. And with the USB backend the
+//! default, a first run with nothing plugged in is empty for the ordinary reason, which
 //! is worth saying too.
 //!
 //! The rule is a pure function of what the server can see, evaluated wherever it is asked for

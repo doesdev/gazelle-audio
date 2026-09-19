@@ -14,7 +14,7 @@
 //! `keygen` makes an ed25519 pair, writes the **private** half to a file outside the repository
 //! and prints the public half. `sign` hashes every file in a directory into `SHA256SUMS`, signs
 //! that file, and prints what to upload. The rest are the steps of the release checklist
-//! (`.agent/specs/2026-09-18-shipping-portable.md`) that are more than one command, so that the
+//! (`docs/releasing.md`) that are more than one command, so that the
 //! release workflow (`.github/workflows/release.yml`) and a person cutting a release by hand run
 //! the same code, and that code is under test.
 //!

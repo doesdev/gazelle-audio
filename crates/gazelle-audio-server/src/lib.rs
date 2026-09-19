@@ -11,7 +11,6 @@
 //! because driving the interfaces is the whole point of the shipped app; attaching is read-only,
 //! and a write is still a deliberate act, with `--dry-run` there to show the bytes instead of
 //! sending them. Binding is loopback-only unless explicitly overridden. See
-//! `.agent/decisions/0018-usb-backend-by-default.md`, which supersedes `0012`, and
 //! [`no_hardware`] for the variable that keeps a test harness off real devices.
 
 /// The build script's icon-resource writer, compiled into the test build so its own tests run.
@@ -57,7 +56,7 @@ use crate::workspace::store::WorkspaceStore;
 pub struct AppState {
     pub devices: Arc<DeviceManager>,
     pub store: Arc<dyn WorkspaceStore>,
-    /// Where snapshots are kept: beside the workspace, one document each (decision 0011).
+    /// Where snapshots are kept: beside the workspace, one document each.
     pub snapshots: Arc<dyn SnapshotStore>,
     /// When set, every command is non-mutating regardless of per-request options.
     pub force_dry_run: bool,

@@ -1,6 +1,6 @@
 //! Where the window was last time: its size, its position and whether it was maximised.
 //!
-//! Kept in the config directory beside the workspace and the themes (`%APPDATA%\gazelle`, P82), in
+//! Kept in the config directory beside the workspace and the themes (`%APPDATA%\gazelle`), in
 //! its own small file: it is the window's, not the workspace's, and a workspace carried to another
 //! machine should not carry a position on a monitor that machine does not have.
 //!

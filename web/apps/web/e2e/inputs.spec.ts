@@ -386,7 +386,7 @@ test("what the device's licence does not cover is listed greyed, and an emulatio
   await expect(duo.locator("option").nth(2)).toHaveText("Berlin 87 (not licensed)");
 });
 
-test("an Edge Quadro's row keeps room for every value: a line each when narrow, one row when wide (P80)", async ({ page }) => {
+test("an Edge Quadro's row keeps room for every value: a line each when narrow, one row when wide", async ({ page }) => {
   const selects = ["mic-target-0", "mic-model-0-bottom", "mic-pattern-0-bottom", "mic-model-0-top", "mic-pattern-0-top", "mic-preset-0"];
   const box = async (testId: string) => (await page.getByTestId(testId).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
   const middle = async (testId: string) => ((b) => b.y + b.height / 2)(await box(testId));

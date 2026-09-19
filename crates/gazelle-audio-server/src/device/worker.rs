@@ -264,8 +264,7 @@ enum Answer {
 /// Reports that are not valid responses are published as device-initiated events rather
 /// than discarded. Note this is slightly more forgiving than the original, which consumes
 /// exactly one queued report per request and fails if it does not validate; here a cyclic
-/// report arriving mid-request does not kill the request. That is a deliberate divergence,
-/// recorded in `.agent/reference/decompilation-fidelity.md`.
+/// report arriving mid-request does not kill the request. That is a deliberate divergence.
 fn pump(ctx: &mut WorkerContext, correlator: &mut ResponseCorrelator) -> Option<Answer> {
     let mut answer = None;
     for report in ctx.device.poll_reports() {

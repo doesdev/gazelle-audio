@@ -1,5 +1,5 @@
 //! Collect the release directory: exactly the files the release carries, under exactly the names
-//! the updater asks for (`.agent/specs/2026-09-18-shipping-portable.md`, "The release layout").
+//! the updater asks for (`docs/releasing.md`).
 //!
 //! | File | From |
 //! |---|---|
@@ -16,7 +16,7 @@
 //!
 //! The zip is written by PowerShell's `Compress-Archive`, as the by-hand checklist always made it,
 //! rather than by a zip crate: the release is built on Windows, where it is always there, and the
-//! helper stays free of new dependencies (`reference/rust-crates.md`, "Toolchain floor").
+//! helper stays free of new dependencies that could lift the Rust 1.88 floor.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

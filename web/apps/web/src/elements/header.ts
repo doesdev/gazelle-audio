@@ -1,5 +1,5 @@
-// <ga-header>: brand, page tabs, and the hardware-safety badges the spec requires to be always
-// visible (§6.3): which backend is driving devices, dry-run, and the connection state. The
+// <ga-header>: brand, page tabs, and the hardware-safety badges that must always be
+// visible: which backend is driving devices, dry-run, and the connection state. The
 // preferences sit at the end, what a double-click does to a level and the theme, then slot="menu",
 // where the app puts its sidebar button for phones.
 //

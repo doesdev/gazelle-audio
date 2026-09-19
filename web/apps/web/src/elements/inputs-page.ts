@@ -95,7 +95,7 @@ export class GaInputs extends GaElement {
       /* One column grid for every section: a digital input takes one column, a preamp two, so edges line up across sections. */
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
       ${INPUT_CONTROL_STYLES}
-      /* Rows follow the width they are given, not the window's (P80): the sidebar takes from it too. */
+      /* Rows follow the width they are given, not the window's: the sidebar takes from it too. */
       .mics { display: grid; gap: 6px; max-width: 760px; container: mics / inline-size; }
       .mic { display: grid; grid-template-columns: minmax(64px, 88px) minmax(0, 1fr) minmax(0, 2fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
       .mic select { min-width: 0; min-height: 24px; }

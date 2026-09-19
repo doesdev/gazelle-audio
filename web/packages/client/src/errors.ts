@@ -1,4 +1,4 @@
-/** Codes the client raises itself (spec §4.4, plus `superseded` from coalescing). */
+/** Codes the client raises itself (plus `superseded` from coalescing). */
 export type ClientErrorCode = "not_connected" | "timeout" | "closed" | "superseded";
 
 /** Codes the control server sends, passed through unchanged. */

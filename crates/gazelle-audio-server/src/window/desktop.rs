@@ -1,7 +1,7 @@
 //! The window itself: a Tao window holding a Wry webview pointed at this server.
 //!
 //! **It runs on a thread of its own.** The tray already owns the main thread and its message
-//! loop (P70), and Windows gives every thread its own message queue, so the window takes a second
+//! loop, and Windows gives every thread its own message queue, so the window takes a second
 //! one rather than the tray giving up the first. Tao normally insists on the main thread; on
 //! Windows `with_any_thread` lifts that, which is why this is Windows-first. The event loop never
 //! returns, so the thread is not joined: the process ends when the server does.

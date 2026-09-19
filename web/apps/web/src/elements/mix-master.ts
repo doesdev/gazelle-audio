@@ -52,7 +52,7 @@ export class GaMixMaster extends GaElement {
       "aria-label": `Add an output for mix ${mix + 1}`,
       "data-testid": `mix-add-output-${mix}`,
       "data-explain": "master.add-output",
-      // A menu of actions rather than a value: each wheel step would add an output (P73).
+      // A menu of actions rather than a value: each wheel step would add an output.
       "data-no-wheel": true,
       "on:change": () => {
         const [destination, channel] = add.value.split(":").map(Number);
@@ -60,7 +60,7 @@ export class GaMixMaster extends GaElement {
         if (destination !== undefined && channel !== undefined && !Number.isNaN(destination)) void channels.setMixOutput(mix, { destination, channel }, true);
       },
     });
-    // Mono (P57): the app centres the mix's pans and restores them after; the device has no switch for it.
+    // Mono: the app centres the mix's pans and restores them after; the device has no switch for it.
     const mono = h(
       "button",
       { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, "data-explain": "master.mono", title: "Sum this mix to mono: pans every channel to centre, and restores the pans when turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },

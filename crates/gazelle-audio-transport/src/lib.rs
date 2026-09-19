@@ -11,7 +11,7 @@
 //! of it. The [`LoopbackDevice`] implements the same trait without any hardware:
 //! it echoes received packets back through a channel so the framing, reassembly,
 //! and request/response correlation can be exercised end-to-end before real
-//! hardware is attached (see the risk caveat in `.agent/STATUS.md`).
+//! hardware is attached.
 
 pub mod correlation;
 pub mod framing;

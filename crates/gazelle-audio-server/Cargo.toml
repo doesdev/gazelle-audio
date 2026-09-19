@@ -11,7 +11,7 @@ description = "Multi-device HTTP/WebSocket control server for Antelope Audio int
 
 [dependencies]
 # The devices are HID-class, so Windows claims them exclusively and raw USB cannot bind them
-# (reference/usb-access.md). `windows-native` is hidapi's Rust backend, so no C toolchain is
+# without replacing Windows' own driver. `windows-native` is hidapi's Rust backend, so no C toolchain is
 # needed; macOS and Linux backends are selected per platform when those are built.
 hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 gazelle-audio-protocol = { path = "../gazelle-audio-protocol" }
@@ -25,8 +25,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
 rust-embed = { version = "8", optional = true, features = ["interpolate-folder-path", "mime-guess"] }
-# The in-app updater. A release source must be HTTPS, so unlike `drive` (decision A35's
-# plain-HTTP note) this binary compiles TLS in: rustls with the ring provider, A35's choice.
+# The in-app updater. A release source must be HTTPS, so unlike the capture crate's `drive`
+# (which may talk plain HTTP to a local model) this binary compiles TLS in: rustls with the ring
+# provider, the same crypto choice.
 # `ureq` rather than `reqwest`, which the capture crate uses: it is the smaller tree (no hyper, no
 # encoding_rs) for one GET at a time. Default features off leaves out `platform-verifier`, so
 # certificates verify against ureq's bundled webpki roots rather than the OS store; see
@@ -41,8 +42,8 @@ semver = "1"
 # The desktop window, behind the `window` feature: Tao makes the window, Wry puts the system
 # webview (WebView2 on Windows) in it and points it at this server. Used directly, not through
 # Tauri: the UI talks HTTP and WS to a server we already run, so Tauri's IPC and build pipeline
-# would buy nothing (`specs/2026-09-18-shipping-portable.md`). Both are optional, and their trees
-# are part of what CI's Rust 1.88 build covers; see `reference/rust-crates.md`.
+# would buy nothing. Both are optional, and their trees are part of what CI's Rust 1.88 build
+# covers.
 tao = { version = "0.37", optional = true }
 wry = { version = "0.57", optional = true }
 

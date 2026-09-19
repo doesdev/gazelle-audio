@@ -1,4 +1,4 @@
-// Themes (decision P16): JSON profiles in the shape of VS Code colour themes. A theme has an
+// Themes: JSON profiles in the shape of VS Code colour themes. A theme has an
 // optional `name`, `type` ("dark" | "light") and `extends` (another theme's id), a flat `colors`
 // map of dotted keys, and a `meter` block whose gradient stops are placed in dBFS. Anything a
 // theme leaves out comes from its `extends` chain and finally from gazelle-dark, which must be

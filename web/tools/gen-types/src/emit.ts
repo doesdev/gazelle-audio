@@ -1,4 +1,4 @@
-// Schema → TypeScript (spec §5). Pure: schemas in, file contents out, so generation and the
+// Schema → TypeScript. Pure: schemas in, file contents out, so generation and the
 // `--check` drift test share one code path. Types follow the server's JSON mapping
 // (crates/gazelle-audio-server/src/value.rs): scalars are numbers; byte arrays go in as bytes
 // (hex, byte array or Uint8Array) and come out as Uint8Array (the client converts the server's
@@ -42,7 +42,7 @@ function checkTopology(family: string, topology: unknown): Record<string, unknow
   return topology;
 }
 
-const ZERO_LENGTH = "zero-length array; see .agent/reference/devices.md";
+const ZERO_LENGTH = "zero-length array; the extractor could not resolve its count";
 
 function pascal(family: string): string {
   return family.charAt(0).toUpperCase() + family.slice(1);

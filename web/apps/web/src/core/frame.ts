@@ -1,5 +1,5 @@
 // High-rate writes (cyclic reports arrive tens of times a second) are applied once per animation
-// frame, last value wins, in one batch so each affected effect runs at most once (spec §6.2).
+// frame, last value wins, in one batch so each affected effect runs at most once.
 
 import { batch, type Signal } from "./signal.ts";
 

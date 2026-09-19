@@ -1,7 +1,7 @@
 //! Unit tests for the platform-neutral plumbing used by `platform::start`/`find_hub` on Windows:
 //! `exit_tool_error`, `Supervised` and `select_hub`. None of this spawns a process; the
 //! Windows-only parts (`Child::kill`/`wait`, actually running USBPcapCMD) are out of reach here
-//! and are the subject of the Task 15 checklist.
+//! and are checked by hand against a real capture.
 
 use std::cell::Cell;
 

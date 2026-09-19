@@ -54,7 +54,7 @@ pub fn output_channels(family: &str, kind: &str) -> Option<u32> {
 /// Every routing destination group of a model, as `(topology id, wire position)`.
 ///
 /// A snapshot keys routing by the topology id rather than the position, so it survives a topology
-/// re-extraction that reorders groups (workspace spec §2.5).
+/// re-extraction that reorders groups.
 pub fn destination_groups(family: &str) -> Option<Vec<(String, u32)>> {
     let m = model(family)?;
     Some(m.output_ids.iter().enumerate().map(|(at, id)| (id.clone(), at as u32)).collect())

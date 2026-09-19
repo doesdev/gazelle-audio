@@ -40,7 +40,7 @@ export function backupFileName(now: Date): string {
   return workspaceFileName(now).replace("gazelle-workspace-", "gazelle-backup-");
 }
 
-/** A full backup: the workspace as the server gave it, and every snapshot whole (spec §3.3). */
+/** A full backup: the workspace as the server gave it, and every snapshot whole. */
 export function backupFileText(workspace: Workspace, snapshots: readonly Snapshot[]): string {
   return `${JSON.stringify({ kind: BACKUP_KIND, version: BACKUP_VERSION, workspace, snapshots }, null, 2)}\n`;
 }
@@ -71,7 +71,7 @@ export function readWorkspaceFile(text: string, readableVersion: number, readabl
   }
   if (!isMap(document)) return { ok: false, problem: "is not a Gazelle workspace" };
 
-  // A full backup wraps the workspace and carries snapshots beside it (spec §3.3); a plain workspace
+  // A full backup wraps the workspace and carries snapshots beside it; a plain workspace
   // export still imports, so neither file has to be told apart by its name.
   let parsed: Record<string, unknown> = document;
   let snapshots: Snapshot[] = [];

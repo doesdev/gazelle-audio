@@ -1,7 +1,7 @@
 //! The driver's ASIO instance information: the 196 bytes `TUSBAUDIO_GetASIOInstanceInfo` writes.
 //!
 //! The layout is not in any public header. It was read against both vendor control panels on
-//! 2026-09-18 (`.agent/reference/driver-api.md`), so every value is checked before it is shown:
+//! 2026-09-18, so every value is checked before it is shown:
 //! a driver whose layout has moved answers "could not be read", never a plausible wrong number.
 
 use serde::Serialize;
@@ -126,7 +126,7 @@ pub(crate) mod tests {
 
     const OFFERED: [u32; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
-    /// The Quadro's bytes as read on 2026-09-18 (`reference/driver-api.md`).
+    /// The Quadro's bytes as read on 2026-09-18.
     pub(crate) fn quadro() -> Vec<u8> {
         let mut words = vec![44100, 44100, 0, 0, 0x10000, 571, 632, 512, 9];
         words.extend(OFFERED);

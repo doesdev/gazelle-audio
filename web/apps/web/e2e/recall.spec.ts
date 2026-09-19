@@ -1,7 +1,7 @@
 // The recall preview on the Workspace page: what putting a snapshot back would send, in order,
 // with its guards — and nothing sent.
 //
-// This server is **not** in dry run (reads answer nothing there, decision 0012) and it *does* push
+// This server is **not** in dry run (reads answer nothing there) and it *does* push
 // cyclic reports, unlike the snapshots spec: recall is mostly about the values that arrive only in
 // the 0x73 report — 48V, gains, volumes, mutes, the clock — and without them a plan would be all
 // "could not be read". The loopback's report sweeps, so a snapshot taken a moment ago differs from

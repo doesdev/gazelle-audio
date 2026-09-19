@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-/// Where the server listens when `--bind` is not given: localhost, deliberately (decision 0012).
+/// Where the server listens when `--bind` is not given: localhost, deliberately.
 /// Named here rather than only in `main`'s argument default because the installer needs to know
-/// where a copy that is already running would be, to hand over to it (P122).
+/// where a copy that is already running would be, to hand over to it.
 pub const DEFAULT_BIND: &str = "127.0.0.1:8420";
 
 /// The port of [`DEFAULT_BIND`], for callers that want an address rather than a string.
@@ -39,7 +39,7 @@ pub fn default_workspace_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
 }
 
 /// Where snapshots go when `--snapshots-dir` is not given: a `snapshots` folder beside the
-/// workspace file, in the same config directory (P82), one JSON document each.
+/// workspace file, in the same config directory, one JSON document each.
 pub fn default_snapshots_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("snapshots"), |dir| dir.join("snapshots"))
 }

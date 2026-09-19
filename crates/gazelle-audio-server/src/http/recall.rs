@@ -4,11 +4,11 @@
 //!
 //! - `POST /api/v1/snapshots/{id}/recall/plan` reads every device fresh, compares, and answers the
 //!   ordered list of commands recall *would* send, each with its bytes and its guards. It is the
-//!   preview spec §2.3 guard 1 asks for, and it is all the Workspace page uses.
+//!   preview the first recall guard asks for, and it is all the Workspace page uses.
 //! - `POST /api/v1/snapshots/{id}/recall` is the seam where applying will attach. It refuses unless
 //!   the server was started with `--enable-recall` **and** the request body says so as well; even
-//!   then it only reports the bytes, because sending them waits for the hardware session (spec §10,
-//!   decision 0012). Two switches rather than one so that neither a stray request nor a server left
+//!   then it only reports the bytes, because sending them waits for a session at the hardware to
+//!   confirm them. Two switches rather than one so that neither a stray request nor a server left
 //!   running with the flag can drive a device on its own.
 
 use axum::extract::rejection::JsonRejection;
@@ -79,10 +79,10 @@ pub async fn apply_recall(
     if !state.force_dry_run {
         // The seam. Everything above this line is built and tested; what is missing is the loop
         // that sends `plan.steps`, stops on the first failure and leaves the outputs silenced, and
-        // it is missing on purpose: the hardware session in the spec's §10 has to confirm the order,
-        // the hard mute's behaviour and what a preset recall changes first (decision 0012).
+        // it is missing on purpose: a session at the hardware has to confirm the order,
+        // the hard mute's behaviour and what a preset recall changes first.
         return Err(ServerError::Unsupported(
-            "applying a recall to a device is not built: the plan above is complete, and sending it waits for the hardware session in the workspace spec §10. Run the server with --dry-run to see the bytes each step would send".into(),
+            "applying a recall to a device is not built: the plan above is complete, and sending it waits for a session at the hardware to confirm the order of the steps, how the hard mute behaves and what a preset recall changes. Run the server with --dry-run to see the bytes each step would send".into(),
         ));
     }
     let mut body = serde_json::to_value(plan).map_err(|e| ServerError::Storage(e.to_string()))?;

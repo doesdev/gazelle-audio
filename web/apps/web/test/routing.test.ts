@@ -9,7 +9,7 @@ import { effect } from "../src/core/signal.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage, type Invocation } from "./fake-client.ts";
 
-// Quadro topology positions (P38): sources PREAMP 0, LOOPBACK HP1 6, MUTE 10; destinations HP1 1, MIX CH4 11.
+// Quadro topology positions: sources PREAMP 0, LOOPBACK HP1 6, MUTE 10; destinations HP1 1, MIX CH4 11.
 const PREAMP = 0;
 const LOOPBACK_HP1 = 6;
 const MUTE = 10;

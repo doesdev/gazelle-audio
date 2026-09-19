@@ -1,8 +1,8 @@
 //! The USB backend: the devices as Windows sees them, HID-class.
 //!
 //! Both models expose a vendor-defined HID interface (usage page `0xffa0`, interface 3), so the
-//! OS HID driver owns them and raw USB cannot bind them (`reference/usb-access.md`). This backend
-//! therefore speaks HID through `hidapi`.
+//! OS HID driver owns them and raw USB cannot bind them without replacing Windows' own driver.
+//! This backend therefore speaks HID through `hidapi`.
 //!
 //! Two facts from hardware session 2, both measured on the attached devices:
 //! - **Antelope's Manager Service holds the devices exclusively.** While it runs, even opening a
@@ -12,7 +12,7 @@
 //!   receive segment, which [`HostReceiver`] reassembles.
 //!
 //! Reads are drained when the worker polls; the OS buffers input reports meanwhile, so no reader
-//! thread is needed and the [`Device`] trait stays synchronous (decision 0006).
+//! thread is needed and the [`Device`] trait stays synchronous.
 
 use std::collections::VecDeque;
 

@@ -1,5 +1,4 @@
-// The effect parameter editor's model (EffectsModel's parameters; specs/2026-09-17-effects-and-reverb.md,
-// "Effect parameters"): each effect type's own get and set, from the generated catalogue.
+// The effect parameter editor's model (EffectsModel's parameters): each effect type's own get and set, from the generated catalogue.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

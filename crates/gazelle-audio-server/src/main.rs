@@ -61,8 +61,8 @@ struct Args {
     dry_run: bool,
 
     /// Allow the recall route to apply a snapshot to a device. Off by default, and off is not the
-    /// whole guard: the request must ask as well, and applying is not built yet. It waits for the
-    /// hardware session in the workspace spec's §10.
+    /// whole guard: the request must ask as well, and applying is not built yet. It waits for a
+    /// session at the hardware to confirm how recall must behave.
     #[arg(long)]
     enable_recall: bool,
 
@@ -204,7 +204,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     // Before the listener, the devices, or anything else: a run forbidden hardware that asked for
-    // it anyway stops here, having opened nothing. `--backend` defaults to `usb` (decision 0018),
+    // it anyway stops here, having opened nothing. `--backend` defaults to `usb`,
     // so this is what stands between a harness that forgot the flag and the user's own interfaces.
     if let Some(refusal) = gazelle_audio_server::no_hardware::refusal(
         &args.backend.name(),

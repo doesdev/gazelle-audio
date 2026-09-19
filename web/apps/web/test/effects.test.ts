@@ -217,7 +217,7 @@ test("Quadro returns (mixes 1-2) and sends (mix 1 channels 1-16) are read and se
   assert.deepEqual(sent("loopback-0", "set_reverb_send").map((c) => c.args), [
     { mixer_id: 0, channel: 3, level: 93, pan: 29, mute: 0, solo: 0 },
     { mixer_id: 0, channel: 16, level: REVERB_SEND_MAX, pan: 32, mute: 0, solo: 0 },
-  ], "pan is held to its range but not snapped (only a drag snaps, P102); level and pan travel together");
+  ], "pan is held to its range but not snapped (only a drag snaps); level and pan travel together");
   assert.throws(() => effects.setReturn(2, { level: 0 }), RangeError, "returns 2-3 are never driven");
   assert.throws(() => effects.setSend(0, { level: 0 }), RangeError, "channel 0 is not a send");
   assert.throws(() => store.effects("loopback-1").setSend(1, { level: 0 }), /no reverb sends/);
@@ -257,7 +257,7 @@ test("reads are quiet, a failed read is tried again, a dry run counts as read wi
   assert.equal(reads(), 3);
 });
 
-// Editing a chain: add, remove and reorder (P114's hardware probe confirmed inserting and removing one
+// Editing a chain: add, remove and reorder (a hardware probe confirmed inserting and removing one
 // effect on the Quadro). The chain always goes out whole, packed from slot 1 with the rest empty.
 
 /** The sixteen bytes `set_afx_order` carries: each slot's type and instance, trailing slots zero. */
@@ -299,7 +299,7 @@ test("adding an effect writes the whole chain as bytes, packed from slot 1, on t
   await flush();
   assert.deepEqual(orders(sent), [[4, orderBytes([9, 0], [39, 0])]]);
   assert.ok(sent("loopback-0", "set_afx_order")[0]?.args?.["slots"] instanceof Uint8Array, "bytes, which the client sends as hex: the server refuses an array of objects");
-  assert.equal(effects.bypass(39, 0).value, false, "the device sets enabled on insert (P114), so no bypass is sent");
+  assert.equal(effects.bypass(39, 0).value, false, "the device sets enabled on insert, so no bypass is sent");
   assert.equal(sent("loopback-0", "set_afx_bypass").length, 0);
   assert.equal(reads(), 2, "the counts are read again after the change");
 });
@@ -333,7 +333,7 @@ test("removing writes the chain without it and the partner follows; the device c
   ], "the rest keeps its order and the trailing slots are empty");
   assert.equal(reads(), 8, "the two chains written are read back");
   assert.deepEqual(effects.chains.value?.[0]?.slots.map((s) => [s.position, s.type]), [[0, 39], [1, 1]], "and what the device then reports is what is shown");
-  assert.deepEqual([effects.bypass(39, 2).value, effects.bypass(39, 3).value], [true, true], "removal sets enabled 0 on the device (P114)");
+  assert.deepEqual([effects.bypass(39, 2).value, effects.bypass(39, 3).value], [true, true], "removal sets enabled 0 on the device");
   assert.equal(sent("loopback-0", "set_afx_bypass").length, 0);
   assert.throws(() => effects.removeEffect(2, 0), RangeError);
 });

@@ -1,4 +1,4 @@
-//! Encoding fits (spec §8 step 6): linear, signed, dB and table models.
+//! Encoding fits: linear, signed, dB and table models.
 
 use gazelle_audio_capture::analysis::encoding::{fit, ui_number, Model};
 

@@ -1,14 +1,14 @@
-// <ga-control-room>: the right zone's Control Room panel (decisions P56, P57). It shows the device on
-// the current page, or the one last selected (P71), as a <ga-monitor device-id="…">, with what the
+// <ga-control-room>: the right zone's Control Room panel. It shows the device on
+// the current page, or the one last selected, as a <ga-monitor device-id="…">, with what the
 // user chose for it (2026-09-16): the outputs chosen on the Outputs page (Monitor, HP1 and HP2 until
 // then; kept per device in the workspace), each with volume, mute, (Quadro) dim, Mono for the mix that
 // feeds it, and a mono badge where the device reports one; on the Studio+, talkback: the hold-to-talk
 // button, its level and where it goes. Outputs and talkback use the same OutputsModel as the Outputs
 // page, and mono the same ChannelsModel as the mix masters, so they all stay in step.
 //
-// Mono (P57, per output since 2026-09-17): neither model can make an output mono, so an output's Mono
+// Mono (per output since 2026-09-17): neither model can make an output mono, so an output's Mono
 // sums the mix routed to it, which every other output playing that mix hears too; the button names
-// them. Which mix feeds an output is known once its routing is read (P97). The panel reads nothing on
+// them. Which mix feeds an output is known once its routing is read. The panel reads nothing on
 // its own, so until then the button reads the routing first; an output no mix feeds (or several do)
 // has it disabled, with the reason as its title.
 
@@ -158,9 +158,9 @@ export class GaMonitor extends GaElement {
 
   /**
    * An output's Mono button and the caption saying what feeds it. The button sums the one mix routed
-   * to the output (P57), naming the other outputs that play it; with no mix, or several, it is
+   * to the output, naming the other outputs that play it; with no mix, or several, it is
    * disabled and its title says why. Until the output's routing is read it reads every output's
-   * routing first (once, P97), then the mixes if unread, since the pans mono keeps must be the device's.
+   * routing first (once), then the mixes if unread, since the pans mono keeps must be the device's.
    */
   #mono(output: OutputInfo): { button: HTMLButtonElement; caption: HTMLElement } {
     const store = useStore();

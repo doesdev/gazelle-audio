@@ -1,4 +1,4 @@
-//! First real USBPcap capture (Task 15): every frame decodes, and the stored target's
+//! First real USBPcap capture: every frame decodes, and the stored target's
 //! descriptor matches the session it came from.
 
 use std::path::PathBuf;

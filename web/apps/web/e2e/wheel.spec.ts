@@ -1,4 +1,4 @@
-// Feedback item 6 (P73): the wheel over any select steps it to the previous or next option it may
+// The wheel over any select steps it to the previous or next option it may
 // pick, firing `change` as a pick would, so the page's own handler sends the command. How travel
 // becomes steps is unit-tested (test/select-wheel.test.ts); these check the listener in the app.
 

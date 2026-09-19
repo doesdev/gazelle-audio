@@ -1,6 +1,6 @@
 // A device's routing, as the device holds it: every destination group (topology `outputs`) has
 // one source slot per channel, each naming a source group (topology `inputs`) and a channel in it.
-// Group positions in the topology are the wire ids (P38).
+// Group positions in the topology are the wire ids.
 //
 // Writes follow the device's shape: `set_routing` replaces all 32 slots of one destination group,
 // so each change reads that group fresh first and alters only its own slot, which keeps routes
@@ -11,7 +11,7 @@
 // In dry run nothing is sent, so a read has no reply: the write then builds on what is already
 // known (or MUTE), which shows the bytes without risking anything on a device.
 //
-// Pages call `readOnce`: a group read is kept and reused, as the mixes are (P80), since this app's
+// Pages call `readOnce`: a group read is kept and reused, as the mixes are, since this app's
 // own changes keep it current, until `forget()` says the device may have changed without it (the
 // connection dropped, or the device went away). A change that fails leaves its group to be read
 // again, since it may have reached the device. `load` always reads.

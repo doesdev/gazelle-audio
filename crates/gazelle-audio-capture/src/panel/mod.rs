@@ -41,7 +41,7 @@ pub fn router(app: PanelApp) -> Router {
         .with_state(app)
 }
 
-/// Applies the Host check (spec §9) as the outermost layer over `router`, so it covers every
+/// Applies the Host check as the outermost layer over `router`, so it covers every
 /// route already present, including ones a caller merged in before calling this. Callers that
 /// merge additional routes onto `router`'s output must do so *before* calling this, since a
 /// layer added here cannot retroactively cover routes merged in afterward.
@@ -85,7 +85,7 @@ pub fn spawn_ticker(controller: Controller, period: Duration) -> tokio::task::Jo
     })
 }
 
-/// Accepted exception to spec §9 (plan amendments, Task 12): this route is loadable without the
+/// A deliberate exception to the token rule: this route is loadable without the
 /// bearer token, since the token has to reach the browser somehow before the page's own script
 /// can use it. It still passes the Host check (`with_host_check`, applied by `serve`) and, like
 /// the WS upgrade, rejects a present-but-foreign `Origin` while allowing an absent one

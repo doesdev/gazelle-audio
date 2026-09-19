@@ -31,8 +31,8 @@ test("the harness starts the built server on a free port, stops it, and the port
 });
 
 // The two halves of keeping this suite off the user's own interfaces, now that --backend defaults
-// to usb (decision 0018). The other half — a server under GAZELLE_NO_HARDWARE refusing the usb
-// backend — is asserted on the Rust side (crates/gazelle-audio-server/tests/cli.rs), where it can
+// to usb. The other half, a server under GAZELLE_NO_HARDWARE refusing the usb
+// backend, is asserted on the Rust side (crates/gazelle-audio-server/tests/cli.rs), where it can
 // be exercised without a suite that would open a device if it regressed.
 
 // The message has to be the harness's own. A server spawned without the flag is refused by

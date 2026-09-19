@@ -1,7 +1,7 @@
 //! Snapshot capture, listing and comparison, over HTTP and against loopbacks.
 //!
 //! Nothing here touches hardware, and nothing here writes to a device: capture and compare only
-//! read, and the loopback has answered every `get_*` since P95, so the whole of phase 5 is
+//! read, and the loopback answers every `get_*`, so capture and compare are
 //! exercisable without a device attached.
 
 use axum::body::Body;
@@ -26,7 +26,7 @@ enum Backend {
     /// The full loopback stack with no cyclic traffic: every `get_*` answers, nothing else does.
     Quiet,
     /// A bare emulating loopback, with none of the layers that answer reads: every read fails,
-    /// which is what a device refusing (P96) or timing out looks like to a capture.
+    /// which is what a device refusing or timing out looks like to a capture.
     Silent,
 }
 
@@ -260,7 +260,7 @@ async fn comparing_with_now_finds_what_changed_and_nothing_when_it_has_not() {
     assert_eq!(same["snapshot"]["name"], "Take 1", "the diff names what it is comparing with");
     assert!(same["workspace"].as_array().expect("workspace").is_empty());
     // Nothing was touched, so nothing that could be read differs. What this loopback never pushed
-    // is listed as unknown, which is not agreement (P96) and is the only thing here.
+    // is listed as unknown, which is not agreement and is the only thing here.
     let kinds = kinds(&same);
     assert_eq!(kinds.get("changed"), None, "{}", serde_json::to_string_pretty(&same).unwrap_or_default());
     assert_eq!(kinds.get("only_in_snapshot"), None);

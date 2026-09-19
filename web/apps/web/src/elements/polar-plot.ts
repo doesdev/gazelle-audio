@@ -1,4 +1,4 @@
-// A small picture of a microphone's polar pattern (P72), for the Mic emulation rows of the Inputs
+// A small picture of a microphone's polar pattern, for the Mic emulation rows of the Inputs
 // page. The geometry is pure and tested; `polarPlot` draws it as inline SVG in the page's theme.
 // Front is up. The part of a pattern with inverted polarity (a figure-8's rear lobe) is drawn
 // dashed and unfilled, since it hears as loudly as the front but out of phase.
@@ -13,7 +13,7 @@ const EPSILON = 1e-9;
 
 /**
  * A first-order pattern's response at `theta` radians from the front, for a polar angle of +1
- * omni, 0 cardioid and -1 figure-8 (P68): `(1 + a) / 2 + ((1 - a) / 2) · cos θ`. Negative where
+ * omni, 0 cardioid and -1 figure-8: `(1 + a) / 2 + ((1 - a) / 2) · cos θ`. Negative where
  * the capsule hears in inverted polarity.
  */
 export function polarResponse(angle: number, theta: number): number {

@@ -150,7 +150,7 @@ test("what a snapshot and a diff say in words", () => {
 });
 
 // Recall's preview. Everything here describes a plan; nothing here applies one, and there is
-// deliberately nothing in the model that could (workspace spec §2.3, decision 0012).
+// deliberately nothing in the model that could.
 
 const planSummary = () => ({
   version: 1,

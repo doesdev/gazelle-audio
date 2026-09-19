@@ -1,4 +1,4 @@
-// A device's hardware output controls, as its vendor panel binds them (reference/devices.md,
+// A device's hardware output controls, as its vendor panel binds them (docs/protocol.md,
 // "Output ids", "Studio+ output volumes" and "Control Room controls"):
 // - volume, mute and, on the Quadro, dim per output. Quadro set_volume / set_mute / set_dim ids:
 //   MONITOR 0, HP1 1, HP2 2, LINE OUT 3, reported in the cyclic `volumes[id]` {volume, mute, dim_on,
@@ -12,8 +12,8 @@
 //   (`tb_mic_volume`) and set_tbk_enable to HP1 0, HP2 1, MONITOR 2. The panel's talkback control is
 //   a level fader, so it takes the same scale as the outputs' volume: dB of attenuation, 96 = -inf
 //   (the user and hardware session 2, 2026-09-15).
-// Volume is dB of attenuation, 0..96 with 96 as -inf (hardware session 1 Q5 for the Quadro monitor;
-// assumed for the Studio+, Q10). A change outranks the device's reports for ECHO_HOLD_MS, as input
+// Volume is dB of attenuation, 0..96 with 96 as -inf (confirmed on hardware for the Quadro monitor;
+// assumed for the Studio+). A change outranks the device's reports for ECHO_HOLD_MS, as input
 // changes do.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
@@ -21,7 +21,7 @@ import { ECHO_HOLD_MS } from "./inputs.ts";
 
 export const VOLUME_MAX = 96;
 
-/** The outputs a Control Room panel shows until the user chooses (P92): Monitor, HP1 and HP2, the same ids on both models. */
+/** The outputs a Control Room panel shows until the user chooses: Monitor, HP1 and HP2, the same ids on both models. */
 export const CONTROL_ROOM_DEFAULT: readonly number[] = [0, 1, 2];
 
 /** The panels' trim steps, by index. */

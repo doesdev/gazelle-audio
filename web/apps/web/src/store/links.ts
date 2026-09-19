@@ -1,4 +1,4 @@
-// Channel links (decision P51). A link joins two or more channels of one kind, on any devices, and
+// Channel links. A link joins two or more channels of one kind, on any devices, and
 // lives in the workspace: a change made to one member through this app goes to every member, the
 // same value (absolute) or the same step keeping offsets (relative). Changes the device reports are
 // not repeated, so the app and the vendor panel never echo each other.

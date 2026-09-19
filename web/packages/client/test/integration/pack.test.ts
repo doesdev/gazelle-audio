@@ -1,4 +1,4 @@
-// Spec §10 row 2: the `npm pack` tarball imports and connects from a bare project. The package is
+// The `npm pack` tarball imports and connects from a bare project. The package is
 // built, packed and installed into an empty temporary project (it has no dependencies, so no
 // network is needed), then a plain .mjs script connects to the real server and invokes a
 // command, and a consumer .ts file typechecks against the installed declarations. Node 22 runs

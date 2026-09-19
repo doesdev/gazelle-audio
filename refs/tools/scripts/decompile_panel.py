@@ -114,7 +114,7 @@ def _interpreter_for(version):
         "    export ANTELOPE_PY%s=$(conda run -n py%s which python)\n"
         "\n"
         "Python 3.5 additionally needs the legacy uncompyle6 2.11, since uncompyle6 3.x\n"
-        "cannot run on 3.5. See .agent/reference/decompilation.md.\n"
+        "cannot run on 3.5. See docs/reverse-engineering.md.\n"
         % (version, version.replace(".", ""), version.replace(".", ""), version,
            version.replace(".", ""), version.replace(".", ""), version.replace(".", ""))
     )

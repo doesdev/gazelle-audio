@@ -1,4 +1,4 @@
-//! Command sequences (spec §8 step 5): the host→device messages one change emits, grouped
+//! Command sequences: the host→device messages one change emits, grouped
 //! around the message that carries the value.
 
 use std::collections::HashMap;

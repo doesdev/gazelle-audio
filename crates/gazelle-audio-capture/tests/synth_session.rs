@@ -133,7 +133,7 @@ fn generation_is_deterministic() {
     );
 }
 
-/// Committed fixtures (spec §10) must match the generator. Regenerate with
+/// Committed fixtures must match the generator. Regenerate with
 /// `GAZELLE_REGEN_FIXTURES=1 cargo test -p gazelle-audio-capture --test synth_session`.
 #[test]
 fn committed_fixtures_match_the_generator() {

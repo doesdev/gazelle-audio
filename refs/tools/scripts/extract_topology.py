@@ -5,7 +5,7 @@ Why
 ---
 The command schemas carry no topology: which inputs and outputs exist, what they are called,
 how many channels each has, and how many mixers there are. The panels define it in small
-routings modules (spec §8, corrected by the 2026-09-15 research): tuples of
+routings modules (corrected by the 2026-09-15 research): tuples of
 ``(RoutingInputGroupType|RoutingOutputGroupType, name, channels, colour)``. Nothing is
 decompiled for those modules, and a decompiler's guess is not provenance anyway, so this reads
 the bytecode directly: it evaluates the module-level instructions (constants, names, enum
@@ -19,7 +19,7 @@ Usage
     extract_topology.py --family studio --out refs/schemas/studio_topology.json
 
 Blobs are read from ``refs/extracted/<family>/PYZ_extracted/`` (gitignored; regenerate them
-with the extraction steps in ``.agent/reference/decompilation.md``). The output records each
+with the extraction steps in ``docs/reverse-engineering.md``). The output records each
 blob's path and SHA-256 so the result can be checked against anyone's copy.
 """
 

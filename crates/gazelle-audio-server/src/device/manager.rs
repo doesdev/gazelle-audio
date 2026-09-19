@@ -72,7 +72,7 @@ pub struct DeviceManager {
     registries: RegistrySet,
     events: broadcast::Sender<ServerEvent>,
     /// The last report each device pushed, per report id. Cyclic reports are the only way to read
-    /// half the device's state (48V, gains, volumes, clock: workspace spec §2.1), and they arrive
+    /// half the device's state (48V, gains, volumes, clock), and they arrive
     /// on the device's own schedule rather than on request, so something that needs that state now
     /// reads the last one rather than waiting for the next. Nothing is invented: a device that has
     /// pushed nothing has no entry, and a snapshot records that as unread.

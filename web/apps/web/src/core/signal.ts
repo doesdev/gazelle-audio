@@ -1,4 +1,4 @@
-// Signals, computeds and effects (spec §6.2). Writes push a "stale" mark down to observers;
+// Signals, computeds and effects. Writes push a "stale" mark down to observers;
 // values are pulled lazily and compared by version, so a computed recomputes only when a source
 // really changed and an effect never sees a half-updated graph. Effects run once per batch.
 // Computeds keep their subscriptions for their lifetime: create them in the store, not per render.

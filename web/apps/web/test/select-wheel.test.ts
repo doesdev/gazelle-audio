@@ -1,4 +1,4 @@
-// The wheel on a select (feedback item 6): how wheel travel becomes option steps, and which
+// The wheel on a select: how wheel travel becomes option steps, and which
 // option a step lands on. The listener that applies them runs in the browser (e2e/wheel.spec.ts).
 
 import { test } from "node:test";

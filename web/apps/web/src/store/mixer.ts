@@ -1,5 +1,5 @@
-// One device mixer (spec §10 row 4). Values and commands follow what the vendor panels do
-// (reference/devices.md, "Mixer and meter value scales"; decisions P26 to P30):
+// One device mixer. Values and commands follow what the vendor panels do
+// (docs/protocol.md, "Mixer and meter value scales"):
 // - level is dB of attenuation, 0..90 on a linear fader, shown 0 dB … −90 dB;
 // - pan is 2..62 with 32 as centre (27..38 snaps to it), shown −30…+30;
 // - Studio+ `send` is dB of attenuation, 0 (loudest) to 95, where 95 reads -inf on the panel: one
@@ -9,8 +9,8 @@
 // Every strip command carries the whole strip, so coalescing per strip never loses a field.
 // `load()` reads the mixer's state: get_mixer with the mixer in ext3 (33 entries, master first)
 // and its 16 pairs of get_mixer_links (entry k covers strips 2k and 2k+1). Until then, and in dry
-// run, values are defaults. `readOnce()` is what a page calls: the state read is kept and reused
-// (decision P80), since this app's own commands keep it current, until `forget()` says the device
+// run, values are defaults. `readOnce()` is what a page calls: the state read is kept and reused,
+// since this app's own commands keep it current, until `forget()` says the device
 // may have changed without it (the connection dropped, or the device went away).
 
 import type { Topology } from "gazelle-audio-client";
@@ -138,9 +138,9 @@ export interface MixerContext {
   read: CommandRead;
   field(name: string): ReadonlySignal<unknown>;
   watch(): () => void;
-  /** The other members of a strip's workspace link, as their strips in this mix on their devices (LinksModel, P51). */
+  /** The other members of a strip's workspace link, as their strips in this mix on their devices (LinksModel). */
   peers(strip: number): readonly { model: MixerModel; strip: number; mode: "absolute" | "relative" }[];
-  /** While this mix is mono (decision P57): the pans to restore, by strip. Reading it is reactive. */
+  /** While this mix is mono: the pans to restore, by strip. Reading it is reactive. */
   monoPans(): Readonly<Record<string, number>> | undefined;
   /** Saves a pan to restore when mono ends, instead of sending it. */
   rememberPan(strip: number, pan: number): void;
@@ -156,7 +156,7 @@ export class MixerModel {
   readonly hasSend: boolean;
   /**
    * Whether strips show the send: the Studio+'s send byte is its reverb send, which the vendor panel
-   * shows on Mix 1 only (effects spec Q8, the user's answer). Every mix still sends the byte it holds.
+   * shows on Mix 1 only (the user's choice). Every mix still sends the byte it holds.
    */
   readonly hasReverbSend: boolean;
   readonly #known = signal(false);

@@ -1,4 +1,4 @@
-// The Effects page (specs/2026-09-17-effects-and-reverb.md): chains read from the device, bypass per
+// The Effects page: chains read from the device, bypass per
 // effect, the reverb, and the Quadro's reverb returns and sends. The server runs in dry run, which
 // answers no reads, so the device's replies are supplied through the WebSocket (as the licensing test
 // does); every write still goes to the server, and what it would send is compared with the bytes the
@@ -257,7 +257,7 @@ test("on the loopback, not in dry run, chains read back loaded and the reverb fo
   }
 });
 
-// Editing a chain (P114): add, remove and reorder, each one set_afx_order carrying the whole chain.
+// Editing a chain: add, remove and reorder, each one set_afx_order carrying the whole chain.
 // The device's replies follow what the page writes, so the read after a change shows what it did.
 
 test("an effect is added to a chain: the whole chain goes out, packed from slot 1, on the lowest free instance", async ({ page }) => {

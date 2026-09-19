@@ -1,5 +1,5 @@
-// Spec §6.1: imports point downward only (elements → store → core, themes beside store), and
-// only the store imports gazelle-audio-client. Decision P18: a small import scan instead of a
+// Imports point downward only (elements → store → core, themes beside store), and
+// only the store imports gazelle-audio-client. A small import scan instead of a
 // lint rule. Files directly in src/ (the entry point) may import anything.
 
 import { test } from "node:test";

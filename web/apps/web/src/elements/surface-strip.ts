@@ -1,5 +1,5 @@
-// <ga-surface-strip surface-id="…" strip-id="…" [compact]>: one strip of a cross-device surface
-// (workspace spec §4), shared by the surface page and the mixer dock. Its top is a badge in its
+// <ga-surface-strip surface-id="…" strip-id="…" [compact]>: one strip of a cross-device surface,
+// shared by the surface page and the mixer dock. Its top is a badge in its
 // device's colour naming the device, so two devices' strips side by side never read as one mixer.
 // Below it are that device's own controls, built by the same code as the device's pages:
 // - a channel: the Mixer page's strip (`ga-strip`, attributes from `channelStrip`) for the channel in
@@ -8,13 +8,13 @@
 // - an input: the Inputs page's preamp card or digital input cell, and the input's meter;
 // - an output: the Outputs page's row;
 // - a port: a digital output (S/PDIF, or 8 channels of ADAT), which has no level of its own on either
-//   model (§4.2): what feeds each pair, a menu to route a mix, a source or nothing there instead (a
-//   real routing change on the device that owns the port, Q10), and the master of each mix that
+//   model: what feeds each pair, a menu to route a mix, a source or nothing there instead (a
+//   real routing change on the device that owns the port), and the master of each mix that
 //   feeds it, which is that output's level;
 // - a label: its text.
 // A channel on a digital input, or a digital input strip, that a declared cable feeds says where its
 // signal comes from ("from Drum rack ADAT out 3 ← PREAMP 3"). The Studio+'s S/PDIF input strips have
-// its S/PDIF SRC switch, which decides whether it must follow the sender's clock (§4.4).
+// its S/PDIF SRC switch, which decides whether it must follow the sender's clock.
 // A strip for a device that is not attached, or a channel that no longer exists, says so and keeps
 // its place. `compact` is the dock's size: slim strips and no captions.
 
@@ -203,7 +203,7 @@ export class GaSurfaceStrip extends GaElement {
 
     if (strip.kind === "channel" || strip.kind === "master") {
       const channels = store.channels(deviceId);
-      // Levels are the device's, read once as the Mixer page reads them (P80); meters follow the report.
+      // Levels are the device's, read once as the Mixer page reads them; meters follow the report.
       host.watch(() => {
         if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
       });
@@ -262,7 +262,7 @@ export class GaSurfaceStrip extends GaElement {
     const destination = cables.position(deviceId, port);
     const device = store.devices.peek().find((d) => d.id === deviceId);
     const name = device === undefined ? deviceId : displayName(device, store.workspace.peek());
-    // What feeds the port is read once, as the Routing page reads it (P97).
+    // What feeds the port is read once, as the Routing page reads it.
     host.watch(() => {
       if (store.routesToRead(deviceId, [destination])) untracked(() => void store.readRoutes(deviceId, [destination]));
     });
@@ -278,7 +278,7 @@ export class GaSurfaceStrip extends GaElement {
           "aria-label": `Route to ${portName(port)} ${pair.label}`,
           "data-testid": `port-route-${pair.channel}`,
           "data-explain": "surface.port-route",
-          // A menu of actions, not a value: a wheel step would route something (P73).
+          // A menu of actions, not a value: a wheel step would route something.
           "data-no-wheel": true,
           "on:change": () => {
             const value = menu.value;
@@ -318,7 +318,7 @@ export class GaSurfaceStrip extends GaElement {
     });
 
     const parts: HTMLElement[] = [pairs, note];
-    // Only the Quadro reports its S/PDIF output's level in a fixed field (§4.2).
+    // Only the Quadro reports its S/PDIF output's level in a fixed field.
     if (port === "SPDIF_OUT" && store.topology(deviceId)?.family === "quadro") {
       const field = store.field(deviceId, "0x73", "peaks_spdif_out");
       host.onDisconnect(store.watchReport(deviceId, "0x73"));

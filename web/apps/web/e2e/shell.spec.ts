@@ -1,4 +1,4 @@
-// Spec §10 row 3 smoke test, plus the agreed theme and font checks (P16, P19).
+// The shell's smoke test, plus the agreed theme and font checks.
 
 import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

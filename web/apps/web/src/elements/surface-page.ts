@@ -1,5 +1,5 @@
-// <ga-surface surface-id="…">: a cross-device mix surface (workspace spec §4, §5), at #/surface/<id>.
-// A bar holds one mix menu per device whose channels or masters are on it (the user's answer to Q8:
+// <ga-surface surface-id="…">: a cross-device mix surface, at #/surface/<id>.
+// A bar holds one mix menu per device whose channels or masters are on it (the user's choice:
 // one selected mix per device, which a strip may pin instead), each device's clock, and a picker to
 // add a strip: a device, a kind, and an item, or both ends of a declared cable at once (the sender's
 // port and the receiver's inputs). Each cable between devices on the surface has a line saying what

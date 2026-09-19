@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Secret-scanning pre-commit hook.
 #
-# Rationale: .agent/decisions/0014-credentials-removed.md — Antelope/iLok OAuth2 token
-# blobs once sat at the repository root, where `git add -A` would have swept them up.
+# Rationale: credential files placed at the repository root are one `git add -A` away from
+# being committed, so every commit is checked for anything that looks like a secret.
 #
 # Detection is deliberately value-based, not word-based. An earlier version matched bare
-# occurrences of "access_token", which flagged the ADR that *describes* the incident and
+# occurrences of "access_token", which flagged documents that merely *describe* secrets and
 # the hook's own pattern list, blocking legitimate commits. A secret is a key followed by
 # an assignment and a long opaque value, so that is what this looks for.
 #

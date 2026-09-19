@@ -92,7 +92,7 @@ impl FakeDll {
     }
 }
 
-/// Latencies as the Quadro's driver reported them after its setter (`reference/driver-api.md`):
+/// Latencies as the Quadro's driver reported them after its setter:
 /// input is the buffer and 59; output at the sizes measured, else the buffer and a margin.
 fn latencies(size: u32, safe_mode: bool) -> (u32, u32) {
     let output = match (size, safe_mode) {

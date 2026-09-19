@@ -5,10 +5,10 @@
 # workflow by hand (workflow_dispatch) is the dry run: everything up to the release itself, signed
 # with a throwaway key made on the spot, using no secret, creating nothing.
 #
-# The steps are the release checklist in .agent/specs/2026-09-18-shipping-portable.md, and every
-# step that is more than one command is an xtask subcommand, so it is the same code a person
-# runs by hand and it is under test. The one-time setup (the key, the `release` environment,
-# the secret and the variable) is in that spec under "One-time setup".
+# The steps are the release checklist in docs/releasing.md, and every step that is more than one
+# command is an xtask subcommand, so it is the same code a person runs by hand and it is under
+# test. The one-time setup (the key, the `release` environment, the secret and the variable) is
+# in that document under "One-time setup".
 #
 # Where the signing key goes: the build job never sees it. The sign job runs in the protected
 # `release` environment on a fresh machine, does not check the repository out and builds nothing;

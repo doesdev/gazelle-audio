@@ -3,8 +3,8 @@
 Tools for recovering the Antelope control protocol from the vendor's PyInstaller bundles,
 and for **checking that what came out matches what went in**.
 
-Nothing here needs the original software to run — but the inputs do. Bring your own copy;
-see `.agent/reference/decompilation.md` for the full pipeline.
+Nothing here needs the original software to run, but the inputs do. Bring your own copy;
+see `docs/reverse-engineering.md` for the full pipeline.
 
 ## No legacy interpreter needed
 
