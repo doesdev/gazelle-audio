@@ -99,10 +99,10 @@ test("invoke sends one frame and decodes the response's bytes", async () => {
   const { client, socket } = await open();
   const dev = quadro(client);
 
-  const request = outcome(dev.invoke("get_assignment_request"));
-  assert.deepEqual(socket.sent, [{ id: 1, device_id: "loopback-0", command: "get_assignment_request" }]);
-  socket.receive(reply(socket.sent[0]!, { length: 2, request: "01ff" }));
-  assert.deepEqual(valueOf(await request).response, { length: 2, request: new Uint8Array([1, 255]) });
+  const request = outcome(dev.invoke("get_feature_mask"));
+  assert.deepEqual(socket.sent, [{ id: 1, device_id: "loopback-0", command: "get_feature_mask" }]);
+  socket.receive(reply(socket.sent[0]!, { payload: "01ff" }));
+  assert.deepEqual(valueOf(await request).response, { payload: new Uint8Array([1, 255]) });
 
   const trim = outcome(dev.invoke("set_trim_config", { trim_id: 1, control: 0, level: [new Uint8Array([1, 2]), "0304"] }, { dryRun: true }));
   assert.deepEqual(socket.sent[1], { id: 2, device_id: "loopback-0", command: "set_trim_config", args: { trim_id: 1, control: 0, level: ["0102", "0304"] }, dry_run: true });

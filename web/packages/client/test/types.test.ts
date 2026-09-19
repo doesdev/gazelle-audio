@@ -10,10 +10,12 @@ export function typeChecks(client: Client): void {
   const dev = client.device("loopback-0");
   if (dev.family === "quadro") {
     void dev.invoke("set_volume", { id: 1, volume: 64 }, { coalesce: "monitor", dryRun: true });
-    void dev.invoke("get_assignment_request").then((result) => {
-      const bytes: Uint8Array | undefined = result.response?.request;
+    void dev.invoke("get_feature_mask").then((result) => {
+      const bytes: Uint8Array | undefined = result.response?.payload;
       return bytes;
     });
+    // @ts-expect-error licence management is not served, so it has no type
+    void dev.invoke("set_config_feature", { feature: 1, status: 1 });
     dev.onCyclic("0x73", (fields) => {
       const level: number | undefined = fields.volumes[0]?.volume;
       const sources: Uint8Array = fields.pm_bank_src;
