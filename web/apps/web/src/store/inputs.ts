@@ -300,7 +300,7 @@ export class InputsModel {
 
   /**
    * Reads which microphones and emulations the device is licensed for (`get_feature_mask`, the
-   * bitmap the device reports). Resolves false when nothing usable
+   * bitmap the device holds). Resolves false when nothing usable
    * was read, and then everything stays offered. The Inputs page reads it on its own, so quietly.
    */
   async loadLicence(): Promise<boolean> {
