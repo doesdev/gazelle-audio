@@ -734,7 +734,8 @@ mod tests {
         }
         for question in &questions {
             let words = format!("{} {}", question.text, question.choices.iter().map(|c| c.label()).collect::<Vec<_>>().join(" "));
-            assert!(!words.contains('\u{2014}') && !words.contains('\u{2013}'), "{words}");
+            // U+2013 and U+2014, by number, so this line does not hold what it forbids.
+            assert!(!words.chars().any(|c| (0x2013..=0x2014).contains(&(c as u32))), "no en or em dash: {words}");
             assert!(!words.contains("--"), "no command-line talk: {words}");
             assert!(matches!(question.dismissed(), Choice::Cancel | Choice::Close), "{question:?}");
         }
