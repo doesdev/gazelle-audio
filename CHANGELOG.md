@@ -10,6 +10,10 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-19
+
+A simpler way to install, and a fix for PCs without Microsoft's Visual C++ runtime.
+
 ### Added
 
 - **Install without a terminal:** download `Gazelle-Setup.exe`, double-click it and choose
