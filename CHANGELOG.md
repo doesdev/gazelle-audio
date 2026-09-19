@@ -21,6 +21,17 @@ version that has not been published yet.
 - The line showing the last command's bytes appears only while the explain mode is on, or in dry
   run. It used to sit on every page all the time, where it read as debug output.
 
+### Added
+
+- Gazelle asks before it lets one input into a mix twice. Choosing an input or a main mix that
+  would do it waits behind a Confirm button with the reason on it, and **Add to** takes two clicks.
+  You can still do it on purpose; dry alongside the same signal through an effect chain is a
+  parallel setup and is not questioned.
+
+### Fixed
+
+- The **×2** badge now shows on the mixer dock's slim strips too, not only on the Mixer page.
+
 ## [1.1.0] - 2026-09-19
 
 A simpler way to install, and a fix for PCs without Microsoft's Visual C++ runtime.

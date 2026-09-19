@@ -74,7 +74,11 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 ![The ×2 badge on two strips that carry the same preamp in one mix.](../images/doubled-badge.png)
 
-**What Gazelle does.** Both strips show a **×2** badge. Its tooltip says why: "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)", or "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)". A channel that is muted or at the bottom of its fader does not count. A chain *with* an effect in it is left alone, since dry and processed together is a normal parallel setup.
+**What Gazelle does.** It asks before it happens and marks it after.
+
+Before: on the Mixer page, choosing an **Input** or a **Main mix** that would put one input into a mix that already has it holds the change behind a **Confirm** button beside the menu, with the reason on it; **Add to** *(mix)* does the same in two clicks, the first reading Confirm. Press Confirm to do it anyway. This asks about the routing, so it still asks when the channel already there is muted or at the bottom of its fader.
+
+After: both strips show a **×2** badge, on the Mixer page and in the mixer dock. Its tooltip says why: "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)", or "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)". The badge is a picture of the mix as it stands, so a channel that is muted or at the bottom of its fader does not count towards it. A chain *with* an effect in it is left alone, since dry and processed together is a normal parallel setup, and is neither asked about nor badged.
 
 **Its limits.** The badge only knows about the mix on screen and what Gazelle has read of the routing. It does not follow signals through digital cables, through the other device, or through your recording software.
 
@@ -115,7 +119,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 ## Trying things safely
 
 - **The emulator.** `gazelle-audio-server --backend loopback` runs Gazelle against a built-in emulator of a Quadro and a Studio+, and never touches hardware. It is how every screenshot in this manual was taken.
-- **Dry run.** `gazelle-audio-server --dry-run` attaches to your real devices and reads nothing and writes nothing: every control shows the exact bytes it would send in its page's "last sent" line, and the header shows a **Dry run** badge. The two combine.
+- **Dry run.** `gazelle-audio-server --dry-run` attaches to your real devices and reads nothing and writes nothing: every control shows the exact bytes it would send in its page's "last sent" line, which dry run always shows, and the header shows a **Dry run** badge. The two combine.
 - **The header** always shows which backend is running (**USB** in the warning colour for real hardware, or **LOOPBACK**) and whether dry run is on.
 
 ## How Gazelle keeps its own tests off your hardware

@@ -8,7 +8,7 @@
 
 ## Why
 
-The vendor's software gives each interface a panel application of its own, so two interfaces mean two applications and constant switching. Gazelle manages every attached interface from one place, presents the mixer as named channels rather than numbered inputs, shows the exact bytes of every command it sends, and stays small: one executable of a few megabytes, per-user, no administrator rights.
+The vendor's software gives each interface a panel application of its own, so two interfaces mean two applications and constant switching. Gazelle manages every attached interface from one place, presents the mixer as named channels rather than numbered inputs, will show you the exact bytes of every command it sends, and stays small: one executable of a few megabytes, per-user, no administrator rights.
 
 ## What it does
 
@@ -41,7 +41,7 @@ Software that controls an audio interface can make it very loud, very suddenly. 
 - **Feedback loops.** Routing a signal back into itself, including across two cabled interfaces, can build to full level in a fraction of a second. Gazelle does not detect loops. Change routing with monitors low.
 - **48V phantom power** can damage ribbon microphones and some gear, and thumps when it switches. Gazelle asks for a second click (or Ctrl+click) to switch it on, offers it only for the Mic input type, and never completes a confirmation you left behind.
 - **Clock and sample rate changes** interrupt audio and your recording software; a clock source with no signal leaves the device unlocked. Gazelle keeps those menus off the mouse wheel, sends a change only when you confirm it, and shows lock status.
-- **Doubled signals.** The same audio reaching a mix twice (easy to do, since an empty effect chain passes its input through) is about 6 dB louder. Gazelle marks both strips **×2**.
+- **Doubled signals.** The same audio reaching a mix twice (easy to do, since an empty effect chain passes its input through) is about 6 dB louder. Gazelle asks before it happens and marks both strips **×2** after.
 - **Effects with gain**, such as a Guitar Amp at full drive, can raise a level sharply. Gazelle reads an effect's settings before it writes any, but most effect changes have never been tried on hardware.
 - **Presets, the test oscillator and DC coupling** ask for a second click before a recall or switching on. A preset may change anything, 48V and the clock included; the oscillator at 0 dBFS is as loud as the device goes; DC coupled outputs can damage speakers.
 - **The vendor's software at the same time.** Each program's view goes stale and can undo the other's changes. Antelope's service normally prevents it by holding the devices; use one program at a time.

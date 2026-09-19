@@ -6,8 +6,8 @@
 // input or main mix); `meter="off"` blanks its meter (a channel not in the selected mix). The meter
 // shows the channel's input, named by `input-group` and `input-channel`: the signal arriving, before
 // the fader, since the Quadro's mixer meters cannot be moved off Mix 1 (hardware, 2026-09-16).
-// `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level
-// and name, without pan, send, link or the peak readout.
+// `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
+// name and the doubled badge, without pan, send, link or the peak readout.
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
@@ -146,6 +146,8 @@ export class GaStrip extends GaElement {
       :host([compact]) .toggle { min-height: 16px; font-size: 9px; }
       :host([compact]) .readout { padding: 1px 0; font-size: 9px; }
       :host([compact]) .name { margin: 0 -2px; padding: 2px 1px; font-size: 10px; }
+      /* The doubled badge stays on a dock strip: a mix summing one input twice matters wherever it is ridden. */
+      :host([compact]) .doubled { padding: 0 3px; font-size: 9px; }
     `),
   ];
 
