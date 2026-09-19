@@ -13,8 +13,6 @@ This chapter takes you from nothing to a first look at your interfaces. If you o
 
 ### From a release
 
-> **Note.** No release has been published yet. Until one is, build from source (next section).
-
 Each release on the project's GitHub page (https://github.com/doesdev/gazelle-audio/releases) carries a zip for Windows, `gazelle-audio-x86_64-pc-windows-msvc.zip`, holding two programs:
 
 | File | What it is |
