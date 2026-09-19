@@ -1,5 +1,6 @@
 // <ga-header>: brand, page tabs, and the hardware-safety badges that must always be
-// visible: which backend is driving devices, dry-run, and the connection state. The
+// visible: which backend is driving devices, dry-run, and the connection state, with the running
+// version beside them while the explain mode is on. The
 // preferences sit at the end, what a double-click does to a level and the theme, then slot="menu",
 // where the app puts its sidebar button for phones.
 //
@@ -50,6 +51,13 @@ export class GaHeader extends GaElement {
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
+      /* The running version, left of the backend badge and only while the explain mode is on (the
+         user, 2026-09-19): the dimmest text colour there is, no border and no background, so it is
+         there to read and nothing more. It keeps its place in the line whether it is shown or not,
+         so turning the explain mode on does not slide the badges along; the flexible gap to its
+         left takes up the difference. */
+      .version { visibility: hidden; color: var(--ga-text-muted); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+      .version[data-shown] { visibility: visible; }
       .backend { background: var(--ga-surface-inset); color: var(--ga-text-secondary); border: 1px solid var(--ga-border-subtle); }
       .backend[data-backend="usb"] { color: var(--ga-notice-warning); border-color: var(--ga-notice-warning); }
       .dry-run { background: var(--ga-state-dry-run); color: var(--ga-text-inverse); }
@@ -70,6 +78,9 @@ export class GaHeader extends GaElement {
         .theme { max-width: 96px; }
         /* A phone has no double-click. */
         .reset { display: none; }
+        /* Too little room on this line for a version nobody is looking for; the tray menu and the
+           server's own /api/v1/health still say it. */
+        .version { display: none; }
         /* The dot's colour carries the state; the words stay for screen readers and the tooltip. */
         .status-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       }
@@ -79,6 +90,9 @@ export class GaHeader extends GaElement {
   protected override render(): void {
     const store = useStore();
     const links = PAGES.map((page) => h("a", { href: href({ page: page.page }), "data-page": page.page, "data-explain": PAGE_KEYS[page.page] }, page.label));
+    // Which version is running, for when someone is asked. Out of the way until the explain mode is
+    // on, and nothing at all until the server has said hello.
+    const version = h("span", { class: "version", "aria-label": "Server version", "data-testid": "version", "data-explain": "header.version" });
     const backend = h("span", { class: "badge backend", "data-testid": "backend", "data-explain": "header.backend" });
     const dryRun = h("span", { class: "badge dry-run", "data-testid": "dry-run", "data-explain": "header.dry-run", title: "Commands report the bytes they would send; nothing is written to a device." }, "Dry run");
     const statusText = h("span", { class: "status-text" });
@@ -101,7 +115,7 @@ export class GaHeader extends GaElement {
       h("option", { value: "unity" }, "Double-click: unity"),
     );
 
-    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
+    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), version, backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
 
     this.watch(() => {
       // A surface is opened from the Workspace page, so that tab stays marked while one is shown.
@@ -114,6 +128,12 @@ export class GaHeader extends GaElement {
       backend.textContent = info.backend || "unknown";
       backend.dataset["backend"] = info.backend;
       dryRun.hidden = !info.dry_run;
+    });
+    this.watch(() => {
+      const running = store.server.value.version;
+      version.textContent = running;
+      version.title = `Gazelle ${running}`;
+      version.toggleAttribute("data-shown", running !== "" && store.explainMode.value);
     });
     this.watch(() => {
       const state = store.status.value;

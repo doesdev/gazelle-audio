@@ -113,6 +113,53 @@ test("off by default: nothing shows and the explanations are not fetched; turned
   await expect(panel(page), "off again, nothing shows").toBeHidden();
 });
 
+// The user, 2026-09-19: the version should be findable from the tray or the app, "to the left of the
+// USB/backend indicator in a dark font for minimal intrusiveness". It is the server's own version, the
+// one `/api/v1/health` reports and the tray menu names.
+test("the running version reads out left of the backend badge while the explain mode is on, and nothing shows while it is off", async ({ page }) => {
+  const running = ((await (await fetch(`${server.url}/api/v1/health`)).json()) as { version: string }).version;
+  expect(running, "the server names a version").toMatch(/^\d+\.\d+\.\d+/);
+
+  await page.goto(server.url);
+  const version = page.getByTestId("version");
+  const backend = page.getByTestId("backend");
+  // Measured once the server has said hello, so what moves afterwards is the explain mode's doing.
+  await expect(backend).toHaveText("loopback");
+  await expect(version, "out of the way until the explanations are asked for").toBeHidden();
+  // The readout keeps its place in the line whether it is shown or not, so it is measured through the
+  // header's shadow root: a hidden element has no box of Playwright's.
+  const places = () =>
+    page.evaluate(() => {
+      // The header lives in the app's shadow root, and its own root holds the bar.
+      const bar = document.querySelector("ga-app")?.shadowRoot?.querySelector("ga-header")?.shadowRoot;
+      const rect = (selector: string) => {
+        const found = bar?.querySelector(selector);
+        if (found === null || found === undefined) throw new Error(`no ${selector} in the header`);
+        const { x, width } = found.getBoundingClientRect();
+        return { x, width };
+      };
+      return { version: rect('[data-testid="version"]'), backend: rect('[data-testid="backend"]') };
+    });
+  const before = await places();
+  expect(before.version.width, "it takes its place before it is shown").toBeGreaterThan(0);
+
+  await toggle(page).click();
+  await expect(version).toBeVisible();
+  await expect(version).toHaveText(running);
+  const after = await places();
+  expect(after.version.x + after.version.width, "it sits to the left of the backend badge").toBeLessThanOrEqual(after.backend.x);
+  expect(after.version.width, "showing it changes no width, so nothing slides along").toBe(before.version.width);
+  expect(after.backend.x - after.version.x, "the badge keeps its place beside the readout").toBe(before.backend.x - before.version.x);
+
+  await version.hover();
+  await expect(panel(page)).toBeVisible();
+  await expect(panel(page)).toContainText("Version");
+  await expect(panel(page)).toContainText(/which version of gazelle/i);
+
+  await toggle(page).click();
+  await expect(version, "off again, it goes").toBeHidden();
+});
+
 test("a drag on a fader moves it and hides the panel while it lasts; the wheel still moves it", async ({ page }) => {
   await putWorkspace(server, { mixers: MIXERS });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
@@ -176,6 +223,17 @@ test("a preamp's controls are explained by name, with what to watch for on 48V",
 
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+
+  // The header's top line is already full on a phone: the brand, the badges, the connection dot and
+  // two buttons. The version stays off it; the tray menu and /api/v1/health still say it.
+  test("the version readout stays off the header, even with the explain mode on", async ({ page }) => {
+    await page.goto(server.url);
+    await expect(page.getByTestId("backend")).toBeVisible();
+    await expect(page.getByTestId("version")).toBeHidden();
+    await toggle(page).tap();
+    await expect(page.getByRole("button", { name: "Explain by tapping" })).toBeVisible();
+    await expect(page.getByTestId("version")).toBeHidden();
+  });
 
   test("a tap on the info button makes the next taps explain instead of act, and a tap on it again gives the controls back", async ({ page }) => {
     const frames = recordFrames(page);

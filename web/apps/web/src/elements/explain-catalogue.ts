@@ -40,6 +40,11 @@ export const CATALOGUE: Catalogue = {
   "header.page.mixer": { title: "Mixer page", what: "The device's four hardware mixes, as channels you set up, each with its fader, pan, mute and solo in the mix you pick." },
   "header.page.routing": { title: "Routing page", what: "Which source feeds every destination on the device, as the vendor panel's routing tab lays it out." },
   "header.page.effects": { title: "Effects page", what: "The device's effect chains and its reverb: what is loaded, bypass, each effect's settings, and the reverb's sends and returns." },
+  "header.version": {
+    title: "Version",
+    what: "Which version of Gazelle this server is running. It is the number to quote when something goes wrong or an update is being talked about.",
+    effect: "Shown only while the explain mode is on. The tray menu names the same version at the top.",
+  },
   "header.backend": {
     title: "Backend",
     what: "What this server is driving: usb is the real interfaces over USB; loopback is the built in emulator, which touches no hardware.",
