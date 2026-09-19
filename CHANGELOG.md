@@ -14,6 +14,23 @@ version that has not been published yet.
 
 - **See which version you are running.** The tray menu's first line now names it, and with the
   explain mode (**?**) on, the header shows it in dim text beside the backend badge.
+- **The app tells you about updates, in the app.** Beside the version, the header says when a new
+  version is downloading, when one is ready ("1.2.0 ready, restart"), and when a check or a
+  download failed, with a press to try again. It says nothing at all while you are up to date. A
+  phone shows it too.
+- **Restart into an update without leaving the page.** Pressing the ready prompt asks once more,
+  then restarts Gazelle into the new version: the devices are let go and picked up again, and the
+  page reconnects on the new version by itself. The tray's **Restart to update to X** does the
+  same. Scripts can do it with `POST /api/v1/update/restart`.
+
+### Changed
+
+- **Updates fetch themselves.** A new version found on GitHub is now downloaded and checked
+  without being asked for, and the only thing left to say yes to is the restart. To go back to
+  being told and deciding, put `"auto_download": false` in `%APPDATA%\gazelle\update.json`.
+- **A fresh start looks for updates.** Gazelle checks half a minute after it starts, and every six
+  hours after that. It used to wait out the whole six hours first, so an app opened in the morning
+  and closed at night could go a long time without ever looking.
 
 ## [1.1.0] - 2026-09-19
 
