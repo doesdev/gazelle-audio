@@ -6,6 +6,7 @@
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
+import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
@@ -137,6 +138,25 @@ export interface Client {
    * interface without `force` (code `asio_in_use`).
    */
   setDriver(id: string, change: DriverChange): Promise<DriverWriteReport>;
+  /**
+   * The in-app updater. Served only on a loopback bind, so every call rejects with `http_404` on
+   * a server reachable from the network; a caller that shows update state treats that as "this
+   * server does not do updates" rather than as a failure.
+   */
+  readonly update: {
+    /** What is known now. Asks the release source nothing, so it may be polled. */
+    status(): Promise<UpdateStatus>;
+    /** Ask the release source. What it finds is fetched too unless the settings say not to. */
+    check(): Promise<UpdateStatus>;
+    /** Fetch, verify and stage what the last check found. */
+    download(): Promise<UpdateStatus>;
+    /**
+     * Stop the server and start the staged version. Answers first and stops a moment later, so
+     * the connection drops straight after; rejects with `nothing_staged`, having stopped nothing,
+     * when there is nothing to restart into.
+     */
+    restart(): Promise<UpdateRestart>;
+  };
   close(): Promise<void>;
 }
 
@@ -292,6 +312,13 @@ class Connection implements Client {
   async setDriver(id: string, change: DriverChange): Promise<DriverWriteReport> {
     return (await this.#http("PUT", `devices/${encodeURIComponent(id)}/driver`, change)) as DriverWriteReport;
   }
+
+  readonly update = {
+    status: async (): Promise<UpdateStatus> => (await this.#http("GET", "update")) as UpdateStatus,
+    check: async (): Promise<UpdateStatus> => (await this.#http("POST", "update/check")) as UpdateStatus,
+    download: async (): Promise<UpdateStatus> => (await this.#http("POST", "update/download")) as UpdateStatus,
+    restart: async (): Promise<UpdateRestart> => (await this.#http("POST", "update/restart")) as UpdateRestart,
+  };
 
   constructor(baseUrl: string, options: ConnectOptions) {
     const Socket = options.WebSocket ?? ((globalThis as { WebSocket?: unknown }).WebSocket as SocketFactory | undefined);
