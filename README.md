@@ -54,13 +54,15 @@ The full version is the manual's [Safety chapter](docs/manual/02-safety.md).
 
 Gazelle runs on **Windows**. You also need Antelope's own software installed for the audio driver, and its background service stopped while Gazelle runs.
 
-**From a release:** download `gazelle-audio-x86_64-pc-windows-msvc.zip` from the [releases page](https://github.com/doesdev/gazelle-audio/releases), unzip it, and in a terminal there:
+**From a release:** download `Gazelle-Setup.exe` from the [releases page](https://github.com/doesdev/gazelle-audio/releases), double-click it and choose **Install**. That installs Gazelle for your user account (no administrator rights) with a Start Menu entry, and opens it. The program is not code-signed, so Windows SmartScreen may say "Windows protected your PC" the first time: choose **More info**, then **Run anyway**.
+
+Or download `gazelle-audio-x86_64-pc-windows-msvc.zip`, unzip it, and in a terminal there:
 
 ```
 gazelle-audio-server.exe --install
 ```
 
-That installs Gazelle for your user account (no administrator rights) with a Start Menu entry. The programs are not code-signed, so Windows SmartScreen may warn the first time. To run without installing, double-click `gazelle-audio-serverw.exe`.
+To run without installing, double-click `gazelle-audio-serverw.exe` from the zip and choose **Run without installing**.
 
 **Stop Antelope's service** (it holds the interfaces exclusively), in an administrator PowerShell:
 
