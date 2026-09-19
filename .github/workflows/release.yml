@@ -21,6 +21,8 @@
 # The dry run by hand: gh workflow run release.yml --ref main
 
 name: Release
+# A push's run is otherwise titled with the tagged commit's message, whatever that says.
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Release dry run' || format('Release {0}', github.ref_name) }}
 
 on:
   push:
