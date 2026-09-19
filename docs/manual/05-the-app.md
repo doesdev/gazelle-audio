@@ -11,6 +11,7 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 
 | Tray item | What it does |
 |---|---|
+| **Gazelle X.Y.Z** | The first line: which version is running. The icon's own tooltip stays **Gazelle** |
 | **Open Gazelle** | Shows the window (or opens the browser, where there is no window) |
 | **Open in browser** | Opens the same app in your web browser |
 | Listening on, Backend, Dry run | Information: the address, `usb` or `loopback`, and whether dry run is on |
@@ -31,6 +32,10 @@ Along the top: the page tabs, then three things worth a glance.
 - **The backend badge.** **USB** (in the warning colour) when Gazelle drives real interfaces; **LOOPBACK** when it runs the emulator.
 - **Dry run**, shown only when Gazelle was started with `--dry-run`: commands report the bytes they would send, and nothing is written to a device.
 - **The connection**: Connected, Reconnecting or Disconnected. While it is not connected, a banner says so and every control is disabled.
+
+**Explain mode.** The **?** button turns it on and off, and it is remembered in this browser. While it is on, pointing at or tabbing to anything shows a small panel saying what it is, what changing it does and what to watch for; on a touch screen, the **i** button beside it makes the next taps explain instead of act. Nothing is sent to a device either way.
+
+**The version.** While the explain mode is on, the version Gazelle is running reads out in dim text just left of the backend badge, so the number is to hand when you report something or ask about an update. It is out of the way the rest of the time, and a phone, whose header line is already full, leaves it out; the tray menu's first line says the same version.
 
 At the right, two menus. **Double-click** chooses what a double-click does to a level: its **safe level** (the default: -20 dB on a fader, -30 dB on a volume, off on a reverb send), or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 

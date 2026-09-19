@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **See which version you are running.** The tray menu's first line now names it, and with the
+  explain mode (**?**) on, the header shows it in dim text beside the backend badge.
+
 ## [1.1.0] - 2026-09-19
 
 A simpler way to install, and a fix for PCs without Microsoft's Visual C++ runtime.

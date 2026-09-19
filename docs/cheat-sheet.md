@@ -57,6 +57,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Workspace | `%APPDATA%\gazelle\workspace.json` |
 | Snapshots | `%APPDATA%\gazelle\snapshots\` |
 | Program | `%LOCALAPPDATA%\Programs\Gazelle` |
+| Version | The tray menu's first line, or the header with the explain mode on |
 
 <div class="page-break"></div>
 
@@ -72,7 +73,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Routing | Source for every destination; Read from device |
 | Effects | Chains, effect settings, reverb |
 
-**Sidebar:** Devices (click a card to switch device), Meter (**Clear** for clip lights), Control Room (volume, Mute, Dim, Mono per output; Studio+ talkback). **Dock:** a mix's faders at the bottom of every page. **Header:** USB or LOOPBACK, Dry run, connection.
+**Sidebar:** Devices (click a card to switch device), Meter (**Clear** for clip lights), Control Room (volume, Mute, Dim, Mono per output; Studio+ talkback). **Dock:** a mix's faders at the bottom of every page. **Header:** USB or LOOPBACK, Dry run, connection, **?** explain mode (with it on, the version reads out left of the backend badge; not on a phone).
 
 ## Gestures
 
