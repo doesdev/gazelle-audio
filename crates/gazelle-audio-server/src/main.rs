@@ -225,16 +225,20 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     };
     let updater = updater(args);
     let address = listener.local_addr()?;
-    // Set when the tray asks to restart into a staged update; acted on once the server is down.
-    let restart = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // Quit in the tray and Ctrl-C both end the server the same way, and a restart is a quit that
+    // is followed by a relaunch: built here so the tray item and the HTTP route share the one
+    // path (`update::Restart`), which is also the only thing that sets the flag read below.
+    let quit = Arc::new(Notify::new());
+    let restart = updater.clone().map(|updater| {
+        let quit = quit.clone();
+        Arc::new(update::Restart::new(updater, Box::new(move || quit.notify_one())))
+    });
 
     // Before the devices are attached, so the window is on screen while that happens rather than
     // after it; its first request waits in the listener's backlog until the server answers.
     let window = open_window(args, address);
-    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), updater.clone()))?;
-
-    // Quit in the tray and Ctrl-C both end the server the same way.
-    let quit = Arc::new(Notify::new());
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone()))?;
 
     // The tray's message loop needs the thread that created the icon, so it takes this one and
     // the server runs on the runtime's workers.
@@ -243,8 +247,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     } else {
         let mut context = tray_context(args, address, &devices, &quit, log_dir, window.clone());
         context.update = updater.clone();
-        let asked = restart.clone();
-        context.restart = Some(Box::new(move || asked.store(true, std::sync::atomic::Ordering::SeqCst)));
+        context.restart = restart.clone().map(|restart| Box::new(move || restart.request()) as Box<dyn Fn() -> Result<String, String>>);
         context.rescan = hotplug.as_ref().map(|hotplug| {
             let rescan = hotplug.rescan();
             Box::new(move || rescan.now()) as Box<dyn Fn()>
@@ -278,7 +281,9 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         tray.run();
     }
     runtime.block_on(server)??;
-    if restart.load(std::sync::atomic::Ordering::SeqCst) {
+    // The port is given up and the USB handles are closed; only now is it safe to start the
+    // binary the update put in place.
+    if restart.is_some_and(|restart| restart.asked()) {
         update::relaunch();
     }
     Ok(())
@@ -317,7 +322,7 @@ async fn prepare(
     args: &Args,
     address: SocketAddr,
     show_window: Option<gazelle_audio_server::ShowWindow>,
-    updater: Option<Arc<Updater>>,
+    restart: Option<Arc<update::Restart>>,
 ) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -381,8 +386,8 @@ async fn prepare(
     // device is answered without a DLL, and `--dry-run` builds a change without sending it.
     let driver = gazelle_audio_server::driver::DriverService::for_this_pc();
     let app = http::router(state).merge(http::driver::routes(devices.clone(), driver, args.dry_run));
-    let app = match updater {
-        Some(updater) => app.merge(http::update::routes(updater)),
+    let app = match restart {
+        Some(restart) => app.merge(http::update::routes(restart)),
         None => app,
     };
     #[cfg(feature = "web-ui")]

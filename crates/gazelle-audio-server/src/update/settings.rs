@@ -1,9 +1,13 @@
 //! What the user has said about updating, kept beside the workspace in the config directory
 //! (`%APPDATA%\gazelle\update.json` on Windows).
 //!
-//! The defaults are the quiet ones: **check, never download by itself**. A check costs one
-//! request and tells the user something they can act on; a download writes megabytes beside a
-//! running binary and swaps the executable under them, so it waits to be asked.
+//! The defaults are: **check, and fetch what is found**. Waiting to be asked was worse in
+//! practice than the megabytes it saved (the user, 2026-09-19): an update meant noticing a tray
+//! line, clicking Download, waiting, and then restarting, and every one of those was a place to
+//! stop. Nothing is applied by the download: the verified binary sits beside the running one
+//! until the app is restarted, which is still only ever asked for.
+//!
+//! `auto_download: false` in the file is how to go back to being told and deciding.
 
 use std::path::{Path, PathBuf};
 
@@ -44,8 +48,8 @@ pub struct Settings {
     pub channel: Channel,
     /// How long between background checks. Zero means only on start.
     pub interval_hours: u64,
-    /// Whether a found update is fetched without being asked. Off by default: downloading
-    /// replaces the executable on disk, which is the user's call.
+    /// Whether a found update is fetched and verified without being asked. On by default; the
+    /// restart it waits for is still asked for every time.
     pub auto_download: bool,
     pub repo: String,
     pub api_base: String,
@@ -57,7 +61,7 @@ impl Default for Settings {
             check: true,
             channel: Channel::Stable,
             interval_hours: 6,
-            auto_download: false,
+            auto_download: true,
             repo: DEFAULT_REPO.into(),
             api_base: DEFAULT_API_BASE.into(),
         }
@@ -111,10 +115,10 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_check_but_never_download_by_themselves() {
+    fn the_defaults_check_and_fetch_what_they_find() {
         let s = Settings::default();
         assert!(s.check);
-        assert!(!s.auto_download, "a download replaces the executable; it waits to be asked");
+        assert!(s.auto_download, "waiting to be asked left updates unnoticed; only the restart is asked for");
         assert_eq!(s.channel, Channel::Stable);
         assert_eq!(s.interval(), Some(std::time::Duration::from_secs(6 * 3600)));
         assert_eq!(Settings { interval_hours: 0, ..Settings::default() }.interval(), None);
@@ -138,12 +142,33 @@ mod tests {
     #[test]
     fn a_partial_file_keeps_the_defaults_for_what_it_leaves_out() {
         let path = temp("partial");
-        std::fs::write(&path, r#"{"channel":"prerelease","auto_download":true}"#).unwrap();
+        std::fs::write(&path, r#"{"channel":"prerelease"}"#).unwrap();
         let (settings, warning) = Settings::load(&path);
         assert_eq!(warning, None);
         assert_eq!(settings.channel, Channel::Prerelease);
-        assert!(settings.auto_download);
+        assert!(settings.auto_download, "a key the file does not name is the default");
         assert!(settings.check);
+        assert_eq!(settings.repo, DEFAULT_REPO);
+    }
+
+    /// A file written before downloading was automatic still loads, and one that asks not to
+    /// download is still obeyed.
+    #[test]
+    fn a_file_from_before_still_loads_and_still_means_what_it_said() {
+        let path = temp("old-file");
+        // Everything a 1.1.0 install could have written, including the old default.
+        std::fs::write(&path, r#"{"check":true,"channel":"stable","interval_hours":6,"auto_download":false,"repo":"doesdev/gazelle-audio","api_base":"https://api.github.com"}"#).unwrap();
+        let (settings, warning) = Settings::load(&path);
+        assert_eq!(warning, None);
+        assert!(!settings.auto_download, "the user asked to be told, not fetched for");
+        assert!(settings.check);
+        assert_eq!(settings.interval_hours, 6);
+
+        // The same file without that key at all: the new default, and nothing else changed.
+        std::fs::write(&path, r#"{"check":true,"channel":"stable","interval_hours":6}"#).unwrap();
+        let (settings, warning) = Settings::load(&path);
+        assert_eq!(warning, None);
+        assert!(settings.auto_download);
         assert_eq!(settings.repo, DEFAULT_REPO);
     }
 

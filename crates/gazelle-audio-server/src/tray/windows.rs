@@ -344,13 +344,17 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
             tracing::info!("downloading the update, from the tray");
             updater.download();
         }),
-        // The staged binary is already in place; the server has to stop before it can run.
+        // The staged binary is already in place; the server has to stop before it can run. The
+        // one restart path stops it, so there is no quit to call here, only the icon to take down.
         Some(Command::RestartToUpdate) => {
             if let Some(restart) = &state.context.restart {
-                tracing::info!("restarting into the staged update, from the tray");
-                restart();
-                (state.context.quit)();
-                unsafe { DestroyWindow(hwnd) };
+                match restart() {
+                    Ok(version) => {
+                        tracing::info!("restarting into {version}, from the tray");
+                        unsafe { DestroyWindow(hwnd) };
+                    }
+                    Err(why) => tracing::warn!("not restarting: {why}"),
+                }
             }
         }
         Some(Command::Quit) => {

@@ -2,9 +2,10 @@
 //!
 //! The app ships as a bare executable, so nothing else is going to update it. This module asks
 //! GitHub Releases what the newest build for this platform is, fetches it when asked, checks it
-//! twice, and puts it in place for the **next** start. It never restarts the process: the
-//! running one holds a USB handle, a port and possibly a window, and only the user decides when
-//! that is a good moment. The tray offers the restart; this module only stages.
+//! twice, and puts it in place for the **next** start. It never restarts the process on its own:
+//! the running one holds a USB handle, a port and possibly a window, and only the user decides
+//! when that is a good moment. [`Restart`] is the one place the app restarts itself, and both the
+//! tray item and the HTTP route go through it.
 //!
 //! # What is trusted
 //!
@@ -40,8 +41,9 @@ pub mod stage;
 pub mod verify;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use semver::Version;
 use serde::Serialize;
@@ -56,6 +58,15 @@ pub const TARGET: &str = env!("GAZELLE_TARGET");
 /// other is updated too when it sits beside it, so Start on boot (which runs the windowless
 /// build) does not quietly stay a version behind.
 pub const BINARIES: [&str; 2] = ["gazelle-audio-server", "gazelle-audio-serverw"];
+
+/// How long a fresh start waits before its first check.
+///
+/// Not zero: the first seconds after a start are busy (devices attaching, the window drawing, the
+/// web UI loading), and an update check is never the urgent thing in them. Not six hours either,
+/// which is what a machine that is switched off every evening used to mean: an update sat unseen
+/// until a day the app happened to stay open. Half a minute is long enough to be out of the way
+/// and short enough that a person who has just opened the app hears about a release.
+pub const FIRST_CHECK_AFTER: Duration = Duration::from_secs(30);
 
 /// How long a check's answer stands. A tray menu opening, a web UI polling and a background
 /// timer all share it, so none of them costs a request.
@@ -182,6 +193,9 @@ pub struct Status {
     pub auto_download: bool,
     /// Whether this build can verify a download. False means it will not fetch one.
     pub can_verify: bool,
+    /// When the source was last asked, in milliseconds since the Unix epoch, or `null` when it
+    /// has not been asked yet. What "up to date" is as of.
+    pub last_check_ms: Option<u64>,
     pub state: State,
 }
 
@@ -189,6 +203,9 @@ struct Inner {
     state: State,
     found: Option<Release>,
     last_check: Option<Instant>,
+    /// The same moment on the wall clock, which is what the web UI can show. `Instant` is
+    /// monotonic and has no epoch, so it cannot be sent anywhere.
+    last_check_at: Option<SystemTime>,
 }
 
 pub struct Updater {
@@ -231,7 +248,7 @@ impl Updater {
             exe,
             public_key,
             agent,
-            inner: Mutex::new(Inner { state: State::Unknown, found: None, last_check: None }),
+            inner: Mutex::new(Inner { state: State::Unknown, found: None, last_check: None, last_check_at: None }),
             downloading: Mutex::new(()),
         }
     }
@@ -252,8 +269,17 @@ impl Updater {
             check: self.settings.check,
             auto_download: self.settings.auto_download,
             can_verify: self.public_key.is_some(),
+            last_check_ms: self.last_check_ms(),
             state: self.state(),
         }
+    }
+
+    /// When the source was last asked, in milliseconds since the Unix epoch. A clock set before
+    /// 1970 is the one thing that cannot be said, and is reported as never having checked.
+    pub fn last_check_ms(&self) -> Option<u64> {
+        let at = self.inner.lock().unwrap().last_check_at?;
+        let since = at.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+        u64::try_from(since.as_millis()).ok()
     }
 
     /// The version staged and waiting for a restart, if there is one.
@@ -305,6 +331,7 @@ impl Updater {
         {
             let mut inner = self.inner.lock().unwrap();
             inner.last_check = Some(Instant::now());
+            inner.last_check_at = Some(SystemTime::now());
             inner.state = state.clone();
         }
         if self.settings.auto_download && matches!(state, State::Available { .. }) {
@@ -551,20 +578,77 @@ pub fn relaunch_command(exe: &Path, args: impl IntoIterator<Item = std::ffi::OsS
     command
 }
 
-/// Check on start and then every `interval_hours`, on a thread of its own because the updater
-/// blocks. Does nothing when the settings name no interval, and never downloads by itself
-/// unless `auto_download` says so.
-pub fn spawn_background_checks(updater: Arc<Updater>) {
-    let Some(interval) = updater.settings().interval() else {
-        std::thread::spawn(move || {
+/// Check shortly after the start and then every `interval_hours`, on a thread of its own because
+/// the updater blocks.
+///
+/// The settle before the first check is [`FIRST_CHECK_AFTER`]; `interval_hours: 0` means that
+/// first check is the only one. Whether a found release is then fetched is `auto_download`'s
+/// business, inside [`Updater::check`].
+pub fn spawn_background_checks(updater: Arc<Updater>) -> std::thread::JoinHandle<()> {
+    spawn_background_checks_after(updater, FIRST_CHECK_AFTER)
+}
+
+/// The same with the settle named, so a test can use a short one rather than wait half a minute.
+pub fn spawn_background_checks_after(updater: Arc<Updater>, settle: Duration) -> std::thread::JoinHandle<()> {
+    let interval = updater.settings().interval();
+    std::thread::spawn(move || {
+        std::thread::sleep(settle);
+        loop {
             updater.check(true);
-        });
-        return;
-    };
-    std::thread::spawn(move || loop {
-        updater.check(true);
-        std::thread::sleep(interval);
-    });
+            let Some(interval) = interval else { return };
+            std::thread::sleep(interval);
+        }
+    })
+}
+
+/// What a restart is refused with when nothing is waiting to be restarted into. One string, so
+/// the tray's log line, the HTTP error and the test all say the same thing.
+pub const NOTHING_STAGED: &str = "no update is ready; nothing to restart into";
+
+/// **The only place the app restarts itself.**
+///
+/// The tray item and `POST /api/v1/update/restart` both call [`Restart::request`]; neither stops
+/// the server itself. A request checks that something really is staged, remembers that the
+/// restart was asked for, and asks the server to stop. `main` reads [`Restart::asked`] once the
+/// server is down, when the port and the USB handles are given up, and only then calls
+/// [`relaunch`].
+pub struct Restart {
+    updater: Arc<Updater>,
+    asked: AtomicBool,
+    /// Asks the server to stop. The same closure the tray's Quit uses.
+    stop: Box<dyn Fn() + Send + Sync>,
+}
+
+impl Restart {
+    pub fn new(updater: Arc<Updater>, stop: Box<dyn Fn() + Send + Sync>) -> Restart {
+        Restart { updater, asked: AtomicBool::new(false), stop }
+    }
+
+    pub fn updater(&self) -> &Arc<Updater> {
+        &self.updater
+    }
+
+    /// The version waiting to be restarted into, if there is one.
+    pub fn staged(&self) -> Option<String> {
+        self.updater.staged()
+    }
+
+    /// Ask for the restart: `Ok(version)` once the server has been told to stop, or
+    /// [`NOTHING_STAGED`] when there is nothing to restart into. Asking twice is harmless.
+    pub fn request(&self) -> Result<String, String> {
+        let Some(version) = self.updater.staged() else {
+            return Err(NOTHING_STAGED.to_string());
+        };
+        self.asked.store(true, Ordering::SeqCst);
+        tracing::info!("restarting into {version}: stopping the server first");
+        (self.stop)();
+        Ok(version)
+    }
+
+    /// Whether a restart was asked for. Read once the server has stopped.
+    pub fn asked(&self) -> bool {
+        self.asked.load(Ordering::SeqCst)
+    }
 }
 
 /// Tidy up after a previous update: delete the binaries it displaced. Called once at start, when
