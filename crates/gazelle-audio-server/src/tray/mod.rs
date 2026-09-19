@@ -33,8 +33,10 @@ pub const TITLE: &str = "Gazelle";
 pub struct Context {
     /// The updater, when there is one. `None` leaves the menu without an update section.
     pub update: Option<std::sync::Arc<crate::update::Updater>>,
-    /// Stop the server and start the staged binary, once the server has stopped.
-    pub restart: Option<Box<dyn Fn()>>,
+    /// Ask to restart into the staged update: the one restart path (`update::Restart::request`),
+    /// which stops the server itself. `Ok` carries the version being restarted into; `Err` says
+    /// why there is nothing to restart into.
+    pub restart: Option<Box<dyn Fn() -> Result<String, String>>>,
     /// The address the listener really bound.
     pub address: SocketAddr,
     pub backend: String,
@@ -216,7 +218,9 @@ pub struct Status {
 pub struct UpdateMenu {
     /// The one line of state, from `update::State::line`.
     pub line: String,
-    /// A version found but not yet fetched, so there is something to download.
+    /// A version found but not yet fetched, so there is something to download. With the
+    /// default settings a check that finds one goes straight on to fetch it, so this is only
+    /// filled in for an install whose `update.json` says `auto_download: false`.
     pub available: Option<String>,
     /// A version verified and in place, so there is something to restart into.
     pub staged: Option<String>,
@@ -530,9 +534,10 @@ mod tests {
         assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::RestartToUpdate, .. })));
     }
 
-    /// Nothing is fetched unasked, so a found update is offered as a thing to download.
+    /// Only an install that asked not to download by itself (`auto_download: false`) ever sees
+    /// this: elsewhere a found update is already on its way, and the next menu says it is ready.
     #[test]
-    fn a_found_update_is_offered_as_a_download() {
+    fn a_found_update_is_offered_as_a_download_where_downloading_waits_to_be_asked() {
         let items = menu(&with_update(UpdateMenu {
             line: "Update available: 0.2.0".into(),
             available: Some("0.2.0".into()),
@@ -547,6 +552,9 @@ mod tests {
     }
 
     /// A staged update is the only thing the app will restart itself for, and only when asked.
+    ///
+    /// With the default settings this is what a found update becomes without anyone clicking:
+    /// the menu offers the restart, and never asked for a download first.
     #[test]
     fn a_staged_update_offers_a_restart_and_stops_offering_a_check() {
         let items = menu(&with_update(UpdateMenu {
@@ -560,6 +568,8 @@ mod tests {
         );
         assert!(matches!(action(&items, Command::CheckUpdates), Item::Action { enabled: false, .. }));
         assert_eq!(infos(&items).last(), Some(&"Update 0.2.0 is ready (restart to use it)"));
+        // Nothing was downloaded by hand to get here, so nothing offers to download it again.
+        assert!(!items.iter().any(|i| matches!(i, Item::Action { command: Command::DownloadUpdate, .. })));
     }
 
     #[test]

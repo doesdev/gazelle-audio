@@ -56,27 +56,37 @@ The tray menu's **Start on boot** adds a login entry (`HKCU\Software\Microsoft\W
 
 ## Updates
 
-Gazelle checks for a newer release when it starts and every six hours, with one request to GitHub, and says what it found in the tray menu. **It never downloads anything unless you ask.**
+Gazelle looks for a newer release half a minute after it starts and every six hours after that, with one request to GitHub. What it finds it downloads and checks by itself. **The only thing it asks you for is the restart**, because that is the only part you would notice.
 
-1. The tray shows **Update available: X**. Choose **Download update X**.
-2. Gazelle downloads the new programs and checks them before using them: each file against the release's list of checksums, and that list against a signature made with the project's release key, which is built into Gazelle. If either check fails, the download is deleted and the tray says so.
-3. The checked programs replace the installed ones straight away, while the old one keeps running (it is renamed to `.exe.old`, which the next start deletes). The tray offers **Restart to update to X**; choosing it stops Gazelle cleanly, releasing the devices, and starts the new version.
+1. Gazelle finds a newer release and fetches it in the background. While that is happening the header says **X downloading**, beside the backend badge, and the tray menu says the same.
+2. Every file is checked before it is used: each one against the release's list of checksums, and that list against a signature made with the project's release key, which is built into Gazelle. If either check fails the download is deleted, the header shows **Update failed, try again**, and pressing it tries again. Nothing is replaced.
+3. The checked programs take the installed ones' place straight away, while the old one keeps running (it is renamed to `.exe.old`, which the next start deletes). The header then shows **X ready, restart** and the tray offers **Restart to update to X**.
+4. Press **X ready, restart** and it asks once more, reading **Confirm**; press it again and Gazelle stops cleanly, lets go of the devices and starts the new version. The page says **Reconnecting...** for a few seconds and comes back on the new version. The tray item does the same thing without the second press.
 
 Some things to know:
 
-- There is no published release yet, so there is nothing to update to. A build made from source without the release key cannot download updates at all, and says so.
-- The update controls exist only while Gazelle listens on your own computer. Started with `--bind` on a network address, it has no updater.
+- The header says nothing at all while you are up to date, and nothing while a check is running: it speaks up only when there is something to do or something is happening. On a phone the version readout is dropped but the update prompt is not.
+- A build made from source without the release key cannot download updates at all, and says so.
+- The update controls exist only while Gazelle listens on your own computer. Started with `--bind` on a network address, it has no updater, and the header says nothing about updates.
 - `--no-update` turns update checks off for one run.
 - To change the defaults, write `%APPDATA%\gazelle\update.json`; without it, Gazelle uses these:
 
 ```json
-{ "check": true, "channel": "stable", "interval_hours": 6, "auto_download": false,
+{ "check": true, "channel": "stable", "interval_hours": 6, "auto_download": true,
   "repo": "doesdev/gazelle-audio", "api_base": "https://api.github.com" }
 ```
 
-`"channel": "prerelease"` also offers release candidates. `"check": false` removes the updater entirely, including the tray's **Check for updates**. `"auto_download": true` downloads (never installs) without asking. `"interval_hours": 0` checks only at start.
+| Setting | Default | What it does |
+|---|---|---|
+| `check` | `true` | `false` removes the updater entirely: no checks, nothing in the header, and no **Check for updates** in the tray |
+| `channel` | `"stable"` | `"prerelease"` also offers release candidates |
+| `interval_hours` | `6` | `0` checks once, shortly after the start, and not again |
+| `auto_download` | `true` | `false` tells you and waits: the header shows **Get X** and downloads only when you press it |
+| `repo`, `api_base` | GitHub | Where releases are read from. A different source still has to produce a signature Gazelle's built-in key accepts |
 
-The update path has been rehearsed end to end against a local test release, but the tray's download and restart items have not been used on a real release.
+A file written by an older Gazelle still works. One that does not mention `auto_download` now downloads by itself; one that says `"auto_download": false` still waits to be asked.
+
+The update path has been rehearsed end to end against a local test release. Updating across a real restart, from a real release, has not been done by hand.
 
 ## Uninstall
 

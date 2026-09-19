@@ -388,6 +388,39 @@ test("a change to a device's driver is a PUT of only what changes, and a refusal
   await client.close();
 });
 
+test("the update surface is four calls under /update, and a refused restart keeps its code", async () => {
+  const status = { version: "1.1.0", target: "x86_64-pc-windows-msvc", channel: "stable", check: true, auto_download: true, can_verify: true, last_check_ms: 1_700_000_000_000, state: { state: "staged", version: "1.2.0" } };
+  const sent: string[] = [];
+  let answer: { ok: boolean; status: number; body: unknown } = { ok: true, status: 200, body: status };
+  const fetch: FetchLike = async (url, init) => {
+    sent.push(`${init?.method ?? "GET"} ${url}`);
+    return { ok: answer.ok, status: answer.status, json: async () => answer.body };
+  };
+  const { client } = await open({ fetch });
+
+  assert.deepEqual(await client.update.status(), status);
+  await client.update.check();
+  await client.update.download();
+  answer = { ok: true, status: 200, body: { restarting: true, version: "1.2.0" } };
+  assert.deepEqual(await client.update.restart(), { restarting: true, version: "1.2.0" });
+  assert.deepEqual(sent, [
+    "GET http://127.0.0.1:8420/api/v1/update",
+    "POST http://127.0.0.1:8420/api/v1/update/check",
+    "POST http://127.0.0.1:8420/api/v1/update/download",
+    "POST http://127.0.0.1:8420/api/v1/update/restart",
+  ]);
+
+  // Nothing staged: the server refuses and stops nothing, and the code reaches the caller.
+  answer = { ok: false, status: 409, body: { error: { code: "nothing_staged", message: "no update is ready; nothing to restart into" } } };
+  const refused = errorOf(await outcome(client.update.restart()));
+  assert.deepEqual([refused.code, refused.message], ["nothing_staged", "no update is ready; nothing to restart into"]);
+
+  // A server bound off loopback does not serve these at all, which is not a failure to report.
+  answer = { ok: false, status: 404, body: undefined };
+  assert.equal(errorOf(await outcome(client.update.status())).code, "http_404");
+  await client.close();
+});
+
 test("a device of unknown model has no typed commands", async () => {
   const { client } = await open();
   const dev = client.device("usb:1:2:3:4");

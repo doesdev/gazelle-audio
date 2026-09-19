@@ -19,6 +19,7 @@ export type {
   UserTheme,
 } from "./client.ts";
 export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
+export type { UpdateRestart, UpdateState, UpdateStatus } from "./update.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
 export { fromHex, toHex } from "./bytes.ts";

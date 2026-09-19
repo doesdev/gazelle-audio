@@ -18,7 +18,7 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 | Device lines | Each attached device, or **No devices attached** |
 | **Warning: Antelope's service is holding the devices** | Shown while that service runs; see [Getting started](03-getting-started.md#stop-antelopes-service) |
 | **Rescan devices** | Looks for interfaces again at once (it also does so every two seconds) |
-| Update lines | The update state, **Check for updates**, **Download update**, **Restart to update**; see [Updates](15-install-update-uninstall.md#updates) |
+| Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](15-install-update-uninstall.md#updates) |
 | **Start on boot** | Starts Gazelle, without a window, when you log in |
 | **Open log folder** | Opens the folder with Gazelle's log files |
 | **Quit** | Stops Gazelle. The devices keep their settings |
@@ -36,6 +36,18 @@ Along the top: the page tabs, then three things worth a glance.
 **Explain mode.** The **?** button turns it on and off, and it is remembered in this browser. While it is on, pointing at or tabbing to anything shows a small panel saying what it is, what changing it does and what to watch for; on a touch screen, the **i** button beside it makes the next taps explain instead of act. Nothing is sent to a device either way.
 
 **The version.** While the explain mode is on, the version Gazelle is running reads out in dim text just left of the backend badge, so the number is to hand when you report something or ask about an update. It is out of the way the rest of the time, and a phone, whose header line is already full, leaves it out; the tray menu's first line says the same version.
+
+**Updates.** Beside the version, and whether or not the explain mode is on, the header says what the updater wants, and nothing at all while there is nothing to want:
+
+| What it shows | What it means | What pressing it does |
+|---|---|---|
+| nothing | Up to date, or checking, or this server has no updater | |
+| **X downloading** | A new version is being fetched and checked | Nothing to press; wait |
+| **X ready, restart** | It is downloaded, checked, and in place | Asks once more (**Confirm**), then restarts Gazelle into it. The devices are let go and picked up again, and the page reconnects by itself |
+| **Get X** | A new version was found and this install does not fetch by itself (`auto_download` is `false`) | Downloads and checks it |
+| **Update failed, try again** | A check or a download failed; its tooltip says why | Looks again |
+
+A phone drops the version readout but keeps this, since it is something to do rather than something to read. The whole story is in [Updates](15-install-update-uninstall.md#updates).
 
 At the right, two menus. **Double-click** chooses what a double-click does to a level: its **safe level** (the default: -20 dB on a fader, -30 dB on a volume, off on a reverb send), or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 

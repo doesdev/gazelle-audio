@@ -15,7 +15,7 @@
 //   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
 //   pages are rebuilt on every change of address and read it back when they are.
 
-import { connect, GazelleError, topologies, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type UpdateStatus, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
@@ -28,6 +28,7 @@ import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
+import { updatePrompt, type UpdatePrompt } from "./update.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
@@ -271,6 +272,19 @@ export interface Notice {
   message: string;
 }
 
+/**
+ * How often the update status is read, and how often while something is happening.
+ *
+ * Polling, not the event socket: that socket carries the device manager's own broadcast and is
+ * built from `AppState`, which deliberately knows nothing about the updater (the updater is a
+ * separate layer that only exists on a loopback bind). Pushing update state down it would mean a
+ * new server event and an updater inside `AppState`, to save one small request every half minute.
+ * The faster rate while a check or a download is running is so "downloading" turns into "ready"
+ * while the person is still looking at it.
+ */
+export const UPDATE_POLL_MS = 30_000;
+export const UPDATE_BUSY_POLL_MS = 3_000;
+
 export interface ThemeCatalog {
   themes: ResolvedTheme[];
   problems: ThemeProblem[];
@@ -358,8 +372,12 @@ export class Store {
   readonly #reports = new Map<string, { watchers: number; off: () => void }>();
   readonly #mixers = new Map<string, MixerModel>();
   readonly #lastSent = signal<SentCommand | undefined>(undefined);
+  /** The updater's status, or undefined on a server that does not offer one. */
+  readonly #update = signal<UpdateStatus | undefined>(undefined);
   #confirmed: Workspace | undefined;
   #saveTimer: unknown;
+  #updateTimer: unknown;
+  #followingUpdates = true;
   #nextNotice = 1;
 
   /** True only while the connection is open; every control is disabled otherwise. */
@@ -472,6 +490,14 @@ export class Store {
   get server(): ReadonlySignal<ServerInfo> {
     return this.#server;
   }
+
+  /** What the updater says, or undefined where there is no updater (or it has not answered yet). */
+  get update(): ReadonlySignal<UpdateStatus | undefined> {
+    return this.#update;
+  }
+
+  /** What the header shows about updating, which is usually nothing at all. */
+  readonly updatePrompt: ReadonlySignal<UpdatePrompt | undefined> = computed(() => updatePrompt(this.#update.value));
 
   get devices(): ReadonlySignal<readonly DeviceDescriptor[]> {
     return this.#devices;
@@ -969,7 +995,62 @@ export class Store {
   }
 
   async start(): Promise<void> {
+    this.#followUpdates();
     await Promise.all([this.loadWorkspace(), this.loadUserThemes()]);
+  }
+
+  /**
+   * Read the update status, then keep reading it. A server that does not serve the route at all
+   * (bound off loopback, or started with --no-update) answers 404, and there is then nothing to
+   * say about updates and no reason to keep asking. Anything else is a hiccup worth retrying.
+   */
+  #followUpdates(): void {
+    void (async () => {
+      let again: number = UPDATE_POLL_MS;
+      try {
+        const status = await this.#client.update.status();
+        this.#update.value = status;
+        if (status.state.state === "checking" || status.state.state === "downloading") again = UPDATE_BUSY_POLL_MS;
+      } catch (error) {
+        this.#update.value = undefined;
+        if (error instanceof GazelleError && error.code === "http_404") return;
+      }
+      if (this.#followingUpdates) this.#updateTimer = this.#timers.setTimeout(() => this.#followUpdates(), again);
+    })();
+  }
+
+  /** Ask the server to look for a newer version now. What it finds it also fetches, by default. */
+  async checkForUpdate(): Promise<void> {
+    await this.#updateCall("check", "Could not check for an update");
+  }
+
+  /** Fetch and verify what a check found. Only an install that asked not to fetch needs this. */
+  async downloadUpdate(): Promise<void> {
+    await this.#updateCall("download", "Could not download the update");
+  }
+
+  /**
+   * Restart into the version waiting on disk. The server answers first and stops a moment later,
+   * so the connection drops and the page reconnects on the new version by itself.
+   */
+  async restartForUpdate(): Promise<void> {
+    try {
+      const { version } = await this.#client.update.restart();
+      this.#notify("info", `Restarting into Gazelle ${version}. This page reconnects when the server is back.`);
+    } catch (error) {
+      this.#notify("error", `Could not restart into the update: ${message(error)}`);
+    }
+  }
+
+  async #updateCall(call: "check" | "download", failure: string): Promise<void> {
+    try {
+      this.#update.value = await this.#client.update[call]();
+      // A download that has begun changes again shortly; ask sooner than the idle rate.
+      this.#timers.clearTimeout(this.#updateTimer);
+      this.#followUpdates();
+    } catch (error) {
+      this.#notify("error", `${failure}: ${message(error)}`);
+    }
   }
 
   async loadWorkspace(): Promise<void> {
@@ -1875,6 +1956,8 @@ export class Store {
     for (const off of this.#unsubscribe.splice(0)) off();
     for (const report of this.#reports.values()) report.off();
     this.#reports.clear();
+    this.#followingUpdates = false;
+    this.#timers.clearTimeout(this.#updateTimer);
     this.#timers.clearTimeout(this.#saveTimer);
     await this.#client.close();
   }

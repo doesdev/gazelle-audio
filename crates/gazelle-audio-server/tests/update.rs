@@ -8,7 +8,9 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Path as UrlPath, State};
@@ -21,7 +23,7 @@ use semver::Version;
 
 use gazelle_audio_server::update::release::{to_hex, SIGNATURE_NAME, SUMS_NAME};
 use gazelle_audio_server::update::settings::{Channel, Settings};
-use gazelle_audio_server::update::{stage, State as UpdateState, Updater, TARGET};
+use gazelle_audio_server::update::{stage, Restart, State as UpdateState, Updater, FIRST_CHECK_AFTER, TARGET};
 
 /// The platform this test binary was built for, so asset names and the fake install match it.
 fn exe_suffix() -> &'static str {
@@ -504,25 +506,82 @@ fn the_status_says_what_is_running_and_how_it_is_set_up() {
     assert_eq!(status.target, TARGET);
     assert_eq!(status.channel, "prerelease");
     assert!(status.can_verify);
-    assert!(!status.auto_download);
+    assert!(!status.auto_download, "this updater was built with the setting off");
+    assert_eq!(status.last_check_ms, None);
     assert_eq!(status.state, UpdateState::Unknown);
     assert_eq!(status.state.line(), "Updates: not checked yet");
 }
 
+/// The complaint this came from: an update that needed a click to download, a restart to pick
+/// up, and another restart to finish. A check that finds something now fetches and verifies it on
+/// the spot, and the only thing left to ask for is the restart.
 #[test]
-fn switched_on_auto_download_stages_without_being_asked_twice() {
+fn a_check_that_finds_a_release_fetches_and_verifies_it_without_being_asked() {
     let install = Install::new("auto");
     let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
-    let settings = Settings {
-        api_base: fake.base.clone(),
-        repo: "gazelle/test".into(),
-        auto_download: true,
-        ..Settings::default()
-    };
+    assert!(Settings::default().auto_download, "this is the default, not a setting the test turns on");
+    let settings = Settings { api_base: fake.base.clone(), repo: "gazelle/test".into(), ..Settings::default() };
     let updater = Updater::new(settings, install.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key());
 
     assert_eq!(updater.check(true), UpdateState::Staged { version: "0.2.0".into() });
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "NEW gazelle-audio-server");
+    assert_eq!(updater.staged().as_deref(), Some("0.2.0"));
+}
+
+/// An install whose `update.json` says `auto_download: false` is still told and still decides.
+#[test]
+fn an_install_that_asked_to_be_told_is_told_and_nothing_is_fetched() {
+    let install = Install::new("told-only");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let settings = Settings { api_base: fake.base.clone(), repo: "gazelle/test".into(), auto_download: false, ..Settings::default() };
+    let updater = Updater::new(settings, install.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key());
+
+    assert_eq!(updater.check(true).line(), "Update available: 0.2.0");
+    assert_eq!(fake.requests(), ["releases"]);
+    assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "running gazelle-audio-server");
+}
+
+// ---------------------------------------------------------------------------------------------
+// When the checks happen
+// ---------------------------------------------------------------------------------------------
+
+/// A version behind for six hours was the old shape: the timer slept the whole interval before
+/// its first check, so an app started in the morning and closed in the evening never checked at
+/// all. Now the first check follows a short settle, and the interval takes over after it.
+#[test]
+fn the_first_check_follows_a_short_settle_rather_than_a_whole_interval() {
+    let install = Install::new("schedule");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    // interval_hours: 0 is "that first check and no more", so the thread ends and can be joined.
+    let settings = Settings { api_base: fake.base.clone(), repo: "gazelle/test".into(), interval_hours: 0, auto_download: false, ..Settings::default() };
+    let updater = Arc::new(Updater::new(settings, install.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key()));
+
+    let settle = Duration::from_millis(500);
+    let thread = gazelle_audio_server::update::spawn_background_checks_after(updater.clone(), settle);
+    std::thread::sleep(Duration::from_millis(80));
+    assert_eq!(fake.requests(), Vec::<String>::new(), "the first seconds after a start are not the moment");
+    assert_eq!(updater.state(), UpdateState::Unknown);
+
+    thread.join().unwrap();
+    assert_eq!(fake.requests(), ["releases"], "and then it checks, without waiting out an interval");
+    assert_eq!(updater.available().as_deref(), Some("0.2.0"));
+
+    // The settle the app really uses is a fraction of the interval, so a start is never a day
+    // behind what the release page says.
+    assert!(FIRST_CHECK_AFTER < Settings::default().interval().unwrap());
+}
+
+/// With an interval set the thread stays alive, and it waits that interval rather than spinning.
+#[test]
+fn after_the_first_check_the_interval_is_waited_out() {
+    let install = Install::new("interval");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let settings = Settings { api_base: fake.base.clone(), repo: "gazelle/test".into(), interval_hours: 6, auto_download: false, ..Settings::default() };
+    let updater = Arc::new(Updater::new(settings, install.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key()));
+
+    gazelle_audio_server::update::spawn_background_checks_after(updater.clone(), Duration::from_millis(50));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(fake.requests(), ["releases"], "once, then six hours of quiet");
 }
 
 #[test]
@@ -547,8 +606,25 @@ fn a_release_missing_the_windowless_build_still_updates_the_running_one() {
 // The HTTP surface the web UI sees
 // ---------------------------------------------------------------------------------------------
 
-/// The routes as `main.rs` merges them, over a server with no devices.
-fn api(updater: Updater) -> axum::Router {
+/// The routes as `main.rs` merges them, over a server with no devices, with the stop the one
+/// restart path would call counted rather than performed.
+struct Api {
+    app: axum::Router,
+    /// How many times the server has been asked to stop. Nothing here ever really stops.
+    stops: Arc<AtomicUsize>,
+}
+
+impl Api {
+    async fn call(&self, method: &str, uri: &str) -> (axum::http::StatusCode, serde_json::Value) {
+        call(&self.app, method, uri).await
+    }
+
+    fn stops(&self) -> usize {
+        self.stops.load(Ordering::SeqCst)
+    }
+}
+
+fn api(updater: Updater) -> Api {
     use gazelle_audio_server::registry_set::RegistrySet;
     use gazelle_audio_server::workspace::store::{MemoryStore, WorkspaceStore};
     let state = gazelle_audio_server::AppState {
@@ -560,7 +636,13 @@ fn api(updater: Updater) -> axum::Router {
         show_window: None,
         snapshots: Arc::new(gazelle_audio_server::snapshot::store::MemorySnapshotStore::default()),
     };
-    gazelle_audio_server::http::router(state).merge(gazelle_audio_server::http::update::routes(Arc::new(updater)))
+    let stops = Arc::new(AtomicUsize::new(0));
+    let counted = stops.clone();
+    let restart = Arc::new(Restart::new(Arc::new(updater), Box::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    })));
+    let app = gazelle_audio_server::http::router(state).merge(gazelle_audio_server::http::update::routes(restart));
+    Api { app, stops }
 }
 
 async fn call(app: &axum::Router, method: &str, uri: &str) -> (axum::http::StatusCode, serde_json::Value) {
@@ -577,46 +659,164 @@ async fn call(app: &axum::Router, method: &str, uri: &str) -> (axum::http::Statu
 async fn the_endpoint_reports_the_running_version_and_checks_when_asked() {
     let install = Install::new("http");
     let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
-    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+    let api = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
 
-    let (status, body) = call(&app, "GET", "/api/v1/update").await;
+    let (status, body) = api.call("GET", "/api/v1/update").await;
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(body["version"], "0.1.0");
     assert_eq!(body["channel"], "stable");
     assert_eq!(body["can_verify"], true);
     assert_eq!(body["state"]["state"], "unknown");
+    assert_eq!(body["last_check_ms"], serde_json::Value::Null, "nothing has been asked yet");
     assert_eq!(fake.requests(), Vec::<String>::new(), "reading the status asks nothing of the source");
 
-    let (status, body) = call(&app, "POST", "/api/v1/update/check").await;
+    let (status, body) = api.call("POST", "/api/v1/update/check").await;
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(body["state"]["state"], "available");
     assert_eq!(body["version"], "0.1.0", "the version reported is the one running");
     assert_eq!(fake.requests(), ["releases"]);
+
+    // When it was asked, so a page can say what "up to date" is as of.
+    let asked_at = body["last_check_ms"].as_u64().expect("a check leaves the time it happened");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    assert!(asked_at <= now && now - asked_at < 60_000, "{asked_at} is not a moment just now ({now})");
+}
+
+/// Every state the web UI has to tell apart, over the wire, in the order a real update goes
+/// through them. The shape is additive: `state` names the variant and its own fields come beside it.
+#[tokio::test]
+async fn the_status_tells_apart_every_state_the_ui_shows() {
+    let install = Install::new("http-states");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let behind = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    let state = |body: &serde_json::Value| body["state"]["state"].as_str().unwrap().to_string();
+
+    assert_eq!(state(&behind.call("GET", "/api/v1/update").await.1), "unknown");
+
+    let (_, body) = behind.call("POST", "/api/v1/update/check").await;
+    assert_eq!(state(&body), "available");
+    assert_eq!(body["state"]["version"], "0.2.0");
+    assert!(body["state"]["page"].as_str().unwrap().ends_with("/releases/v0.2.0"));
+
+    let (_, body) = behind.call("POST", "/api/v1/update/download").await;
+    assert_eq!(state(&body), "staged");
+    assert_eq!(body["state"]["version"], "0.2.0");
+
+    // Up to date, from an install that is already the newest.
+    let already = Install::new("http-newest");
+    let newest = api(updater(&fake, &already, "0.2.0", Channel::Stable, public_key()));
+    assert_eq!(state(&newest.call("POST", "/api/v1/update/check").await.1), "up_to_date");
+
+    // Failed, with a short reason and the detail behind it.
+    let gone = Install::new("http-gone");
+    let dead = Fake::start(vec![]);
+    let base = dead.base.clone();
+    drop(dead);
+    let settings = Settings { api_base: base, repo: "gazelle/test".into(), auto_download: false, ..Settings::default() };
+    let broken = api(Updater::new(settings, gone.exe(), Version::parse("0.1.0").unwrap(), TARGET.to_string(), public_key()));
+    let (_, body) = broken.call("POST", "/api/v1/update/check").await;
+    assert_eq!(state(&body), "failed");
+    assert_eq!(body["state"]["message"], "no connection");
+    assert!(body["state"]["detail"].as_str().unwrap().contains("127.0.0.1"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Restarting
+// ---------------------------------------------------------------------------------------------
+
+/// Nothing staged, nothing to restart into: the route says so and the server is not stopped.
+#[tokio::test]
+async fn a_restart_with_nothing_staged_is_refused_and_stops_nothing() {
+    let install = Install::new("restart-nothing");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let api = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    // Not even a found release is enough; only a verified one in place is.
+    api.call("POST", "/api/v1/update/check").await;
+    let (status, body) = api.call("POST", "/api/v1/update/restart").await;
+
+    assert_eq!(status, axum::http::StatusCode::CONFLICT);
+    assert_eq!(body["error"]["code"], "nothing_staged");
+    assert_eq!(body["error"]["message"], gazelle_audio_server::update::NOTHING_STAGED);
+    tokio::time::sleep(gazelle_audio_server::http::update::RESTART_AFTER * 3).await;
+    assert_eq!(api.stops(), 0, "a refusal leaves the server running");
+}
+
+/// The answer goes out first. The handler returns before anything has been stopped, and the one
+/// restart path runs a moment later, when the response is on the wire.
+#[tokio::test]
+async fn a_restart_answers_first_and_stops_the_server_afterwards() {
+    let install = Install::new("restart-staged");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let api = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+
+    api.call("POST", "/api/v1/update/check").await;
+    api.call("POST", "/api/v1/update/download").await;
+    assert_eq!(api.call("GET", "/api/v1/update").await.1["state"]["state"], "staged");
+
+    let (status, body) = api.call("POST", "/api/v1/update/restart").await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["restarting"], true);
+    assert_eq!(body["version"], "0.2.0", "the page can say which version it is going into");
+    assert_eq!(api.stops(), 0, "the browser has the answer before the server goes anywhere");
+
+    // And then, without anything else being asked, the server is stopped: once.
+    for _ in 0..50 {
+        if api.stops() > 0 {
+            break;
+        }
+        tokio::time::sleep(gazelle_audio_server::http::update::RESTART_AFTER / 5).await;
+    }
+    assert_eq!(api.stops(), 1);
+}
+
+/// The tray item and the route are the same call, and it is the only thing that arms the relaunch.
+#[test]
+fn the_one_restart_path_is_what_arms_the_relaunch() {
+    let install = Install::new("restart-path");
+    let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
+    let updater = Arc::new(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+    let stops = Arc::new(AtomicUsize::new(0));
+    let counted = stops.clone();
+    let restart = Restart::new(updater.clone(), Box::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    }));
+
+    assert_eq!(restart.request(), Err(gazelle_audio_server::update::NOTHING_STAGED.to_string()));
+    assert!(!restart.asked(), "a refused request must not leave the relaunch armed");
+    assert_eq!(stops.load(Ordering::SeqCst), 0);
+
+    updater.check(true);
+    updater.download();
+    assert_eq!(restart.request(), Ok("0.2.0".to_string()));
+    assert!(restart.asked());
+    assert_eq!(stops.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
 async fn the_endpoint_downloads_only_when_asked_and_says_what_came_of_it() {
     let install = Install::new("http-download");
     let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &key())]);
-    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+    let api = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
 
-    call(&app, "POST", "/api/v1/update/check").await;
-    let (status, body) = call(&app, "POST", "/api/v1/update/download").await;
+    api.call("POST", "/api/v1/update/check").await;
+    let (status, body) = api.call("POST", "/api/v1/update/download").await;
 
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(body["state"]["state"], "staged");
     assert_eq!(std::fs::read_to_string(install.exe()).unwrap(), "NEW gazelle-audio-server");
-    assert_eq!(call(&app, "GET", "/api/v1/update").await.1["state"]["state"], "staged");
+    assert_eq!(api.call("GET", "/api/v1/update").await.1["state"]["state"], "staged");
 }
 
 #[tokio::test]
 async fn a_failed_download_is_reported_through_the_endpoint_as_it_is_to_the_tray() {
     let install = Install::new("http-failure");
     let fake = Fake::start(vec![release("v0.2.0", false, b"NEW ", &SigningKey::from_bytes(&[3u8; 32]))]);
-    let app = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
+    let api = api(updater(&fake, &install, "0.1.0", Channel::Stable, public_key()));
 
-    call(&app, "POST", "/api/v1/update/check").await;
-    let (_, body) = call(&app, "POST", "/api/v1/update/download").await;
+    api.call("POST", "/api/v1/update/check").await;
+    let (_, body) = api.call("POST", "/api/v1/update/download").await;
 
     // The web UI gets both halves: the short line it can show, and the detail a support
     // question needs. The tray is given only the first (P-entry `update-messages`).
@@ -643,5 +843,6 @@ async fn without_the_updater_the_routes_are_not_there_but_health_still_names_the
 
     assert_eq!(call(&app, "GET", "/api/v1/update").await.0, axum::http::StatusCode::NOT_FOUND);
     assert_eq!(call(&app, "POST", "/api/v1/update/check").await.0, axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(call(&app, "POST", "/api/v1/update/restart").await.0, axum::http::StatusCode::NOT_FOUND);
     assert_eq!(call(&app, "GET", "/api/v1/health").await.1["version"], gazelle_audio_server::VERSION);
 }

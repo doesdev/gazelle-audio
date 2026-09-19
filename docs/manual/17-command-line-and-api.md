@@ -81,7 +81,8 @@ Everything the app does goes through this API, under `http://127.0.0.1:8420/api/
 | `POST /snapshots/import` | Add snapshots from a list; ones already here are kept |
 | `POST /snapshots/{id}/recall/plan` | The recall plan, as the preview shows it. Sends nothing |
 | `POST /snapshots/{id}/recall` | Refused: applying a recall is not built |
-| `GET /update`, `POST /update/check`, `POST /update/download` | The updater, only when listening on your own computer |
+| `GET /update`, `POST /update/check`, `POST /update/download` | The updater, only when listening on your own computer. The status says the running version, the channel, when it last checked (`last_check_ms`), and its state: `unknown`, `checking`, `up_to_date`, `available`, `downloading`, `staged` or `failed` |
+| `POST /update/restart` | Restart into the version waiting on disk. Answers `{"restarting": true, "version": "..."}` **before** the server stops, which it then does a fraction of a second later, so expect the connection to drop and come back. With nothing waiting it refuses with `nothing_staged` (409) and stops nothing |
 | `POST /window/show` | Brings the window to the front; only from your own computer |
 | `GET /ws` | The WebSocket, below |
 

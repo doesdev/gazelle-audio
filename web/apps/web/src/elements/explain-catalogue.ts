@@ -45,6 +45,16 @@ export const CATALOGUE: Catalogue = {
     what: "Which version of Gazelle this server is running. It is the number to quote when something goes wrong or an update is being talked about.",
     effect: "Shown only while the explain mode is on. The tray menu names the same version at the top.",
   },
+  "header.update": {
+    title: "Update",
+    what: "Shown only when the updater wants something: a version downloaded and ready, one that has not been fetched because this install asked not to, or a check or download that failed.",
+    effect: "Ready asks twice, as every large action here does, and then restarts the server into the new version: the devices are let go and picked up again, and this page reconnects by itself. The other two ask once and simply fetch or try again.",
+  },
+  "header.update-note": {
+    title: "Update in progress",
+    what: "A version being downloaded and checked. Nothing has been replaced yet, and the app keeps running while it happens.",
+    effect: "Nothing to press. It becomes a Restart button when the download is verified and in place.",
+  },
   "header.backend": {
     title: "Backend",
     what: "What this server is driving: usb is the real interfaces over USB; loopback is the built in emulator, which touches no hardware.",

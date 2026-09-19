@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import { GazelleError, type DriverChange, type DriverReport, type DriverWriteReport } from "gazelle-audio-client";
 
+import { ManualTimers } from "../../../packages/client/test/fakes.ts";
+
 import { asioInUseText, driverControls, driverView, latencyText, writeText } from "../src/store/driver.ts";
 import { Store } from "../src/store/store.ts";
 import { device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
@@ -86,7 +88,7 @@ test("the store reads a device's driver on demand, and a failed request becomes 
     asked.push({ id, refresh: options?.refresh === true });
     return QUADRO_REPORT;
   };
-  const store = new Store(client, { storage: new MemoryStorage() });
+  const store = new Store(client, { storage: new MemoryStorage(), timers: new ManualTimers() });
   await store.start();
   assert.equal(store.driver("loopback-0").value, undefined, "nothing until asked");
   await store.loadDriver("loopback-0");
@@ -151,7 +153,7 @@ test("the store sends a change, shows the driver's read-back, and keeps a refusa
     if (refuse !== undefined) throw refuse;
     return { device_id: id, outcome: "applied", message: "The driver now reports a buffer of 256 samples with Safe Mode off.", call: null, read_back: QUADRO_256_OFF };
   };
-  const store = new Store(client, { storage: new MemoryStorage() });
+  const store = new Store(client, { storage: new MemoryStorage(), timers: new ManualTimers() });
   await store.start();
   await store.loadDriver("loopback-0");
 
