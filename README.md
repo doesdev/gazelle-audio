@@ -106,8 +106,10 @@ More in [Getting started](docs/manual/03-getting-started.md) and [Install, updat
 | `crates/` | The Rust implementation: `gazelle-audio-protocol` (the wire format), `gazelle-audio-transport` (framing, correlation, the emulator), `gazelle-audio-server` (the app) and the capture tooling |
 | `web/` | The web app and `gazelle-audio-client`, the typed TypeScript client for the API |
 | `refs/` | The recovered command model (`refs/schemas`) and the tools that extract it |
-| `docs/` | This manual and its build |
-| `.agent/` | Design decisions, specifications, protocol reference and project status |
+| `docs/` | The user manual and its build |
+| [`docs/protocol.md`](docs/protocol.md) | The control protocol: framing, headers, the field grammar, payloads, reports, and what the commands mean |
+| [`docs/reverse-engineering.md`](docs/reverse-engineering.md) | How the command definitions were recovered, and how to regenerate them from your own copy of the vendor software |
+| [`docs/releasing.md`](docs/releasing.md) | How a release is built, signed and published |
 
 ```
 cargo test --workspace
@@ -117,7 +119,7 @@ corepack pnpm -C web e2e
 
 Every test starts its servers on the emulator and with `GAZELLE_NO_HARDWARE=1`, so running the suites never touches attached hardware.
 
-**On the reverse engineering.** This repository ships a protocol specification, the tooling, and its own implementation. It does not ship Antelope's binaries or anything decompiled from them; those stay local and ignored by git. If you own the hardware and the software, `.agent/reference/decompilation.md` documents how to regenerate the inputs from your own copy.
+**On the reverse engineering.** This repository ships a [protocol specification](docs/protocol.md), the device command definitions recovered from the vendor software as data (`refs/schemas`), the tools that recover them, generators for the test vectors, and its own implementation. It does not ship Antelope's binaries or their decompiled source; those stay local and ignored by git. If you own the hardware and the software, [Reverse engineering](docs/reverse-engineering.md) documents how to regenerate the inputs from your own copy.
 
 ## Independence and trademarks
 

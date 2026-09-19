@@ -3,8 +3,13 @@
 A control server and web UI for two Antelope Audio interfaces (Rust workspace under `crates/`,
 pnpm web app under `web/`, release helper in `xtask/`). Windows only.
 
-For orientation read `.agent/README.md` (the map of the working notes) and then
-`.agent/STATUS.md` (where things are now, how to run things, what is next).
+The project's working notes (status, decisions, specs and reference) live in `.agent/`, which is
+a separate private repository that may be checked out at that path; this repository ignores it.
+When it is present, read `.agent/README.md` (the map of the working notes) and then
+`.agent/STATUS.md` (where things are now, how to run things, what is next). Nothing in this
+repository may depend on it or link into it: code comments, docs and workflows must stand on
+their own. Public developer docs are in `docs/`: `docs/protocol.md`,
+`docs/reverse-engineering.md` and `docs/releasing.md`.
 
 ## Hard rules
 
@@ -35,7 +40,7 @@ release and refuses to release a version whose section is missing or empty
 - **What counts:** anything a user can see, do, or be affected by: features, UI and wording
   changes, fixed bugs they could have hit, changed defaults, command-line flags, the HTTP API,
   install and update behaviour, supported devices, and security fixes.
-- **What does not:** refactors, tests, CI, tooling, internal docs under `.agent/`, dependency
+- **What does not:** refactors, tests, CI, tooling, developer docs and working notes, dependency
   bumps with no visible effect, and fixes to something that was never released.
 - **Cutting a release** (in the release commit, before tagging): bump `version` in
   `crates/gazelle-audio-server/Cargo.toml`; rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`
@@ -44,5 +49,4 @@ release and refuses to release a version whose section is missing or empty
   name the same version (tag `0.2.0` needs `## [0.2.0]`). A heading
   with no date means "not yet released"; `1.0.0` stays undated until it is published. An
   `xtask` test checks that the version in `Cargo.toml` always has a section, so a version bump
-  without notes fails CI. The whole procedure is in
-  `.agent/specs/2026-09-18-shipping-portable.md`, "Cutting a release".
+  without notes fails CI. The whole procedure is in `docs/releasing.md`.

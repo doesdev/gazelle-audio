@@ -15,7 +15,7 @@ The vendor's software gives each interface its own panel application, so two int
 
 ## What it is not
 
-- **Not Antelope's software, and not endorsed by Antelope.** Gazelle was written independently from the protocol the devices speak, which was studied from the vendor's own software on the author's machine. No Antelope code, artwork or text is in it. See [Independence and trademarks](#independence-and-trademarks).
+- **Not Antelope's software, and not endorsed by Antelope.** Gazelle was written independently from the protocol the devices speak, which was studied from the vendor's own software on the author's machine. No Antelope code or artwork is in it: what it knows about each device's commands (their names, fields and value ranges) was recovered from that software as data. See [Independence and trademarks](#independence-and-trademarks).
 - **Not a firmware tool.** Gazelle never updates, flashes or otherwise writes firmware, and has no code that could.
 - **Not a licence manager.** Effects and microphone emulations that your devices are not licensed for stay greyed out; Gazelle cannot unlock anything.
 - **Not in the audio path.** Gazelle only sends settings. Audio flows through the interface as it always does; if Gazelle quits or crashes, the interface carries on with whatever it was last set to.
