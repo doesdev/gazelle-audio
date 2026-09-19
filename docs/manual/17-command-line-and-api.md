@@ -91,7 +91,7 @@ For example, to see what setting channel 7 of a Quadro's mix 1 to -10 dB would s
 curl -X POST "http://127.0.0.1:8420/api/v1/devices/<id>/command/set_mixer?dry_run=true" -H "content-type: application/json" -d "{\"mixer_id\": 0, \"channel\": 7, \"level\": 10}"
 ```
 
-Field values are integers (booleans become 0 or 1, byte arrays are hex strings), exactly as the device's command defines them; the `commands` route lists every field. A field you leave out is sent as its default, not as the device's current value: `set_mixer` above also sets the channel's pan, mute and solo. Commands go straight to the device: nothing checks that a value is sensible for your speakers. Every [safety](02-safety.md) consideration applies, more so.
+Field values are integers (booleans become 0 or 1, byte arrays are hex strings), exactly as the device's command defines them; the `commands` route lists every field. The few commands in a device's command set that manage its licence are not offered at all (`unknown_command`): Gazelle reads which emulations and effects a device is licensed for, and changes nothing about it. A field you leave out is sent as its default, not as the device's current value: `set_mixer` above also sets the channel's pan, mute and solo. Commands go straight to the device: nothing checks that a value is sensible for your speakers. Every [safety](02-safety.md) consideration applies, more so.
 
 Error codes: `unknown_device` (404), `unknown_command` (404), `bad_value` (400), `timeout` (504, no answer within 3 seconds), `refused` (502, the device said no), `device_gone` (503), `no_registry` (501, a model Gazelle does not know), `unsupported` (501), `unknown_snapshot` (404), `storage_error` and `protocol_error` (500).
 

@@ -2,12 +2,13 @@
 //!
 //! The emulating loopback answers a request by echoing it with `cmd + 1`, and a `get_*` request
 //! carries no payload, so every read came back empty: a fixed-size reply failed to decode and a
-//! variable-length one quietly decoded as nothing (P74). This wrapper replaces each read's reply
+//! variable-length one quietly decoded as nothing. This wrapper replaces each read's reply
 //! with contents sized to the command's `returns` layout, holding what a fresh device plausibly
 //! reports: zeros where zero is the natural default (0 dB, no emulation, nothing assigned), every
-//! licence bit set in `get_feature_mask` (P77: a zero mask would grey every microphone), and the
-//! few non-zero defaults listed in [`default_reply`]. An effect's parameter read answers the panel's
-//! starting values, which its schema carries as the reply fields' defaults.
+//! feature reported available in `get_feature_mask` (a zero mask would grey every microphone, and
+//! the emulator is there so every page can be tried), and the few non-zero defaults listed in
+//! [`default_reply`]. An effect's parameter read answers the panel's starting values, which its
+//! schema carries as the reply fields' defaults.
 //!
 //! A handful of reads follow their `set_*` command, where the set's parameters map straight onto
 //! the reply: panning law, mic emulations, reverb config and returns, and Thunderbolt latency.
@@ -74,7 +75,7 @@ const EQ_BANDS: [(u16, u16, i16, u8); 5] = [(100, 0, 0, 0), (100, 50, 0, 2), (20
 ///
 /// A chain of all-empty slots left the Effects page, its meters and every AFX OUT mixer strip with
 /// nothing to show without hardware, so the loopback loads each chain with a Guitar Amp (type 3,
-/// the one the hardware probe inserted, P114) and a FET-A76 (type 9, a compressor, so its gain
+/// the one a hardware probe inserted) and a FET-A76 (type 9, a compressor, so its gain
 /// reduction has something to report). Both models carry both types. The same chain answers every
 /// chain: a read has one reply per command, not one per `ext3`, so every chain looks alike and
 /// every chain uses instance 0. This is test data, not a device simulator.
@@ -103,7 +104,8 @@ fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
     }
     let mut bytes = vec![0; layout_len(returns)];
     match name {
-        // Every feature reported available, so every page can be tried (the emulator only).
+        // Every feature reported available, so every page and every microphone emulation can be
+        // tried. This is the emulator's reply only; nothing here is ever sent to a device.
         "get_feature_mask" => bytes.fill(0xFF),
         // `density` has the schema default 100 on `set_reverb_config`; the reverb starts off.
         "get_reverb_config" => {
@@ -118,7 +120,7 @@ fn default_reply(name: &str, returns: &[Field]) -> Vec<u8> {
                 bytes.chunks_mut(size).for_each(|entry| entry[1] = 32);
             }
         }
-        // Mode 1 is Normal (P75: 0 Fast, 1 Normal, 2 Safe).
+        // Mode 1 is Normal (0 Fast, 1 Normal, 2 Safe).
         "get_tb_latency" => {
             if let Some(at) = offset_of(returns, "mode") {
                 bytes[at] = 1;

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { generate, type SchemaInput } from "../src/emit.ts";
-import { run } from "../src/main.ts";
+import { OUT_OF_SCOPE, run } from "../src/main.ts";
 import { SchemaError } from "../src/field.ts";
 
 const SCHEMAS = new URL("../../../../refs/schemas/", import.meta.url);
@@ -134,6 +134,21 @@ test("the real schemas generate deterministically", () => {
   const first = generate(inputs);
   assert.deepEqual([...first.keys()].sort(), ["index.ts", "quadro.ts", "studio.ts"]);
   assert.deepEqual(generate(inputs), first);
+});
+
+test("licence management is left out of the generated types, as the server leaves it out", () => {
+  const out = mkdtempSync(join(tmpdir(), "gen-types-"));
+  try {
+    const schemasDir = new URL(SCHEMAS).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+    run({ schemasDir, outDir: out, check: false });
+    for (const family of ["quadro", "studio"]) {
+      const code = readFileSync(join(out, `${family}.ts`), "utf8");
+      for (const name of OUT_OF_SCOPE) assert.equal(code.includes(name), false, `${family}.ts has ${name}`);
+    }
+    assert.match(readFileSync(join(out, "quadro.ts"), "utf8"), /get_feature_mask/, "the feature mask is still read");
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test("--check passes on fresh output and fails on a changed or missing file", () => {

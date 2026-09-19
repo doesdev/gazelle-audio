@@ -1329,15 +1329,6 @@ export interface StudioCommands {
     };
     returns: null;
   };
-  set_config_feature: {
-    params: {
-      /** u8, 0..255 */
-      feature: number;
-      /** u8, 0..255 */
-      status: number;
-    };
-    returns: null;
-  };
   set_dbx_160_conf: {
     params: {
       /** u8, 0..255 */
@@ -2642,7 +2633,6 @@ export const studioSchema = {
     "set_ba6a_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "input", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_brightness": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "brightness", "scalar": "u8" }], "returns": null },
     "set_compressor_cfg": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u32" }, { "kind": "scalar", "name": "release", "scalar": "u32" }, { "kind": "scalar", "name": "taw", "scalar": "u16" }, { "kind": "scalar", "name": "ratio", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "u16" }, { "kind": "scalar", "name": "ctrl", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "knee", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
-    "set_config_feature": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "feature", "scalar": "u8" }, { "kind": "scalar", "name": "status", "scalar": "u8" }], "returns": null },
     "set_dbx_160_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "compression", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_dbx_903_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "output", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
     "set_eq_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "strip_id", "scalar": "u8" }, { "kind": "scalar", "name": "freq", "scalar": "u16" }, { "kind": "scalar", "name": "qual", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "i16" }, { "kind": "scalar", "name": "ftype", "scalar": "u8" }], "returns": null },

@@ -1,13 +1,28 @@
 // gen-types [--check]: writes packages/client/src/generated from refs/schemas, or with --check
-// regenerates in memory and fails when the committed files differ (spec §5).
+// regenerates in memory and fails when the committed files differ.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { generate } from "./emit.ts";
+import { generate, type SchemaJson } from "./emit.ts";
 
 export const FAMILIES = ["quadro", "studio"] as const;
+
+/**
+ * Commands in the schemas that the server never serves, so the client has no types for them.
+ * Licence management is out of scope: these change what a device is licensed for, or take part in
+ * assigning it to an account. `get_feature_mask` stays, since the app reads it to know which
+ * microphone emulations a device may use. The server's list is `OUT_OF_SCOPE` in
+ * crates/gazelle-audio-server/src/registry_set.rs; the client's integration test checks that the
+ * generated types and the server's command list agree.
+ */
+export const OUT_OF_SCOPE: readonly string[] = ["set_config_feature", "get_cmd_set_assignment", "get_assignment_request", "get_assignment_status"];
+
+/** A schema without the commands the server leaves out. */
+function served(schema: SchemaJson): SchemaJson {
+  return { ...schema, commands: Object.fromEntries(Object.entries(schema.commands).filter(([name]) => !OUT_OF_SCOPE.includes(name))) };
+}
 
 export interface RunOptions {
   schemasDir: string;
@@ -27,7 +42,7 @@ export function run(options: RunOptions): RunResult {
     return {
       family,
       source: `refs/schemas/${family}_commands.json`,
-      schema: JSON.parse(readFileSync(join(options.schemasDir, `${family}_commands.json`), "utf8")),
+      schema: served(JSON.parse(readFileSync(join(options.schemasDir, `${family}_commands.json`), "utf8")) as SchemaJson),
       ...(existsSync(topologyPath) ? { topology: JSON.parse(readFileSync(topologyPath, "utf8")) as unknown } : {}),
     };
   });

@@ -1,6 +1,6 @@
 //! The loopback answers every read like a device would: a reply that decodes against the command's
 //! `returns` layout at exactly its length, with plausible values, and some of them following what
-//! was set. Without this, pages that read device state fail or show unknown with no hardware (P74).
+//! was set. Without this, pages that read device state fail or show unknown with no hardware.
 
 use gazelle_audio_protocol::field::Field;
 use gazelle_audio_protocol::payload::PayloadValues;
@@ -89,12 +89,13 @@ fn every_read_in_both_registries_answers_a_reply_of_its_layout_length() {
             }
         }
     }
-    // Quadro: 26 reads and 68 effect types' parameter reads; Studio+: 12 and 37.
-    assert_eq!(checked, 26 + 68 + 12 + 37, "every read of both models");
+    // Quadro: 23 reads (the schema's 26, less three licence-assignment reads the server does not
+    // serve) and 68 effect types' parameter reads; Studio+: 12 and 37.
+    assert_eq!(checked, 23 + 68 + 12 + 37, "every read of both models");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// P77: a zero mask would grey every microphone, so the loopback is licensed for everything.
+/// A zero mask would grey every microphone, so the emulator reports every feature available.
 #[test]
 fn the_feature_mask_sets_every_bit() {
     for (family, pid, registry) in models() {

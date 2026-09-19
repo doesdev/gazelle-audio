@@ -468,22 +468,6 @@ export interface QuadroCommands {
       }>;
     };
   };
-  get_assignment_request: {
-    params: Record<string, never>;
-    returns: {
-      /** u16, 0..65535 */
-      length: number;
-      /** 301 × u8 */
-      request: Uint8Array;
-    };
-  };
-  get_assignment_status: {
-    params: Record<string, never>;
-    returns: {
-      /** u8, 0..255 */
-      status: number;
-    };
-  };
   get_atuner_conf: {
     params: {
       /** u8, 0..255 */
@@ -628,22 +612,6 @@ export interface QuadroCommands {
         /** u8, 0..255; default 96 */
         peakmeter: number;
       }>;
-    };
-  };
-  get_cmd_set_assignment: {
-    params: {
-      /** u16, 0..65535 */
-      length: number;
-      /** 301 × u8 */
-      message: Bytes;
-    };
-    returns: {
-      /** u8, 0..255 */
-      status: number;
-      /** u16, 0..65535 */
-      length: number;
-      /** 301 × u8 */
-      message: Uint8Array;
     };
   };
   get_compressor_configs: {
@@ -2875,15 +2843,6 @@ export interface QuadroCommands {
     };
     returns: null;
   };
-  set_config_feature: {
-    params: {
-      /** u8, 0..255 */
-      feature: number;
-      /** u8, 0..255 */
-      status: number;
-    };
-    returns: null;
-  };
   set_dc_coupled: {
     params: {
       /** u8, 0..255 */
@@ -4640,15 +4599,12 @@ export const quadroSchema = {
     "get_antelope_tremolo_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "waveform", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "rate", "scalar": "u8", "default": 30 }, { "kind": "scalar", "name": "depth", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "varispeed", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "drywet", "scalar": "u8", "default": 50 }] }] },
     "get_api_550_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "mid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "mid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "bandpass", "scalar": "u8", "default": 0 }] }] },
     "get_api_550b_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "i8", "default": 0 }, { "kind": "scalar", "name": "low_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "low_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "lmid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "lmid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "hmid_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "hmid_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "high_freq", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "high_gain", "scalar": "u8", "default": 5 }, { "kind": "scalar", "name": "low_shelf", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "high_shelf", "scalar": "u8", "default": 0 }] }] },
-    "get_assignment_request": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "request", "elem": "u8", "count": 301 }] },
-    "get_assignment_status": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }] },
     "get_atuner_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }] }] },
     "get_audiobaton_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "sg40", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg80", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg160", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg320", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg640", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg1280", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg2560", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg5120", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "sg10240", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "drive", "scalar": "u8", "default": 50 }] }] },
     "get_ba6a_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "input", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "output", "scalar": "u8", "default": 21 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_ba_31_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "gain", "scalar": "u8", "default": 55 }, { "kind": "scalar", "name": "trim", "scalar": "u8", "default": 55 }] }] },
     "get_bae_10dcf_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "output_gain", "scalar": "u8", "default": 2 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 3 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 3 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 10 }, { "kind": "scalar", "name": "high_pass_filter", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "threshold_lim", "scalar": "u8", "default": 16 }, { "kind": "scalar", "name": "release_lim", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "comp_on", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "limiter_on", "scalar": "u8", "default": 0 }] }] },
     "get_bbdchorus_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "level", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "intensity", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "rate", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "depth", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "chvibrato", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "type", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "bypass", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "peakmeter", "scalar": "u8", "default": 96 }] }] },
-    "get_cmd_set_assignment": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "message", "elem": "u8", "count": 301 }], "returns": [{ "kind": "scalar", "name": "status", "scalar": "u8" }, { "kind": "scalar", "name": "length", "scalar": "u16" }, { "kind": "array", "name": "message", "elem": "u8", "count": 301 }] },
     "get_compressor_configs": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "attack", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "release", "scalar": "u32", "default": 10000 }, { "kind": "scalar", "name": "taw", "scalar": "u16", "default": 65535 }, { "kind": "scalar", "name": "ratio", "scalar": "u16", "default": 100 }, { "kind": "scalar", "name": "gain", "scalar": "u16", "default": 0 }, { "kind": "scalar", "name": "ctrl", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 24 }, { "kind": "scalar", "name": "knee", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "linked", "scalar": "u8", "default": 0 }] }] },
     "get_daw_mode": { "reportId": "0x74", "params": [], "returns": [{ "kind": "scalar", "name": "enabled", "scalar": "u32" }, { "kind": "scalar", "name": "split_point", "scalar": "u32" }] },
     "get_deesser_conf": { "reportId": "0x74", "params": [{ "kind": "scalar", "name": "id", "scalar": "u8" }], "returns": [{ "kind": "struct_array", "name": "entries", "count": 1, "fields": [{ "kind": "scalar", "name": "enabled", "scalar": "u8", "default": 1 }, { "kind": "scalar", "name": "ctrl", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "threshold", "scalar": "u8", "default": 50 }, { "kind": "scalar", "name": "crit_f", "scalar": "u16", "default": 6500 }, { "kind": "scalar", "name": "q_factor", "scalar": "u16", "default": 71 }, { "kind": "scalar", "name": "filter_type", "scalar": "u8", "default": 0 }, { "kind": "scalar", "name": "wd_control", "scalar": "u8", "default": 100 }, { "kind": "scalar", "name": "ratio", "scalar": "u8", "default": 30 }, { "kind": "scalar", "name": "attack", "scalar": "u8", "default": 10 }, { "kind": "scalar", "name": "release", "scalar": "u8", "default": 10 }, { "kind": "scalar", "name": "knee_width", "scalar": "u8", "default": 0 }] }] },
@@ -4740,7 +4696,6 @@ export const quadroSchema = {
     "set_bbdchorus_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "level", "scalar": "u8" }, { "kind": "scalar", "name": "intensity", "scalar": "u8" }, { "kind": "scalar", "name": "rate", "scalar": "u8" }, { "kind": "scalar", "name": "depth", "scalar": "u8" }, { "kind": "scalar", "name": "chvibrato", "scalar": "u8" }, { "kind": "scalar", "name": "type", "scalar": "u8" }, { "kind": "scalar", "name": "bypass", "scalar": "u8" }, { "kind": "scalar", "name": "peakmeter", "scalar": "u8" }], "returns": null },
     "set_brightness": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "brightness", "scalar": "u8" }], "returns": null },
     "set_compressor_cfg": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u32" }, { "kind": "scalar", "name": "release", "scalar": "u32" }, { "kind": "scalar", "name": "taw", "scalar": "u16" }, { "kind": "scalar", "name": "ratio", "scalar": "u16" }, { "kind": "scalar", "name": "gain", "scalar": "u16" }, { "kind": "scalar", "name": "ctrl", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "knee", "scalar": "u8" }, { "kind": "scalar", "name": "linked", "scalar": "u8" }], "returns": null },
-    "set_config_feature": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "feature", "scalar": "u8" }, { "kind": "scalar", "name": "status", "scalar": "u8" }], "returns": null },
     "set_dc_coupled": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "dc_coupled", "scalar": "u8" }, { "kind": "scalar", "name": "dc_coupled_io", "scalar": "u8" }], "returns": null },
     "set_deesser_conf": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "type_id", "scalar": "u8" }, { "kind": "scalar", "name": "inst_id", "scalar": "u8" }, { "kind": "scalar", "name": "ctrl", "scalar": "u8" }, { "kind": "scalar", "name": "threshold", "scalar": "u8" }, { "kind": "scalar", "name": "crit_f", "scalar": "u16" }, { "kind": "scalar", "name": "q_factor", "scalar": "u16" }, { "kind": "scalar", "name": "filter_type", "scalar": "u8" }, { "kind": "scalar", "name": "wd_control", "scalar": "u8" }, { "kind": "scalar", "name": "ratio", "scalar": "u8" }, { "kind": "scalar", "name": "attack", "scalar": "u8" }, { "kind": "scalar", "name": "release", "scalar": "u8" }, { "kind": "scalar", "name": "knee_width", "scalar": "u8" }], "returns": null },
     "set_dim": { "reportId": "0x70", "params": [{ "kind": "scalar", "name": "periph_id", "scalar": "u8" }, { "kind": "scalar", "name": "dim", "scalar": "u8" }], "returns": null },

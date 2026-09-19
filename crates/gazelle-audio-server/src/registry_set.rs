@@ -1,9 +1,10 @@
 //! Per-model command registries.
 //!
 //! The command surface differs by device model, so the server holds one registry per model
-//! and selects by application pid. Quadro exposes 199 in-scope commands (the shared 35 +
-//! 28 Quadro-only + a parameter set and get for each of 68 effect types); Studio+ exposes 117
-//! (the shared 35 + 8 Studio+-only + 37 effect types' pairs) (see `.agent/reference/devices.md`).
+//! and selects by application pid. The Quadro's schema has 199 in-scope commands (the shared 35 +
+//! 28 Quadro-only + a parameter set and get for each of 68 effect types) and the Studio+'s 117
+//! (the shared 35 + 8 Studio+-only + 37 effect types' pairs); see `docs/protocol.md`, "Command
+//! surface". The server serves all of them except [`OUT_OF_SCOPE`]: 195 and 116.
 
 use gazelle_audio_protocol::registry::{from_json_doc, Registry};
 use std::collections::HashMap;
@@ -13,6 +14,22 @@ use std::sync::Arc;
 pub const PID_QUADRO: u16 = 0xa2f9;
 /// Zen Studio+ application pid.
 pub const PID_STUDIO: u16 = 0xa100;
+
+/// Commands in the schemas that the server never serves, lists or sends, on any model.
+///
+/// Licence management is out of scope: these change what a device is licensed for, or take part
+/// in assigning it to an account, which is the vendor's business and not a mixer's. Leaving them
+/// out of the registry means the HTTP API, the WebSocket and the command listings all refuse or
+/// omit them alike (`unknown_command`), dry run included. `get_feature_mask` stays: the app reads
+/// it to know which microphone emulations the device may use. The web client's generated types
+/// leave out the same names (`web/tools/gen-types`), and its integration test checks the two
+/// agree.
+pub const OUT_OF_SCOPE: [&str; 4] = [
+    "set_config_feature",
+    "get_cmd_set_assignment",
+    "get_assignment_request",
+    "get_assignment_status",
+];
 
 /// A named registry plus the model it belongs to.
 #[derive(Clone)]
@@ -61,8 +78,13 @@ impl RegistrySet {
         model: &'static str,
         json: &str,
     ) -> Result<(), String> {
-        let doc: serde_json::Value = serde_json::from_str(json)
+        let mut doc: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| format!("{slug}: schema is not valid JSON: {e}"))?;
+        if let Some(commands) = doc.get_mut("commands").and_then(|c| c.as_object_mut()) {
+            for name in OUT_OF_SCOPE {
+                commands.remove(name);
+            }
+        }
         let registry = from_json_doc(&doc)
             .map_err(|e| format!("{slug}: schema could not be loaded: {e:?}"))?;
         self.by_pid.insert(
@@ -95,8 +117,8 @@ mod tests {
         let set = RegistrySet::builtin().expect("builtin registries must load");
         let q = set.for_pid(PID_QUADRO).expect("quadro registry");
         let s = set.for_pid(PID_STUDIO).expect("studio registry");
-        assert_eq!(q.registry.len(), 199, "Quadro in-scope surface is 199 commands");
-        assert_eq!(s.registry.len(), 117, "Studio+ in-scope surface is 117 commands");
+        assert_eq!(q.registry.len(), 199 - 4, "the Quadro's 199 in-scope commands, less the four licence ones");
+        assert_eq!(s.registry.len(), 117 - 1, "the Studio+'s 117 in-scope commands, less set_config_feature");
         assert_eq!(q.slug, "zenquadrosc_usb2");
         assert_eq!(s.slug, "zenstudiotb");
     }
@@ -119,8 +141,8 @@ mod tests {
         let quadro = &set.for_pid(PID_QUADRO).unwrap().registry;
         let studio = &set.for_pid(PID_STUDIO).unwrap().registry;
 
-        assert_eq!(quadro.len(), 63 + 2 * 68, "shared 35 + Quadro-only 28 + 68 effect types' set and get");
-        assert_eq!(studio.len(), 43 + 2 * 37, "shared 35 + Studio+-only 8 + 37 effect types' set and get");
+        assert_eq!(quadro.len(), 63 + 2 * 68 - 4, "shared 35 + Quadro-only 28 + 68 effect types' set and get, less licence management");
+        assert_eq!(studio.len(), 43 + 2 * 37 - 1, "shared 35 + Studio+-only 8 + 37 effect types' set and get, less licence management");
         for name in STUDIO_ONLY {
             assert!(studio.get(name).is_some(), "Studio+ is missing {name}");
             assert!(quadro.get(name).is_none(), "Quadro unexpectedly has {name}");
@@ -128,6 +150,27 @@ mod tests {
         for name in ["set_mixer", "set_trim_config", "set_dim"] {
             assert!(quadro.get(name).is_some(), "Quadro is missing {name}");
             assert!(studio.get(name).is_none(), "Studio+ unexpectedly has {name}");
+        }
+    }
+
+    /// Every name in [`OUT_OF_SCOPE`] is in some schema, so the list is not stale, and none of them
+    /// is in any registry the server builds.
+    #[test]
+    fn licence_management_is_left_out() {
+        let schemas = [
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/quadro_commands.json")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/schemas/studio_commands.json")),
+        ]
+        .map(|json| serde_json::from_str::<serde_json::Value>(json).unwrap());
+        for name in OUT_OF_SCOPE {
+            assert!(schemas.iter().any(|doc| doc["commands"].get(name).is_some()), "{name} is in no schema");
+        }
+        let set = RegistrySet::builtin().unwrap();
+        for (_, model) in set.models() {
+            for name in OUT_OF_SCOPE {
+                assert!(model.registry.get(name).is_none(), "{} serves {name}", model.slug);
+            }
+            assert_eq!(model.registry.get("get_feature_mask").is_some(), model.family == "quadro", "the feature mask is still read");
         }
     }
 }

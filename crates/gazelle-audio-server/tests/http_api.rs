@@ -96,7 +96,7 @@ async fn group_colours_round_trip_and_are_validated() {
     assert_eq!(body["groups"][0]["color"], "#b5473a", "a rejected save changes nothing");
 }
 
-/// Links are the workspace's, not the device's (decision P51): any two or more channels of one
+/// Links are the workspace's, not the device's: any two or more channels of one
 /// kind, on any devices, change together. `absolute` members take the same value; `relative`
 /// members keep their offsets. The server rejects links it cannot make sense of.
 #[tokio::test]
@@ -132,7 +132,7 @@ async fn channel_links_round_trip_and_are_validated() {
     assert_eq!(body["links"][0]["id"], "l1", "rejected saves change nothing");
 }
 
-/// A mix in mono (decision P57) keeps the pans to restore in the workspace, by mixer input slot.
+/// A mix in mono keeps the pans to restore in the workspace, by mixer input slot.
 /// The server rejects slots and pans the hardware does not have.
 #[tokio::test]
 async fn mono_mixes_round_trip_and_are_validated() {
@@ -149,7 +149,7 @@ async fn mono_mixes_round_trip_and_are_validated() {
     }
 }
 
-/// Mixer layouts the user saves (decision P56) live in the workspace, per device model, so any
+/// Mixer layouts the user saves live in the workspace, per device model, so any
 /// device of that model can start from them. They hold a whole mixer layout, validated like one.
 #[tokio::test]
 async fn saved_layouts_round_trip_and_are_validated() {
@@ -293,11 +293,12 @@ async fn devices_enumerate_with_their_models() {
     assert!(slugs.contains(&"zenquadrosc_usb2"));
     assert!(slugs.contains(&"zenstudiotb"));
 
-    // Command counts differ by model: this is the multi-device property in one assertion.
+    // Command counts differ by model: this is the multi-device property in one assertion. Each is
+    // the schema's count less the licence-management commands the server leaves out.
     for d in devices {
         let expected = match d["slug"].as_str().unwrap() {
-            "zenquadrosc_usb2" => 199,
-            "zenstudiotb" => 117,
+            "zenquadrosc_usb2" => 195,
+            "zenstudiotb" => 116,
             other => panic!("unexpected slug {other}"),
         };
         assert_eq!(d["command_count"], expected, "for {}", d["slug"]);
@@ -315,7 +316,7 @@ async fn unknown_device_is_404_with_a_code() {
 async fn device_commands_are_introspectable() {
     let (status, body) = get(app(), "/api/v1/devices/loopback-0/commands").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["count"], 199);
+    assert_eq!(body["count"], 195, "the schema's 199, less licence management");
     assert_eq!(body["slug"], "zenquadrosc_usb2");
 
     let set_mixer = body["commands"]
@@ -616,7 +617,7 @@ async fn workspace_roundtrips() {
 }
 
 /// A document the server cannot read as a workspace is refused with the same JSON error body as any
-/// other refusal (workspace spec phase 1), naming the part that is wrong, so a page can say why.
+/// other refusal naming the part that is wrong, so a page can say why.
 /// The stored workspace is left as it was.
 #[tokio::test]
 async fn an_unreadable_workspace_is_refused_with_a_json_reason() {
@@ -653,8 +654,7 @@ async fn an_unreadable_workspace_is_refused_with_a_json_reason() {
     assert_eq!(body["aliases"]["loopback-0"], "Kept", "refused documents change nothing");
 }
 
-/// Top-level fields this server does not know are kept and given back (the user's answer to the
-/// workspace spec's Q7), so an export from a newer app imports back whole.
+/// Top-level fields this server does not know are kept and given back, so an export from a newer app imports back whole.
 #[tokio::test]
 async fn unknown_workspace_fields_are_kept() {
     let app = app();
@@ -717,7 +717,7 @@ async fn control_room_outputs_round_trip_and_are_validated() {
     assert_eq!(body["control_room"], chosen, "rejected saves change nothing");
 }
 
-/// Each device can have a badge colour for the strips a surface shows (workspace spec Q15).
+/// Each device can have a badge colour for the strips a surface shows.
 #[tokio::test]
 async fn device_colours_round_trip_and_are_validated() {
     let app = app();
@@ -739,7 +739,7 @@ async fn device_colours_round_trip_and_are_validated() {
     assert_eq!(body["device_colors"]["loopback-0"], "#3fae6a", "rejected saves change nothing");
 }
 
-/// A surface (workspace spec §4.8) is a named row of strips from any device, each naming its device,
+/// A surface is a named row of strips from any device, each naming its device,
 /// with one selected mix per device. Indexes are checked against the device's model when the device
 /// is attached; strips for a device the server has never seen are kept as they are.
 #[tokio::test]
@@ -798,7 +798,7 @@ async fn surfaces_round_trip_and_are_validated() {
     assert_eq!(body["surfaces"][0]["strips"].as_array().map(Vec::len), Some(11), "rejected saves change nothing");
 }
 
-/// Digital cables (workspace spec §4.5) are declared connections from one device's S/PDIF or ADAT
+/// Digital cables are declared connections from one device's S/PDIF or ADAT
 /// output to another's input of the same kind. They never route anything; the server checks their
 /// kinds and, for attached devices, that the channels exist. A surface can show a device's digital
 /// output as a port strip.
@@ -873,7 +873,35 @@ async fn all_commands_lists_every_model() {
     let models = body["models"].as_array().unwrap();
     assert_eq!(models.len(), 2);
     let total: usize = models.iter().map(|m| m["count"].as_u64().unwrap() as usize).sum();
-    assert_eq!(total, 199 + 117);
+    // The schemas' 199 and 117, less the licence-management commands the server does not serve.
+    assert_eq!(total, 195 + 116);
+}
+
+/// Licence management is out of scope: the commands that change a device's licence or take part
+/// in assigning it are not served, listed or sent, on either model, even in dry run. Reading the
+/// feature mask (which microphone emulations the device may use) still is.
+#[tokio::test]
+async fn licence_management_commands_are_not_served() {
+    const LICENCE: [&str; 4] = ["set_config_feature", "get_cmd_set_assignment", "get_assignment_request", "get_assignment_status"];
+    let (_, body) = get(app(), "/api/v1/commands").await;
+    for model in body["models"].as_array().unwrap() {
+        let names: Vec<&str> = model["commands"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+        for name in LICENCE {
+            assert!(!names.contains(&name), "{} lists {name}", model["slug"]);
+        }
+    }
+    for device in ["loopback-0", "loopback-1"] {
+        let (_, body) = get(app(), &format!("/api/v1/devices/{device}/commands")).await;
+        let names: Vec<&str> = body["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        for name in LICENCE {
+            assert!(!names.contains(&name), "{device} describes {name}");
+            let (status, body) = send(app(), "POST", &format!("/api/v1/devices/{device}/command/{name}?dry_run=true"), json!({})).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{device} {name}: {body}");
+            assert_eq!(body["error"]["code"], "unknown_command", "{device} {name}");
+        }
+    }
+    let (status, body) = send(app(), "POST", "/api/v1/devices/loopback-0/command/get_feature_mask?dry_run=true", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "the feature mask is still read: {body}");
 }
 
 /// `set_routing` accepts its 32 routing pairs as an array of pairs, producing exactly the bytes
