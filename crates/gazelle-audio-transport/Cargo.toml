@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 rust-version.workspace = true
 description = "Transport-agnostic framing, segmentation, and request/response correlation for the Antelope Audio Synergy Core wire protocol"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 gazelle-audio-protocol = { path = "../gazelle-audio-protocol" }

@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 rust-version.workspace = true
 description = "Protocol-correct reimplementation of the Antelope Audio Synergy Core USB wire protocol"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

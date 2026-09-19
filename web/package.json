@@ -1,5 +1,6 @@
 {
   "name": "gazelle-audio-web-workspace",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.4.2",
