@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -165,6 +165,45 @@ export class FakeClient implements Client {
 
   /** How a driver read answers; the loopback's answer by default. */
   driver: (id: string, options?: { refresh?: boolean }) => Promise<DriverReport> = async (id) => ({ device_id: id, read_at_ms: 0, cached: false, state: "no_driver", message: "The loopback backend has no audio driver on this PC." });
+
+  /**
+   * What the updater says. A server with no updater answers 404 on every one of these, which is
+   * what `updateStatus = undefined` stands for here.
+   */
+  updateStatus: UpdateStatus | undefined = {
+    version: "0.1.0",
+    target: "x86_64-pc-windows-msvc",
+    channel: "stable",
+    check: true,
+    auto_download: true,
+    can_verify: true,
+    last_check_ms: null,
+    state: { state: "up_to_date" },
+  };
+  /** Every update call the store made, in order. */
+  readonly updateCalls: string[] = [];
+  /** Set to make the next update call fail, as the server refusing one does. */
+  failUpdates: Error | undefined;
+
+  readonly update = {
+    status: async (): Promise<UpdateStatus> => this.#updateAnswer("status"),
+    check: async (): Promise<UpdateStatus> => this.#updateAnswer("check"),
+    download: async (): Promise<UpdateStatus> => this.#updateAnswer("download"),
+    restart: async (): Promise<UpdateRestart> => {
+      this.updateCalls.push("restart");
+      if (this.failUpdates !== undefined) throw this.failUpdates;
+      const state = this.updateStatus?.state;
+      if (state?.state !== "staged") throw new GazelleError("nothing_staged", "no update is ready; nothing to restart into");
+      return { restarting: true, version: state.version };
+    },
+  };
+
+  #updateAnswer(call: string): UpdateStatus {
+    this.updateCalls.push(call);
+    if (this.failUpdates !== undefined) throw this.failUpdates;
+    if (this.updateStatus === undefined) throw new GazelleError("http_404", "GET /api/v1/update returned HTTP 404");
+    return this.updateStatus;
+  }
 
   /** How a driver change answers; the loopback's refusal by default, as the server gives it. */
   setDriver: (id: string, change: DriverChange) => Promise<DriverWriteReport> = async () => {

@@ -1,6 +1,7 @@
 // <ga-header>: brand, page tabs, and the hardware-safety badges that must always be
 // visible: which backend is driving devices, dry-run, and the connection state, with the running
-// version beside them while the explain mode is on. The
+// version beside them while the explain mode is on, and, when there is one, what the updater
+// wants: a version ready to restart into, one on its way, or one that failed. The
 // preferences sit at the end, what a double-click does to a level and the theme, then slot="menu",
 // where the app puts its sidebar button for phones.
 //
@@ -8,6 +9,7 @@
 // theme picker below, where the tabs scroll sideways within their line when they do not fit.
 
 import { h } from "../core/dom.ts";
+import { bindConfirm } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href, PAGES, route } from "./router.ts";
 
@@ -58,6 +60,25 @@ export class GaHeader extends GaElement {
          left takes up the difference. */
       .version { visibility: hidden; color: var(--ga-text-muted); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
       .version[data-shown] { visibility: visible; }
+      /* What the updater wants, left of the version. Nothing at all while there is nothing to
+         say, which is nearly always, so it takes no room rather than reserving it the way the
+         version does: this line is the one that is always full, and holding a gap open for
+         something seen a few times a year would push the badges about for nothing. When it does
+         appear it is because something happened, which is the moment to be noticed. */
+      .update { color: var(--ga-text-secondary); font-size: 10px; letter-spacing: 0.04em; white-space: nowrap; }
+      button.update {
+        padding: 2px 8px;
+        border: 1px solid var(--ga-border-subtle);
+        border-radius: 3px;
+        background: var(--ga-surface-inset);
+        color: var(--ga-text-secondary);
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button.update:hover { background: var(--ga-control-hover); color: var(--ga-text-primary); }
+      /* Armed, and outlined as every other confirm in the app is. */
+      button.update[data-armed] { border-color: var(--ga-notice-warning); color: var(--ga-notice-warning); }
+      button.update[data-kind="failed"] { color: var(--ga-notice-warning); border-color: var(--ga-notice-warning); }
       .backend { background: var(--ga-surface-inset); color: var(--ga-text-secondary); border: 1px solid var(--ga-border-subtle); }
       .backend[data-backend="usb"] { color: var(--ga-notice-warning); border-color: var(--ga-notice-warning); }
       .dry-run { background: var(--ga-state-dry-run); color: var(--ga-text-inverse); }
@@ -81,6 +102,8 @@ export class GaHeader extends GaElement {
         /* Too little room on this line for a version nobody is looking for; the tray menu and the
            server's own /api/v1/health still say it. */
         .version { display: none; }
+        /* The update prompt stays: unlike the version it is a thing to do, not a thing to read,
+           and a phone is as good a place to press it from as a desk. */
         /* The dot's colour carries the state; the words stay for screen readers and the tooltip. */
         .status-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       }
@@ -93,6 +116,10 @@ export class GaHeader extends GaElement {
     // Which version is running, for when someone is asked. Out of the way until the explain mode is
     // on, and nothing at all until the server has said hello.
     const version = h("span", { class: "version", "aria-label": "Server version", "data-testid": "version", "data-explain": "header.version" });
+    // What the updater wants, when it wants something. A button when there is something to press,
+    // a readout while a download runs; both hidden the rest of the time.
+    const updateButton = h("button", { type: "button", class: "update", "data-testid": "update-action", "data-explain": "header.update", hidden: true });
+    const updateNote = h("span", { class: "update", role: "status", "data-testid": "update-note", "data-explain": "header.update-note", hidden: true });
     const backend = h("span", { class: "badge backend", "data-testid": "backend", "data-explain": "header.backend" });
     const dryRun = h("span", { class: "badge dry-run", "data-testid": "dry-run", "data-explain": "header.dry-run", title: "Commands report the bytes they would send; nothing is written to a device." }, "Dry run");
     const statusText = h("span", { class: "status-text" });
@@ -115,7 +142,7 @@ export class GaHeader extends GaElement {
       h("option", { value: "unity" }, "Double-click: unity"),
     );
 
-    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), version, backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
+    this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), updateNote, updateButton, version, backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
 
     this.watch(() => {
       // A surface is opened from the Workspace page, so that tab stays marked while one is shown.
@@ -128,6 +155,28 @@ export class GaHeader extends GaElement {
       backend.textContent = info.backend || "unknown";
       backend.dataset["backend"] = info.backend;
       dryRun.hidden = !info.dry_run;
+    });
+    // A restart drops every device connection for a few seconds, which is the kind of thing the
+    // rest of the app makes you press twice, so it is armed the same way. Getting a download or
+    // trying a failed check again costs nothing and goes on one press.
+    const act = () => {
+      const prompt = store.updatePrompt.peek();
+      if (prompt?.act === "restart") void store.restartForUpdate();
+      else if (prompt?.act === "download") void store.downloadUpdate();
+      else if (prompt?.act === "check") void store.checkForUpdate();
+    };
+    const disarm = bindConfirm(updateButton, () => store.updatePrompt.peek()?.label ?? "", act, () => store.updatePrompt.peek()?.confirm === true);
+    this.watch(() => {
+      const prompt = store.updatePrompt.value;
+      // A half-pressed confirm belonged to the prompt that has just been replaced.
+      disarm();
+      updateNote.hidden = prompt === undefined || prompt.act !== undefined;
+      updateButton.hidden = prompt === undefined || prompt.act === undefined;
+      if (prompt === undefined) return;
+      const target = prompt.act === undefined ? updateNote : updateButton;
+      target.textContent = prompt.label;
+      target.title = prompt.title;
+      target.dataset["kind"] = prompt.kind;
     });
     this.watch(() => {
       const running = store.server.value.version;
