@@ -154,7 +154,7 @@ export const CATALOGUE: Catalogue = {
   // The mixer dock.
   "dock.section": { title: "Mixer dock", what: "The mix you picked on the Mixer page as slim strips, so levels can be ridden from any page. Hidden on the Mixer page itself. Whether it is folded is remembered in this browser." },
   "dock.source": { title: "Dock shows", what: "This device's selected mix, or one of your surfaces, so strips from any device can sit under every page. Remembered in this browser." },
-  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix menu: changing one changes the other." },
+  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix buttons: changing one changes the other." },
   "dock.open-mixer": { title: "Open the Mixer page", what: "No channel is set up in this mix yet; channels are set up on the Mixer page." },
   "dock.open-surface": { title: "Open the surface", what: "This surface has no strips yet; strips are added on the surface's own page." },
 
@@ -162,6 +162,7 @@ export const CATALOGUE: Catalogue = {
   "page.last-sent": {
     title: "Last command",
     what: "The last command this page sent to the device and its bytes, or in dry run the bytes it would have sent.",
+    effect: "It appears only while this explain mode is on, or while the server is in dry run; the rest of the time it stays out of the way.",
   },
 
   // A mixer strip.
@@ -263,6 +264,13 @@ export const CATALOGUE: Catalogue = {
     title: "In this mix",
     what: "Whether the channel is in the mix you picked. Its main mix reads Main mix; any other mix can take it as a send.",
     effect: "Add routes the channel's input into this mix; taking it out mutes it there. Its level in each mix is its own.",
+    watch: "Adding a channel whose input the mix already has takes two clicks: the first reads Confirm and says what would be summed twice.",
+  },
+  "channel.doubling-confirm": {
+    title: "Confirm",
+    what: "The choice beside this would put one input into a mix twice, so that mix would sum it twice, about 6 dB louder. Press Confirm to do it anyway, or pick something else.",
+    effect: "Nothing has been sent yet. Left alone for a few seconds, the menu goes back to what it had.",
+    watch: "Dry into a mix alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about.",
   },
   "channel.pre-type": {
     title: "{name} type",
@@ -337,10 +345,15 @@ export const CATALOGUE: Catalogue = {
   // The Mixer page.
   "mixer.mix": {
     title: "Mix",
-    what: "Which of the device's four hardware mixes every strip shows, moves and meters. Each channel has its own level, pan, mute and solo in each mix.",
+    what: "Which of the device's four hardware mixes the page shows. One mix is always chosen. Every strip's fader, pan, mute and solo act on that mix, and the meters follow it; each channel keeps its own settings in each mix.",
     effect: "Remembered per device and put in the address, and shared with the mixer dock. Choosing a mix sends nothing.",
   },
-  "mixer.notes": { title: "How this mixer works", what: "A short note on channels, main mixes and sends, and whether the device's levels have been read." },
+  "mixer.show-all": {
+    title: "Show all channels",
+    what: "Off, the page shows only the channels routed to the chosen mix. On, it shows every channel you have made, with the ones outside this mix dimmed and unmetered, so you can move one in from its head.",
+    effect: "Remembered per device in this browser. It changes nothing on the device.",
+  },
+  "mixer.notes": { title: "How this mixer works", what: "A short note on channels, the mix the faders act on, which channels are shown, and whether the device's levels have been read." },
   "mixer.layout-name": { title: "Layout name", what: "A name for saving these channels, groups and mix names as a layout." },
   "mixer.layout-save": { title: "Save layout", what: "Saves these channels, groups and mix names as a layout any device of this model can start from. " + NOTHING_SENT },
   "mixer.profile": { title: "Start from", what: "A starting layout for this model, or one you saved. Shown while no channel is set up." },

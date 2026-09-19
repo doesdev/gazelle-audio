@@ -16,7 +16,7 @@ import { channelSpan, portName, portWidth } from "../store/cables.ts";
 import { displayName, SAMPLE_RATES, type Cable, type NewStrip, type SurfaceStrip } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { LINK_STYLES, linkBar } from "./link-bar.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { href } from "./router.ts";
 import { keepScroll } from "./view-state.ts";
 
@@ -47,8 +47,7 @@ export class GaSurface extends GaElement {
       .health li { color: var(--ga-text-secondary); }
       .health .warn { color: var(--ga-notice-warning, var(--ga-text-primary)); }
       .add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       .strips {
         position: relative;
         display: flex;
@@ -241,6 +240,7 @@ export class GaSurface extends GaElement {
       this.style.setProperty("--surface-meter-gradient", meterGradient(theme.meter.gradient, undefined, "to right", (db) => meterDeflection(-db)));
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       const onSurface = sent !== undefined && surfaces.devicesOf(surfaceId).includes(sent.deviceId);
       if (sent === undefined || !onSurface) {

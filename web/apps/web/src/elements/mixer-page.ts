@@ -1,9 +1,16 @@
 // <ga-mixer device-id="…">: one device's mixer, built from the channels the user made (plan
 // 2026-09-16). Channels scroll horizontally, followed by a "+" to add one, and the selected mix's
 // master sits on the right. A device with no layout imports one from its routing when the page
-// opens. The Mix menu in the bar selects the mix every strip shows, moves and meters (the user,
+// opens. The Mix buttons in the bar select the mix every strip shows, moves and meters (the user,
 // 2026-09-16); it is remembered per device and carried in the address. In dry run it shows the bytes of the last
 // command sent. The notes, the channels' scroll and a half-typed layout name are kept for the tab.
+//
+// The page is a view of one mix (the user, 2026-09-19): by default it shows only the channels
+// routed to the selected mix, plus the ones not set up yet, which belong to no mix and would
+// otherwise vanish the moment "+" made them. "Show all channels" beside the Mix buttons shows every
+// configured channel, with the ones outside this mix dimmed and unmetered, so one can be moved in
+// from its head. That choice is kept per device in this browser. A mix with nothing in it says so,
+// in the strip row, and says how to put something there.
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
@@ -11,7 +18,7 @@ import { meterDeflection } from "../store/mixer.ts";
 import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { replaceRoute } from "./router.ts";
@@ -65,13 +72,29 @@ export class GaMixer extends GaElement {
       .px-field .unit { font-size: 11px; color: var(--ga-text-muted); }
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .bar select { min-height: 26px; }
+      /* The mix picker: one button per mix, joined like the width control, with the chosen one filled. */
+      .mixes { display: flex; }
+      .mixes .mix {
+        min-height: 26px;
+        padding: 0 10px;
+        border-radius: 0;
+        color: var(--ga-text-secondary);
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .mixes .mix + .mix { margin-left: -1px; }
+      .mixes .mix:first-child { border-radius: 3px 0 0 3px; }
+      .mixes .mix:last-child { border-radius: 0 3px 3px 0; }
+      .mixes .mix[aria-checked="true"] { position: relative; border-color: var(--ga-accent); background: var(--ga-accent); color: var(--ga-accent-text); }
+      .show-all { min-height: 26px; padding: 0 10px; font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; }
+      .show-all[aria-pressed="true"] { border-color: var(--ga-accent); color: var(--ga-text-primary); }
       .spacer { flex: 1; }
       .notes { font-size: 11px; color: var(--ga-text-muted); }
       .notes summary { cursor: pointer; width: fit-content; }
       .notes ul { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
       /* The bytes can be long (set_routing is 128 hex digits): one line, cut with an ellipsis, all of it in the tooltip. */
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       .drop { position: absolute; top: 4px; bottom: 4px; z-index: 2; width: 2px; background: var(--ga-accent); pointer-events: none; }
       .strips {
         position: relative;
@@ -89,6 +112,12 @@ export class GaMixer extends GaElement {
       }
       /* Auto: channels share the row between the limits, and scroll once they reach the floor. Fixed: every channel is --strip-width. */
       .strips ga-channel { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
+      /* Outside the selected mix: hidden by default, dimmed and secondary while every channel is shown. */
+      .strips ga-channel[hidden], .strips ga-channel-group[hidden] { display: none; }
+      .strips ga-channel[data-out-of-mix] { opacity: 0.55; }
+      .strips ga-channel[data-out-of-mix]:hover, .strips ga-channel[data-out-of-mix]:focus-within { opacity: 1; }
+      .empty-mix { flex: 0 1 auto; align-self: center; max-width: 34ch; padding: 8px 12px; font-size: 12px; line-height: 1.4; }
+      .empty-mix[hidden] { display: none; }
       .strips.fixed ga-channel { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
       /* A group grows like its channels together: n channels' share, limits and gaps. */
       ga-channel-group {
@@ -137,15 +166,40 @@ export class GaMixer extends GaElement {
     }
     const channels = store.channels(deviceId);
 
-    const metered = h("select", {
-      "aria-label": "Mix",
-      "data-testid": "mix-select",
-      "data-explain": "mixer.mix",
-      "on:change": () => {
-        channels.meteredMix.value = Number(metered.value);
-        replaceRoute({ page: "mixer", id: deviceId, sub: metered.value });
-      },
+    // The mix picker is a button group with exactly one active (the user, 2026-09-19). Radio
+    // semantics: arrow keys, Home and End move between the mixes, and only the chosen button is in
+    // the tab order. Buttons are not menus, so the wheel never steps it, as the app keeps the wheel
+    // off anything that changes a mode: one notch here would move every strip to another mix.
+    const mixGroup = h("div", { class: "mixes", role: "radiogroup", "aria-label": "Mix", "data-testid": "mix-group" });
+    const mixButtons: HTMLButtonElement[] = [];
+    const chooseMix = (mix: number) => {
+      channels.meteredMix.value = mix;
+      replaceRoute({ page: "mixer", id: deviceId, sub: String(mix) });
+    };
+    mixGroup.addEventListener("keydown", (event) => {
+      const count = mixButtons.length;
+      if (count === 0) return;
+      const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+      const next = step !== 0 ? (channels.meteredMix.peek() + step + count) % count : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : undefined;
+      if (next === undefined) return;
+      event.preventDefault();
+      chooseMix(next);
+      mixButtons[next]?.focus();
     });
+
+    // Only the channels in the selected mix, or every configured one; kept per device in this browser.
+    const showAll = store.showAllChannels(deviceId);
+    const showAllButton = h(
+      "button",
+      {
+        type: "button",
+        class: "show-all",
+        "data-testid": "show-all-channels",
+        "data-explain": "mixer.show-all",
+        "on:click": () => store.setShowAllChannels(deviceId, !showAll.peek()),
+      },
+      "Show all channels",
+    );
     const lastSent = h("span", { class: "last-sent muted", "data-testid": "last-sent", "data-explain": "page.last-sent" });
     const mixer0 = store.mixer(deviceId, 0);
     // Every mix's strips and links are read (sends show other mixes' levels), once: coming back to
@@ -166,7 +220,8 @@ export class GaMixer extends GaElement {
       h(
         "ul",
         {},
-        h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the main mix; sends set its level in other mixes."),
+        h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the mix you have picked, so each mix keeps its own balance."),
+        h("li", {}, "A mix shows only the channels routed to it. Show all channels shows the rest, dimmed, so one can be moved in from its head."),
         levelsNote,
       ),
     );
@@ -257,6 +312,9 @@ export class GaMixer extends GaElement {
     const strips = h("div", { class: "strips" });
     const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "data-explain": "mixer.add-channel", "on:click": () => channels.add() }, "+");
     const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
+    // A mix with nothing routed to it: the page's own placeholder style, in the strip row beside
+    // the mix's master, saying how to put a channel in the mix.
+    const emptyMix = h("p", { class: "placeholder empty-mix", "data-testid": "empty-mix", hidden: true });
 
     const stripWidth = h("input", { type: "number", min: STRIP_WIDTH_MIN, max: STRIP_WIDTH_MAX, step: 1, "aria-label": "Channel width in px", "data-testid": "strip-width", "data-explain": "mixer.width-px" });
     const autoWidth = h("button", { type: "button", title: "Fit channels to the window", "data-testid": "strip-width-auto", "data-explain": "mixer.width-auto", "on:click": () => store.setMixerWidth({ auto: true }) }, "Auto");
@@ -295,7 +353,7 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
     this.root.replaceChildren(
-      h("div", { class: "bar" }, h("label", { class: "width" }, h("span", { class: "caption" }, "Mix"), metered), h("span", { class: "spacer" }), width, lastSent),
+      h("div", { class: "bar" }, h("div", { class: "width" }, h("span", { class: "caption", "aria-hidden": "true" }, "Mix"), mixGroup, showAllButton), h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
@@ -422,7 +480,7 @@ export class GaMixer extends GaElement {
           return element;
         });
         for (const groupKey of [...groupElements.keys()]) if (!kept.has(groupKey)) groupElements.delete(groupKey);
-        strips.replaceChildren(...children.flat(), add, masters, indicator);
+        strips.replaceChildren(emptyMix, ...children.flat(), add, masters, indicator);
       }
       add.disabled = list.length >= 32 - channels.firstSlot;
 
@@ -441,6 +499,36 @@ export class GaMixer extends GaElement {
       }
     });
 
+    // Which channels this mix shows. A channel with no input or main mix is in no mix at all, but
+    // it is a channel being made (the "+" just added it), so it stays on the row whatever the
+    // filter says; only channels that belong to another mix are hidden or dimmed.
+    this.watch(() => {
+      const mix = channels.meteredMix.value;
+      const all = showAll.value;
+      const list = channels.layout.value.channels;
+      for (const channel of list) {
+        const element = elements.get(channel.id);
+        if (element === undefined) continue;
+        const elsewhere = channels.isActive(channel) && !channels.strip(channel, mix).inMix;
+        element.toggleAttribute("hidden", elsewhere && !all);
+        element.toggleAttribute("data-out-of-mix", elsewhere);
+      }
+      // A group whose every member is hidden goes with them, band and all.
+      for (const element of groupElements.values()) {
+        const members = [...element.children].filter((child) => child.localName === "ga-channel");
+        element.toggleAttribute("hidden", members.length > 0 && members.every((child) => child.hasAttribute("hidden")));
+      }
+      // Nothing routed here, while other channels are set up elsewhere: say so, and how to fix it.
+      const name = channels.mixName(mix);
+      const empty = list.some((channel) => channels.isActive(channel)) && channels.inMix(mix).length === 0;
+      emptyMix.hidden = !empty;
+      emptyMix.textContent = !empty
+        ? ""
+        : all
+          ? `Nothing is in ${name} yet. On the channel you want, pick ${name} as its main mix, or use its "Add to ${name}" button.`
+          : `Nothing is in ${name} yet. Turn on "Show all channels" to see the others, then pick ${name} as a channel's main mix, or use its "Add to ${name}" button.`;
+    });
+
     // After the channels are in, so there is something to scroll back to.
     this.onDisconnect(keepScroll(strips, store.view(`mixer:${deviceId}:scroll`, 0), "left"));
 
@@ -453,9 +541,37 @@ export class GaMixer extends GaElement {
       strips.classList.toggle("fixed", !auto);
       strips.style.setProperty("--strip-width", `${px}px`);
     });
+    // The buttons are rebuilt only when the mix names change, so a click keeps its focus.
+    let mixKey = "";
     this.watch(() => {
-      metered.replaceChildren(...Array.from({ length: channels.mixCount }, (_, mix) => h("option", { value: String(mix) }, channels.mixName(mix))));
-      metered.value = String(channels.meteredMix.value);
+      const names = Array.from({ length: channels.mixCount }, (_, mix) => channels.mixName(mix));
+      const key = JSON.stringify(names);
+      if (key !== mixKey) {
+        mixKey = key;
+        mixButtons.length = 0;
+        mixButtons.push(
+          ...names.map(
+            (name, mix) =>
+              h(
+                "button",
+                { type: "button", role: "radio", class: "mix", title: `Show ${name}`, "data-testid": `mix-${mix}`, "data-explain": "mixer.mix", "on:click": () => chooseMix(mix) },
+                name,
+              ) as HTMLButtonElement,
+          ),
+        );
+        mixGroup.replaceChildren(...mixButtons);
+      }
+      const chosen = channels.meteredMix.value;
+      mixButtons.forEach((button, mix) => {
+        button.setAttribute("aria-checked", String(mix === chosen));
+        button.tabIndex = mix === chosen ? 0 : -1;
+      });
+    });
+    this.watch(() => {
+      const all = showAll.value;
+      const name = channels.mixName(channels.meteredMix.value);
+      showAllButton.setAttribute("aria-pressed", String(all));
+      showAllButton.title = all ? `Showing every channel; the ones outside ${name} are dimmed` : `Showing only the channels in ${name}`;
     });
     this.watch(() => {
       add.toggleAttribute("data-offline", !store.connected.value);
@@ -465,6 +581,7 @@ export class GaMixer extends GaElement {
       this.style.setProperty("--mixer-meter-gradient", meterGradient(store.theme.value.meter.gradient, undefined, "to top", (db) => meterDeflection(-db)));
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       const dryRun = store.server.value.dry_run;
       if (sent === undefined || sent.deviceId !== deviceId) {

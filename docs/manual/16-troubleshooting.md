@@ -67,4 +67,4 @@ Gazelle writes a log while it runs from the Start Menu or the tray: `%LOCALAPPDA
 
 ## Reporting a problem
 
-Report problems at https://github.com/doesdev/gazelle-audio/issues. Say which interface and which Windows version, Gazelle's version (`gazelle-audio-server.exe --version`), what you did and what happened. The log helps, as does the "last sent" line from the page, which shows the exact bytes of the last command. Look through the log before you attach it: it names your devices' serial numbers and your folders.
+Report problems at https://github.com/doesdev/gazelle-audio/issues. Say which interface and which Windows version, Gazelle's version (`gazelle-audio-server.exe --version`), what you did and what happened. The log helps, as does the "last sent" line from the page, which shows the exact bytes of the last command; turn the explain mode on in the header to see it. Look through the log before you attach it: it names your devices' serial numbers and your folders.

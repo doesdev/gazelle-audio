@@ -7,7 +7,7 @@ import { h } from "../core/dom.ts";
 import { channelSpan } from "../store/cables.ts";
 import { DIGITAL_GAIN, GAIN_RANGE, PREAMP_TYPES, type DigitalGroup, type InputsModel, type PreampType } from "../store/inputs.ts";
 import { bindControl, type ControlOptions } from "./controls.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar, linkButton } from "./link-bar.ts";
 import { polarPlot, POLAR_PLOT_STYLES, stereoOrientation, type PlotHead } from "./polar-plot.ts";
 
@@ -89,8 +89,7 @@ export class GaInputs extends GaElement {
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
       /* One line, cut with an ellipsis; the full bytes are in the tooltip. */
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       h2 { margin: 0 0 6px; }
       /* One column grid for every section: a digital input takes one column, a preamp two, so edges line up across sections. */
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
@@ -179,6 +178,7 @@ export class GaInputs extends GaElement {
       note.textContent = inputs.preampCount > 0 && !inputs.preamp(0).value.known ? "The device has not reported its inputs yet, so controls start at defaults and send when changed." : "";
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       const dryRun = store.server.value.dry_run;
       if (sent === undefined || sent.deviceId !== deviceId) {

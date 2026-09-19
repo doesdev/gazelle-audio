@@ -7,6 +7,7 @@ import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
 import { LEVEL_MAX } from "../src/store/mixer.ts";
+import { parseShowAllChannels } from "../src/store/preferences.ts";
 import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, type EffectMeter, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -1058,4 +1059,54 @@ test("two channels on the same input are the same doubling, and a muted or close
   assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning);
   mixer.setLevel(7, LEVEL_MAX);
   assert.equal(store.doubledFeed("loopback-0", 0, 6).value, undefined, "nor does one at the bottom of its fader");
+});
+
+// The warning before the fact (the user, 2026-09-19: the app let one input into one mix twice
+// "with seemingly no guardrails, not even the X2 indicator"). Unlike the badge, it asks about
+// routing alone, so a duplicate sitting at the floor or muted is still a duplicate.
+test("putting a channel where its input already is warns first, in the badge's words, whatever the faders are doing", async () => {
+  const store = await doubling([mixerChannel("a", 6, 0, 1), mixerChannel("b", 7, 0, 2)], [[]], []);
+  const warning = "PREAMP 2 is in this mix twice, so it is summed twice (about +6 dB)";
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 1 }), warning, "PREAMP 2 is already in mix 1");
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 3 }), undefined, "PREAMP 4 is in nothing");
+  assert.equal(store.doublingIfAdded("loopback-0", 1, "b", { group: 0, channel: 1 }), undefined, "mix 2 holds neither channel");
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "a", { group: 0, channel: 1 }), undefined, "a channel is never counted against itself");
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", undefined), undefined, "no input, nothing to double");
+
+  // The badge goes quiet when the other strip adds nothing; the warning does not, because the
+  // fader can be raised at any moment and it is the routing that is being changed.
+  const mixer = store.mixer("loopback-0", 0);
+  mixer.toggleMute(6);
+  assert.equal(store.doubledFeed("loopback-0", 0, 6).value, undefined);
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 1 }), warning, "a muted duplicate is still a duplicate");
+  mixer.toggleMute(6);
+  mixer.setLevel(6, LEVEL_MAX);
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 1 }), warning, "and so is one at the floor");
+});
+
+test("an empty effect chain is the same doubling before the fact as after it, and a loaded one is not", async () => {
+  // Chain 1 is empty and fed by PREAMP 1; a channel already carries PREAMP 1 into mix 1.
+  const empty = await doubling([mixerChannel("a", 6, 0, 0)], [[]], [[0, 0]]);
+  assert.equal(
+    empty.doublingIfAdded("loopback-0", 0, "new", { group: AFX_OUT_SOURCE.quadro, channel: 0 }),
+    "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)",
+  );
+  const loaded = await doubling([mixerChannel("a", 6, 0, 0)], [[[3, 0]]], [[0, 0]]);
+  assert.equal(loaded.doublingIfAdded("loopback-0", 0, "new", { group: AFX_OUT_SOURCE.quadro, channel: 0 }), undefined, "dry plus wet is a parallel setup");
+});
+
+test("whether the Mixer page shows every channel is remembered per device in this browser", () => {
+  const { store, storage } = setup();
+  assert.equal(store.showAllChannels("loopback-0").value, false, "a mix shows what is routed to it by default");
+  store.setShowAllChannels("loopback-0", true);
+  assert.equal(store.showAllChannels("loopback-0").value, true);
+  assert.equal(store.showAllChannels("loopback-1").value, false, "the other device keeps its own");
+
+  const carried = new Store(new FakeClient(device("loopback-0", "quadro", "Zen Quadro")), { storage, themeSources: builtIns });
+  assert.equal(carried.showAllChannels("loopback-0").value, true, "and it survives a reload");
+  store.setShowAllChannels("loopback-0", false);
+  assert.equal(store.showAllChannels("loopback-0").value, false);
+
+  assert.deepEqual(parseShowAllChannels({ a: true, b: 3, c: false }), { a: true, c: false }, "anything that is not a yes or no is dropped");
+  assert.equal(parseShowAllChannels("no"), undefined, "and anything that is not a table at all");
 });

@@ -178,6 +178,63 @@ export function confirmedChoice(select: HTMLSelectElement, testId: string, expla
 }
 
 /**
+ * A menu that acts at once, unless the choice deserves a word first: `guard` returns the reason,
+ * and the change then waits behind a Confirm button beside the menu, outlined as an armed 48V is,
+ * with the reason on it. Pressing Confirm acts; choosing again asks again; a wait of `CONFIRM_MS`
+ * puts the menu back to what was last acted on. So nothing changes about a menu whose choices are
+ * all plain, and a choice that is not is never made by accident (the user, 2026-09-19: the mixer
+ * let one input into one mix twice with no warning at all).
+ *
+ * `explain` is the Confirm button's key for the explain mode; `sync` puts the menu back where the
+ * page rebuilds it from the outside, so what was last acted on stays the value to fall back to.
+ */
+export function guardedChoice(select: HTMLSelectElement, testId: string, explain: string, guard: (value: string) => string | undefined, act: (value: string) => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const confirm = h("button", { type: "button", class: "confirm", "data-testid": testId, "data-explain": explain, hidden: true }, "Confirm");
+  const choice = {
+    /** The value last acted on, which an unanswered warning goes back to. */
+    current: select.value,
+    confirm,
+    armed: () => timer !== undefined,
+    disarm: () => {
+      clearTimeout(timer);
+      timer = undefined;
+      confirm.hidden = true;
+      select.value = choice.current;
+    },
+    /** Follows the menu when the page rebuilds its options from the layout. */
+    sync: (value: string) => {
+      if (timer !== undefined) return;
+      choice.current = value;
+      select.value = value;
+    },
+  };
+  const settle = (value: string) => {
+    clearTimeout(timer);
+    timer = undefined;
+    confirm.hidden = true;
+    choice.current = value;
+    act(value);
+  };
+  select.addEventListener("change", () => {
+    clearTimeout(timer);
+    timer = undefined;
+    confirm.hidden = true;
+    const reason = guard(select.value);
+    if (reason === undefined) return settle(select.value);
+    confirm.title = reason;
+    confirm.setAttribute("aria-label", `${reason}. Select again to do it anyway`);
+    confirm.hidden = false;
+    timer = setTimeout(choice.disarm, CONFIRM_MS);
+  });
+  confirm.addEventListener("click", () => {
+    if (timer === undefined) return;
+    settle(select.value);
+  });
+  return choice;
+}
+
+/**
  * A momentary button:`set(true)` while it is held (pointer, or Space/Enter), `set(false)` on
  * release, and on leaving, cancelling or losing focus, so it can never stay on by accident.
  * Used for talkback, which the user wants only while held.

@@ -8,7 +8,7 @@
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
 import type { RouteSlot } from "../store/routing.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 
 /** How far a pointer moves before a press on a chip is a drag. */
 const DRAG_PX = 4;
@@ -21,8 +21,7 @@ export class GaRouting extends GaElement {
       .spacer { flex: 1; }
       .note { margin: 0; font-size: 11px; color: var(--ga-text-muted); }
       /* The bytes can be long (set_routing is 128 hex digits): one line, cut with an ellipsis, all of it in the tooltip. */
-      .last-sent { display: flex; min-width: 0; max-width: 100%; font-size: 11px; white-space: nowrap; }
-      .last-sent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      ${LAST_SENT_STYLES}
       h2 { margin: 0 0 6px; }
       .table { display: grid; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
       /* Row tools sit by the name, so wide rows keep them in view. */
@@ -207,6 +206,7 @@ export class GaRouting extends GaElement {
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("button")) button.disabled = !connected || button.hasAttribute("data-readonly");
     });
     this.watch(() => {
+      showLastSent(lastSent, store);
       const sent = store.lastSent.value;
       const dryRun = store.server.value.dry_run;
       if (sent === undefined || sent.deviceId !== deviceId) {

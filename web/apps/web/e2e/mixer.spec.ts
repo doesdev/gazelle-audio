@@ -65,6 +65,11 @@ function layout(mixers: Record<string, unknown>): Promise<void> {
 }
 
 const channelIn = (page: Page, slot: number) => page.locator(`ga-channel[data-channel-slot="${slot}"]`);
+/** Picks a mix from the button group in the bar, and waits for it to take. */
+async function pickMix(page: Page, mix: number): Promise<void> {
+  await page.getByTestId(`mix-${mix}`).click();
+  await expect(page.getByTestId(`mix-${mix}`)).toHaveAttribute("aria-checked", "true");
+}
 const lastSent = (page: Page) => page.getByTestId("last-sent");
 const dryRun = (command: string, hex: string) => `Dry run, would send ${command}: ${hex}`;
 
@@ -105,7 +110,7 @@ test("a Quadro channel routes its input to its main mix, then its fader sends se
   await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 9, { 6: [0, 1] })));
   await expect(channelIn(page, 6)).not.toHaveAttribute("inactive", "");
   // The strip acts on the selected mix, so pick the channel's main mix to work it.
-  await page.getByTestId("mix-select").selectOption("1");
+  await pickMix(page, 1);
   await expect(page.locator('ga-mix-master[mix="1"]')).toBeVisible();
 
   const fader = page.getByTestId("fader-6");
@@ -149,13 +154,12 @@ test("a Studio+ strip's reverb send shows on Mix 1 only, as the vendor panel's d
   await expect(send).toHaveAttribute("aria-valuetext", "0 dB");
 
   for (const mix of ["1", "2", "3"]) {
-    await page.getByTestId("mix-select").selectOption(mix);
-    await expect(page.getByTestId("mix-select")).toHaveValue(mix);
+    await pickMix(page, Number(mix));
     await expect(channelIn(page, 0).getByTestId("fader-0")).toHaveAttribute("aria-disabled", "false");
     await expect(channelIn(page, 0).getByRole("slider", { name: "Vox send" }), `no send on Mix ${Number(mix) + 1}`).toHaveCount(0);
     await expect(channelIn(page, 0).locator("ga-strip").getByText("Send", { exact: true })).toHaveCount(0);
   }
-  await page.getByTestId("mix-select").selectOption("0");
+  await pickMix(page, 0);
   await expect(channelIn(page, 0).getByRole("slider", { name: "Vox send" })).toHaveAttribute("aria-valuetext", "0 dB");
 
   await page.goto(`${server.url}/#/mixer/loopback-0`);
@@ -163,20 +167,29 @@ test("a Studio+ strip's reverb send shows on Mix 1 only, as the vendor panel's d
   await expect(page.getByRole("slider", { name: /send$/ }), "the Quadro's strips have none").toHaveCount(0);
 });
 
-test("the Mix menu picks the mix every strip controls; a channel not in it is greyed and can be added (the user, 2026-09-16)", async ({ page }) => {
+test("the Mix buttons pick the mix every strip controls; every channel shown, one outside it is dimmed and can be added", async ({ page }) => {
   await layout({ "loopback-1": { channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 2, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-1`);
-  const mix = page.getByTestId("mix-select");
+  const channel = channelIn(page, 0);
   const fader = page.getByTestId("fader-0");
   const inMix = page.getByTestId("in-mix-0");
 
-  // Mix 1 is selected, and Vox does not feed it: its strip is greyed, with a way to add it.
-  await expect(mix).toHaveValue("0");
+  // Mix 1 is selected, and Vox does not feed it: with only this mix's channels shown, it is not here.
+  await expect(page.getByTestId("mix-0")).toHaveAttribute("aria-checked", "true");
+  await expect(channel).toBeHidden();
+  await expect(page.getByTestId("empty-mix")).toContainText("Nothing is in Mix 1 yet");
+
+  // Showing every channel brings it back, dimmed and out of this mix, with a way to add it.
+  await page.getByTestId("show-all-channels").click();
+  await expect(channel).toBeVisible();
+  await expect(channel).toHaveAttribute("data-out-of-mix", "");
   await expect(fader).toHaveAttribute("aria-disabled", "true");
   await expect(inMix).toHaveText("Add to Mix 1");
 
-  // In its main mix it is live, and its fader and mute act on that mix.
-  await mix.selectOption("2");
+  // In its main mix it is live and in the mix, and its fader acts on that mix.
+  await pickMix(page, 2);
+  await expect(channel).not.toHaveAttribute("data-out-of-mix", "");
+  await expect(page.getByTestId("empty-mix")).toBeHidden();
   await expect(inMix).toHaveText("Main mix");
   await expect(inMix).toBeDisabled();
   await expect(fader).toHaveAttribute("aria-disabled", "false");
@@ -188,7 +201,7 @@ test("the Mix menu picks the mix every strip controls; a channel not in it is gr
   await expect(page.locator('ga-mix-master[mix="2"]')).toBeVisible();
 
   // Adding it to Mix 2 routes it there, and then its fader acts on Mix 2 and leaves Mix 3 alone.
-  await mix.selectOption("1");
+  await pickMix(page, 1);
   await expect(fader).toHaveAttribute("aria-disabled", "true");
   await inMix.click();
   // Studio+ MIX CH2 is destination 11.
@@ -201,8 +214,87 @@ test("the Mix menu picks the mix every strip controls; a channel not in it is gr
   await fader.press("End");
   await expect(lastSent(page)).toContainText(dryRun("set_mixer_cfg", mixerHex("studio", { mixer: 1, channel: 1, level: 90 })));
   await expect(page.getByTestId("level-0")).toHaveText("-90 dB");
-  await mix.selectOption("2");
+  await pickMix(page, 2);
   await expect(page.getByTestId("level-0")).toHaveText("-6 dB");
+});
+
+test("the Mix buttons are a radio group: one is checked, arrow keys move between them and the wheel does not", async ({ page }) => {
+  await layout({ "loopback-1": { mixes: [{ name: "Main" }, { name: "Cue" }], channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const group = page.getByRole("radiogroup", { name: "Mix" });
+  await expect(group.getByRole("radio")).toHaveCount(4);
+  await expect(group.getByRole("radio", { name: "Main" })).toHaveAttribute("aria-checked", "true");
+  await expect(group.getByRole("radio", { name: "Cue" })).toHaveAttribute("aria-checked", "false");
+  // Only the chosen one is in the tab order, as a radio group is.
+  expect(await group.getByRole("radio").evaluateAll((els) => els.map((e) => (e as HTMLElement).tabIndex))).toEqual([0, -1, -1, -1]);
+
+  await page.getByTestId("mix-0").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("mix-1")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("mix-1")).toBeFocused();
+  await expect(page).toHaveURL(/#\/mixer\/loopback-1\/1$/);
+  await page.keyboard.press("End");
+  await expect(page.getByTestId("mix-3")).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("mix-0"), "it wraps round").toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("mix-0")).toHaveAttribute("aria-checked", "true");
+
+  // The wheel never changes the mix: a notch here would move every strip to another mix.
+  await page.getByTestId("mix-0").hover();
+  await page.mouse.wheel(0, 200);
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId("mix-0")).toHaveAttribute("aria-checked", "true");
+});
+
+test("Show all channels is remembered per device across a reload, and the master always shows", async ({ page }) => {
+  await layout({
+    "loopback-1": {
+      channels: [
+        { id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Gtr", slot: 1, source: { group: 0, channel: 1 }, main_mix: 1, sends: [] },
+      ],
+    },
+    "loopback-0": { channels: [{ id: "q", name: "Kick", slot: 6, source: { group: 0, channel: 0 }, main_mix: 1, sends: [] }] },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const shown = () => page.locator("ga-channel:visible").evaluateAll((els) => els.map((e) => e.getAttribute("data-channel-slot")));
+  await expect.poll(shown).toEqual(["0"]);
+  // The mix's master is beside the strips whatever the filter says.
+  await expect(page.locator('ga-mix-master[mix="0"]')).toBeVisible();
+
+  const toggle = page.getByTestId("show-all-channels");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(shown).toEqual(["0", "1"]);
+
+  await page.reload();
+  await expect(page.getByTestId("show-all-channels")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(shown).toEqual(["0", "1"]);
+
+  // Per device: the Quadro keeps its own choice, which is still the default.
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.getByTestId("show-all-channels")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("a mix with nothing routed to it says so, and says how to put something there", async ({ page }) => {
+  await layout({ "loopback-1": { mixes: [{ name: "Main" }, { name: "Cue" }], channels: [{ id: "a", name: "Vox", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-1`);
+  const empty = page.getByTestId("empty-mix");
+  await expect(empty).toBeHidden();
+
+  await pickMix(page, 1);
+  await expect(empty).toContainText("Nothing is in Cue yet");
+  await expect(empty).toContainText("Show all channels");
+  await expect(empty).toContainText('Add to Cue');
+
+  // With every channel shown it no longer points at the toggle, and the channel is there to add.
+  await page.getByTestId("show-all-channels").click();
+  await expect(empty).toContainText("Nothing is in Cue yet");
+  await expect(empty).not.toContainText("Show all channels");
+  await page.getByTestId("in-mix-0").click();
+  await expect(empty).toBeHidden();
 });
 
 test("a channel on a preamp shows that preamp's controls, and they send its commands", async ({ page }) => {
@@ -280,6 +372,8 @@ test("channel heads are one height, so faders line up whatever the input and whe
   await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [1] }, { id: "b", name: "DAW", slot: 7, source: { group: 1, channel: 0 }, main_mix: 1, sends: [] }, { id: "c", name: "", slot: 8, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   await expect(page.locator("ga-channel")).toHaveCount(3);
+  // Every channel on the row, so the one whose main mix is elsewhere is measured too.
+  await page.getByTestId("show-all-channels").click();
   const top = async (slot: number) => (await page.getByTestId(`fader-${slot}`).boundingBox())?.y ?? -1;
   const [preamp, playback, inactive] = [await top(6), await top(7), await top(8)];
   expect(Math.abs(preamp - playback), "a preamp channel and a playback channel").toBeLessThanOrEqual(1);
@@ -537,9 +631,9 @@ test("a strip meters its channel's input; an input with no meter of its own show
   expect(frames.filter((f) => f.command === "set_peak_source")).toEqual([]);
 
   // A channel not in the selected mix shows no meter either; in its mix it meters again.
-  await page.getByTestId("mix-select").selectOption("1");
+  await pickMix(page, 1);
   await expect(preampMeter).toHaveAttribute("style", /height: 100%/);
-  await page.getByTestId("mix-select").selectOption("0");
+  await pickMix(page, 0);
   await expect(page.getByTestId("in-mix-1")).toHaveText("Main mix");
 
   // Linking channels uses the same badges and bar as the Inputs page; slots 1 and 2 are a device pair.
@@ -773,4 +867,94 @@ test("a mix that carries one signal twice says so on both strips, and stops when
   await page.getByLabel("Through mute").click();
   await expect(page.getByTestId("doubled-5")).toBeHidden();
   await expect(page.getByTestId("doubled-6")).toBeHidden();
+});
+
+test("two channels on one input in one mix both carry the x2 badge, on the page and in the dock", async ({ page }) => {
+  await layout({
+    "loopback-0": {
+      channels: [
+        { id: "a", name: "Vox A", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Vox B", slot: 7, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "c", name: "Kick", slot: 8, source: { group: 0, channel: 1 }, main_mix: 0, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const doubled = "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)";
+  await expect(page.getByTestId("doubled-6")).toHaveAttribute("title", doubled);
+  await expect(page.getByTestId("doubled-7")).toHaveAttribute("title", doubled);
+  await expect(page.getByTestId("doubled-8"), "the only channel on PREAMP 2").toBeHidden();
+
+  // The dock rides the same mix from another page, so it carries the badge too.
+  await page.locator('ga-header nav a[data-page="inputs"]').click();
+  await expect(page.locator("ga-mixer-dock ga-strip").first()).toBeVisible();
+  await expect(page.locator('ga-mixer-dock [data-testid="doubled-6"]')).toHaveAttribute("title", doubled);
+});
+
+test("putting an input into a mix that already has it asks first, and a second press does it anyway", async ({ page }) => {
+  await layout({
+    "loopback-0": {
+      mixes: [{ name: "Monitors" }, { name: "Cue" }],
+      channels: [
+        { id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Spare", slot: 7, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const doubled = "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)";
+
+  // Its main mix first: Mix 2 has nothing in it, so that goes straight through.
+  await page.getByTestId("out-7").selectOption("1");
+  await expect(page.getByTestId("out-confirm-7")).toBeHidden();
+
+  // Then its input, which Monitors already has on another channel: the menu waits behind Confirm.
+  await page.getByTestId("show-all-channels").click();
+  await page.getByTestId("in-7").selectOption("0:0");
+  await expect(page.getByTestId("in-confirm-7")).toBeHidden();
+  await page.getByTestId("in-mix-7").click();
+  const confirm = page.getByTestId("in-mix-7");
+  await expect(confirm).toHaveText("Confirm");
+  await expect(page.getByTestId("in-mix-7")).toHaveAttribute("data-armed", "");
+  // Nothing has been routed into Monitors yet.
+  await expect(lastSent(page)).not.toContainText(routingHex("quadro", 8, { 7: [0, 0] }));
+  await confirm.click();
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 8, { 7: [0, 0] })));
+  await expect(page.getByTestId("doubled-6")).toHaveAttribute("title", doubled);
+  await expect(page.getByTestId("doubled-7")).toHaveAttribute("title", doubled);
+});
+
+test("choosing a main mix or an input that would double one source waits behind a Confirm beside the menu", async ({ page }) => {
+  await layout({
+    "loopback-0": {
+      channels: [
+        { id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] },
+        { id: "b", name: "Spare", slot: 7, source: { group: 0, channel: 0 }, sends: [] },
+        { id: "c", name: "Kick", slot: 8, source: { group: 0, channel: 1 }, main_mix: 1, sends: [] },
+      ],
+    },
+  });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await page.getByTestId("show-all-channels").click();
+
+  // Spare carries PREAMP 1, which Mix 1 already has: choosing Mix 1 as its main mix asks first.
+  const mixConfirm = page.getByTestId("out-confirm-7");
+  await expect(mixConfirm).toBeHidden();
+  await page.getByTestId("out-7").selectOption("0");
+  await expect(mixConfirm).toBeVisible();
+  await expect(mixConfirm).toHaveAttribute("title", "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)");
+  await mixConfirm.click();
+  await expect(mixConfirm).toBeHidden();
+  await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 8, { 7: [0, 0] })));
+
+  // And the other way about: giving Kick the input its mix already has asks before routing it.
+  const inputConfirm = page.getByTestId("in-confirm-8");
+  await page.getByTestId("out-8").selectOption("0");
+  await expect(page.getByTestId("out-confirm-8"), "PREAMP 2 is in no mix, so nothing to ask").toBeHidden();
+  await page.getByTestId("in-8").selectOption("0:0");
+  await expect(inputConfirm).toBeVisible();
+  await expect(inputConfirm).toHaveAttribute("title", /PREAMP 1 is in this mix twice/);
+  await inputConfirm.click();
+  await expect(inputConfirm).toBeHidden();
+  await expect(page.getByTestId("doubled-8")).toBeVisible();
 });

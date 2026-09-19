@@ -10,15 +10,31 @@ version that has not been published yet.
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- Channels and inputs can be linked from a surface. The link badges were there, but the bar that
-  finishes the pick was not, so a link started on a surface could not be completed.
+- The Mixer shows one mix at a time, and only what is routed to it. Pick a mix from the row of
+  buttons at the top; a strip's fader is that channel's level in the mix you picked, whether it is
+  the channel's main mix or one it is sent to. **Show all channels** beside the buttons brings back
+  every channel you have made, dimmed where it belongs to another mix, so you can move one in. That
+  choice is remembered for each device, and a mix with nothing in it now says so and says how to
+  put something there.
+- The line showing the last command's bytes appears only while the explain mode is on, or in dry
+  run. It used to sit on every page all the time, where it read as debug output.
 
 ### Added
 
 - **See which version you are running.** The tray menu's first line now names it, and with the
   explain mode (**?**) on, the header shows it in dim text beside the backend badge.
+- Gazelle asks before it lets one input into a mix twice. Choosing an input or a main mix that
+  would do it waits behind a Confirm button with the reason on it, and **Add to** takes two clicks.
+  You can still do it on purpose; dry alongside the same signal through an effect chain is a
+  parallel setup and is not questioned.
+
+### Fixed
+
+- Channels and inputs can be linked from a surface. The link badges were there, but the bar that
+  finishes the pick was not, so a link started on a surface could not be completed.
+- The **×2** badge now shows on the mixer dock's slim strips too, not only on the Mixer page.
 
 ## [1.1.0] - 2026-09-19
 

@@ -10,7 +10,7 @@ The vendor's software gives each interface its own panel application, so two int
 
 - **One app for every device.** Each attached interface appears in the sidebar; a click switches the page to it. Cross-device *surfaces* put strips from both interfaces side by side.
 - **A plain mixer.** Channels are named, coloured and grouped. You choose each channel's input, the mix it plays in and the other mixes it is sent to, and Gazelle does the routing that implies.
-- **Nothing hidden.** Every page shows the last command it sent and its bytes. A *dry run* mode shows what would be sent without sending anything.
+- **Nothing hidden.** Every page can show the last command it sent and its bytes, in the explain mode and in dry run. A *dry run* mode shows what would be sent without sending anything.
 - **Small.** One executable of a few megabytes, per-user, no administrator rights, no background service of its own.
 
 ## What it is not

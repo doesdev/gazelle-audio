@@ -268,3 +268,35 @@ test.describe("on a phone", () => {
     await expect.poll(() => frames.filter((f) => f.command === "set_mute").length).toBe(1);
   });
 });
+
+// The "last command" line shows the exact bytes the app sent, which reads as debug output in
+// ordinary use (the user, 2026-09-19). It appears in the explain mode, and in dry run, where the
+// bytes are the point and it says so itself.
+test("the last command's bytes appear only in the explain mode, or in dry run", async ({ page }) => {
+  const plain = await startServer(["--backend", "loopback", "--loopback-cyclic-ms", "200"], { webUi: true });
+  try {
+    await putWorkspace(plain, { mixers: MIXERS });
+    await page.goto(`${plain.url}/#/mixer/loopback-0`);
+    const line = page.getByTestId("last-sent");
+    await expect(page.getByTestId("fader-6")).toHaveAttribute("aria-disabled", "false");
+    await page.getByTestId("fader-6").focus();
+    await page.getByTestId("fader-6").press("PageDown");
+    await expect(page.getByTestId("level-6")).toHaveText("-6 dB");
+    await expect(line, "sent, but not shown").toBeHidden();
+
+    await toggle(page).click();
+    await expect(line).toBeVisible();
+    await expect(line).toContainText("Sent set_mixer");
+    await toggle(page).click();
+    await expect(line).toBeHidden();
+  } finally {
+    await plain.stop();
+  }
+
+  // The shared server runs with --dry-run, where the line shows whether or not the mode is on.
+  await putWorkspace(server, { mixers: MIXERS });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("last-sent")).toBeVisible();
+  await expect(page.getByTestId("last-sent")).toContainText("Dry run");
+});

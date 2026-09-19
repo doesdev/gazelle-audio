@@ -58,14 +58,14 @@ One sidebar holds three sections, each folded or opened by clicking its title. I
 The **Mixer** band along the bottom of every page (except the Mixer page itself) keeps one mix's faders in reach. It shows the selected device's channels in the selected mix as slim strips, with the mix master at the right.
 
 - **Show** chooses **This device** or any [surface](13-surfaces-and-cables.md) you have built.
-- The mix menu beside the device name is the same choice as the Mixer page's Mix menu.
+- The mix menu beside the device name is the same choice as the Mixer page's Mix buttons.
 - Click the band's title to fold it away; Gazelle remembers.
 
 ## Notices and the "last sent" line
 
 Failures and warnings appear as notices in the bottom-right corner, each closed with its ×. Examples: a command that failed, a workspace change the server refused (and that has been undone on screen), or Antelope's service holding the devices.
 
-Every page that sends commands shows, at the right of its top bar, the last command it sent and its bytes, for example "Sent set_mixer: 70000000...". In dry run it reads "Dry run, would send ...".
+Every page that sends commands can show, at the right of its top bar, the last command it sent and its bytes, for example "Sent set_mixer: 70000000...". It appears while the explain mode is on, and in dry run, where it reads "Dry run, would send ..."; the rest of the time it stays out of the way.
 
 ## On a phone or a second computer
 

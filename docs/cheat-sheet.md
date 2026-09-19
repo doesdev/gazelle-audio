@@ -10,7 +10,7 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 - **48V** takes two clicks (or Ctrl+click). Check for ribbon mics; mind the thump.
 - **Clock and sample rate** changes interrupt audio. Each asks for **Confirm**. Stop playback first.
 - **Driver buffer size and Safe Mode** (Devices, Driver) restart a DAW's audio. Each asks for **Confirm**; refused while a DAW uses ASIO unless **Change anyway**.
-- **×2** on a strip: the same audio reaches that mix twice, about +6 dB.
+- **×2** on a strip: the same audio reaches that mix twice, about +6 dB. Putting one input into a mix that already has it asks for **Confirm** first.
 - **Test oscillator**: 0 dBFS is as loud as the device goes. Start at -18. Tone on takes two clicks.
 - **DC coupling** (Quadro) can damage speakers. Leave it off. On takes two clicks.
 - **Presets** recall on a second click and may change anything, 48V and clock included.
@@ -69,7 +69,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Workspace | Names, colours, surfaces, cables, snapshots, backup |
 | Inputs | Preamp type, gain, 48V, Ø; digital gains; mic emulation |
 | Outputs | Volume, Mute, Dim, CR, trims, Hard mute, talkback |
-| Mixer | Four mixes as named channels; Mono, outputs per mix |
+| Mixer | One mix at a time as named channels: the fader is the level in that mix. **Show all channels** for the rest; Mono, outputs per mix |
 | Routing | Source for every destination; Read from device |
 | Effects | Chains, effect settings, reverb |
 
@@ -93,9 +93,9 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 
 **Double-click resets:** fader -20 dB; output, CR and talkback volume -30 dB; Studio+ Send and reverb sends off; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
 
-**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, remove a channel, strip, surface, cable or snapshot. Off is one click.
+**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, putting one input into a mix twice, remove a channel, strip, surface, cable or snapshot. Off is one click.
 
-**Wheel ignored:** clock source, sample rate, driver buffer size, Add effect, a channel's Input and Main mix, + Output, Route, mix pin.
+**Wheel ignored:** the Mixer's Mix buttons, clock source, sample rate, driver buffer size, Add effect, a channel's Input and Main mix, + Output, Route, mix pin.
 
 **Hold:** Talk (mouse, Space or Enter).
 
