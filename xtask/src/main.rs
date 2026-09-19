@@ -63,7 +63,7 @@ gazelle release helper
                                      what they answer: version, can_verify, the web UI
     xtask dist --out <dir> [--bin-dir <dir>] [--docs <dir>] [--target <triple>]
                                      collect the release directory under the names the updater
-                                     asks for, with the zip and the PDFs
+                                     asks for, with the setup file, the zip and the PDFs
     xtask pubkey [--key <file>] [--expect <hex>]
                                      print the public half of the signing key; fails if it is
                                      not the expected one

@@ -27,12 +27,24 @@
 //! lowest-numbered group icon is the one Explorer shows for the file**, which is why it is 1.
 //! The group's entries are the `.ico` directory's, with the 4-byte file offset replaced by the
 //! 2-byte resource id. That substitution is the entire difference between the two formats.
+//!
+//! And one `RT_MANIFEST` named `1`, `assets/gazelle.manifest` byte for byte: the application
+//! manifest Windows reads when it starts the program. It says the program runs as whoever
+//! started it (`asInvoker`). Without one, Windows may guess from the file name alone that a
+//! program called `Gazelle-Setup.exe` is an installer and ask for administrator rights, which a
+//! per-user install neither needs nor should have. It also asks for version 6 of the common
+//! controls, which the setup dialog (`TaskDialogIndirect`) exists only in, and names Windows 10
+//! and 11 as the systems it was written for. Nothing else in the build writes a manifest (the
+//! linker is not asked to), so this is the only one.
 
 use std::path::Path;
 
 /// Resource types, from `winuser.h`.
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
+const RT_MANIFEST: u32 = 24;
+/// `CREATEPROCESS_MANIFEST_RESOURCE_ID`: the manifest an executable is started with.
+const PROCESS_MANIFEST: u32 = 1;
 /// en-US, which is what `rc.exe` stamps on a resource with no `LANGUAGE` statement.
 const LANGUAGE: u32 = 0x0409;
 
@@ -121,8 +133,8 @@ struct Resource {
     body: Vec<u8>,
 }
 
-/// A COFF object holding the icon, ready to be handed to the linker.
-pub fn coff(images: &[Image], arch: &str) -> Result<Vec<u8>, String> {
+/// A COFF object holding the icon and the manifest, ready to be handed to the linker.
+pub fn coff(images: &[Image], manifest: &[u8], arch: &str) -> Result<Vec<u8>, String> {
     let (machine, relocation) = machine(arch).ok_or_else(|| format!("no COFF machine type is known for {arch}"))?;
 
     let mut resources: Vec<Resource> = images
@@ -131,6 +143,7 @@ pub fn coff(images: &[Image], arch: &str) -> Result<Vec<u8>, String> {
         .map(|(i, image)| Resource { kind: RT_ICON, id: icon_id(i) as u32, body: image.body.clone() })
         .collect();
     resources.push(Resource { kind: RT_GROUP_ICON, id: 1, body: group(images) });
+    resources.push(Resource { kind: RT_MANIFEST, id: PROCESS_MANIFEST, body: manifest.to_vec() });
     // The resource directory is a search tree: every level must be sorted by its key, because
     // the loader binary-searches it.
     resources.sort_by_key(|r| (r.kind, r.id));
@@ -293,10 +306,11 @@ fn write_section_symbol(out: &mut Vec<u8>, name: &[u8; 8], section: i16, length:
 ///
 /// The caller decides what to do with a failure. Embedding nothing is not fatal (the app runs
 /// without an icon), but it is never silent.
-pub fn write_object(ico: &Path, out: &Path, arch: &str) -> Result<(), String> {
+pub fn write_object(ico: &Path, manifest: &Path, out: &Path, arch: &str) -> Result<(), String> {
     let bytes = std::fs::read(ico).map_err(|e| format!("reading {}: {e}", ico.display()))?;
     let images = read_ico(&bytes)?;
-    let object = coff(&images, arch)?;
+    let manifest = std::fs::read(manifest).map_err(|e| format!("reading {}: {e}", manifest.display()))?;
+    let object = coff(&images, &manifest, arch)?;
     std::fs::write(out, object).map_err(|e| format!("writing {}: {e}", out.display()))
 }
 
@@ -307,6 +321,11 @@ mod tests {
     /// The committed icon, read the way the build reads it.
     fn committed() -> Vec<u8> {
         std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/gazelle.ico")).unwrap()
+    }
+
+    /// The committed application manifest, likewise.
+    fn manifest() -> Vec<u8> {
+        std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/gazelle.manifest")).unwrap()
     }
 
     #[test]
@@ -353,7 +372,7 @@ mod tests {
     #[test]
     fn the_object_carries_a_resource_tree_the_loader_can_walk() {
         let images = read_ico(&committed()).unwrap();
-        let object = coff(&images, "x86_64").unwrap();
+        let object = coff(&images, &manifest(), "x86_64").unwrap();
 
         // The file header, then the two sections the linker merges.
         assert_eq!(u16::from_le_bytes(object[0..2].try_into().unwrap()), 0x8664);
@@ -367,9 +386,10 @@ mod tests {
         let tree = &object[directory_at..directory_at + directory_len];
         let data = &object[data_at..];
 
-        // Level 1: RT_ICON (3) then RT_GROUP_ICON (14), sorted, both subdirectories.
-        assert_eq!(u16::from_le_bytes(tree[14..16].try_into().unwrap()), 2, "two resource types");
-        let types: Vec<(u32, u32)> = (0..2)
+        // Level 1: RT_ICON (3), RT_GROUP_ICON (14) then RT_MANIFEST (24), sorted, all
+        // subdirectories.
+        assert_eq!(u16::from_le_bytes(tree[14..16].try_into().unwrap()), 3, "three resource types");
+        let types: Vec<(u32, u32)> = (0..3)
             .map(|i| {
                 let at = 16 + 8 * i;
                 (
@@ -378,8 +398,8 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(types.iter().map(|t| t.0).collect::<Vec<_>>(), [RT_ICON, RT_GROUP_ICON]);
-        assert!(types.iter().all(|t| t.1 & 0x8000_0000 != 0), "both are subdirectories");
+        assert_eq!(types.iter().map(|t| t.0).collect::<Vec<_>>(), [RT_ICON, RT_GROUP_ICON, RT_MANIFEST]);
+        assert!(types.iter().all(|t| t.1 & 0x8000_0000 != 0), "all are subdirectories");
 
         // Follow RT_ICON down to each leaf and check the bytes are the .ico's, unchanged.
         let icons = (types[0].1 & 0x7FFF_FFFF) as usize;
@@ -400,14 +420,31 @@ mod tests {
         let groups = (types[1].1 & 0x7FFF_FFFF) as usize;
         assert_eq!(u16::from_le_bytes(tree[groups + 14..groups + 16].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(tree[groups + 16..groups + 20].try_into().unwrap()), 1);
+
+        // The manifest is id 1, the one CreateProcess reads, and its bytes are the file's.
+        let manifests = (types[2].1 & 0x7FFF_FFFF) as usize;
+        assert_eq!(u16::from_le_bytes(tree[manifests + 14..manifests + 16].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(tree[manifests + 16..manifests + 20].try_into().unwrap()), PROCESS_MANIFEST);
+        let languages = (u32::from_le_bytes(tree[manifests + 20..manifests + 24].try_into().unwrap()) & 0x7FFF_FFFF) as usize;
+        let entry = u32::from_le_bytes(tree[languages + 20..languages + 24].try_into().unwrap()) as usize;
+        let offset = u32::from_le_bytes(tree[entry..entry + 4].try_into().unwrap()) as usize;
+        let size = u32::from_le_bytes(tree[entry + 4..entry + 8].try_into().unwrap()) as usize;
+        assert_eq!(&data[offset..offset + size], manifest().as_slice());
+    }
+
+    #[test]
+    fn the_committed_manifest_runs_as_the_invoker_with_common_controls_6() {
+        let text = String::from_utf8(manifest()).unwrap();
+        assert!(text.contains(r#"<requestedExecutionLevel level="asInvoker" uiAccess="false"/>"#));
+        assert!(text.contains(r#"name="Microsoft.Windows.Common-Controls" version="6.0.0.0""#));
     }
 
     #[test]
     fn every_data_entrys_rva_field_is_relocated_against_the_data_section() {
         let images = read_ico(&committed()).unwrap();
-        let object = coff(&images, "x86_64").unwrap();
+        let object = coff(&images, &manifest(), "x86_64").unwrap();
         let count = u16::from_le_bytes(object[20 + 32..20 + 34].try_into().unwrap()) as usize;
-        assert_eq!(count, images.len() + 1, "one per icon, plus the group");
+        assert_eq!(count, images.len() + 2, "one per icon, plus the group and the manifest");
 
         let at = u32::from_le_bytes(object[20 + 24..20 + 28].try_into().unwrap()) as usize;
         let directory_len = u32::from_le_bytes(object[20 + 16..20 + 20].try_into().unwrap()) as usize;
@@ -426,7 +463,7 @@ mod tests {
     #[test]
     fn the_symbol_table_defines_both_sections_and_the_string_table_is_present() {
         let images = read_ico(&committed()).unwrap();
-        let object = coff(&images, "x86_64").unwrap();
+        let object = coff(&images, &manifest(), "x86_64").unwrap();
         let at = u32::from_le_bytes(object[8..12].try_into().unwrap()) as usize;
         assert_eq!(u32::from_le_bytes(object[12..16].try_into().unwrap()), 4, "two symbols, each with one aux record");
         assert_eq!(&object[at..at + 8], b".rsrc$01");
@@ -441,10 +478,10 @@ mod tests {
     #[test]
     fn the_object_is_the_same_bytes_every_run_and_is_written_only_for_known_architectures() {
         let images = read_ico(&committed()).unwrap();
-        assert_eq!(coff(&images, "x86_64").unwrap(), coff(&images, "x86_64").unwrap());
-        assert_ne!(coff(&images, "x86_64").unwrap(), coff(&images, "aarch64").unwrap());
+        assert_eq!(coff(&images, &manifest(), "x86_64").unwrap(), coff(&images, &manifest(), "x86_64").unwrap());
+        assert_ne!(coff(&images, &manifest(), "x86_64").unwrap(), coff(&images, &manifest(), "aarch64").unwrap());
         assert_eq!(machine("x86"), Some((0x014C, 0x0007)));
         assert!(machine("riscv64").is_none());
-        assert!(coff(&images, "riscv64").unwrap_err().contains("riscv64"));
+        assert!(coff(&images, &manifest(), "riscv64").unwrap_err().contains("riscv64"));
     }
 }

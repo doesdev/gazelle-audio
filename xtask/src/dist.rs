@@ -6,7 +6,13 @@
 //! | `gazelle-audio-server-<target>.exe` | `<bin-dir>/gazelle-audio-server.exe` |
 //! | `gazelle-audio-serverw-<target>.exe` | `<bin-dir>/gazelle-audio-serverw.exe` |
 //! | `gazelle-audio-<target>.zip` | both of those, under their plain names, for a person |
+//! | `Gazelle-Setup.exe` | `<bin-dir>/gazelle-audio-serverw.exe` again, Windows only: the file a person downloads to install |
 //! | `gazelle-manual.pdf`, `gazelle-cheat-sheet.pdf` | `<docs>/`, from `pnpm -C web docs:pdf` |
+//!
+//! The setup file is the windowless build byte for byte; its name is what makes it offer to
+//! install when double-clicked (`install::setup` in the server). It is signed into `SHA256SUMS`
+//! with everything else, and the updater never asks for it: it fetches assets by their exact
+//! names, and this is not one of them.
 //!
 //! The asset names come from the updater's own `binary_asset_name`, and `<target>` defaults to
 //! the triple the server's `build.rs` recorded for this helper's build, which is the host's, as
@@ -27,9 +33,18 @@ use gazelle_audio_server::update::BINARIES;
 
 pub const MANUAL: &str = "gazelle-manual.pdf";
 pub const CHEAT_SHEET: &str = "gazelle-cheat-sheet.pdf";
+/// The setup file: a copy of the windowless build, on Windows targets.
+pub const SETUP: &str = "Gazelle-Setup.exe";
+/// The build the setup file is a copy of.
+pub const SETUP_FROM: &str = "gazelle-audio-serverw";
 
 pub fn zip_name(target: &str) -> String {
     format!("gazelle-audio-{target}.zip")
+}
+
+/// Whether a release for `target` carries the setup file. Only Windows has an installer.
+pub fn has_setup(target: &str) -> bool {
+    target.contains("windows")
 }
 
 /// A binary's file name as cargo writes it for `target`.
@@ -47,6 +62,9 @@ pub fn expected(target: &str) -> BTreeSet<String> {
     names.insert(zip_name(target));
     names.insert(MANUAL.to_string());
     names.insert(CHEAT_SHEET.to_string());
+    if has_setup(target) {
+        names.insert(SETUP.to_string());
+    }
     names
 }
 
@@ -54,6 +72,8 @@ pub fn expected(target: &str) -> BTreeSet<String> {
 pub fn dist(out: &Path, bin_dir: &Path, docs: &Path, target: &str) -> Result<Vec<PathBuf>, String> {
     let binaries: Vec<(PathBuf, String)> =
         BINARIES.iter().map(|stem| (bin_dir.join(built_name(stem, target)), binary_asset_name(stem, target))).collect();
+    let setup: Vec<(PathBuf, String)> =
+        if has_setup(target) { vec![(bin_dir.join(built_name(SETUP_FROM, target)), SETUP.to_string())] } else { Vec::new() };
     let pdfs: Vec<(PathBuf, String)> = [MANUAL, CHEAT_SHEET].iter().map(|name| (docs.join(name), name.to_string())).collect();
 
     // Everything must be there before anything is written, so a failure leaves no half release.
@@ -83,7 +103,7 @@ pub fn dist(out: &Path, bin_dir: &Path, docs: &Path, target: &str) -> Result<Vec
         std::fs::create_dir_all(out).map_err(|e| format!("creating {}: {e}", out.display()))?;
     }
 
-    for (source, name) in binaries.iter().chain(&pdfs) {
+    for (source, name) in binaries.iter().chain(&setup).chain(&pdfs) {
         std::fs::copy(source, out.join(name)).map_err(|e| format!("copying {} to {}: {e}", source.display(), out.join(name).display()))?;
     }
     let sources: Vec<PathBuf> = binaries.iter().map(|(source, _)| source.clone()).collect();
@@ -171,6 +191,7 @@ mod tests {
         assert_eq!(
             expected(TARGET).into_iter().collect::<Vec<_>>(),
             [
+                "Gazelle-Setup.exe",
                 "gazelle-audio-server-x86_64-pc-windows-msvc.exe",
                 "gazelle-audio-serverw-x86_64-pc-windows-msvc.exe",
                 "gazelle-audio-x86_64-pc-windows-msvc.zip",
@@ -184,6 +205,12 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_a_windows_release_carries_the_setup_file() {
+        assert!(!expected("x86_64-unknown-linux-gnu").contains(SETUP), "there is no installer anywhere else");
+        assert!(expected("aarch64-pc-windows-msvc").contains(SETUP));
+    }
+
     #[cfg(windows)]
     #[test]
     fn dist_writes_exactly_the_release_and_the_zip_holds_both_binaries_by_their_plain_names() {
@@ -193,6 +220,7 @@ mod tests {
         let out = dir.0.join("out");
         assert_eq!(std::fs::read(out.join("gazelle-audio-server-x86_64-pc-windows-msvc.exe")).unwrap(), b"console build");
         assert_eq!(std::fs::read(out.join("gazelle-audio-serverw-x86_64-pc-windows-msvc.exe")).unwrap(), b"windowless build");
+        assert_eq!(std::fs::read(out.join(SETUP)).unwrap(), b"windowless build", "the setup file is the windowless build");
         assert_eq!(std::fs::read(out.join(MANUAL)).unwrap(), b"%PDF manual");
 
         let unzipped = dir.0.join("unzipped");

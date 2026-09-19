@@ -10,6 +10,14 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **Install without a terminal:** download `Gazelle-Setup.exe`, double-click it and choose
+  Install. It installs for your account with no administrator rights, adds Gazelle to the Start
+  Menu and opens it. Run it again to update an older version; it never replaces a newer one, and
+  if Gazelle is running it asks you to quit it first. Double-clicking the app from an unzipped
+  download also offers to install it, or to run it from where it is without asking again.
+
 ### Fixed
 
 - Gazelle starts on a fresh Windows installation. It no longer needs Microsoft's Visual C++

@@ -10,7 +10,8 @@
 //!
 //! On Windows it also hands the linker a COFF object carrying `assets/gazelle.ico`, so both
 //! binaries show the app's own icon in Explorer, the taskbar, the Start Menu shortcut, the
-//! Add/Remove Programs entry and the window. See `build/resource.rs`.
+//! Add/Remove Programs entry and the window, and the application manifest, which says both run
+//! as whoever started them rather than asking for elevation. See `build/resource.rs`.
 
 #[path = "build/resource.rs"]
 mod resource;
@@ -44,22 +45,24 @@ fn main() {
     embed_the_icon(&manifest);
 }
 
-/// Put the icon resource in every binary this package builds: both of them.
+/// Put the icon and the application manifest in every binary this package builds: both of them.
 ///
 /// `rustc-link-arg-bins` reaches the two `bin` targets and nothing else, which is what is
 /// wanted: a test executable has no use for an icon. A failure here is a warning rather than a
 /// broken build (the app runs perfectly well with the default executable icon), and a release
-/// that quietly lost it is caught by `tests/icon.rs` instead.
+/// that quietly lost either resource is caught by `tests/icon.rs` instead.
 fn embed_the_icon(manifest: &std::path::Path) {
     let ico = manifest.join("assets/gazelle.ico");
+    let app_manifest = manifest.join("assets/gazelle.manifest");
     println!("cargo:rerun-if-changed={}", ico.display());
+    println!("cargo:rerun-if-changed={}", app_manifest.display());
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let object = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("gazelle-icon.o");
-    match resource::write_object(&ico, &object, &arch) {
+    match resource::write_object(&ico, &app_manifest, &object, &arch) {
         Ok(()) => println!("cargo:rustc-link-arg-bins={}", object.display()),
-        Err(e) => println!("cargo:warning=the icon was not embedded: {e}"),
+        Err(e) => println!("cargo:warning=the icon and the manifest were not embedded: {e}"),
     }
 }

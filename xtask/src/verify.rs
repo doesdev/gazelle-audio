@@ -8,7 +8,8 @@
 //!
 //! - every line of `SHA256SUMS` parses, and no name appears twice;
 //! - every file in the directory is listed, and every listed file is there, with that digest;
-//! - both binaries the updater asks for on this target are there.
+//! - both binaries the updater asks for on this target are there;
+//! - on Windows, the setup file is there and is the windowless build byte for byte.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -70,6 +71,20 @@ pub fn verify(dir: &Path, pubkey: &str, target: &str) -> Result<Vec<PathBuf>, St
         }
     }
 
+    // The setup file is what a person downloads to install, so a Windows release without it is
+    // missing its front door; and it must be the windowless build exactly, not a stale copy.
+    if crate::dist::has_setup(target) {
+        let setup = crate::dist::SETUP;
+        let windowless = binary_asset_name(crate::dist::SETUP_FROM, target);
+        match (sums.get(setup), sums.get(&windowless)) {
+            (None, _) => return Err(format!("{setup} is not in the release; a person on {target} installs from it")),
+            (Some(a), Some(b)) if a != b => {
+                return Err(format!("{setup} is not the same file as {windowless}; it must be a copy of the windowless build"))
+            }
+            _ => {}
+        }
+    }
+
     let mut upload: Vec<PathBuf> = sums.keys().map(|name| dir.join(name)).collect();
     upload.push(dir.join(SUMS_NAME));
     upload.push(dir.join(SIGNATURE_NAME));
@@ -114,6 +129,7 @@ mod tests {
         for stem in BINARIES {
             std::fs::write(dir.dist().join(binary_asset_name(stem, TARGET)), format!("{stem} bytes")).unwrap();
         }
+        std::fs::write(dir.dist().join(crate::dist::SETUP), "gazelle-audio-serverw bytes").unwrap();
         std::fs::write(dir.dist().join("gazelle-manual.pdf"), b"%PDF manual").unwrap();
         let key = dir.0.join("k.key");
         std::fs::write(&key, to_hex(&[3u8; 32])).unwrap();
@@ -129,6 +145,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "Gazelle-Setup.exe",
                 "gazelle-audio-server-x86_64-pc-windows-msvc.exe",
                 "gazelle-audio-serverw-x86_64-pc-windows-msvc.exe",
                 "gazelle-manual.pdf",
@@ -186,6 +203,30 @@ mod tests {
         let dir = signed("other-target");
         let error = verify(&dir.dist(), &public(3), "aarch64-pc-windows-msvc").unwrap_err();
         assert!(error.contains("gazelle-audio-server-aarch64-pc-windows-msvc.exe is not in the release"), "{error}");
+    }
+
+    /// Signed again after changing the directory, so only the setup-file rules can refuse it.
+    fn resign(dir: &Dir) {
+        let key = dir.0.join("k.key");
+        crate::sign(&dir.dist(), Some(key)).unwrap();
+    }
+
+    #[test]
+    fn a_windows_release_without_its_setup_file_is_refused() {
+        let dir = signed("no-setup");
+        std::fs::remove_file(dir.dist().join(crate::dist::SETUP)).unwrap();
+        resign(&dir);
+        let error = verify(&dir.dist(), &public(3), TARGET).unwrap_err();
+        assert!(error.contains("Gazelle-Setup.exe is not in the release"), "{error}");
+    }
+
+    #[test]
+    fn a_setup_file_that_is_not_the_windowless_build_is_refused() {
+        let dir = signed("setup-differs");
+        std::fs::write(dir.dist().join(crate::dist::SETUP), b"something else").unwrap();
+        resign(&dir);
+        let error = verify(&dir.dist(), &public(3), TARGET).unwrap_err();
+        assert!(error.contains("Gazelle-Setup.exe is not the same file as gazelle-audio-serverw-x86_64-pc-windows-msvc.exe"), "{error}");
     }
 
     #[test]

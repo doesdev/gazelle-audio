@@ -1,10 +1,31 @@
 # Install, update and uninstall
 
-Gazelle installs for your Windows user account only: no administrator rights, no installer program, no system-wide changes. The program you download is its own installer.
+Gazelle installs for your Windows user account only: no administrator rights, no system-wide changes. The program you download is its own installer.
 
 ## Install
 
-From a terminal in the folder where you unzipped a release:
+### With the setup file
+
+Download `Gazelle-Setup.exe` from a release and double-click it. (Windows SmartScreen may say "Windows protected your PC" the first time, because the program is not code-signed: choose **More info**, then **Run anyway**.) A small window titled **Gazelle** asks one question, depending on what is already installed:
+
+| What is installed | What it asks | What you can choose |
+|---|---|---|
+| Nothing | "Install Gazelle for your account? It goes in your user folder, needs no administrator rights, and adds Gazelle to the Start Menu." | **Install**, **Cancel** |
+| An older version | "Gazelle 1.0.0 is installed. Replace it with Gazelle 1.1.0? Your settings and layouts are kept." | **Replace**, **Cancel** |
+| The same version | "Gazelle 1.1.0 is already installed." | **Open Gazelle**, **Install again**, **Cancel** |
+| A newer version | "A newer Gazelle is already installed: version 1.2.0. This file is version 1.1.0, so it will not replace it." | **Open Gazelle**, **Cancel** |
+
+(The version numbers are examples.) After **Install**, **Replace** or **Install again**, Gazelle opens from its installed copy, and the setup file can be deleted. A setup file never replaces a newer version with an older one.
+
+If the installed copy is running, it cannot be replaced while it runs, and the setup file says so: "Gazelle is running, so it cannot be replaced yet." Right-click the Gazelle icon in the notification area, next to the clock, choose **Quit**, then choose **Try again**.
+
+The setup file is the windowless program from the zip under another name; the name is what makes it offer to install. It installs only that program, so an install from it has no console program in the install folder. Everything in this chapter works the same way; the uninstall in Settings, Apps uses the windowless program instead, and keeps your settings.
+
+### From the zip
+
+Double-clicking `gazelle-audio-serverw.exe` in an unzipped release, while nothing is installed, asks the same first question with a third choice, **Run without installing**. That runs Gazelle from where it is, and it never asks again (the choice is kept in `%APPDATA%\gazelle\setup.json`; delete that file to be asked again). Once Gazelle is installed it no longer asks.
+
+Or install from a terminal in the folder where you unzipped a release:
 
 ```
 gazelle-audio-server.exe --install              asks whether to start it
@@ -16,18 +37,18 @@ It creates exactly three things, and prints where:
 
 | What | Where |
 |---|---|
-| Both programs | `%LOCALAPPDATA%\Programs\Gazelle` |
+| Both programs (the setup file: the windowless one) | `%LOCALAPPDATA%\Programs\Gazelle` |
 | A Start Menu shortcut, **Gazelle** | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Gazelle.lnk` |
 | An entry in Settings, Apps | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Gazelle` |
 
 The shortcut runs the windowless program with no arguments, so it talks to your interfaces with the default settings.
 
 - Run from a terminal with neither `--start` nor `--no-start`, it asks "Start Gazelle now?". Run where nobody can answer (from Explorer or a script), it **starts** the installed copy. With `--yes`, it does not.
-- **Upgrading** is the same command from a newer download. It refuses, and changes nothing, while the installed copy is running: quit it from the tray first.
+- **Upgrading** is the same command from a newer download, or the newer setup file. It refuses, and changes nothing, while the installed copy is running: quit it from the tray first.
 - If **Start on boot** was on, the login entry is pointed at the installed copy. An install never turns Start on boot on by itself.
 - After installing, the folder you unzipped can be deleted.
 
-The installer has been tested against a temporary folder and a test registry key, not yet by hand on a real user account.
+The installer has been tested against a temporary folder and a test registry key, not yet by hand on a real user account. The setup file's decisions are tested the same way; its dialogs have not yet been clicked through by hand, nor has SmartScreen been seen on a downloaded copy.
 
 ## Start on boot
 
@@ -65,6 +86,8 @@ From **Settings, Apps, Gazelle, Uninstall**, or from a terminal:
 "%LOCALAPPDATA%\Programs\Gazelle\gazelle-audio-server.exe" --uninstall
 ```
 
+An install from the setup file has only the windowless program, so from a terminal that is `gazelle-audio-serverw.exe --uninstall` in the same folder; it prints nothing and keeps your settings.
+
 It removes the programs, the shortcut, the Settings entry and any leftover `.exe.old` files, and nothing else. A file you put in the install folder yourself is left there, with its folder. Quit Gazelle first.
 
 Your settings (`%APPDATA%\gazelle`: workspace, layouts, themes, snapshots, window and update settings) and logs (`%LOCALAPPDATA%\gazelle`) are **kept** unless you say otherwise:
@@ -87,6 +110,7 @@ An uninstall started from the install folder itself copies itself to your tempor
 | `%APPDATA%\gazelle\themes\` | Your own themes, if any |
 | `%APPDATA%\gazelle\window.json` | The window's size and position |
 | `%APPDATA%\gazelle\update.json` | Update settings |
+| `%APPDATA%\gazelle\setup.json` | Present only if you chose **Run without installing** |
 | `%LOCALAPPDATA%\gazelle\logs\gazelle.log` | The log; see [Logs](16-troubleshooting.md#logs) |
 
 Setting the `GAZELLE_CONFIG_DIR` environment variable moves the settings (not the logs) elsewhere.

@@ -33,6 +33,8 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 
 ## Install and start
 
+Double-click `Gazelle-Setup.exe`, choose **Install**. Or, from the zip:
+
 ```
 gazelle-audio-server.exe --install
 ```

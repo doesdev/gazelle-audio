@@ -17,13 +17,20 @@ in front. The updater tolerates a leading `v`, but the release workflow and
 |---|---|
 | `gazelle-audio-server-<target>.exe` | The console build: the asset the updater fetches |
 | `gazelle-audio-serverw-<target>.exe` | The windowless build, fetched too when it is installed |
+| `Gazelle-Setup.exe` | Windows only: the windowless build byte for byte, under the name a person downloads to install. Double-clicked, it offers to install itself. The updater ignores it |
 | `gazelle-audio-<target>.zip` | Both binaries, for a person downloading by hand; the updater ignores it |
 | `gazelle-manual.pdf`, `gazelle-cheat-sheet.pdf` | The docs; once per release, not per target |
 | `SHA256SUMS` | One `<digest>  <name>` line per asset |
 | `SHA256SUMS.sig` | 64 raw bytes: the detached ed25519 signature over `SHA256SUMS` |
 
 `<target>` is the Rust target triple, such as `x86_64-pc-windows-msvc`, recorded at build time
-by the server's `build.rs`. Non-Windows targets drop the `.exe`.
+by the server's `build.rs`. Non-Windows targets drop the `.exe`, and carry no setup file.
+
+The setup file has no target in its name because it is the link a person follows, and Windows
+on x86_64 is the only build there is. Its name is what puts the windowless build into setup mode
+(the server's `install/setup.rs`); both binaries embed an application manifest saying they run
+as the invoker, so Windows never takes a file called "Setup" for an installer that needs
+administrator rights.
 
 The asset the updater fetches is the executable itself, not an archive: unpacking an archive
 from the network would be code running on bytes nothing has verified yet, while a bare binary
@@ -87,7 +94,8 @@ xtask sign --dir <dir> --key <file>
                                  refuses a key inside <dir> and any file there that looks like a key
 xtask verify --dir <dir> --pubkey <hex>
                                  the updater's own checks, plus: every file listed, every listed file
-                                 there, both binaries present; prints the upload list
+                                 there, both binaries present, and on Windows the setup file present
+                                 and identical to the windowless build; prints the upload list
 ```
 
 ### The manual fallback
@@ -124,8 +132,8 @@ GAZELLE_NO_HARDWARE=1 cargo run -p xtask -- smoke --version X.Y.Z --pubkey <64 h
 #     commits (docs/dist/ is ignored).
 GAZELLE_BIN=target/release/gazelle-audio-server.exe corepack pnpm -C web docs:pdf
 
-# 5. Collect the release directory under the names the updater asks for, with the zip and the
-#    PDFs. It refuses a directory that already holds anything.
+# 5. Collect the release directory under the names the updater asks for, with the setup file,
+#    the zip and the PDFs. It refuses a directory that already holds anything.
 cargo run -p xtask -- dist --out dist
 
 # 6. Sign, LAST, after every file is in the directory. Everything in it is hashed, so the key
@@ -161,7 +169,7 @@ Before tagging, all of these must be true:
 | 5 | **Both binaries carry the icon.** | `cargo test -p gazelle-audio-server --test icon`, and by eye in Explorer |
 | 6 | **The workspace is green**, with the window feature compiling. | `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo check -p gazelle-audio-server --features window` |
 | 7 | **The web UI is built**, or the binary embeds a "not built" notice page instead of the app. | `pnpm -C web build` before the release build; `xtask smoke` checks `GET /` is the app |
-| 8 | **The installer works by hand**: a real `--install`, the Start Menu entry, the entry in Settings, Apps, an uninstall from that list, and an uninstall of a relocated copy removing its own binary. | By hand |
+| 8 | **The installer works by hand**: `Gazelle-Setup.exe` downloaded from the draft release and double-clicked (no administrator prompt; SmartScreen's "More info", "Run anyway"), run again over the install, a real `--install`, the Start Menu entry, the entry in Settings, Apps, an uninstall from that list, and an uninstall of a relocated copy removing its own binary. | By hand; `cargo test -p gazelle-audio-server --test icon` checks the manifest that keeps the setup file from asking for elevation |
 | 9 | **A staged update restarts into the new version**, including from the tray's "Restart to update" item. | Step 9 above |
 | 10 | **The docs are current and print.** The manual and the cheat sheet describe this version and their PDFs build. | `corepack pnpm -C web docs:pdf` passes its checks (no em or en dashes, links and images resolve, the command-line chapter matches the release binary's `--help`) and writes both PDFs; the manual's title page names the version |
 

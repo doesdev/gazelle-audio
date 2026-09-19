@@ -13,24 +13,30 @@ This chapter takes you from nothing to a first look at your interfaces. If you o
 
 ### From a release
 
-Each release on the project's GitHub page (https://github.com/doesdev/gazelle-audio/releases) carries a zip for Windows, `gazelle-audio-x86_64-pc-windows-msvc.zip`, holding two programs:
+Each release on the project's GitHub page (https://github.com/doesdev/gazelle-audio/releases) carries a setup file for Windows, `Gazelle-Setup.exe`. To install Gazelle:
+
+1. Download `Gazelle-Setup.exe` from the release's **Assets**.
+2. Double-click it. The program is **not code-signed**, so Windows SmartScreen may say "Windows protected your PC". Choose **More info**, then **Run anyway**, but only if you downloaded the file from the project's own releases page.
+3. Gazelle asks "Install Gazelle for your account?". Choose **Install**.
+
+That is all: Gazelle copies itself to `%LOCALAPPDATA%\Programs\Gazelle`, adds **Gazelle** to the Start Menu and to Settings, Apps, and opens. No administrator rights are needed, and Windows does not ask for them. You can delete the downloaded file afterwards. Chapter 15, [Install, update and uninstall](15-install-update-uninstall.md), has the details, including what happens when you run it over an installed copy.
+
+#### Or from the zip
+
+The same release also carries a zip, `gazelle-audio-x86_64-pc-windows-msvc.zip`, holding two programs:
 
 | File | What it is |
 |---|---|
-| `gazelle-audio-server.exe` | Gazelle with a console window, for the command line and for installing |
+| `gazelle-audio-server.exe` | Gazelle with a console window, for the command line |
 | `gazelle-audio-serverw.exe` | The same program with no console window: what the Start Menu shortcut runs |
 
-Unzip it anywhere. The programs are **not code-signed**, so the first time you run one, Windows SmartScreen may say it "protected your PC". Choose **More info** and **Run anyway** only if you downloaded the zip from the project's own releases page.
-
-To install it (recommended: it adds a Start Menu entry and lets the updater work), open a terminal in the unzipped folder and run:
+Unzip it anywhere (SmartScreen may warn as above). Double-click `gazelle-audio-serverw.exe` and it offers the same choice as the setup file, plus a third: **Run without installing**, which runs Gazelle from the unzipped folder and never asks again. Or install from a terminal in the unzipped folder:
 
 ```
 gazelle-audio-server.exe --install
 ```
 
-It copies both programs to `%LOCALAPPDATA%\Programs\Gazelle`, adds **Gazelle** to the Start Menu and to Settings, Apps, and asks whether to start it. After that you can delete the unzipped folder. Chapter 15, [Install, update and uninstall](15-install-update-uninstall.md), has the details.
-
-You can also run Gazelle without installing it: double-click `gazelle-audio-serverw.exe`.
+It installs both programs where the setup file would, and asks whether to start Gazelle.
 
 ### From source
 

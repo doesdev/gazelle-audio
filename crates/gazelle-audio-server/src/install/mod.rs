@@ -15,8 +15,15 @@
 //!
 //! What it deliberately does not do: an MSI, a WiX or NSIS build step, elevation, a service, or
 //! anything machine-wide: the app is portable, and installing is copying it into place.
+//!
+//! The release's `Gazelle-Setup.exe` is the same install without a terminal: the windowless
+//! build, which on a double-click asks in a small dialog and calls [`install_windowless`]
+//! (`setup`).
 
+#[cfg(windows)]
+mod dialog;
 pub mod registry;
+pub mod setup;
 pub mod shortcut;
 
 use std::io;
@@ -42,8 +49,10 @@ pub const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Unin
 pub const UNINSTALL_KEY_VAR: &str = "GAZELLE_UNINSTALL_KEY";
 /// The Start Menu file name.
 pub const SHORTCUT_FILE: &str = "Gazelle.lnk";
-/// The console build, which is always the one an install is driven from.
+/// The console build: the one Add/Remove Programs uninstalls with, when it is installed.
 pub const CONSOLE_BINARY: &str = "gazelle-audio-server";
+/// The windowless build: what the shortcut runs, and what the setup file is a copy of.
+pub const WINDOWLESS_BINARY: &str = "gazelle-audio-serverw";
 
 /// Where an install puts things, read from the environment so a test can point it at a temporary
 /// root.
@@ -172,27 +181,58 @@ pub struct Removed {
 /// replace a running image.** A running copy is refused with a message saying how to stop it,
 /// and nothing is changed.
 pub fn install(ctx: &Context, source: &Path) -> Result<Installed, String> {
-    let dir = &ctx.layout.programs;
     let source = absolute(source);
-    if is_inside(&source, dir) {
+    let sources: Vec<(PathBuf, std::ffi::OsString)> = update::siblings(&source)
+        .into_iter()
+        .filter(|p| p.is_file())
+        .map(|p| {
+            let name = p.file_name().unwrap_or_default().to_os_string();
+            (p, name)
+        })
+        .collect();
+    plant(ctx, &source, sources)
+}
+
+/// Install the running **windowless** build, whatever its file is called.
+///
+/// This is what the setup file does: the release's `Gazelle-Setup.exe` is the windowless build
+/// under a name a person recognises, downloaded on its own. It goes in as
+/// `gazelle-audio-serverw.exe`, the name the shortcut, the login entry and the updater all use,
+/// and it is the only file copied. A windowless build still called by its own name is installed
+/// exactly as [`install`] would, sibling and all.
+pub fn install_windowless(ctx: &Context, source: &Path) -> Result<Installed, String> {
+    let source = absolute(source);
+    let lower = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_lowercase());
+    let own_name = update::siblings(&source).iter().any(|p| lower(p) == lower(&source));
+    if own_name {
+        return install(ctx, &source);
+    }
+    let name = file_name_of(&source, WINDOWLESS_BINARY).into_os_string();
+    let sources = if source.is_file() { vec![(source.clone(), name)] } else { Vec::new() };
+    plant(ctx, &source, sources)
+}
+
+/// Copy each `(from, installed name)` into the install folder, then write the shortcut and the
+/// Add/Remove Programs entry. `source` is the running binary, which must not be the installed one.
+fn plant(ctx: &Context, source: &Path, sources: Vec<(PathBuf, std::ffi::OsString)>) -> Result<Installed, String> {
+    let dir = &ctx.layout.programs;
+    if is_inside(source, dir) {
         return Err(format!(
             "this is already the installed copy, in {}. There is nothing to install; run it, or --uninstall it.",
             dir.display()
         ));
     }
-
-    let sources: Vec<PathBuf> = update::siblings(&source).into_iter().filter(|p| p.is_file()).collect();
     if sources.is_empty() {
         return Err(format!("{} is not a Gazelle binary to install", source.display()));
     }
 
-    let console = dir.join(file_name_of(&source, CONSOLE_BINARY));
+    let console = dir.join(file_name_of(source, CONSOLE_BINARY));
     let upgraded = update::siblings(&console).iter().any(|p| p.exists());
 
     // Checked for every destination before the first byte is written, so a refusal leaves the
     // installed copy exactly as it was rather than half replaced.
-    for from in &sources {
-        let to = dir.join(from.file_name().unwrap_or_default());
+    for (_, name) in &sources {
+        let to = dir.join(name);
         if to.exists() && ctx.still_in_use(&to) {
             return Err(format!(
                 "{} is running. Quit Gazelle first (right-click its tray icon and choose Quit), then run --install again.",
@@ -204,8 +244,8 @@ pub fn install(ctx: &Context, source: &Path) -> Result<Installed, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
     let mut copied = Vec::new();
     let mut bytes = 0u64;
-    for from in &sources {
-        let to = dir.join(from.file_name().unwrap_or_default());
+    for (from, name) in &sources {
+        let to = dir.join(name);
         bytes += std::fs::copy(from, &to).map_err(|e| format!("copying {} to {}: {e}", from.display(), to.display()))?;
         copied.push(to);
     }
@@ -247,8 +287,11 @@ fn write_uninstall_entry(ctx: &Context, dir: &Path, console: &Path, launch: &Pat
     set("InstallLocation", &dir.display().to_string())?;
     // The uninstall is the console build: it prints what it removed and asks about the config
     // directory. The quiet form answers that question with the default (keep) and says nothing.
-    set("UninstallString", &format!("\"{}\" --uninstall", console.display()))?;
-    set("QuietUninstallString", &format!("\"{}\" --uninstall --yes", console.display()))?;
+    // An install from the setup file has no console build, and the windowless one does the same
+    // uninstall, taking the default answer because it has no terminal to ask in.
+    let uninstaller = if console.is_file() { console } else { launch };
+    set("UninstallString", &format!("\"{}\" --uninstall", uninstaller.display()))?;
+    set("QuietUninstallString", &format!("\"{}\" --uninstall --yes", uninstaller.display()))?;
     // There is no icon resource in the binary yet (the tray's icon is drawn at run time), so
     // this is the executable's default icon. Naming it anyway means the entry has an icon the
     // moment the binary gains one, with no second release to change the registry.
@@ -525,7 +568,7 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
 /// Start the copy that has just been installed, honouring the single-instance handover:
 /// a Gazelle already listening on the default address is brought to the front rather than a
 /// second one started behind it.
-fn start_installed(launch: &Path) -> Result<(), String> {
+pub(crate) fn start_installed(launch: &Path) -> Result<(), String> {
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], crate::config::DEFAULT_PORT));
     match crate::handover::hand_over(address) {
         Ok(crate::handover::Outcome::Shown) => {
@@ -584,7 +627,7 @@ pub fn image_in_use(path: &Path) -> bool {
 
 // --- small shared pieces -----------------------------------------------------------------------
 
-fn console_name() -> String {
+pub(crate) fn console_name() -> String {
     if cfg!(windows) {
         format!("{CONSOLE_BINARY}.exe")
     } else {
