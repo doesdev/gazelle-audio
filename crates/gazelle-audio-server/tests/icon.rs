@@ -11,6 +11,10 @@
 //! So this reads the `.ico` back, compares every pixel with the drawn icon, re-runs the
 //! generator where Python is available, and walks the resource directory of both **built**
 //! executables looking for the icon group.
+//!
+//! The same walk checks the other resource the build embeds: the application manifest, which
+//! says both binaries run as whoever started them, so a copy named `Gazelle-Setup.exe` is never
+//! taken for an installer that needs elevation.
 
 use std::path::{Path, PathBuf};
 
@@ -172,6 +176,14 @@ fn python() -> Option<PathBuf> {
 /// `RT_GROUP_ICON` body, decoded from the PE exactly as the loader would find them.
 #[cfg(windows)]
 fn resources_in(path: &str) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let found = all_resources_in(path);
+    let of = |kind: u32| found.iter().filter(|(k, _, _)| *k == kind).map(|(_, _, body)| body.clone()).collect();
+    (of(3), of(14))
+}
+
+/// Every resource in a built executable as `(type, id, body)`, walked as the loader walks it.
+#[cfg(windows)]
+fn all_resources_in(path: &str) -> Vec<(u32, u32, Vec<u8>)> {
     let image = std::fs::read(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
     let pe = u32::from_le_bytes(image[0x3c..0x40].try_into().unwrap()) as usize;
     assert_eq!(&image[pe..pe + 4], b"PE\0\0");
@@ -214,27 +226,18 @@ fn resources_in(path: &str) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
             .collect()
     };
 
-    let mut icons = Vec::new();
-    let mut groups = Vec::new();
+    let mut found = Vec::new();
     for (kind, offset) in entries_of(root) {
-        if kind != 3 && kind != 14 {
-            continue;
-        }
-        for (_, names) in entries_of(root + (offset & 0x7fff_ffff) as usize) {
+        for (id, names) in entries_of(root + (offset & 0x7fff_ffff) as usize) {
             for (_, leaf) in entries_of(root + (names & 0x7fff_ffff) as usize) {
                 let entry = root + leaf as usize;
                 let at = file_of(u32::from_le_bytes(image[entry..entry + 4].try_into().unwrap()) as usize);
                 let size = u32::from_le_bytes(image[entry + 4..entry + 8].try_into().unwrap()) as usize;
-                let body = image[at..at + size].to_vec();
-                if kind == 3 {
-                    icons.push(body);
-                } else {
-                    groups.push(body);
-                }
+                found.push((kind, id, image[at..at + size].to_vec()));
             }
         }
     }
-    (icons, groups)
+    found
 }
 
 /// Both shipped binaries carry the icon: the console one is what Explorer and the taskbar show,
@@ -276,4 +279,77 @@ fn both_binaries_carry_the_icon() {
             assert_eq!(icons[id as usize - 1].len(), length, "{binary}'s group disagrees with the icon about its length");
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The manifest
+// ---------------------------------------------------------------------------------------------
+
+/// `RT_MANIFEST`, and the id Windows reads an executable's own manifest from
+/// (`CREATEPROCESS_MANIFEST_RESOURCE_ID`).
+#[cfg(windows)]
+const RT_MANIFEST: u32 = 24;
+#[cfg(windows)]
+const PROCESS_MANIFEST: u32 = 1;
+
+/// Both binaries say they run as whoever started them. Without that, Windows may guess from the
+/// file name: an executable called `Gazelle-Setup.exe` with no manifest can look like an
+/// installer and be run elevated, which a per-user install must never be. The manifest also asks
+/// for version 6 of the common controls, which the setup dialog is drawn with.
+#[cfg(windows)]
+#[test]
+fn both_binaries_carry_a_manifest_that_runs_as_the_invoker() {
+    let committed = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/gazelle.manifest")).unwrap();
+    for binary in [env!("CARGO_BIN_EXE_gazelle-audio-server"), env!("CARGO_BIN_EXE_gazelle-audio-serverw")] {
+        let manifests: Vec<(u32, u32, Vec<u8>)> =
+            all_resources_in(binary).into_iter().filter(|(kind, _, _)| *kind == RT_MANIFEST).collect();
+        assert_eq!(manifests.len(), 1, "{binary} should carry exactly one RT_MANIFEST");
+        let (_, id, body) = &manifests[0];
+        assert_eq!(*id, PROCESS_MANIFEST, "{binary}'s manifest must be resource 1, the one CreateProcess reads");
+        assert_eq!(body, &committed, "{binary} does not carry assets/gazelle.manifest byte for byte");
+        let text = std::str::from_utf8(body).unwrap_or_else(|_| panic!("{binary}'s manifest is not UTF-8"));
+        assert!(text.contains(r#"requestedExecutionLevel level="asInvoker""#), "{binary} must run as the invoker");
+        assert!(!text.contains("requireAdministrator") && !text.contains("highestAvailable"), "{binary} must never ask for more");
+        assert!(text.contains(r#"name="Microsoft.Windows.Common-Controls""#) && text.contains(r#"version="6.0.0.0""#));
+    }
+}
+
+/// The name decides nothing on its own: a copy of the windowless build named the way the release
+/// names its setup file starts without asking for elevation, and given arguments it is the
+/// ordinary program (here it prints its version), never the setup dialog. A process that needed
+/// elevation would fail to start from this unelevated test with `ERROR_ELEVATION_REQUIRED` (740).
+#[cfg(windows)]
+#[test]
+fn a_copy_named_like_a_setup_program_starts_unelevated_and_honours_its_arguments() {
+    let dir = std::env::temp_dir().join(format!("gazelle-setup-name-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let setup = dir.join("Gazelle-Setup.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_gazelle-audio-serverw"), &setup).unwrap();
+
+    let mut child = std::process::Command::new(&setup)
+        .arg("--version")
+        .env("GAZELLE_NO_HARDWARE", "1")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("{} would not start: {e} (os error 740 is Windows asking for elevation)", setup.display()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            // Our own child, by its handle: a dialog would be waiting for a click nobody makes.
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(&dir);
+            panic!("{} did not exit; given arguments it must never show the setup dialog", setup.display());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let mut out = String::new();
+    std::io::Read::read_to_string(child.stdout.as_mut().unwrap(), &mut out).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(status.success(), "{status}");
+    assert!(out.contains(env!("CARGO_PKG_VERSION")), "{out}");
 }
