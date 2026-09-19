@@ -1,7 +1,7 @@
 // <ga-mixer-dock>: the compact mixer under every page (the user's choice, 2026-09-16), so levels
 // can be ridden from Inputs or Routing. It shows the device in view (the page's device if it has a
 // known mixer, else the one last selected) in its selected mix, the same per-device mix the Mixer
-// page's Mix menu sets, which its own small Mix menu sets too: a slim strip per channel set up in
+// page's Mix buttons set, which its own small Mix menu sets too: a slim strip per channel set up in
 // that mix, in the Mixer page's order, then the mix's master. Strips scroll sideways; the master
 // stays at the right. A mix with no channel set up is one short line pointing to the Mixer page,
 // without its master: there is nothing in it to ride, and a fader needs the full row's height.

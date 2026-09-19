@@ -149,7 +149,7 @@ export const CATALOGUE: Catalogue = {
   // The mixer dock.
   "dock.section": { title: "Mixer dock", what: "The mix you picked on the Mixer page as slim strips, so levels can be ridden from any page. Hidden on the Mixer page itself. Whether it is folded is remembered in this browser." },
   "dock.source": { title: "Dock shows", what: "This device's selected mix, or one of your surfaces, so strips from any device can sit under every page. Remembered in this browser." },
-  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix menu: changing one changes the other." },
+  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix buttons: changing one changes the other." },
   "dock.open-mixer": { title: "Open the Mixer page", what: "No channel is set up in this mix yet; channels are set up on the Mixer page." },
   "dock.open-surface": { title: "Open the surface", what: "This surface has no strips yet; strips are added on the surface's own page." },
 
