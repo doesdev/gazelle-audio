@@ -25,8 +25,8 @@ use boot::BootArgs;
 /// whether it runs.
 pub const ANTELOPE_SERVICE: &str = "Antelope-Manager-Service";
 
-/// The icon's hover title: the app's name and nothing else. Where it is listening is the menu's
-/// first status line, so the title does not repeat it.
+/// The icon's hover title: the app's name and nothing else (the user, 2026-09-19). The version it
+/// is running, and where it is listening, are lines in the menu, so the title does not repeat them.
 pub const TITLE: &str = "Gazelle";
 
 /// Everything the tray needs from the server.
@@ -239,6 +239,10 @@ pub fn device_label(descriptor: &DeviceDescriptor) -> String {
 /// The menu, top to bottom.
 pub fn menu(status: &Status) -> Vec<Item> {
     let mut items = vec![
+        // Which version is running, where it is asked for: the icon's title is the bare name, so
+        // this is the one place the tray says it.
+        Item::Info(format!("Gazelle {}", crate::VERSION)),
+        Item::Separator,
         Item::Action {
             command: Command::Open,
             label: if status.web_ui { "Open Gazelle".into() } else { "Open Gazelle (web UI not served)".into() },
@@ -391,15 +395,28 @@ mod tests {
         assert_eq!(device_label(&d), "Unknown device 23e5:a2f9");
     }
 
+    /// Which version is running is a thing people are asked for, and the tray is where the app
+    /// lives when no page is open. The icon's own title stays the bare name (the user, 2026-09-19),
+    /// so the version is the menu's first line and nothing else moves.
+    #[test]
+    fn the_menu_names_the_running_version_at_the_top() {
+        let items = menu(&status());
+        assert_eq!(items.first(), Some(&Item::Info(format!("Gazelle {}", crate::VERSION))));
+        assert_eq!(items[1], Item::Separator);
+        // Read from the crate, never written in: a released binary cannot claim an old version.
+        assert!(crate::VERSION.starts_with(|c: char| c.is_ascii_digit()), "the version is the crate's own: {:?}", crate::VERSION);
+        assert_eq!(TITLE, "Gazelle", "the icon's hover title stays the bare name");
+    }
+
     #[test]
     fn the_menu_opens_then_reports_then_offers_boot_the_log_and_quit() {
         let items = menu(&status());
         assert_eq!(
-            items.first(),
+            items.iter().find(|i| matches!(i, Item::Action { .. })),
             Some(&Item::Action { command: Command::Open, label: "Open Gazelle".into(), enabled: true, checked: None, default: true })
         );
         assert_eq!(
-            infos(&items),
+            infos(&items)[1..],
             ["Listening on http://127.0.0.1:8420/", "Backend: loopback", "Dry run: off", "Device: Zen Quadro", "Device: Zen Studio+"]
         );
         let commands: Vec<Command> =
@@ -412,7 +429,7 @@ mod tests {
     #[test]
     fn status_lines_follow_the_server() {
         let s = Status { backend: "usb".into(), dry_run: true, devices: vec![], ..status() };
-        assert_eq!(infos(&menu(&s))[1..], ["Backend: usb", "Dry run: on", "No devices attached"]);
+        assert_eq!(infos(&menu(&s))[2..], ["Backend: usb", "Dry run: on", "No devices attached"]);
     }
 
     #[test]
