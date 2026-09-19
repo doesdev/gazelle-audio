@@ -17,6 +17,8 @@
 # and deletes it.
 #
 # Third-party actions are pinned to full commit SHAs, with the release in a trailing comment.
+#
+# The dry run by hand: gh workflow run release.yml --ref main
 
 name: Release
 

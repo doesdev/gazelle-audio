@@ -1,6 +1,6 @@
 # Weekly: the Rust dependency tree against the RustSec advisory database. `cargo audit` reads
 # Cargo.lock only and builds nothing, so it runs on Linux. Run it by hand from the Actions tab
-# after a dependency change if a week is too long to wait.
+# after a dependency change if a week is too long to wait, or: gh workflow run audit.yml
 
 name: Audit
 
