@@ -113,6 +113,8 @@ fn build_release(dist: &Path, marker: &str) {
     for stem in ["gazelle-audio-server", "gazelle-audio-serverw"] {
         a_binary(&dist.join(asset_name(stem)), &format!("{stem} {marker}"));
     }
+    // And the setup file a person installs from: the windowless build under another name.
+    std::fs::copy(dist.join(asset_name("gazelle-audio-serverw")), dist.join("Gazelle-Setup.exe")).unwrap();
     // A release also carries a zip for people downloading by hand. The updater ignores it; that
     // it is signed along with everything else is the point of it being here.
     std::fs::write(dist.join(format!("gazelle-audio-{TARGET}.zip")), b"PK\x03\x04 not a real zip, but it is signed").unwrap();
@@ -286,7 +288,7 @@ fn a_release_cut_with_xtask_is_found_verified_and_staged_by_the_updater() {
     assert_eq!(signature.len(), 64, "a detached ed25519 signature is 64 raw bytes");
     assert_eq!(verify::verify_signature(&public, &sums, &signature), Ok(()), "the release does not verify against its own key");
     let listed = parse_sums(&String::from_utf8(sums.clone()).unwrap());
-    assert_eq!(listed.len(), 3, "both binaries and the zip are listed, and the sums file is not listed in itself");
+    assert_eq!(listed.len(), 4, "both binaries, the setup file and the zip are listed, and the sums file is not listed in itself");
     for (name, digest) in &listed {
         assert_eq!(&to_hex(&verify::sha256_file(&dist.join(name)).unwrap()), &to_hex(digest), "{name}");
     }
@@ -300,6 +302,11 @@ fn a_release_cut_with_xtask_is_found_verified_and_staged_by_the_updater() {
 
     assert_eq!(updater.check(true), State::Available { version: "0.2.0".into(), page: format!("{}/releases/v0.2.0", source.base) });
     assert_eq!(updater.download(), State::Staged { version: "0.2.0".into() }, "the release should verify and stage");
+    // The updater fetches its binaries by their exact names; the setup file and the zip are for
+    // people, and are never downloaded by it.
+    let fetched = source.downloads();
+    assert!(!fetched.iter().any(|p| p.contains("Gazelle-Setup") || p.ends_with(".zip")), "{fetched:?}");
+    assert!(fetched.iter().any(|p| p.ends_with(&asset_name("gazelle-audio-serverw"))), "{fetched:?}");
 
     // Both binaries were replaced, byte for byte, with the release's own assets, and each
     // previous one is beside it waiting for the next start to delete it.
@@ -467,7 +474,12 @@ fn the_sums_file_lists_every_asset_and_neither_of_the_tools_own_outputs() {
     let names: Vec<&str> = text.lines().map(|line| line.split_at(66).1).collect();
     assert_eq!(
         names,
-        [asset_name("gazelle-audio-server"), asset_name("gazelle-audio-serverw"), format!("gazelle-audio-{TARGET}.zip")]
+        [
+            "Gazelle-Setup.exe".to_string(),
+            asset_name("gazelle-audio-server"),
+            asset_name("gazelle-audio-serverw"),
+            format!("gazelle-audio-{TARGET}.zip")
+        ]
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
