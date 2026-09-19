@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Fixed
+
+- Gazelle starts on a fresh Windows installation. It no longer needs Microsoft's Visual C++
+  runtime to be installed first, which some PCs lack ("VCRUNTIME140.dll was not found").
+
 ## [1.0.0] - 2026-09-19
 
 The first release: one app for Antelope Audio's Zen Quadro Synergy Core and Zen Studio+, for

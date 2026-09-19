@@ -1,0 +1,8 @@
+# Build Microsoft's C runtime into the Windows executables instead of linking it as a DLL, so
+# Gazelle starts on a PC that has never had the Visual C++ Redistributable installed.
+# `crates/gazelle-audio-server/tests/runtime.rs` checks the built programs' import tables.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
