@@ -82,7 +82,7 @@ pub async fn apply_recall(
         // it is missing on purpose: a session at the hardware has to confirm the order,
         // the hard mute's behaviour and what a preset recall changes first.
         return Err(ServerError::Unsupported(
-            "applying a recall to a device is not built: the plan above is complete, and sending it waits for a session at the hardware to confirm the order of the steps, how the hard mute behaves and what a preset recall changes. Run the server with --dry-run to see the bytes each step would send".into(),
+            "applying a recall to a device is not built: the plan above is complete, and sending it waits for a hardware session to confirm the order of the steps, how the hard mute behaves and what a preset recall changes. Run the server with --dry-run to see the bytes each step would send".into(),
         ));
     }
     let mut body = serde_json::to_value(plan).map_err(|e| ServerError::Storage(e.to_string()))?;
