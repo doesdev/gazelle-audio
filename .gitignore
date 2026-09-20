@@ -25,6 +25,7 @@ venv/
 /refs/tools/PYINSTXTRACTOR-LICENSE
 /refs/tools/PYINSTXTRACTOR-README.md
 /refs/tools/pycdc/
+/refs/sdk/
 
 # --- Secrets ---
 # Credential and key files never belong in the tree (.githooks/pre-commit also scans for them).
