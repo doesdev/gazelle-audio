@@ -40,6 +40,34 @@
 //! - `com` (Windows only) is the COM object and the DLL's four exports.
 //! - [`registration`] is what `regsvr32` writes, behind a trait so it is tested without a registry.
 
+/// This machine's reference clock in nanoseconds, which is what a time stamp handed to a DAW must
+/// be on: the same clock the vendor drivers stamp with, counting from when the machine started, not
+/// from when this driver did. A DAW compares the stamp with its own reading of that clock, and one
+/// that starts at zero makes a driver that meters but cannot record (seen in Cubase, 2026-09-21).
+#[cfg(windows)]
+pub fn now_nanos() -> i64 {
+    use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut ticks, mut per_second) = (0i64, 0i64);
+    // Safety: both take a pointer to an i64 this function owns, and Windows guarantees both succeed
+    // on anything this driver can run on.
+    unsafe {
+        QueryPerformanceCounter(&mut ticks);
+        QueryPerformanceFrequency(&mut per_second);
+    }
+    if per_second <= 0 {
+        return 0;
+    }
+    // Seconds and the remainder apart, so a counter that has been running for months does not
+    // overflow on the way to nanoseconds.
+    (ticks / per_second) * 1_000_000_000 + (ticks % per_second) * 1_000_000_000 / per_second
+}
+
+/// Off Windows there is no performance counter to read, and no DAW to hand a stamp to either.
+#[cfg(not(windows))]
+pub fn now_nanos() -> i64 {
+    0
+}
+
 pub mod aggregate;
 pub mod config;
 pub mod daw;

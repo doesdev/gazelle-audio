@@ -523,7 +523,15 @@ fn the_daw_can_have_the_time_with_each_block_and_it_comes_from_the_master() {
     assert_eq!(times.len(), 3, "the time came with every block");
     let positions: Vec<i64> = times.iter().map(|(position, _)| *position).collect();
     assert_eq!(positions, vec![0, BLOCK as i64, BLOCK as i64 * 2], "one block of the master is one block of position");
-    assert!(times.iter().all(|(_, nanos)| *nanos > 0), "and a system time with it");
+    // The time carried with a block is the machine's own reference clock, the same one the vendor
+    // drivers report (their readings run to days of uptime), NOT time since this driver started. A
+    // DAW compares it with its own clock: Cubase metered input happily from a driver whose clock
+    // began at zero and then recorded nothing at all (the user, 2026-09-21).
+    let machine = crate::now_nanos();
+    for (_, nanos) in &times {
+        assert!(*nanos > 0, "a system time comes with every block");
+        assert!((machine - *nanos).abs() < 60_000_000_000, "and it is this machine's clock: {nanos} against {machine}");
+    }
     assert_eq!(aggregate.position().0, BLOCK as i64 * 3);
     aggregate.dispose_buffers();
 }

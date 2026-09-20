@@ -307,7 +307,7 @@ impl Stream {
 
     /// Samples the aggregate has handed the DAW, and the system time it was last read at.
     pub fn position(&self) -> (i64, i64) {
-        (self.position.load(Ordering::Acquire) as i64, self.began.elapsed().as_nanos() as i64)
+        (self.position.load(Ordering::Acquire) as i64, crate::now_nanos())
     }
 
     /// One device has called back. This is the whole of the audio path's entry.
@@ -428,7 +428,7 @@ impl Stream {
             let mut time = Time::default();
             time.info.speed = 1.0;
             time.info.sample_position = Samples::from_i64(self.position.load(Ordering::Acquire) as i64);
-            time.info.system_time = Samples::from_i64(self.began.elapsed().as_nanos() as i64);
+            time.info.system_time = Samples::from_i64(crate::now_nanos());
             time.info.sample_rate = self.rate;
             time.info.flags = time_flags::SYSTEM_TIME_VALID
                 | time_flags::SAMPLE_POSITION_VALID
