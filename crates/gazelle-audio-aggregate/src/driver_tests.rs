@@ -876,6 +876,41 @@ fn a_driver_that_could_not_make_a_section_works_exactly_as_it_did_before() {
 }
 
 #[test]
+fn the_names_a_person_gave_their_channels_are_what_the_daw_is_told() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let mut config = both(Alignment::Aligned);
+    config.devices[0].input_names = [(0, "Vocal mic".to_string())].into_iter().collect();
+    config.devices[1].output_names = [(1, "Main R".to_string())].into_iter().collect();
+    let mut aggregate = open(&pc, config);
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "Vocal mic (A 1)");
+    assert_eq!(aggregate.channel_info(true, 1).unwrap().name, "A 2", "the channel beside it is untouched");
+    assert_eq!(aggregate.channel_info(false, 3).unwrap().name, "Main R (B 2)");
+
+    // The plan is made again when the DAW asks for buffers, from what the drivers report, which
+    // carries none of this. The names have to survive that.
+    let wanted = everything(&aggregate);
+    aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect("the buffers are made");
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "Vocal mic (A 1)");
+    assert_eq!(aggregate.channel_info(false, 3).unwrap().name, "Main R (B 2)");
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn renaming_a_channel_while_the_driver_is_loaded_is_an_ordinary_change_of_configuration() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::Aligned));
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "A 1");
+
+    let mut renamed = both(Alignment::Aligned);
+    renamed.devices[0].input_names = [(0, "Vocal mic".to_string())].into_iter().collect();
+    aggregate.reconfigure(renamed, "a newer file".to_string(), 2).expect("a name is a plan like any other");
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "Vocal mic (A 1)");
+    assert!(written.of("refused").is_empty(), "{:?}", written.lines());
+}
+
+#[test]
 fn a_new_configuration_with_nothing_streaming_is_taken_up_there_and_then() {
     let _order = daw::session();
     let pc = two_devices();

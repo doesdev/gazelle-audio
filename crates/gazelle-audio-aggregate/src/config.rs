@@ -5,6 +5,7 @@
 //! written by a newer one. A file that is not valid JSON is a refusal with the file named, because
 //! silently ignoring what someone asked for is worse than saying no.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -47,6 +48,73 @@ impl Alignment {
     }
 }
 
+/// What a person calls a device's channels, by the device's own channel number from zero.
+///
+/// What the file holds is taken as it is written, and any objection to it is kept here rather than
+/// raised on the spot: by the time serde is reading this it no longer knows which device it is
+/// inside, and a refusal that cannot name the device is one nobody can act on.
+#[derive(Clone, Debug, Default)]
+pub struct Labels {
+    by_channel: BTreeMap<u32, String>,
+    problem: Option<String>,
+}
+
+impl Labels {
+    /// What this device's channel is called, by the device's own number from zero. A name that is
+    /// empty or only spaces is nobody's name for anything, so it counts as not given.
+    pub fn get(&self, channel: u32) -> Option<&str> {
+        self.by_channel.get(&channel).map(|label| label.trim()).filter(|label| !label.is_empty())
+    }
+
+    /// What is wrong with the way it was written, if anything is.
+    pub fn problem(&self) -> Option<&str> {
+        self.problem.as_deref()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_channel.is_empty()
+    }
+
+    fn refused(why: String) -> Labels {
+        Labels { by_channel: BTreeMap::new(), problem: Some(why) }
+    }
+
+    /// Read one device's channel names out of whatever the file put there.
+    fn read(value: serde_json::Value) -> Labels {
+        let serde_json::Value::Object(fields) = value else {
+            return Labels::refused(
+                "channel names are written as an object of channel number to name, such as {\"0\": \"Vocal mic\"}"
+                    .to_string(),
+            );
+        };
+        let mut by_channel = BTreeMap::new();
+        for (key, value) in fields {
+            let Ok(channel) = key.trim().parse::<u32>() else {
+                return Labels::refused(format!(
+                    "\"{key}\" is not a channel number, and channel names are keyed by the device's own channel numbers, from zero"
+                ));
+            };
+            let Some(label) = value.as_str() else {
+                return Labels::refused(format!("the name for channel {channel} is not text"));
+            };
+            by_channel.insert(channel, label.to_string());
+        }
+        Labels { by_channel, problem: None }
+    }
+}
+
+impl FromIterator<(u32, String)> for Labels {
+    fn from_iter<I: IntoIterator<Item = (u32, String)>>(pairs: I) -> Labels {
+        Labels { by_channel: pairs.into_iter().collect(), problem: None }
+    }
+}
+
+impl<'de> Deserialize<'de> for Labels {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Labels, D::Error> {
+        serde_json::Value::deserialize(deserializer).map(Labels::read)
+    }
+}
+
 /// One sub-device, and how to find it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DeviceConfig {
@@ -67,6 +135,14 @@ pub struct DeviceConfig {
     /// Which of the device's outputs to expose. Left out means all of them.
     #[serde(default)]
     pub outputs: Option<Vec<i32>>,
+    /// What the person calls this device's inputs, by the device's own channel numbering from
+    /// zero, which is the numbering `inputs` uses. A name for a channel that is not exposed is
+    /// simply unused.
+    #[serde(default)]
+    pub input_names: Labels,
+    /// The same for the device's outputs.
+    #[serde(default)]
+    pub output_names: Labels,
     /// Samples to add to this device's reported input latency, when the figure its driver gives is
     /// not the whole truth. A device that records **late** has a longer path than it admits, so it
     /// takes a **positive** trim, and everything else is then held back to match it; a device that
@@ -195,6 +271,11 @@ impl Config {
                     return Err(format!("{} lists a channel below zero", device.described()));
                 }
             }
+            for (field, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
+                if let Some(why) = labels.problem() {
+                    return Err(format!("{}'s {field}: {why}", device.described()));
+                }
+            }
         }
         Ok(self)
     }
@@ -275,6 +356,53 @@ mod tests {
         assert_eq!(config.stall_after_buffers, 8);
         assert_eq!(config.recover_after_buffers, 3);
         assert_eq!(config.ring_buffers, 6);
+    }
+
+    #[test]
+    fn the_names_a_person_gives_their_channels_survive_the_file() {
+        let path = std::env::temp_dir().join("gazelle-aggregate-names-8b3d.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "devices": [
+                    {"key": "Zen Quadro Synergy Core", "name": "Quadro",
+                     "input_names": {"0": "Vocal mic", "2": "DI"},
+                     "output_names": {"0": "Main L", "1": "Main R"}}
+                ]
+            }"#,
+        )
+        .expect("the scratch file is writable");
+        let config = Config::read(&path).expect("channel names are ordinary configuration");
+        let device = &config.devices[0];
+        assert_eq!(device.input_names.get(0), Some("Vocal mic"));
+        assert_eq!(device.input_names.get(2), Some("DI"));
+        assert_eq!(device.input_names.get(1), None, "a channel nobody named has no name");
+        assert_eq!(device.output_names.get(1), Some("Main R"));
+        assert!(device.output_names.get(2).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_device_that_names_no_channels_has_none_rather_than_a_refusal() {
+        let config = Config::parse(r#"{"devices": [{"key": "Zen Quadro"}]}"#).expect("channel names are optional");
+        assert!(config.devices[0].input_names.is_empty());
+        assert!(config.devices[0].output_names.is_empty());
+        let empty = Config::parse(r#"{"devices": [{"key": "Zen Quadro", "input_names": {}}]}"#).expect("still valid");
+        assert!(empty.devices[0].input_names.get(0).is_none());
+    }
+
+    #[test]
+    fn channel_names_written_in_a_way_nothing_can_read_are_refused_and_the_device_is_named() {
+        let not_an_object = Config::parse(r#"{"devices": [{"key": "Zen Quadro", "name": "Quadro", "input_names": ["a"]}]}"#)
+            .expect_err("a list is not a channel number to name");
+        assert!(not_an_object.contains("Quadro") && not_an_object.contains("input_names"), "{not_an_object}");
+        let not_a_number =
+            Config::parse(r#"{"devices": [{"key": "Zen Quadro", "name": "Quadro", "output_names": {"first": "Main L"}}]}"#)
+                .expect_err("a key that is not a channel number is a refusal");
+        assert!(not_a_number.contains("Quadro") && not_a_number.contains("first"), "{not_a_number}");
+        let not_text = Config::parse(r#"{"devices": [{"key": "Zen Quadro", "name": "Quadro", "input_names": {"0": 5}}]}"#)
+            .expect_err("a name is text");
+        assert!(not_text.contains("Quadro"), "{not_text}");
     }
 
     #[test]

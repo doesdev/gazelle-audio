@@ -5,7 +5,7 @@
 //! the buffer sizes every device can take, the one latency figure each way, and how far each
 //! device has to be held back so that the channels line up.
 
-use crate::config::{Alignment, Config, DeviceConfig};
+use crate::config::{Alignment, Config, DeviceConfig, Labels};
 use crate::sub::Description;
 use gazelle_audio_stream_abi::sample;
 
@@ -77,6 +77,10 @@ pub struct Found {
     pub input_trim: i32,
     /// The same for its outputs.
     pub output_trim: i32,
+    /// What the person calls this device's inputs, by the device's own channel numbering.
+    pub input_labels: Labels,
+    /// The same for its outputs.
+    pub output_labels: Labels,
 }
 
 /// The channels of a device that are actually exposed: what was asked for, with anything the
@@ -95,12 +99,35 @@ fn selected(wanted: &Option<Vec<i32>>, available: i32) -> Vec<i32> {
 /// A channel's name, as short as the interface carries one: "Quadro 1", "Studio+ 12".
 pub fn channel_name(device: &str, number: usize) -> String {
     let tail = format!(" {number}");
-    let room = MAX_NAME.saturating_sub(tail.len());
-    let mut head: String = device.chars().take(room).collect();
-    while head.len() > room {
-        head.pop();
+    format!("{}{tail}", cut(device, MAX_NAME.saturating_sub(tail.len())))
+}
+
+/// A channel's name when the person has given it one: "Vocal mic (Quadro 1)".
+///
+/// Their own name comes first and the automatic one stays with it in brackets, so that a channel is
+/// both the thing they call it and the interface and socket it is on. When the two together will
+/// not fit, their name alone is what is kept: half a bracket reads as a name that was cut off,
+/// which is worse than no reference at all.
+pub fn labelled_name(device: &str, number: usize, label: Option<&str>) -> String {
+    let automatic = channel_name(device, number);
+    let Some(label) = label.map(str::trim).filter(|label| !label.is_empty()) else {
+        return automatic;
+    };
+    let both = format!("{label} ({automatic})");
+    if both.chars().count() <= MAX_NAME && both.len() <= MAX_NAME {
+        return both;
     }
-    format!("{}{tail}", head.trim_end())
+    cut(label, MAX_NAME)
+}
+
+/// As much of a name as fits: whole characters, never half of one, and never more bytes than the
+/// interface's buffer carries.
+fn cut(text: &str, room: usize) -> String {
+    let mut kept: String = text.chars().take(room).collect();
+    while kept.len() > room {
+        kept.pop();
+    }
+    kept.trim_end().to_string()
 }
 
 /// Work the whole aggregate out, or say why it cannot be one device.
@@ -181,14 +208,16 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
     let mut input_names = Vec::new();
     let mut outputs = Vec::new();
     let mut output_names = Vec::new();
-    for (index, device) in devices.iter().enumerate() {
+    for (index, (device, configured)) in devices.iter().zip(found.iter()).enumerate() {
         for (slot, channel) in device.inputs.iter().enumerate() {
             inputs.push(ChannelRef { device: index, slot });
-            input_names.push(channel_name(&device.name, *channel as usize + 1));
+            let label = configured.input_labels.get(*channel as u32);
+            input_names.push(labelled_name(&device.name, *channel as usize + 1, label));
         }
         for (slot, channel) in device.outputs.iter().enumerate() {
             outputs.push(ChannelRef { device: index, slot });
-            output_names.push(channel_name(&device.name, *channel as usize + 1));
+            let label = configured.output_labels.get(*channel as u32);
+            output_names.push(labelled_name(&device.name, *channel as usize + 1, label));
         }
     }
 
@@ -302,7 +331,14 @@ mod tests {
             wanted_outputs: None,
             input_trim: 0,
             output_trim: 0,
+            input_labels: Labels::default(),
+            output_labels: Labels::default(),
         }
+    }
+
+    /// Labels as the file gives them: the device's own channel number, and what to call it.
+    fn labels(pairs: &[(u32, &str)]) -> Labels {
+        pairs.iter().map(|(channel, label)| (*channel, (*label).to_string())).collect()
     }
 
     /// The two devices phase 0 measured, at 96 kHz.
@@ -457,6 +493,75 @@ mod tests {
         assert!(name.len() <= MAX_NAME, "{name} is {} characters", name.len());
         assert!(name.ends_with(" 12"));
         assert_eq!(channel_name("Quadro", 1), "Quadro 1");
+    }
+
+    #[test]
+    fn a_channel_the_person_has_named_keeps_the_automatic_name_in_brackets() {
+        let mut devices = this_pc();
+        devices[0].input_labels = labels(&[(0, "Vocal mic"), (2, "DI")]);
+        devices[0].output_labels = labels(&[(0, "Main L"), (1, "Main R")]);
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");
+        assert_eq!(plan.input_names[0], "Vocal mic (Quadro 1)");
+        assert_eq!(plan.input_names[2], "DI (Quadro 3)");
+        assert_eq!(plan.output_names[0], "Main L (Quadro 1)");
+        assert_eq!(plan.output_names[1], "Main R (Quadro 2)");
+        assert!(plan.input_names.iter().all(|name| name.chars().count() <= MAX_NAME), "{:?}", plan.input_names);
+    }
+
+    #[test]
+    fn a_channel_nobody_has_named_is_called_exactly_what_it_always_was() {
+        let mut devices = this_pc();
+        devices[0].input_labels = labels(&[(0, "Vocal mic")]);
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");
+        assert_eq!(plan.input_names[1], "Quadro 2", "the channel beside a named one is untouched");
+        assert_eq!(plan.output_names[0], "Quadro 1", "and so is the same channel the other way round");
+        assert_eq!(plan.input_names[16], "Studio+ 1", "and so is every channel of a device with no names at all");
+    }
+
+    #[test]
+    fn a_name_too_long_to_carry_the_reference_keeps_the_persons_own_words() {
+        // Half a bracket reads as a name that was cut off, so it is all of the reference or none.
+        let name = labelled_name("Quadro", 1, Some("The big valve preamp in the rack"));
+        assert!(name.chars().count() <= MAX_NAME, "{name} is {} characters", name.chars().count());
+        assert_eq!(name, "The big valve preamp in the rac");
+        assert!(!name.contains('('), "{name}");
+        // A name that fills the last character the interface carries still keeps the reference.
+        let exact = labelled_name("Quadro", 1, Some("Twenty characters ok"));
+        assert_eq!(exact, "Twenty characters ok (Quadro 1)");
+        assert_eq!(exact.chars().count(), MAX_NAME);
+        // One character more, and the reference goes rather than half of it.
+        assert_eq!(labelled_name("Quadro", 1, Some("Twenty characters oks")), "Twenty characters oks");
+    }
+
+    #[test]
+    fn a_name_in_somebody_elses_alphabet_is_cut_between_characters_and_never_inside_one() {
+        let long = "\u{3053}".repeat(40);
+        let name = labelled_name("Quadro", 1, Some(&long));
+        assert!(name.len() <= MAX_NAME, "{name} is {} bytes", name.len());
+        assert!(long.starts_with(&name), "it is the beginning of what was asked for: {name}");
+        assert_eq!(labelled_name("Quadro", 1, Some("Caf\u{e9}")), "Caf\u{e9} (Quadro 1)");
+    }
+
+    #[test]
+    fn a_name_for_a_channel_that_is_not_exposed_is_simply_unused() {
+        let mut devices = this_pc();
+        devices[0].wanted_inputs = Some(vec![0, 1]);
+        devices[0].input_labels = labels(&[(0, "Vocal mic"), (9, "A channel nobody asked for")]);
+        let plan = plan(&devices, &Config::default(), None).expect("a narrowed device is still a device");
+        assert_eq!(plan.input_names[0], "Vocal mic (Quadro 1)");
+        assert_eq!(plan.input_names[1], "Quadro 2");
+        assert!(!plan.input_names.iter().any(|name| name.contains("nobody asked for")), "{:?}", plan.input_names);
+    }
+
+    #[test]
+    fn a_name_that_is_empty_or_only_spaces_is_not_a_name() {
+        let mut devices = this_pc();
+        devices[0].input_labels = labels(&[(0, ""), (1, "   ")]);
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");
+        assert_eq!(plan.input_names[0], "Quadro 1");
+        assert_eq!(plan.input_names[1], "Quadro 2");
+        assert_eq!(labelled_name("Quadro", 1, None), "Quadro 1");
+        assert_eq!(labelled_name("Quadro", 1, Some("  Vocal mic  ")), "Vocal mic (Quadro 1)", "the spaces around one are not part of it");
     }
 
     #[test]

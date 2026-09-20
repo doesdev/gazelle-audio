@@ -21,7 +21,8 @@ Windows and 64 bit only.
 ## What it does
 
 - Presents every selected channel of every configured device as one device, in configuration
-  order, named so a person can tell them apart: "Quadro 1", "Studio+ 1".
+  order, named so a person can tell them apart: "Quadro 1", "Studio+ 1", or "Vocal mic (Quadro 1)"
+  when the file gives that channel a name of its own.
 - One device's callback drives the DAW. Every other device's audio crosses a lock free ring
   buffer, one block at a time.
 - Reports one input and one output latency figure for the whole aggregate, and holds the nearer
@@ -68,6 +69,24 @@ its driver admits, so its latency figure goes up, and the aggregate holds the ot
 it. Trimming the wrong way doubles the error, which is how this was found (2026-09-21): the measured
 difference was about 28 samples at 96 kHz, a trim of -28 made it 53, and +28 is what nulls it.
 
+**Naming the channels.** A channel is called "Quadro 1" unless you say otherwise, which tells you
+which interface and which socket but nothing about what is plugged into it. `input_names` and
+`output_names` give a channel your own name for it, keyed by the device's own channel number from
+zero, the same numbering `inputs` and `outputs` use:
+
+```json
+{ "key": "Zen Quadro Synergy Core", "name": "Quadro",
+  "input_names": { "0": "Vocal mic", "2": "DI" },
+  "output_names": { "0": "Main L", "1": "Main R" } }
+```
+
+That channel then appears in the DAW as "Vocal mic (Quadro 1)": your name first, and the interface
+and socket still there in brackets, so a patch you have forgotten is one glance away. The interface
+carries 31 characters, and when your name and the reference together will not fit, your name alone
+is what is kept, because half a bracket reads as a name that was cut off. A name for a channel the
+device does not expose is simply unused, and a name that is empty or only spaces is the same as not
+giving one.
+
 **To give a device only some of its channels**, add `inputs` or `outputs` with the indexes to keep:
 `"inputs": [0, 1, 2, 3]` exposes that device's first four inputs and no others. Leave the field out
 to take them all, which is almost always what you want; a device with a long list of playback
@@ -102,6 +121,8 @@ which is what most people want:
 | `devices[].output_trim` | The same for its outputs. | 0 |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |
 | `devices[].outputs` | Which of its outputs to expose. | all of them |
+| `devices[].input_names` | What to call its inputs, keyed by the device's own channel number from zero: `{"0": "Vocal mic"}`. The channel is then "Vocal mic (Quadro 1)". | the automatic name |
+| `devices[].output_names` | The same for its outputs. | the automatic name |
 | `callback_master` | Which device drives the DAW's callback, by name, registry key or class id. | the first device in the list |
 | `alignment` | `"aligned"` or `"lowest_latency"`. | `"aligned"` |
 | `rate` | The rate to put every device at when the driver is opened. | whatever the DAW asks for |

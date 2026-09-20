@@ -46,9 +46,10 @@ pub struct Aggregate {
     pub config_source: String,
     subs: Vec<Box<dyn SubDriver>>,
     descriptions: Vec<Description>,
-    /// Each device's trims from the file, kept because the plan is made again at `createBuffers`
-    /// from what the drivers report, which does not carry them.
-    trims: Vec<(i32, i32)>,
+    /// The configuration entry each device was found by, kept because the plan is made again at
+    /// `createBuffers` from what the drivers report, which carries neither the trims nor the names
+    /// the person gave the channels.
+    from_file: Vec<DeviceConfig>,
     plan: Option<Plan>,
     stream: Option<Arc<Stream>>,
     /// The channels the DAW asked for, in its own order.
@@ -84,7 +85,7 @@ impl Aggregate {
             config_source: String::new(),
             subs: Vec::new(),
             descriptions: Vec::new(),
-            trims: Vec::new(),
+            from_file: Vec::new(),
             plan: None,
             stream: None,
             wanted: Vec::new(),
@@ -198,7 +199,7 @@ impl Aggregate {
         self.dispose_buffers();
         self.subs.clear();
         self.descriptions.clear();
-        self.trims.clear();
+        self.from_file.clear();
         self.plan = None;
         self.rate = 0.0;
     }
@@ -242,8 +243,10 @@ impl Aggregate {
                 wanted_outputs: wanted.outputs.clone(),
                 input_trim: wanted.input_trim.unwrap_or(0),
                 output_trim: wanted.output_trim.unwrap_or(0),
+                input_labels: wanted.input_names.clone(),
+                output_labels: wanted.output_names.clone(),
             });
-            self.trims.push((wanted.input_trim.unwrap_or(0), wanted.output_trim.unwrap_or(0)));
+            self.from_file.push(wanted.clone());
             self.descriptions.push(description);
             self.subs.push(sub);
         }
@@ -486,13 +489,16 @@ impl Aggregate {
             .enumerate()
             .map(|(index, description)| {
                 let device = self.plan.as_ref().and_then(|plan| plan.devices.get(index));
+                let wanted = self.from_file.get(index);
                 Found {
                     name: names.get(index).cloned().unwrap_or_else(|| description.name.clone()),
                     description: description.clone(),
                     wanted_inputs: device.map(|d| d.inputs.clone()),
                     wanted_outputs: device.map(|d| d.outputs.clone()),
-                    input_trim: self.trims.get(index).map_or(0, |t| t.0),
-                    output_trim: self.trims.get(index).map_or(0, |t| t.1),
+                    input_trim: wanted.and_then(|w| w.input_trim).unwrap_or(0),
+                    output_trim: wanted.and_then(|w| w.output_trim).unwrap_or(0),
+                    input_labels: wanted.map(|w| w.input_names.clone()).unwrap_or_default(),
+                    output_labels: wanted.map(|w| w.output_names.clone()).unwrap_or_default(),
                 }
             })
             .collect()
