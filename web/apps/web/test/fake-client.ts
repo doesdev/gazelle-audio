@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -203,6 +203,30 @@ export class FakeClient implements Client {
     if (this.failUpdates !== undefined) throw this.failUpdates;
     if (this.updateStatus === undefined) throw new GazelleError("http_404", "GET /api/v1/update returned HTTP 404");
     return this.updateStatus;
+  }
+
+  /** What `GET /aggregate` answers, or undefined for a server that does not serve the route. */
+  aggregateAnswer: AggregateAnswer | undefined;
+  /** Every aggregate call the page made, in order. */
+  readonly aggregateCalls: string[] = [];
+
+  readonly aggregate = {
+    read: async (): Promise<AggregateAnswer> => {
+      this.aggregateCalls.push("read");
+      if (this.aggregateAnswer === undefined) throw new GazelleError("http_404", "GET /api/v1/aggregate returned HTTP 404");
+      return this.aggregateAnswer;
+    },
+    matchBuffers: async (buffer_size: number): Promise<AggregateMatchBuffers> => {
+      this.aggregateCalls.push(`match-buffers:${buffer_size}`);
+      return { buffer_size, changed: 0, refused: 0, devices: [] };
+    },
+    register: async (): Promise<AggregateRegistrationRun> => this.#registration("register"),
+    unregister: async (): Promise<AggregateRegistrationRun> => this.#registration("unregister"),
+  };
+
+  #registration(call: string): AggregateRegistrationRun {
+    this.aggregateCalls.push(call);
+    throw new GazelleError("dll_not_found", "gazelle_aggregate.dll was not found.");
   }
 
   /** How a driver change answers; the loopback's refusal by default, as the server gives it. */

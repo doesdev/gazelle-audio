@@ -16,6 +16,9 @@ description = "Multi-device HTTP/WebSocket control server for Antelope Audio int
 hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 gazelle-audio-protocol = { path = "../gazelle-audio-protocol" }
 gazelle-audio-transport = { path = "../gazelle-audio-transport" }
+# The record, the log format and the names the aggregate audio driver and Gazelle agree on.
+# Neither side depends on the other; both depend on this.
+gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 serde = { version = "1", features = ["derive"] }
@@ -52,12 +55,18 @@ wry = { version = "0.57", optional = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    # Which USB host controller an interface is on (`aggregate/usb.rs`): the configuration
+    # manager's device nodes and their properties.
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
     "Win32_Graphics_Gdi",
     # The audio driver's API DLL is told apart by its version resource (`driver/windows.rs`).
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_Services",
+    # Waiting for the elevated registrar to finish (`aggregate/elevate.rs`).
+    "Win32_System_Threading",
     # The setup dialog (`install/dialog.rs`): `TaskDialogIndirect`.
     "Win32_UI_Controls",
     "Win32_UI_Input_KeyboardAndMouse",

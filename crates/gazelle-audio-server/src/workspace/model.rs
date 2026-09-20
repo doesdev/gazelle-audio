@@ -48,6 +48,11 @@ pub struct Workspace {
     /// default (Monitor, HP1 and HP2). Additive like `mixers`.
     #[serde(default)]
     pub control_room: BTreeMap<DeviceId, ControlRoom>,
+    /// The aggregate audio driver's setup, when the user has one. Additive like `mixers`: a
+    /// workspace written before it loads with none, and none is written out again, so an older
+    /// Gazelle reads a newer workspace unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate: Option<Aggregate>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
     /// so an export always imports back whole.
     #[serde(flatten)]
@@ -80,10 +85,88 @@ impl Default for Workspace {
             surfaces: Vec::new(),
             cables: Vec::new(),
             control_room: BTreeMap::new(),
+            aggregate: None,
             extra: BTreeMap::new(),
         }
     }
 }
+
+/// The aggregate audio driver's setup: which interfaces it opens, in what order, which one drives
+/// the callback and how their streams line up.
+///
+/// This mirrors the driver's own configuration file, because the driver has to work with Gazelle
+/// closed and a file is all it reads. Keeping the setup here is what makes it travel with a
+/// workspace backup; Gazelle exports it to the file the driver reads whenever it changes
+/// (`crate::aggregate::export`). Everything is optional, as it is in the file: a section with no
+/// devices means the driver opens every Antelope driver it finds.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Aggregate {
+    /// The sub-devices, in the order their channels appear to a DAW.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub devices: Vec<AggregateDevice>,
+    /// Which device drives the callback, by name, registry key or class id. The first device
+    /// when it is not said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callback_master: Option<String>,
+    /// One of [`ALIGNMENTS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<String>,
+    /// The rate to put every device at, in Hz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<u32>,
+    /// The buffer size to offer a DAW as preferred, in samples.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffer_size: Option<u32>,
+    /// Fields this Gazelle does not know (a newer one's), kept as they came, given back, and
+    /// exported to the driver's file, which ignores what it does not know in the same way.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// One interface the aggregate opens. It needs a `key` or a `clsid`; everything else is optional.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AggregateDevice {
+    /// The name the vendor driver registers itself under, matched without case, whole or as part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// The vendor driver's class id, which is the sure way to name one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clsid: Option<String>,
+    /// What to call this device's channels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Samples to add to what this device's driver says its input latency is. A device that
+    /// records late takes a positive trim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_trim: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_trim: Option<i32>,
+    /// Which of its inputs to expose, by the device's own numbering from zero; all of them when
+    /// it is not said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<Vec<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs: Option<Vec<u32>>,
+    /// Which Gazelle device this is, when the user has said so, which is how the readiness answer
+    /// reads its clock, its rate and its buffer. Gazelle's own, not the driver's: it is left out
+    /// of the exported file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<DeviceId>,
+    /// As [`Aggregate::extra`], per device.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// How the aggregate lines its devices up.
+pub const ALIGNMENTS: &[&str] = &["aligned", "lowest_latency"];
+
+/// The largest trim a device may take, either way: one second at the highest rate these
+/// interfaces run. Real trims are tens of samples; this only catches a number typed by mistake.
+pub const TRIM_MAX: i32 = 192_000;
+
+/// The highest channel index a device may expose. No interface has anything like this many; it
+/// only catches a number that is not a channel.
+pub const AGGREGATE_CHANNEL_MAX: u32 = 1023;
 
 /// What one device's Control Room panel shows.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

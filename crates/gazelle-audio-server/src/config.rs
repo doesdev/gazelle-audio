@@ -44,6 +44,17 @@ pub fn default_snapshots_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("snapshots"), |dir| dir.join("snapshots"))
 }
 
+/// The file the aggregate audio driver reads, exported from the workspace whenever the
+/// aggregate's setup changes.
+///
+/// The driver reads `%APPDATA%\gazelle\aggregate.json`, which is what this is on a PC with
+/// nothing overridden. `GAZELLE_CONFIG_DIR` and `XDG_CONFIG_HOME` move it, as they move the
+/// workspace, which is for a test or a second copy rather than for the driver: the driver has
+/// only the one path.
+pub fn default_aggregate_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    config_dir(var).map_or_else(|| PathBuf::from("aggregate.json"), |dir| dir.join("aggregate.json"))
+}
+
 /// The directory of user theme files for the web UI when `--themes-dir` is not given.
 pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))

@@ -974,3 +974,62 @@ async fn a_set_command_does_not_wait_for_a_reply_the_device_never_sends() {
     assert_eq!(body["response_error"], serde_json::Value::Null);
     assert!(started.elapsed() < std::time::Duration::from_secs(2), "it waited: {:?}", started.elapsed());
 }
+
+/// The aggregate audio driver's setup lives in the workspace, so it travels with a workspace
+/// backup. It is optional everywhere: a workspace written before it loads, and one without a
+/// section comes back without one rather than with an empty one.
+#[tokio::test]
+async fn the_aggregate_section_round_trips_and_is_left_out_when_there_is_none() {
+    let app = app();
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert!(body.get("aggregate").is_none(), "a workspace with no aggregate says nothing about one");
+
+    let aggregate = json!({
+        "devices": [
+            { "key": "Zen Quadro Synergy Core", "name": "Quadro", "device_id": "serial:1" },
+            { "clsid": "{AE4A4452-A316-11E5-A113-080027F6C1F4}", "name": "Studio+", "input_trim": 28 }
+        ],
+        "callback_master": "Quadro",
+        "alignment": "aligned",
+        "rate": 96000,
+        "buffer_size": 512
+    });
+    let workspace = json!({"version": 1, "groups": [], "links": [], "aliases": {}, "aggregate": aggregate});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["aggregate"], aggregate, "what went in is what comes back");
+    // A field this version does not know is kept as it came, so a newer setup survives a save here.
+    let newer = json!({"version": 1, "aggregate": {"devices": [{"key": "Quadro"}], "ring_buffers": 8}});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", newer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["aggregate"]["ring_buffers"], 8);
+}
+
+/// It is checked as the rest of the workspace is, and a refusal names the device and says what
+/// would have been right.
+#[tokio::test]
+async fn an_aggregate_section_that_could_not_work_is_refused_and_nothing_is_stored() {
+    let app = app();
+    for (aggregate, expected) in [
+        (json!({"devices": [{"name": "Quadro"}]}), "it needs a key or a clsid"),
+        (json!({"devices": [{"key": "Quadro"}, {"key": "quadro"}]}), "this key is named twice"),
+        (json!({"devices": [{"key": "Quadro", "input_trim": 999999}]}), "which is outside"),
+        (json!({"devices": [{"key": "Quadro", "inputs": [0, 0]}]}), "names channel 0 twice"),
+        (json!({"devices": [{"key": "Quadro"}], "callback_master": "Octo"}), "not one of the devices"),
+        (json!({"devices": [{"key": "Quadro"}], "alignment": "sample_accurate"}), "alignment must be one of"),
+        (json!({"devices": [{"key": "Quadro"}], "rate": 97000}), "rate must be one of"),
+        (json!({"devices": [{"key": "Quadro"}], "buffer_size": 500}), "buffer_size must be one of"),
+        (json!({"devices": [{"key": "Quadro", "device_id": "serial:1"}, {"key": "Studio+", "device_id": "serial:1"}]}), "already another device"),
+    ] {
+        let workspace = json!({"version": 1, "aggregate": aggregate});
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace.clone()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{workspace} was accepted");
+        assert_eq!(body["error"]["code"], "bad_value");
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(message.starts_with("bad value: aggregate: "), "{message}");
+        assert!(message.contains(expected), "{message} does not say {expected:?}");
+    }
+    let (_, body) = get(app, "/api/v1/workspace").await;
+    assert!(body.get("aggregate").is_none(), "nothing that was refused was stored");
+}

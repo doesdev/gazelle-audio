@@ -5,6 +5,7 @@
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
+import type { AggregateAnswer, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
@@ -138,6 +139,36 @@ export interface Client {
    * interface without `force` (code `asio_in_use`).
    */
   setDriver(id: string, change: DriverChange): Promise<DriverWriteReport>;
+  /**
+   * The aggregate audio driver: one driver a DAW opens with several interfaces underneath it.
+   * Served only on a loopback bind and only to a caller on the same machine, like `update`, so a
+   * page treats a rejection as "this server does not offer it" rather than as a failure. The
+   * setup itself is the workspace's `aggregate` section, saved with the rest of it.
+   */
+  readonly aggregate: {
+    /**
+     * Everything at once: the drivers on this PC, whether ours is registered, each configured
+     * device's live clock, rate, buffer and USB controller, the driver's own record and log, and
+     * a single ready or not ready with reasons. Reads the audio drivers, so it is not free;
+     * a second or two apart is often enough.
+     */
+    read(): Promise<AggregateAnswer>;
+    /**
+     * Put every configured interface on one buffer size, through the same write path and the
+     * same refusals as `setDriver`. Each device answers for itself: one refusing (`asio_in_use`
+     * without `force`) does not stop the others.
+     */
+    matchBuffers(buffer_size: number, options?: { force?: boolean }): Promise<AggregateMatchBuffers>;
+    /**
+     * Register the driver's DLL, which needs administrator rights: Windows puts up its own
+     * prompt, and a declined prompt comes back as `run.started` false rather than as a failure.
+     * The answer always carries the command a person could run instead. Rejects with
+     * `dll_not_found`, having run nothing, when there is no DLL to register; the error names
+     * every place that was looked in.
+     */
+    register(): Promise<AggregateRegistrationRun>;
+    unregister(): Promise<AggregateRegistrationRun>;
+  };
   /**
    * The in-app updater. Served only on a loopback bind, so every call rejects with `http_404` on
    * a server reachable from the network; a caller that shows update state treats that as "this
@@ -312,6 +343,14 @@ class Connection implements Client {
   async setDriver(id: string, change: DriverChange): Promise<DriverWriteReport> {
     return (await this.#http("PUT", `devices/${encodeURIComponent(id)}/driver`, change)) as DriverWriteReport;
   }
+
+  readonly aggregate = {
+    read: async (): Promise<AggregateAnswer> => (await this.#http("GET", "aggregate")) as AggregateAnswer,
+    matchBuffers: async (buffer_size: number, options: { force?: boolean } = {}): Promise<AggregateMatchBuffers> =>
+      (await this.#http("POST", "aggregate/match-buffers", { buffer_size, ...(options.force === true ? { force: true } : {}) })) as AggregateMatchBuffers,
+    register: async (): Promise<AggregateRegistrationRun> => (await this.#http("POST", "aggregate/register", {})) as AggregateRegistrationRun,
+    unregister: async (): Promise<AggregateRegistrationRun> => (await this.#http("POST", "aggregate/unregister", {})) as AggregateRegistrationRun,
+  };
 
   readonly update = {
     status: async (): Promise<UpdateStatus> => (await this.#http("GET", "update")) as UpdateStatus,

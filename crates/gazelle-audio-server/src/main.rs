@@ -13,7 +13,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gazelle_audio_server::config::{default_log_dir, default_snapshots_dir, default_themes_dir, default_workspace_path};
+use gazelle_audio_server::aggregate::export::ExportingStore;
+use gazelle_audio_server::aggregate::service::AggregateService;
+use gazelle_audio_server::config::{default_aggregate_path, default_log_dir, default_snapshots_dir, default_themes_dir, default_workspace_path};
 use gazelle_audio_server::device::hotplug::{self, HotPlug, Scanner};
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
@@ -371,9 +373,36 @@ async fn prepare(
         Arc::new(JsonDirStore::new(dir))
     };
 
+    // The audio driver's own settings (buffer size and Safe Mode, read and changed); a loopback
+    // device is answered without a DLL, and `--dry-run` builds a change without sending it.
+    let driver = gazelle_audio_server::driver::DriverService::for_this_pc();
+
+    // The aggregate audio driver. Its setup lives in the workspace and is exported to the file
+    // the driver reads whenever it changes, so the store is wrapped rather than replaced and
+    // every other route is untouched. `--no-persist` keeps its file out of the way too.
+    let aggregate_path = default_aggregate_path(|k| std::env::var(k).ok());
+    let aggregate = AggregateService::for_this_pc(
+        devices.clone(),
+        driver.clone(),
+        aggregate_path.clone(),
+        std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+        std::env::var("APPDATA").ok().map(std::path::PathBuf::from),
+    );
+    let store: Arc<dyn WorkspaceStore> = if args.no_persist {
+        store
+    } else {
+        let exporting = Arc::new(ExportingStore::new(store, &aggregate_path, aggregate.link.clone()));
+        match exporting.sync() {
+            Ok(Some(exported)) => tracing::info!("wrote the aggregate's setup to {}", exported.path.display()),
+            Ok(None) => {}
+            Err(why) => tracing::warn!("the aggregate's setup could not be exported: {why}"),
+        }
+        exporting
+    };
+
     let state = AppState {
         devices: devices.clone(),
-        store,
+        store: store.clone(),
         snapshots,
         force_dry_run: args.dry_run,
         enable_recall: args.enable_recall,
@@ -382,10 +411,9 @@ async fn prepare(
         show_window,
     };
 
-    // The audio driver's own settings (buffer size and Safe Mode, read and changed); a loopback
-    // device is answered without a DLL, and `--dry-run` builds a change without sending it.
-    let driver = gazelle_audio_server::driver::DriverService::for_this_pc();
-    let app = http::router(state).merge(http::driver::routes(devices.clone(), driver, args.dry_run));
+    let app = http::router(state)
+        .merge(http::driver::routes(devices.clone(), driver, args.dry_run))
+        .merge(http::aggregate::routes(aggregate, store, args.dry_run));
     let app = match restart {
         Some(restart) => app.merge(http::update::routes(restart)),
         None => app,

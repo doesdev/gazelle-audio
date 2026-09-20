@@ -23,6 +23,7 @@
 #[path = "../build/resource.rs"]
 mod build_resource;
 
+pub mod aggregate;
 pub mod config;
 pub mod device;
 pub mod driver;

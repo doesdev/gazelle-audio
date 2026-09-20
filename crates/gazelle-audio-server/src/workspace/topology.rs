@@ -88,6 +88,43 @@ pub fn port_width(port: &str) -> u32 {
     }
 }
 
+/// The clock sources a model offers, in `set_sync_source`'s index order, as each panel lists them
+/// (`app/ui/cpanel.py` and `zenstudiotb/ui/widgets/comboboxes.py`). The Studio+'s internal clock
+/// is its oven-controlled oscillator, and it alone has a word clock input. The web client carries
+/// the same two lists.
+pub fn clock_sources(family: &str) -> Option<&'static [&'static str]> {
+    match family {
+        "quadro" => Some(&["Internal", "ADAT x1", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]),
+        "studio" => Some(&["Oven", "Word clock", "ADAT", "ADAT x2", "ADAT x4", "S/PDIF", "USB"]),
+        _ => None,
+    }
+}
+
+/// The clock source a model should be on to follow a cable arriving at `port` (`SPDIF_IN` or
+/// `ADAT_IN`), as `(index, name)`.
+///
+/// This is the one check phase 0 said nothing in the code would have suggested: a device left on
+/// its internal clock silently becomes USB clocked the moment a DAW opens it, so an aggregate is
+/// only sample locked when each following device was put on its cable's input beforehand. The
+/// ADAT answer is the plain `x1` entry: a device taking a higher multiple is following the same
+/// cable, so that is accepted too (`follows_port`).
+pub fn clock_source_for_port(family: &str, port: &str) -> Option<(u32, &'static str)> {
+    let wanted = if port.starts_with("ADAT") { "ADAT" } else { "S/PDIF" };
+    let sources = clock_sources(family)?;
+    sources
+        .iter()
+        .position(|source| *source == wanted || (wanted == "ADAT" && *source == "ADAT x1"))
+        .map(|at| (at as u32, sources[at]))
+}
+
+/// Whether a clock source index is one that follows a cable arriving at `port`: the plain entry
+/// or any of its multiples.
+pub fn follows_port(family: &str, port: &str, source: u32) -> bool {
+    let Some(sources) = clock_sources(family) else { return false };
+    let wanted = if port.starts_with("ADAT") { "ADAT" } else { "S/PDIF" };
+    sources.get(source as usize).is_some_and(|name| name.starts_with(wanted))
+}
+
 /// The topology type of a workspace input kind (`preamp`, `line`, `adat`, `spdif`).
 pub fn input_type(kind: &str) -> Option<&'static str> {
     match kind {
@@ -124,5 +161,25 @@ mod tests {
         assert!(quadro.iter().any(|(id, _)| id == "SPDIF_OUT0"));
         assert_eq!(destination_groups("studio").expect("studio topology").len(), 14);
         assert!(destination_groups("zen").is_none());
+    }
+
+    #[test]
+    fn a_cable_names_the_clock_source_the_device_at_its_end_should_be_on() {
+        assert_eq!(clock_source_for_port("quadro", "SPDIF_IN"), Some((4, "S/PDIF")));
+        assert_eq!(clock_source_for_port("studio", "SPDIF_IN"), Some((5, "S/PDIF")));
+        assert_eq!(clock_source_for_port("quadro", "ADAT_IN"), Some((1, "ADAT x1")));
+        assert_eq!(clock_source_for_port("studio", "ADAT_IN"), Some((2, "ADAT")));
+        assert_eq!(clock_source_for_port("zen", "SPDIF_IN"), None);
+    }
+
+    #[test]
+    fn a_device_on_a_multiple_of_its_cables_input_is_still_following_it() {
+        assert!(follows_port("studio", "ADAT_IN", 2), "ADAT");
+        assert!(follows_port("studio", "ADAT_IN", 4), "ADAT x4 follows the same cable");
+        assert!(!follows_port("studio", "ADAT_IN", 5), "S/PDIF is a different cable");
+        assert!(follows_port("studio", "SPDIF_IN", 5));
+        assert!(!follows_port("studio", "SPDIF_IN", 0), "the oven follows nothing");
+        assert!(!follows_port("studio", "SPDIF_IN", 6), "and USB is the trap, not the answer");
+        assert!(!follows_port("studio", "SPDIF_IN", 99), "a source the model does not have");
     }
 }

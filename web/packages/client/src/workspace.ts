@@ -102,6 +102,48 @@ export interface Workspace {
   cables?: Cable[];
   /** Device id → what its Control Room panel shows; a device without one shows Monitor, HP1 and HP2. Older servers omit it. */
   control_room?: Record<string, ControlRoom>;
+  /** The aggregate audio driver's setup, when there is one; older servers omit it. */
+  aggregate?: Aggregate;
+}
+
+/**
+ * The aggregate audio driver's setup: which interfaces it opens, in what order, which one drives
+ * the callback and how their streams line up. It mirrors the file the driver reads, which Gazelle
+ * exports from here whenever this changes, so the setup travels with a workspace backup.
+ *
+ * Everything is optional, as it is in that file: a section with no devices means the driver opens
+ * every Antelope driver it finds. A field neither side knows is kept as it came.
+ */
+export interface Aggregate {
+  /** The sub-devices, in the order their channels appear to a DAW. */
+  devices?: AggregateDevice[];
+  /** Which device drives the callback, by name, registry key or class id; the first when unset. */
+  callback_master?: string;
+  alignment?: "aligned" | "lowest_latency";
+  /** The rate to put every device at, in Hz. */
+  rate?: number;
+  /** The buffer size to offer a DAW as preferred, in samples. */
+  buffer_size?: number;
+  [field: string]: unknown;
+}
+
+/** One interface the aggregate opens. It needs a `key` or a `clsid`. */
+export interface AggregateDevice {
+  /** The name the vendor driver registers itself under, matched without case, whole or as part. */
+  key?: string;
+  /** The vendor driver's class id, which is the sure way to name one. */
+  clsid?: string;
+  /** What to call this device's channels. */
+  name?: string;
+  /** Samples to add to this device's input latency. A device that records late takes a positive trim. */
+  input_trim?: number;
+  output_trim?: number;
+  /** Which of its inputs to expose, by the device's own numbering from zero; all of them when unset. */
+  inputs?: number[];
+  outputs?: number[];
+  /** Which Gazelle device this is, which is how its clock, rate and buffer are read. Not in the driver's file. */
+  device_id?: string;
+  [field: string]: unknown;
 }
 
 /** What one device's Control Room panel shows. */
