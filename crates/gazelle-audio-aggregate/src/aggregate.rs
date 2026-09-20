@@ -10,6 +10,7 @@ use gazelle_audio_stream_abi::{sample, Entry};
 
 use crate::config::{Config, DeviceConfig};
 use crate::plan::{self, Found, Plan};
+use crate::status::Reporter;
 use crate::stream::Stream;
 use crate::sub::{Description, Host, SubDriver};
 
@@ -59,11 +60,24 @@ pub struct Aggregate {
     /// A configuration handed in rather than read from a file, which is how a test puts a PC made
     /// of fakes behind the COM object.
     pub pending: Option<(Config, String)>,
+    /// Where the driver publishes what it is doing, and keeps what happened. A silent one says
+    /// nothing and changes nothing, which is what the driver gets when it has nowhere to report.
+    pub reporter: Arc<Reporter>,
+    /// The generation of the configuration actually in force.
+    generation: u64,
+    /// A configuration that arrived while a DAW was streaming, waiting for it to come back
+    /// through `createBuffers`.
+    queued: Option<(Config, String, u64)>,
 }
 
 impl Aggregate {
-    /// A driver that has not opened anything yet.
+    /// A driver that has not opened anything yet, and reports nothing.
     pub fn new(host: Box<dyn Host>) -> Aggregate {
+        Aggregate::reporting(host, Arc::new(Reporter::silent()))
+    }
+
+    /// A driver that publishes what it is doing.
+    pub fn reporting(host: Box<dyn Host>, reporter: Arc<Reporter>) -> Aggregate {
         Aggregate {
             host,
             config: Config::default(),
@@ -78,6 +92,9 @@ impl Aggregate {
             started: false,
             error: String::new(),
             pending: None,
+            reporter,
+            generation: 0,
+            queued: None,
         }
     }
 
@@ -91,8 +108,12 @@ impl Aggregate {
         &self.error
     }
 
+    /// Every refusal in this driver goes through here, which is why every one of them reaches the
+    /// DAW, the shared record and the event log without anything having to remember to say so.
     fn fail<T>(&mut self, message: String) -> Result<T, String> {
         self.error = message.clone();
+        let reporter = Arc::clone(&self.reporter);
+        reporter.refused(self.generation, &message);
         Err(message)
     }
 
@@ -112,14 +133,81 @@ impl Aggregate {
         self.stream.as_ref()
     }
 
-    /// Open every configured device and work out what the aggregate looks like. Reads the
-    /// configuration file, which is the one and only moment any file is read.
+    /// Open every configured device and work out what the aggregate looks like. This is where the
+    /// configuration file first turns into a plan.
     pub fn init(&mut self, config: Config, source: String) -> Result<(), String> {
         if self.plan.is_some() {
             return Ok(());
         }
+        let generation = self.reporter.generation();
+        self.open_everything(config, source, generation)
+    }
+
+    /// Whether a configuration could be run at all, decided without opening a thing: it has to
+    /// name devices this PC actually has. Everything past that needs a driver to answer, which is
+    /// what adopting it finds out.
+    pub fn check(&self, config: &Config) -> Result<(), String> {
+        let entries = self.host.entries().map_err(|why| format!("the drivers on this PC could not be listed: {why}"))?;
+        choose(&entries, config).map(|_| ())
+    }
+
+    /// Whether a DAW has the driver open with its buffers made, which is the difference between a
+    /// change that can be made quietly and one the host has to be asked about.
+    pub fn has_buffers(&self) -> bool {
+        self.stream.is_some()
+    }
+
+    /// The generation of the configuration in force.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Take this configuration when the DAW next comes back for buffers. Used while a DAW is
+    /// streaming, where nothing may be pulled out from under it until it asks.
+    pub fn queue(&mut self, config: Config, source: String, generation: u64) {
+        self.queued = Some((config, source, generation));
+    }
+
+    /// **Take a new configuration now.** Everything open is closed first, because two instances of
+    /// one vendor driver in one process is not a thing to try. If the new configuration will not
+    /// open, what was there before is opened again, so that a refusal leaves a working driver
+    /// rather than none.
+    pub fn reconfigure(&mut self, config: Config, source: String, generation: u64) -> Result<(), String> {
+        if self.has_buffers() {
+            return self.fail("the configuration cannot be changed while a DAW has the buffers".to_string());
+        }
+        let was = (self.config.clone(), self.config_source.clone(), self.generation);
+        let had_plan = self.plan.is_some();
+        self.let_everything_go();
+        match self.open_everything(config, source, generation) {
+            Ok(()) => Ok(()),
+            Err(why) => {
+                // Put back what was working. It opened once, so it should open again; if it does
+                // not, the driver is left saying why at the DAW's next call rather than pretending.
+                self.let_everything_go();
+                if had_plan {
+                    let _ = self.open_everything(was.0, was.1, was.2);
+                }
+                Err(why)
+            }
+        }
+    }
+
+    /// Let go of every device, leaving a driver that has opened nothing.
+    fn let_everything_go(&mut self) {
+        self.dispose_buffers();
+        self.subs.clear();
+        self.descriptions.clear();
+        self.trims.clear();
+        self.plan = None;
+        self.rate = 0.0;
+    }
+
+    /// Open every configured device and work out what the aggregate looks like.
+    fn open_everything(&mut self, config: Config, source: String, generation: u64) -> Result<(), String> {
         self.config = config;
         self.config_source = source;
+        self.generation = generation;
 
         let entries = match self.host.entries() {
             Ok(entries) => entries,
@@ -174,6 +262,8 @@ impl Aggregate {
 
         match plan::plan(&found, &self.config, None) {
             Ok(plan) => {
+                let reporter = Arc::clone(&self.reporter);
+                reporter.plan_in_force(&plan, self.rate, &self.config_source, self.generation);
                 self.plan = Some(plan);
                 Ok(())
             }
@@ -292,6 +382,12 @@ impl Aggregate {
         if self.stream.is_some() {
             return self.fail("the buffers are already made".to_string());
         }
+        // A configuration that arrived while the last session was running is taken up here, which
+        // is the moment the DAW has let go of everything and is asking for it again. A refusal has
+        // already been written down by `reconfigure`, and what was in force is still in force.
+        if let Some((config, source, generation)) = self.queued.take() {
+            let _ = self.reconfigure(config, source, generation);
+        }
         let Some(plan) = self.plan.clone() else {
             return self.fail("the driver was asked for buffers before it was opened".to_string());
         };
@@ -347,7 +443,17 @@ impl Aggregate {
         }
 
         let time_info = asks_for_time_info(&host);
-        let stream = Arc::new(Stream::new(&plan, &self.config, self.rate, buffers, in_map, out_map, host, time_info));
+        let stream = Arc::new(Stream::new(
+            &plan,
+            &self.config,
+            self.rate,
+            buffers,
+            in_map,
+            out_map,
+            host,
+            time_info,
+            Arc::clone(&self.reporter),
+        ));
         for (index, sub) in self.subs.iter_mut().enumerate() {
             sub.attach(Arc::clone(&stream), index);
         }
@@ -364,6 +470,9 @@ impl Aggregate {
             .collect();
 
         self.wanted = wanted.to_vec();
+        let reporter = Arc::clone(&self.reporter);
+        reporter.plan_in_force(&plan, self.rate, &self.config_source, self.generation);
+        reporter.buffers(true, stream.daw_inputs(), stream.daw_outputs());
         self.plan = Some(plan);
         self.stream = Some(stream);
         Ok(pairs)
@@ -415,11 +524,15 @@ impl Aggregate {
             started.push(index);
         }
         self.started = true;
+        let reporter = Arc::clone(&self.reporter);
+        let (inputs, outputs) = (stream.daw_inputs(), stream.daw_outputs());
+        reporter.session(true, crate::now_nanos(), &format!("{inputs} in, {outputs} out at {} Hz", self.rate));
         Ok(())
     }
 
     /// Stop every device, the one driving the callback first.
     pub fn stop(&mut self) {
+        let was = self.started;
         if let Some(stream) = &self.stream {
             stream.halt();
             let master = stream.master;
@@ -429,6 +542,10 @@ impl Aggregate {
             }
         }
         self.started = false;
+        if was {
+            let reporter = Arc::clone(&self.reporter);
+            reporter.session(false, 0, "");
+        }
     }
 
     /// Let go of every buffer. Nothing can be calling back by now: every device was stopped first.
@@ -438,8 +555,12 @@ impl Aggregate {
             sub.dispose_buffers();
             sub.detach();
         }
-        self.stream = None;
+        let had = self.stream.take().is_some();
         self.wanted.clear();
+        if had {
+            let reporter = Arc::clone(&self.reporter);
+            reporter.buffers(false, 0, 0);
+        }
     }
 
     /// Where the aggregate is, in samples, and when that was read, in nanoseconds.

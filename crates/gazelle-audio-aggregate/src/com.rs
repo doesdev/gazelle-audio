@@ -9,7 +9,7 @@ use std::ffi::c_void;
 use std::os::raw::c_char;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use gazelle_audio_stream_abi::raw::{
     error, hresult, BufferInfoRaw, CallbacksRaw, ChannelInfoRaw, ClassFactory, ClassFactoryVtable, ClockSourceRaw, Guid,
@@ -18,8 +18,13 @@ use gazelle_audio_stream_abi::raw::{
 
 use crate::aggregate::{Aggregate, Wanted};
 use crate::config::{self, Config};
+use crate::status::{FileLog, LocalClock, LogSink, Reporter};
 use crate::sub::Host;
+use crate::watch::{DriverWatch, WakeUp, Watcher};
 use crate::{CLASS_ID, DRIVER_NAME, DRIVER_VERSION};
+use gazelle_audio_aggregate_status::map::Notifier;
+use gazelle_audio_aggregate_status::windows::{ReloadEvent, Section};
+use gazelle_audio_aggregate_status::Publisher;
 
 /// How many objects of ours are alive. COM may unload the DLL only when this is zero.
 static ALIVE: AtomicU32 = AtomicU32::new(0);
@@ -33,6 +38,9 @@ pub struct Bench {
     pub host: Box<dyn Host>,
     pub config: Config,
     pub source: String,
+    /// What the driver reports with. A test's is silent, so no test makes a shared section, opens
+    /// a log file or starts a watcher thread.
+    pub reporter: Arc<Reporter>,
 }
 
 type BenchMaker = Box<dyn Fn() -> Bench + Send + Sync>;
@@ -56,24 +64,73 @@ pub struct Driver {
     refs: AtomicU32,
     /// Everything outside the audio path. A DAW makes these calls from one thread; the lock is
     /// there so that a DAW which does not is still safe, and it is never taken on a callback.
-    inner: Mutex<Aggregate>,
+    ///
+    /// Counted, because the watcher thread holds a weak reference to it and must never be the
+    /// reason the driver stays alive.
+    inner: Arc<Mutex<Aggregate>>,
+    reporter: Arc<Reporter>,
+    /// The thread that waits for Gazelle to say the configuration changed. Started once the
+    /// driver has opened, and stopped and joined before anything it can reach is dropped.
+    watcher: Mutex<Option<Watcher>>,
 }
 
 impl Driver {
     fn new() -> *mut Driver {
         let bench = BENCH.lock().expect("not poisoned").as_ref().map(|maker| maker());
-        let aggregate = match bench {
+        let (aggregate, reporter) = match bench {
             Some(bench) => {
-                let mut aggregate = Aggregate::new(bench.host);
+                let reporter = Arc::clone(&bench.reporter);
+                let mut aggregate = Aggregate::reporting(bench.host, Arc::clone(&reporter));
                 aggregate.config_source = bench.source.clone();
                 aggregate.pending = Some((bench.config, bench.source));
-                aggregate
+                (aggregate, reporter)
             }
-            None => Aggregate::new(Box::new(crate::windows_host::ThisPc)),
+            None => {
+                let reporter = real_reporter();
+                (Aggregate::reporting(Box::new(crate::windows_host::ThisPc), Arc::clone(&reporter)), reporter)
+            }
         };
         ALIVE.fetch_add(1, Ordering::AcqRel);
-        Box::into_raw(Box::new(Driver { object: Object { vtable: &VTABLE }, refs: AtomicU32::new(1), inner: Mutex::new(aggregate) }))
+        Box::into_raw(Box::new(Driver {
+            object: Object { vtable: &VTABLE },
+            refs: AtomicU32::new(1),
+            inner: Arc::new(Mutex::new(aggregate)),
+            reporter,
+            watcher: Mutex::new(None),
+        }))
     }
+}
+
+/// Where a real driver publishes what it is doing and writes down what happened.
+///
+/// **Not being able to do either is not a failure.** The driver's one requirement is its
+/// configuration file: with no shared section it simply runs, exactly as it does with Gazelle
+/// closed, and nothing can be watched or asked of it.
+fn real_reporter() -> Arc<Reporter> {
+    let publisher = Section::create().ok().and_then(|section| Publisher::map(Box::new(section)).ok());
+    let log: Option<Box<dyn LogSink>> = FileLog::open().map(|log| Box::new(log) as Box<dyn LogSink>);
+    Arc::new(Reporter::new(publisher, log, Box::new(LocalClock)))
+}
+
+/// The named event is both the thing the watcher waits on and the thing that wakes it up to be
+/// told to stop. A wait holds the waiting end, so the stopping end is its own handle on the same
+/// event.
+impl WakeUp for ReloadEvent {
+    fn poke(&self) {
+        self.signal();
+    }
+}
+
+/// Start listening for changes. Nothing at all when there is no section, because then there is no
+/// generation counter to watch and nobody who could have written the file.
+fn start_watching(inner: &Arc<Mutex<Aggregate>>, reporter: &Arc<Reporter>) -> Option<Watcher> {
+    if !reporter.is_publishing() {
+        return None;
+    }
+    let waiting_end = ReloadEvent::create().ok()?;
+    let stopping_end = ReloadEvent::create().ok()?;
+    let target = DriverWatch::new(inner, Arc::clone(reporter));
+    Some(Watcher::start(Box::new(waiting_end), Box::new(target), Arc::new(stopping_end)))
 }
 
 /// Turn a pointer the DAW gave us back into our object.
@@ -136,7 +193,15 @@ unsafe extern "system" fn release(object: *mut Object) -> u32 {
     let Some(driver) = (unsafe { driver(object) }) else { return 0 };
     let left = driver.refs.fetch_sub(1, Ordering::AcqRel) - 1;
     if left == 0 {
-        // Everything is stopped and disposed of by the aggregate's own drop.
+        // The watcher thread is stopped and joined first, so that nothing it can reach is dropped
+        // while it is still running.
+        if let Ok(mut watcher) = driver.watcher.lock() {
+            if let Some(running) = watcher.as_mut() {
+                running.stop();
+            }
+            *watcher = None;
+        }
+        // Everything else is stopped and disposed of by the aggregate's own drop.
         drop(unsafe { Box::from_raw(object as *mut Driver) });
         ALIVE.fetch_sub(1, Ordering::AcqRel);
     }
@@ -149,24 +214,32 @@ unsafe extern "system" fn release(object: *mut Object) -> u32 {
 
 unsafe extern "system" fn init(object: *mut Object, _window: *mut c_void) -> i32 {
     let Some(driver) = (unsafe { driver(object) }) else { return FALSE };
-    let mut aggregate = driver.inner.lock().expect("not poisoned");
-    let (config, source) = match aggregate.pending.take() {
-        Some(ready) => ready,
-        None => match config::config_path() {
-            Some(path) => match Config::read(&path) {
-                Ok(config) => (config, path.display().to_string()),
-                Err(why) => {
-                    aggregate.refuse(why);
-                    return FALSE;
-                }
+    let opened = {
+        let mut aggregate = driver.inner.lock().expect("not poisoned");
+        let (config, source) = match aggregate.pending.take() {
+            Some(ready) => ready,
+            None => match config::config_path() {
+                Some(path) => match Config::read(&path) {
+                    Ok(config) => (config, path.display().to_string()),
+                    Err(why) => {
+                        aggregate.refuse(why);
+                        return FALSE;
+                    }
+                },
+                None => (Config::default(), "the defaults, because APPDATA is not set".to_string()),
             },
-            None => (Config::default(), "the defaults, because APPDATA is not set".to_string()),
-        },
+        };
+        aggregate.init(config, source)
     };
-    match aggregate.init(config, source) {
-        Ok(()) => TRUE,
-        Err(_) => FALSE,
+    if opened.is_err() {
+        return FALSE;
     }
+    // Only once the driver has actually opened, and only after the lock is let go: the watcher
+    // takes the same one.
+    if let Some(watcher) = start_watching(&driver.inner, &driver.reporter) {
+        *driver.watcher.lock().expect("not poisoned") = Some(watcher);
+    }
+    TRUE
 }
 
 unsafe extern "system" fn get_driver_name(_object: *mut Object, into: *mut c_char) {

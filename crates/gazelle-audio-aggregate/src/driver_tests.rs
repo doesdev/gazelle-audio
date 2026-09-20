@@ -10,7 +10,11 @@ use crate::aggregate::{Aggregate, Wanted};
 use crate::config::{Alignment, Config, DeviceConfig};
 use crate::daw;
 use crate::fake::{FakeHost, FakePc, Spec, Step};
+use crate::status::fake::{unmapped, watched, Written};
 use crate::sub::Host;
+use crate::watch::{DriverWatch, Reload};
+use gazelle_audio_aggregate_status::Reader;
+use std::sync::Mutex;
 use gazelle_audio_stream_abi::raw::selector;
 use gazelle_audio_stream_abi::sample;
 
@@ -674,4 +678,354 @@ fn a_trim_in_the_file_moves_a_device_and_the_latency_the_daw_is_told() {
     let mut big = running(&pc, config);
     assert_eq!(big.latencies().expect("a plan exists").0, 600, "the master's own path, which nothing trimmed");
     big.dispose_buffers();
+}
+
+// ---------------------------------------------------------------------------------------------
+// What the driver tells the outside world, and what it does when it is told something.
+// ---------------------------------------------------------------------------------------------
+
+/// A driver that publishes, with the reader for its record and the log it writes.
+fn reporting(pc: &Arc<FakePc>, config: Config) -> (Aggregate, Reader, Written) {
+    let (reporter, reader, written) = watched();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(pc) });
+    let mut aggregate = Aggregate::reporting(host, reporter);
+    aggregate.init(config, r"C:\Users\someone\AppData\Roaming\gazelle\aggregate.json".to_string()).expect("both open");
+    (aggregate, reader, written)
+}
+
+/// Make every buffer and start, as `running` does, on an aggregate that is already open.
+fn go(aggregate: &mut Aggregate) {
+    let wanted = everything(aggregate);
+    let pairs = aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect("the buffers are made");
+    let inputs: Vec<_> = wanted.iter().zip(&pairs).filter(|(w, _)| w.is_input).map(|(_, p)| *p).collect();
+    let outputs: Vec<_> = wanted.iter().zip(&pairs).filter(|(w, _)| !w.is_input).map(|(_, p)| *p).collect();
+    daw::with(|session| session.buffers(BLOCK as usize, inputs, outputs));
+    aggregate.start().expect("both devices start");
+}
+
+#[test]
+fn the_record_says_what_plan_is_in_force_as_soon_as_the_driver_is_open() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (_aggregate, reader, written) = reporting(&pc, both(Alignment::Aligned));
+    let seen = reader.read().expect("a settled record");
+    assert_eq!(seen.driver.device_count, 2);
+    assert_eq!(seen.driver.master, 0);
+    assert_eq!(seen.driver.sample_rate, 96_000.0);
+    assert!(seen.driver.config_source.get().ends_with("aggregate.json"), "{:?}", seen.driver.config_source);
+    let names: Vec<&str> = seen.devices().iter().map(|device| device.name.get()).collect();
+    assert_eq!(names, vec!["A", "B"]);
+    assert_eq!(seen.devices()[0].is_master, 1);
+    assert_eq!(seen.devices()[1].is_master, 0);
+    assert_eq!(seen.devices()[0].inputs, 2);
+    assert_eq!(seen.driver.open, 0, "no DAW has asked for buffers yet");
+    assert_eq!(seen.driver.streaming, 0);
+    assert!(written.lines().is_empty(), "opening the driver is not an event worth keeping");
+}
+
+#[test]
+fn the_record_follows_a_session_from_the_buffers_being_made_to_them_being_let_go() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.driver.open, 1);
+    assert_eq!(seen.driver.streaming, 1);
+    assert_eq!(seen.driver.daw_inputs, 4);
+    assert_eq!(seen.driver.daw_outputs, 4);
+    assert_eq!(seen.driver.buffer_size, BLOCK);
+    assert_eq!(written.of("session-started").len(), 1, "{:?}", written.lines());
+
+    aggregate.dispose_buffers();
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.driver.open, 0);
+    assert_eq!(seen.driver.streaming, 0);
+    assert_eq!(written.of("session-ended").len(), 1);
+}
+
+#[test]
+fn every_block_moves_the_counters_and_two_locked_devices_show_no_gap_at_all() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, _written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    // A locked pair: each device calls back once per block, in step, which is what phase 0
+    // measured at the hardware.
+    for half in 0..6 {
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    let seen = reader.read().expect("a settled record");
+    assert_eq!(seen.driver.callbacks, 6, "the master drove six blocks");
+    assert_eq!(seen.driver.position, 6 * BLOCK as u64);
+    assert!(seen.driver.last_block_nanos > 0, "and said when the last one was, on the machine's clock");
+    assert_eq!(seen.devices()[0].gap, 0, "the master is its own reference");
+    assert_eq!(seen.devices()[1].gap, 0, "a locked device holds the same count");
+    assert_eq!(seen.devices()[1].callbacks, 6);
+    assert!(seen.devices().iter().all(|device| device.streaming == 1));
+}
+
+#[test]
+fn a_device_that_falls_behind_shows_the_gap_in_samples() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, _written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    // The follower misses two of the master's blocks, which is two blocks of samples behind.
+    for half in 0..6 {
+        if half >= 2 {
+            b.fire(half & 1);
+        }
+        a.fire(half & 1);
+    }
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].gap, -2 * BLOCK as i64, "behind the master by two blocks of samples");
+
+    // And it can be in front, which is what a device that started early looks like.
+    for half in 0..4 {
+        b.fire(half & 1);
+    }
+    a.fire(0);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].gap, BLOCK as i64);
+}
+
+#[test]
+fn a_device_that_stops_is_stalled_in_the_record_and_one_line_in_the_log_when_the_watcher_looks() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (reporter, reader, written) = watched();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let driver = Arc::new(Mutex::new(Aggregate::reporting(host, Arc::clone(&reporter))));
+    driver.lock().unwrap().init(both(Alignment::Aligned), "a test".to_string()).expect("both open");
+    go(&mut driver.lock().unwrap());
+    let watcher = DriverWatch::new(&driver, Arc::clone(&reporter));
+
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    for half in 0..2 {
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    watcher.look_around();
+    assert!(written.of("stalled").is_empty(), "nothing has gone anywhere");
+
+    // The follower stops dead. The master notices after `stall_after_buffers` of its own blocks.
+    for half in 0..6 {
+        a.fire(half & 1);
+    }
+    assert_eq!(reader.read().unwrap().devices()[1].stalled, 1, "the audio path set the flag");
+    watcher.look_around();
+    watcher.look_around();
+    assert_eq!(written.of("stalled").len(), 1, "once, not once per look: {:?}", written.lines());
+    assert!(written.of("stalled")[0].ends_with("stalled B"));
+
+    // And it comes back.
+    for half in 0..4 {
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    assert_eq!(reader.read().unwrap().devices()[1].stalled, 0);
+    watcher.look_around();
+    watcher.look_around();
+    assert_eq!(written.of("recovered").len(), 1);
+    assert!(written.of("recovered")[0].ends_with("recovered B"));
+
+    driver.lock().unwrap().dispose_buffers();
+}
+
+#[test]
+fn a_refusal_reaches_the_daw_the_record_and_the_log_in_the_same_words() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, written) = reporting(&pc, both(Alignment::Aligned));
+    let why = aggregate.set_rate(22_050.0).expect_err("neither device will run there");
+    assert_eq!(aggregate.last_error(), why, "the DAW reads it back");
+    assert_eq!(reader.read().unwrap().driver.refusal.get(), why, "and so does anything watching");
+    assert_eq!(written.of("refused").len(), 1);
+    assert!(written.of("refused")[0].contains("22050"), "{:?}", written.lines());
+}
+
+#[test]
+fn a_driver_that_could_not_make_a_section_works_exactly_as_it_did_before() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (reporter, written) = unmapped();
+    assert!(!reporter.is_publishing(), "there is nowhere to publish");
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let mut aggregate = Aggregate::reporting(host, reporter);
+    aggregate.init(both(Alignment::Aligned), "a test".to_string()).expect("the devices open anyway");
+    assert_eq!(aggregate.channels(), (4, 4));
+    go(&mut aggregate);
+
+    // The whole audio path still runs, and the DAW still hears what the devices heard.
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    let tone = daw::tone(BLOCK as usize, 100);
+    for half in 0..4 {
+        a.set_input(0, half & 1, &tone);
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    let heard = daw::with(|session| session.last_heard().cloned()).expect("the DAW was called");
+    assert_eq!(heard[0], tone, "the master's input reached the DAW with nowhere to report it");
+    // And the durable half still works, because the two are not the same thing.
+    assert_eq!(written.of("session-started").len(), 1);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_new_configuration_with_nothing_streaming_is_taken_up_there_and_then() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, written) = reporting(&pc, both(Alignment::Aligned));
+    assert_eq!(aggregate.channels(), (4, 4));
+
+    let only_b = Config {
+        devices: vec![DeviceConfig { key: Some("Device B".into()), name: Some("B".into()), ..DeviceConfig::default() }],
+        ..Config::default()
+    };
+    aggregate.reconfigure(only_b, "a newer file".to_string(), 3).expect("one of the two devices is a fine plan");
+    assert_eq!(aggregate.channels(), (2, 2));
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "B 1");
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.driver.device_count, 1);
+    assert_eq!(seen.devices()[0].name.get(), "B");
+    assert_eq!(seen.driver.generation_in_force, 3, "and Gazelle can see its request landed");
+    assert_eq!(seen.driver.config_source.get(), "a newer file");
+    assert!(written.of("refused").is_empty(), "{:?}", written.lines());
+    // The device that is no longer in the plan was let go of: nothing was asked of it again, and
+    // it holds no buffers.
+    assert_eq!(pc.device("Device A").calls(), vec!["init", "describe"]);
+    assert!(!pc.device("Device A").has_buffers());
+}
+
+#[test]
+fn a_new_configuration_that_names_a_device_this_pc_does_not_have_is_refused_before_anything_is_touched() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (aggregate, _reader, _written) = reporting(&pc, both(Alignment::Aligned));
+    let missing = Config {
+        devices: vec![DeviceConfig { key: Some("Device C".into()), ..DeviceConfig::default() }],
+        ..Config::default()
+    };
+    let why = aggregate.check(&missing).expect_err("there is no Device C on this PC");
+    assert!(why.contains("Device C"), "{why}");
+    // Checking opens nothing, so the driver is exactly as it was.
+    assert_eq!(aggregate.channels(), (4, 4));
+    assert!(aggregate.check(&both(Alignment::Aligned)).is_ok());
+}
+
+#[test]
+fn a_configuration_that_will_not_open_puts_back_the_one_that_did() {
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(2, 2, 600, 700))
+            .with(
+                "Device B",
+                "{BBBBBBBB-0000-0000-0000-000000000002}",
+                r"c:\antelope\b.dll",
+                Spec { min: 2, max: 64, preferred: BLOCK, ..Spec::default() }
+                    .with_channels(2, 2)
+                    .failing(Step::Init, "this driver will not start up twice"),
+            ),
+    );
+    let only_a = Config {
+        devices: vec![DeviceConfig { key: Some("Device A".into()), name: Some("A".into()), ..DeviceConfig::default() }],
+        ..Config::default()
+    };
+    let (mut aggregate, reader, written) = reporting(&pc, only_a);
+    assert_eq!(aggregate.channels(), (2, 2));
+
+    let why = aggregate
+        .reconfigure(both(Alignment::Aligned), "a newer file".to_string(), 5)
+        .expect_err("Device B will not start up");
+    assert!(why.contains("Device B") || why.contains('B'), "{why}");
+    // What was working is working again, and the DAW would be told why the change did not happen.
+    assert_eq!(aggregate.channels(), (2, 2), "the plan that opened is in force again");
+    assert_eq!(aggregate.channel_info(true, 0).unwrap().name, "A 1");
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.driver.device_count, 1);
+    assert_eq!(seen.devices()[0].name.get(), "A");
+    assert_eq!(seen.driver.refused_generation, 5);
+    assert!(!written.of("refused").is_empty());
+}
+
+#[test]
+fn a_configuration_that_arrives_while_a_daw_is_streaming_is_taken_up_when_it_comes_back() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, reader, _written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    assert!(aggregate.has_buffers(), "a DAW is holding a plan");
+
+    let only_b = Config {
+        devices: vec![DeviceConfig { key: Some("Device B".into()), name: Some("B".into()), ..DeviceConfig::default() }],
+        ..Config::default()
+    };
+    aggregate.queue(only_b, "a newer file".to_string(), 8);
+    // Nothing has moved under the DAW.
+    assert_eq!(aggregate.channels(), (4, 4));
+    assert_eq!(reader.read().unwrap().driver.device_count, 2);
+
+    // The DAW puts everything down and picks it up again, which is what a reset means.
+    aggregate.dispose_buffers();
+    let wanted: Vec<Wanted> = (0..2)
+        .map(|channel| Wanted { is_input: true, channel })
+        .chain((0..2).map(|channel| Wanted { is_input: false, channel }))
+        .collect();
+    aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect("the new plan makes buffers");
+    assert_eq!(aggregate.channels(), (2, 2), "the queued plan is in force now");
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.driver.device_count, 1);
+    assert_eq!(seen.driver.generation_in_force, 8);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn asking_the_host_to_reset_sends_exactly_one_message_and_only_while_a_daw_is_streaming() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (reporter, _reader, written) = watched();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let driver = Arc::new(Mutex::new(Aggregate::reporting(host, Arc::clone(&reporter))));
+    driver.lock().unwrap().init(both(Alignment::Aligned), "a test".to_string()).expect("both open");
+    let watcher = DriverWatch::new(&driver, Arc::clone(&reporter));
+
+    // Nothing is streaming: there is no host to ask, and nothing is sent.
+    assert!(!watcher.is_streaming());
+    watcher.ask_host_to_reset();
+    assert!(daw::with(|session| session.messages.clone()).is_empty(), "no DAW has the driver open");
+
+    go(&mut driver.lock().unwrap());
+    daw::with(|session| session.messages.clear());
+    assert!(watcher.is_streaming());
+    watcher.ask_host_to_reset();
+    let asked: Vec<(i32, i32)> =
+        daw::with(|session| session.messages.iter().copied().filter(|(what, _)| *what == selector::RESET_REQUEST).collect());
+    assert_eq!(asked, vec![(selector::RESET_REQUEST, 0)], "one reset request, and nothing else");
+    assert_eq!(written.of("reset-asked").len(), 1);
+
+    driver.lock().unwrap().dispose_buffers();
+}
+
+#[test]
+fn the_watcher_lets_go_of_a_driver_that_has_been_released() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (reporter, _reader, _written) = watched();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let driver = Arc::new(Mutex::new(Aggregate::reporting(host, Arc::clone(&reporter))));
+    let watcher = DriverWatch::new(&driver, Arc::clone(&reporter));
+    assert!(watcher.is_alive());
+    drop(driver);
+    assert!(!watcher.is_alive(), "the watcher never holds a driver open");
+    // And everything it can be asked to do answers without a driver rather than panicking.
+    assert!(watcher.check(&both(Alignment::Aligned)).is_ok());
+    assert!(!watcher.is_streaming());
+    assert!(watcher.adopt(both(Alignment::Aligned), "a test".to_string(), 1).is_err());
+    watcher.ask_host_to_reset();
+    watcher.look_around();
 }

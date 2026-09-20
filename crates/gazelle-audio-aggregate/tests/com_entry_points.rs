@@ -79,6 +79,8 @@ fn a_daw_can_open_the_driver_run_it_and_close_it_again() {
             host: Box::new(FakeHost { pc: Arc::clone(&pc) }),
             config: config(),
             source: "the test bench".to_string(),
+            // Silent: no test makes a shared section, opens a log file or starts a watcher.
+            reporter: std::sync::Arc::new(gazelle_aggregate::status::Reporter::silent()),
         });
     }
 
@@ -189,6 +191,8 @@ fn the_object_answers_for_itself_and_counts_who_holds_it() {
             host: Box::new(FakeHost { pc: Arc::clone(&pc) }),
             config: config(),
             source: "the test bench".to_string(),
+            // Silent: no test makes a shared section, opens a log file or starts a watcher.
+            reporter: std::sync::Arc::new(gazelle_aggregate::status::Reporter::silent()),
         });
     }
     let object = create();
@@ -219,6 +223,8 @@ fn calls_made_in_the_wrong_order_are_refused_rather_than_obeyed() {
             host: Box::new(FakeHost { pc: Arc::clone(&pc) }),
             config: config(),
             source: "the test bench".to_string(),
+            // Silent: no test makes a shared section, opens a log file or starts a watcher.
+            reporter: std::sync::Arc::new(gazelle_aggregate::status::Reporter::silent()),
         });
     }
     let object = create();
@@ -270,6 +276,8 @@ fn nothing_is_left_holding_the_dll_after_a_session() {
             host: Box::new(FakeHost { pc: Arc::clone(&pc) }),
             config: config(),
             source: "the test bench".to_string(),
+            // Silent: no test makes a shared section, opens a log file or starts a watcher.
+            reporter: std::sync::Arc::new(gazelle_aggregate::status::Reporter::silent()),
         });
     }
     let object = create();

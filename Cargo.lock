@@ -1016,6 +1016,7 @@ dependencies = [
 name = "gazelle-audio-aggregate"
 version = "0.1.0"
 dependencies = [
+ "gazelle-audio-aggregate-status",
  "gazelle-audio-stream-abi",
  "serde",
  "serde_json",
@@ -1028,6 +1029,13 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "gazelle-audio-stream-abi",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "gazelle-audio-aggregate-status"
+version = "0.1.0"
+dependencies = [
  "windows-sys 0.61.2",
 ]
 
@@ -1072,6 +1080,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "futures-util",
+ "gazelle-audio-aggregate-status",
  "gazelle-audio-protocol",
  "gazelle-audio-transport",
  "hidapi",

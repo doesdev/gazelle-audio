@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-/// Where the file lives, under the same folder Gazelle keeps its other settings in.
-pub const FILE_NAME: &str = "aggregate.json";
-pub const FOLDER: &str = "gazelle";
+/// Where the file lives, under the same folder Gazelle keeps its other settings in. Both names
+/// come from the shared status crate, so that Gazelle and the driver cannot disagree about them.
+pub const FILE_NAME: &str = gazelle_audio_aggregate_status::names::CONFIG_FILE;
+pub const FOLDER: &str = gazelle_audio_aggregate_status::names::FOLDER;
 
 /// How the aggregate lines its devices up.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]

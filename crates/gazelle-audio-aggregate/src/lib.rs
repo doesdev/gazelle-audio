@@ -37,6 +37,10 @@
 //! - [`stream`] is the audio path, and the only code that runs on a callback thread. It allocates
 //!   nothing, locks nothing, logs nothing and never calls back into a vendor driver.
 //! - [`aggregate`] is everything a DAW asks for outside the audio path.
+//! - [`status`] is what the driver tells the outside world: the live record in shared memory, and
+//!   the small event log that keeps what happened after the driver has exited.
+//! - [`watch`] is the one thread that waits for Gazelle to say the configuration has changed, and
+//!   re-plans when it does. Never the audio thread.
 //! - `com` (Windows only) is the COM object and the DLL's four exports.
 //! - [`registration`] is what `regsvr32` writes, behind a trait so it is tested without a registry.
 
@@ -76,8 +80,10 @@ pub mod fake;
 pub mod plan;
 pub mod registration;
 pub mod ring;
+pub mod status;
 pub mod stream;
 pub mod sub;
+pub mod watch;
 
 #[cfg(test)]
 mod driver_tests;

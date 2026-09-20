@@ -30,6 +30,9 @@ Windows and 64 bit only.
   them will not.
 - Keeps going when a device stops calling back: its inputs read as silence, its outputs are muted,
   and the rest of the aggregate carries on.
+- Publishes what it is doing into shared memory, and keeps a short log of what happened, so that
+  Gazelle can watch it and a person can read it afterwards. Runs perfectly well with Gazelle
+  closed.
 
 ## What it will not do
 
@@ -122,6 +125,78 @@ device that drives the callback is the one held back most.
 `"lowest_latency"` holds nothing back. The master's path is direct and the other devices sit about
 one buffer behind it. The latency figures reported are still the longest path, because that is the
 honest answer, but the channels do not line up with each other.
+
+## What it publishes, and what it keeps
+
+The driver has to work with Gazelle closed: **its configuration file is its only requirement**.
+When Gazelle is running, the two find each other through the shared format in
+`crates/gazelle-audio-aggregate-status`, whose README is the exact record, the names and the rules
+for who writes what. Not being able to publish is never a reason to fail: with no section the
+driver simply runs, exactly as it does with nothing else on the PC.
+
+### Live state, in shared memory
+
+A fixed size record in a named shared section, `Local\gazelle-aggregate-status-1`. Once it is
+mapped, writing it is a handful of atomic stores, with no allocation, no lock and no system call,
+which is what makes it safe from the audio path. A file written on a timer from an audio process
+would be at the mercy of antivirus and of the filesystem's own metadata churn, and would cap how
+often anything could be reported.
+
+It holds, at any moment:
+
+- Whether a DAW has the driver open, and whether audio is running.
+- The plan in force: the devices and what they are called, their channel counts, the buffer size,
+  the rate, the alignment, the two latency figures, and which device drives the callback.
+- Per device: whether it is streaming, whether it has stalled, how many blocks it has dropped or
+  been short of, and **the gap**, which is that device's sample count minus the master's. Zero
+  while the two are locked, and growing in one direction when they are not.
+- The callback count, the sample position, and the time of the last block on the machine's own
+  clock, which is how a watcher can tell a driver that has stopped from one that is quiet.
+- The last refusal, in the same words the DAW was given, and where the configuration came from.
+
+The audio path writes the counters, the gap and the time of the block **every block**. Everything
+else is written when it changes. The record is published under a sequence counter, so a reader that
+catches a write half way through simply reads it again; and the audio path never waits for anything
+here, so a block whose update did not fit is skipped and the next one is written instead.
+
+### Durable events, in a file
+
+`%APPDATA%\gazelle\aggregate-events.log`. One line each, written when it happens and **never on a
+timer**, so every line in the file means something:
+
+```
+2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
+2026-09-20 21:31:44 stalled Studio+
+2026-09-20 21:31:46 recovered Studio+
+2026-09-20 22:02:11 session-ended
+2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
+```
+
+The words are `refused`, `stalled`, `recovered`, `session-started`, `session-ended`, `adopted` and
+`reset-asked`. The time is local, because the person reading it is the person it happened to. This
+is the half that survives the driver exiting, which is exactly when somebody wants to know why last
+night's session would not start. The file is trimmed to its last 400 lines when the driver opens
+it, and that is the only time it is ever rewritten.
+
+## Changing its mind while it is loaded
+
+Gazelle writes the configuration file, bumps a counter in the shared record and signals a named
+event. A watcher thread inside the driver, **never the audio thread**, wakes up and re-reads the
+file.
+
+- **A configuration that does not parse, or that names a device this PC does not have, is refused.**
+  What is in force stays in force, the reason goes into the record and the event log, and the DAW is
+  left alone holding a plan that works.
+- **If nothing is streaming it is taken up there and then**, quietly.
+- **If a DAW is streaming, the host is asked to reset**, which is the message a vendor driver sends
+  when its own settings change. The DAW puts the driver down and picks it up again, and the new plan
+  is in force when it does. Audio drops for a moment, exactly as it does when the buffer size is
+  changed.
+- **A change that cannot be opened puts back the one that worked**, so a refusal leaves a working
+  driver rather than none.
+
+Editing the file by hand still works the way it always did: it is read when a DAW opens the driver.
+The watcher is only there so that a change can also land while the driver is already loaded.
 
 ## Registering it
 

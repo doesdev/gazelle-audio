@@ -210,6 +210,29 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
     })
 }
 
+#[cfg(test)]
+impl Plan {
+    /// A plan of nothing, for a test that needs the shape of one rather than a real one.
+    pub fn empty_for_tests() -> Plan {
+        Plan {
+            devices: Vec::new(),
+            master: 0,
+            alignment: Alignment::Aligned,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            input_names: Vec::new(),
+            output_names: Vec::new(),
+            min: 0,
+            max: 0,
+            preferred: 0,
+            granularity: -1,
+            block: 0,
+            input_latency: 0,
+            output_latency: 0,
+        }
+    }
+}
+
 /// Which device drives the callback: the one the configuration names, or the first.
 fn master_of(found: &[Found], config: &Config) -> Result<usize, String> {
     let Some(asked) = config.callback_master.as_deref() else { return Ok(0) };

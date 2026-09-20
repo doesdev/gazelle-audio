@@ -15,6 +15,7 @@
 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use gazelle_audio_stream_abi::raw::{time_flags, CallbacksRaw, Samples, Time};
 use gazelle_audio_stream_abi::sample;
@@ -23,6 +24,7 @@ use crate::config::Config;
 use crate::delay::Delay;
 use crate::plan::{ChannelRef, Plan};
 use crate::ring::Ring;
+use crate::status::Reporter;
 use crate::sub::DeviceBuffers;
 
 /// One of the aggregate's own buffers, the ones the DAW is given pointers into. Two halves, as the
@@ -196,6 +198,10 @@ pub struct Stream {
     /// Which half the DAW is on, so a control call can see it without the scratch.
     published_half: AtomicUsize,
     running: AtomicBool,
+    /// Where the block by block counters go. Writing through it is a compare and exchange and a
+    /// run of plain stores into a mapped page; a reporter with nowhere to report does nothing at
+    /// all, and either way this never waits, allocates or makes a call into the system.
+    reporter: Arc<Reporter>,
     scratch: UnsafeCell<Scratch>,
 }
 
@@ -217,6 +223,7 @@ impl Stream {
         out_map: Vec<ChannelRef>,
         host: CallbacksRaw,
         time_info: bool,
+        reporter: Arc<Reporter>,
     ) -> Stream {
         let block = plan.block.max(0) as usize;
         let mut devices = Vec::new();
@@ -266,6 +273,7 @@ impl Stream {
             position: AtomicU64::new(0),
             published_half: AtomicUsize::new(0),
             running: AtomicBool::new(false),
+            reporter,
             scratch: UnsafeCell::new(Scratch {
                 stage_in,
                 stage_out,
@@ -416,6 +424,45 @@ impl Stream {
         self.position.fetch_add(block as u64, Ordering::AcqRel);
         scratch.half ^= 1;
         self.published_half.store(scratch.half, Ordering::Release);
+
+        // 7. What anyone watching is told. Nothing here waits: if the record is being written by
+        //    the watcher thread this instant, this block's counters are skipped and the next
+        //    block's are written instead.
+        self.publish();
+    }
+
+    /// The block by block half of the status record: the counters, the time of this block, and the
+    /// gap between each device and the master, which is the number a person actually wants. Zero
+    /// while the devices are locked, and growing in one direction when they are not.
+    fn publish(&self) {
+        if !self.reporter.is_publishing() {
+            return;
+        }
+        let master_seen = self.devices[self.master].callbacks.load(Ordering::Relaxed);
+        let position = self.position.load(Ordering::Relaxed);
+        let nanos = crate::now_nanos();
+        let block = self.block as i64;
+        self.reporter.try_update(|area| {
+            area.callbacks = master_seen;
+            area.position = position;
+            area.last_block_nanos = nanos;
+            for (index, sub) in self.devices.iter().enumerate() {
+                let Some(into) = area.devices.get_mut(index) else { break };
+                let seen = sub.callbacks.load(Ordering::Relaxed);
+                into.callbacks = seen;
+                into.streaming = 1;
+                into.stalled = u32::from(sub.stalled.load(Ordering::Relaxed));
+                into.gap = if index == self.master {
+                    0
+                } else {
+                    // Each callback is one block of samples, on both devices, so the difference in
+                    // callbacks is the difference in samples.
+                    (seen as i64 - master_seen as i64) * block
+                };
+                into.dropped = sub.in_ring.as_ref().map_or(0, Ring::dropped) + sub.out_ring.as_ref().map_or(0, Ring::dropped);
+                into.starved = sub.in_ring.as_ref().map_or(0, Ring::starved) + sub.out_ring.as_ref().map_or(0, Ring::starved);
+            }
+        });
     }
 
     /// Call the DAW, with the time if it asked for it. The aggregate's time is the master's: its

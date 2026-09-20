@@ -70,7 +70,10 @@ pub trait SubDriver: Send {
 }
 
 /// The PC: which drivers it has, and opening one.
-pub trait Host {
+///
+/// `Send` because the watcher thread asks it what drivers this PC has when a configuration
+/// changes, which is the one question it can answer without opening anything.
+pub trait Host: Send {
     /// Every driver of this kind registered on the PC, in registry order.
     fn entries(&self) -> Result<Vec<Entry>, String>;
     /// Create the driver object for one entry. `slot` is which set of static callbacks it gets,

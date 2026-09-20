@@ -12,6 +12,7 @@ name = "gazelle_aggregate"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
 gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,4 +25,5 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Performance",
     "Win32_System_Registry",
+    "Win32_System_SystemInformation",
 ] }
