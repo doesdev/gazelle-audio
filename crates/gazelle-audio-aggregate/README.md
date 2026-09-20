@@ -54,6 +54,15 @@ driver. A file that is not valid JSON is refused, with the file named, rather th
 order, takes the first one as the device that drives the callback, exposes every channel, and lines
 the devices up.
 
+**Trimming a device.** A driver's reported latency is not always the whole truth, and two devices
+can then record a few samples apart even though the aggregate lined them up by the figures they
+gave. To measure it: record one source into both devices at once, then compare the two recordings
+and see how far apart the same moment lands. Swap the sources between the devices and record again:
+an offset that follows the source is the source, and one that stays with the device is the device.
+Put that number in `input_trim`, negative for a device that records late, and record again to check
+it is gone. Measured this way on the first pair (2026-09-21): about 28 samples at 96 kHz, which is
+0.3 ms, and it stayed with the device when the microphones were swapped.
+
 **To give a device only some of its channels**, add `inputs` or `outputs` with the indexes to keep:
 `"inputs": [0, 1, 2, 3]` exposes that device's first four inputs and no others. Leave the field out
 to take them all, which is almost always what you want; a device with a long list of playback
@@ -84,6 +93,8 @@ which is what most people want:
 | `devices[].key` | The name the vendor driver registers itself under. Matched without case, whole or as a part. | |
 | `devices[].clsid` | The vendor driver's class id, which is the sure way to name one. Used in preference to `key`. | |
 | `devices[].name` | What to call this device's channels. | its registry key |
+| `devices[].input_trim` | Samples to add to what this device's driver says its input latency is. Negative brings the device forward, positive holds it back. | 0 |
+| `devices[].output_trim` | The same for its outputs. | 0 |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |
 | `devices[].outputs` | Which of its outputs to expose. | all of them |
 | `callback_master` | Which device drives the DAW's callback, by name, registry key or class id. | the first device in the list |

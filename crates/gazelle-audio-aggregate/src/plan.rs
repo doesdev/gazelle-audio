@@ -73,6 +73,10 @@ pub struct Found {
     pub description: Description,
     pub wanted_inputs: Option<Vec<i32>>,
     pub wanted_outputs: Option<Vec<i32>>,
+    /// Samples to add to what this device's driver says its input latency is, from the file.
+    pub input_trim: i32,
+    /// The same for its outputs.
+    pub output_trim: i32,
 }
 
 /// The channels of a device that are actually exposed: what was asked for, with anything the
@@ -145,8 +149,8 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
             output_type: device.description.output_type,
             input_width: sample::width(device.description.input_type).unwrap_or(4),
             output_width: sample::width(device.description.output_type).unwrap_or(4),
-            latency_in: device.description.latency_in,
-            latency_out: device.description.latency_out,
+            latency_in: device.description.latency_in + device.input_trim,
+            latency_out: device.description.latency_out + device.output_trim,
             pad_in: 0,
             pad_out: 0,
             buffered: index != master,
@@ -273,6 +277,8 @@ mod tests {
             description: described(name, inputs, outputs, latency_in, latency_out),
             wanted_inputs: None,
             wanted_outputs: None,
+            input_trim: 0,
+            output_trim: 0,
         }
     }
 
@@ -446,5 +452,36 @@ mod tests {
         assert!(looks_like_ours("Antelope Audio Thunderbolt", None, None));
         assert!(looks_like_ours("Something", Some("Antelope Audio USB"), None));
         assert!(!looks_like_ours("Realtek ASIO", None, Some(r"c:\realtek\rtasio.dll")));
+    }
+
+    #[test]
+    fn a_device_can_be_trimmed_by_a_measured_number_of_samples() {
+        // A device's real converter latency can differ from the figure its driver reports. Measured
+        // at the devices on 2026-09-21: with the same source into both, the Studio+'s recording sat
+        // about 28 samples behind the Quadro's, and it stayed there when the two microphones were
+        // swapped, so it belongs to the device and not to the microphone. A trim nulls it.
+        let mut devices = this_pc();
+        devices[1].input_trim = -28;
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");
+        let (quadro, studio) = (&plan.devices[0], &plan.devices[1]);
+        // The Studio+ is buffered, so its path is 636 + 512 = 1148, less the 28 it is trimmed by;
+        // the Quadro's is 639. Everything is held back to the longest, which is still the Studio+.
+        assert_eq!(plan.input_latency, 1120, "the trim shortens the longest path, so the DAW is told less");
+        assert_eq!(studio.pad_in, 0);
+        assert_eq!(quadro.pad_in, 1120 - 639, "and the Quadro waits that much longer");
+        // The trim moves only the inputs: an output trim is its own field.
+        assert_eq!(plan.output_latency, 1212);
+        assert_eq!(studio.pad_out, 0);
+        assert_eq!(quadro.pad_out, 1212 - 799);
+    }
+
+    #[test]
+    fn a_trim_can_hold_a_device_back_as_well_as_bring_it_forward() {
+        let mut devices = this_pc();
+        devices[0].input_trim = 30;
+        devices[0].output_trim = 12;
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");
+        assert_eq!(plan.devices[0].pad_in, 1148 - (639 + 30));
+        assert_eq!(plan.devices[0].pad_out, 1212 - (799 + 12));
     }
 }

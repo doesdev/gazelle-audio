@@ -66,6 +66,15 @@ pub struct DeviceConfig {
     /// Which of the device's outputs to expose. Left out means all of them.
     #[serde(default)]
     pub outputs: Option<Vec<i32>>,
+    /// Samples to add to this device's reported input latency, when the figure its driver gives is
+    /// not the whole truth. A device that records late takes a negative trim, which brings it
+    /// forward; one that records early takes a positive one. Measured by recording one source into
+    /// both devices and comparing, which the README describes.
+    #[serde(default)]
+    pub input_trim: Option<i32>,
+    /// The same for the device's outputs.
+    #[serde(default)]
+    pub output_trim: Option<i32>,
 }
 
 impl DeviceConfig {

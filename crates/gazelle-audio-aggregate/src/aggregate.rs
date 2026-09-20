@@ -45,6 +45,9 @@ pub struct Aggregate {
     pub config_source: String,
     subs: Vec<Box<dyn SubDriver>>,
     descriptions: Vec<Description>,
+    /// Each device's trims from the file, kept because the plan is made again at `createBuffers`
+    /// from what the drivers report, which does not carry them.
+    trims: Vec<(i32, i32)>,
     plan: Option<Plan>,
     stream: Option<Arc<Stream>>,
     /// The channels the DAW asked for, in its own order.
@@ -67,6 +70,7 @@ impl Aggregate {
             config_source: String::new(),
             subs: Vec::new(),
             descriptions: Vec::new(),
+            trims: Vec::new(),
             plan: None,
             stream: None,
             wanted: Vec::new(),
@@ -148,7 +152,10 @@ impl Aggregate {
                 description: description.clone(),
                 wanted_inputs: wanted.inputs.clone(),
                 wanted_outputs: wanted.outputs.clone(),
+                input_trim: wanted.input_trim.unwrap_or(0),
+                output_trim: wanted.output_trim.unwrap_or(0),
             });
+            self.trims.push((wanted.input_trim.unwrap_or(0), wanted.output_trim.unwrap_or(0)));
             self.descriptions.push(description);
             self.subs.push(sub);
         }
@@ -375,6 +382,8 @@ impl Aggregate {
                     description: description.clone(),
                     wanted_inputs: device.map(|d| d.inputs.clone()),
                     wanted_outputs: device.map(|d| d.outputs.clone()),
+                    input_trim: self.trims.get(index).map_or(0, |t| t.0),
+                    output_trim: self.trims.get(index).map_or(0, |t| t.1),
                 }
             })
             .collect()

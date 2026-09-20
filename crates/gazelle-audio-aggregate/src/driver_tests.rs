@@ -633,3 +633,37 @@ fn a_driver_that_will_not_share_a_process_is_reported_by_name() {
     assert!(error.contains("ZenStudioTB"), "{error}");
     assert!(error.contains("share a process"), "{error}");
 }
+
+#[test]
+fn a_trim_in_the_file_moves_a_device_and_the_latency_the_daw_is_told() {
+    // Measured at the devices on 2026-09-21: the same source recorded into both landed about 28
+    // samples later on one of them than on the other, and stayed there when the two microphones
+    // were swapped, so the difference is the device's, not the microphone's. A trim in the file
+    // nulls it without touching any code.
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(1, 1, 600, 700))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(1, 1, 600, 700)),
+    );
+    let mut plain = running(&pc, both(Alignment::Aligned));
+    let (was_in, was_out) = plain.latencies().expect("a plan exists");
+    plain.dispose_buffers();
+
+    // A small trim moves the device that carries the longest path, so the figure follows it.
+    let mut config = both(Alignment::Aligned);
+    config.devices[1].input_trim = Some(-2);
+    let mut small = running(&pc, config);
+    let (now_in, now_out) = small.latencies().expect("a plan exists");
+    assert_eq!(now_in, was_in - 2, "the trimmed device is still the slowest path, so the figure follows it");
+    assert_eq!(now_out, was_out, "and its outputs are untouched");
+    small.dispose_buffers();
+
+    // A trim bigger than the block a buffered device costs brings it in front of the master, and
+    // then the master carries the longest path and the figure stops following the trim.
+    let mut config = both(Alignment::Aligned);
+    config.devices[1].input_trim = Some(-28);
+    let mut big = running(&pc, config);
+    assert_eq!(big.latencies().expect("a plan exists").0, 600, "the master's own path, which nothing trimmed");
+    big.dispose_buffers();
+}
