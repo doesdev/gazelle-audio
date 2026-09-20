@@ -320,13 +320,14 @@ test("a mix in mono centres its channels' pans and restores them after; pans mov
   mixer.setPan(7, 50);
   await flush();
   client.invocations.length = 0;
-  const pans = () => sent(client, "set_mixer").map((c) => [c.args?.["mixer_id"], c.args?.["channel"], c.args?.["pan"]]);
+  // The master (channel 0) carries mono's 6 dB; its own test below covers that, so pans() leaves it out.
+  const pans = () => sent(client, "set_mixer").filter((c) => c.args?.["channel"] !== 0).map((c) => [c.args?.["mixer_id"], c.args?.["channel"], c.args?.["pan"]]);
 
   assert.equal(channels.setMono(1, true), true);
   await flush();
   assert.deepEqual(pans(), [[1, 7, PAN_CENTRE], [1, 8, PAN_CENTRE]], "every channel in mix 2 pans to centre");
   assert.deepEqual([channels.isMono(1), channels.isMono(0)], [true, false]);
-  assert.deepEqual(store.workspace.value?.mixers["loopback-0"]?.mixes[1]?.mono, { pans: { "6": 10, "7": 50 } }, "the pans to restore are saved in the workspace");
+  assert.deepEqual(store.workspace.value?.mixers["loopback-0"]?.mixes[1]?.mono, { pans: { "6": 10, "7": 50 }, master_level: 0 }, "the pans and the master level to restore are saved in the workspace");
 
   client.invocations.length = 0;
   mixer.setPan(6, 20);
@@ -340,4 +341,79 @@ test("a mix in mono centres its channels' pans and restores them after; pans mov
   assert.deepEqual(pans(), [[1, 7, 20], [1, 8, 50]], "mono off restores the saved pans, including the one moved meanwhile");
   assert.equal(channels.isMono(1), false);
   assert.equal(mixer.monoPan(6), undefined);
+});
+
+// Level is dB of attenuation, one unit per dB, so 6 dB quieter is level + 6, held to LEVEL_MAX.
+test("mono lowers the mix master by 6 dB and gives back exactly that step, whatever the fader does meanwhile", async () => {
+  const { client, store } = setup();
+  await store.start();
+  const channels = store.channels("loopback-0");
+  channels.add(); // slot 6
+  const mixer = store.mixer("loopback-0", 1);
+  const master = () => mixer.strip("master").peek().level;
+  const levels = () => sent(client, "set_mixer").filter((c) => c.args?.["channel"] === 0).map((c) => c.args?.["level"]);
+
+  mixer.setLevel("master", 20);
+  await flush();
+  client.invocations.length = 0;
+  assert.equal(channels.setMono(1, true), true);
+  await flush();
+  assert.deepEqual(levels(), [26], "mono on sends the master 6 dB quieter");
+  assert.equal(master(), 26);
+  assert.equal(store.workspace.value?.mixers["loopback-0"]?.mixes[1]?.mono?.master_level, 20, "the level before mono is kept");
+
+  client.invocations.length = 0;
+  assert.equal(channels.setMono(1, false), true);
+  await flush();
+  assert.deepEqual(levels(), [20], "mono off puts the master back exactly");
+  assert.equal(master(), 20);
+  assert.equal(store.workspace.value?.mixers["loopback-0"]?.mixes[1]?.mono, undefined);
+
+  // Riding the master quieter while mono is on: the ride is kept, less mono's own step.
+  assert.equal(channels.setMono(1, true), true);
+  mixer.setLevel("master", 40);
+  assert.equal(channels.setMono(1, false), true);
+  assert.equal(master(), 34, "mono gives back only the 6 dB it took");
+
+  // Riding it louder than mono left it: ending mono may not go above where the mix was before mono.
+  mixer.setLevel("master", 10);
+  assert.equal(channels.setMono(1, true), true);
+  assert.equal(master(), 16);
+  mixer.setLevel("master", 4);
+  assert.equal(channels.setMono(1, false), true);
+  assert.equal(master(), 10, "never louder than the mix was before mono began");
+
+  // A master near the bottom cannot go 6 dB quieter, so mono takes less and gives back only as much.
+  mixer.setLevel("master", 88);
+  assert.equal(channels.setMono(1, true), true);
+  assert.equal(master(), LEVEL_MAX, "clamped, not wrapped");
+  assert.equal(channels.setMono(1, false), true);
+  assert.equal(master(), 88, "and put back where it was");
+
+  mixer.setLevel("master", LEVEL_MAX);
+  assert.equal(channels.setMono(1, true), true);
+  assert.equal(master(), LEVEL_MAX, "a master already at the bottom does not move");
+  assert.equal(channels.setMono(1, false), true);
+  assert.equal(master(), LEVEL_MAX);
+});
+
+test("a mix left mono by a version that did not lower the level restores its pans and leaves the master alone", async () => {
+  const { store } = setup();
+  await store.start();
+  const channels = store.channels("loopback-0");
+  channels.add(); // slot 6
+  const mixer = store.mixer("loopback-0", 1);
+  mixer.setLevel("master", 30);
+  assert.equal(channels.setMono(1, true), true);
+  // As an older workspace has it: mono, pans, no master level.
+  store.editWorkspace((workspace) => {
+    const mono = workspace.mixers?.["loopback-0"]?.mixes[1]?.mono;
+    if (mono !== undefined) delete mono.master_level;
+    return workspace;
+  });
+  await flush();
+  assert.equal(channels.isMono(1), true);
+  assert.equal(channels.setMono(1, false), true);
+  assert.equal(mixer.strip("master").peek().level, 36, "no level to give back, so the master is left as it is");
+  assert.equal(mixer.strip(6).peek().pan, PAN_CENTRE);
 });

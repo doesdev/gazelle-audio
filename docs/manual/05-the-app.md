@@ -63,7 +63,7 @@ One sidebar holds three sections, each folded or opened by clicking its title. I
 
 ![The Control Room panel for a Quadro with four outputs chosen, each with its volume, Mute, Dim and Mono.](../images/control-room.png)
 
-**Mono** in the Control Room sums the mix that feeds the output to mono, by centring every channel's pan in that mix and restoring the pans afterwards. Every output playing that mix goes mono too, and the button's tooltip names them. If more than one mix, or no mix, feeds the output, Mono is disabled and its tooltip says why. The first press may read the device's routing first, to find the mix.
+**Mono** in the Control Room sums the mix that feeds the output to mono, by centring every channel's pan in that mix and lowering that mix by 6 dB so the level stays about the same; both are put back afterwards. Every output playing that mix goes mono too, and the button's tooltip names them. If more than one mix, or no mix, feeds the output, Mono is disabled and its tooltip says why. The first press may read the device's routing first, to find the mix.
 
 ## The mixer dock
 

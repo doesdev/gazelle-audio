@@ -297,7 +297,8 @@ preset, not one of these.
 - **Monitor out**, Quadro only: `set_monitor_out` is declared but nothing sends it; its meaning
   is unknown.
 - **Mono**: no command on either model. The Quadro reports a `mono` bit per output. Gazelle
-  makes a mix mono by centring its channels' pans.
+  makes a mix mono by centring its channels' pans, and lowers that mix's master by 6 dB (level
+  is dB of attenuation, so level + 6, held to 90) to make up for summing both sides.
 
 #### Hard mute
 

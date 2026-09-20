@@ -12,7 +12,7 @@
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
 import { channelSpan } from "./cables.ts";
-import { PAN_CENTRE } from "./mixer.ts";
+import { LEVEL_MAX, PAN_CENTRE } from "./mixer.ts";
 import type { MixerModel } from "./mixer.ts";
 import { PROFILES } from "./profiles.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
@@ -20,6 +20,17 @@ import type { RouteSlot, RoutingModel } from "./routing.ts";
 /** Quadro mixer inputs 1-6 carry the effect returns (vendor layout), so channels start after them. */
 export const QUADRO_EFFECT_SLOTS = 6;
 const SLOTS = 32;
+
+/**
+ * How much mono lowers the mix master, in dB. Centring both sides sums them into each output, which
+ * is about 6 dB louder; taking 6 dB off the master leaves the level about where it was.
+ */
+export const MONO_TRIM = 6;
+
+/** The master level mono sets from the level it found: `MONO_TRIM` dB quieter, held to the bottom of the range. */
+export function monoLevel(level: number): number {
+  return Math.min(LEVEL_MAX, Math.max(0, Math.round(level)) + MONO_TRIM);
+}
 
 export interface ChannelsContext {
   deviceId: string;
@@ -36,7 +47,7 @@ export interface ChannelsContext {
   /** Changes the saved layouts; false when the workspace is not loaded. */
   editSaved(update: (layouts: SavedLayout[]) => SavedLayout[]): boolean;
   /** One of the device's mixes, for mono. */
-  mixer(mix: number): Pick<MixerModel, "strip" | "sendPan">;
+  mixer(mix: number): Pick<MixerModel, "strip" | "sendPan" | "setLevel">;
   /** Where the metered mix is kept: the store remembers it per device. A signal of its own without. */
   meteredMix?: { get(): ReadonlySignal<number>; set(mix: number): void };
 }
@@ -500,8 +511,16 @@ export class ChannelsModel {
 
   /**
    * Sums a mix to mono, or ends it. Neither model has a mono switch, so the app pans every channel
-   * in the mix to centre, keeping the pans in the workspace, and pans them back when mono ends. The
-   * device's panning law sets the level of what is summed, so no level is changed (the user's call).
+   * in the mix to centre, keeping the pans in the workspace, and pans them back when mono ends.
+   *
+   * Summing both sides that way is audibly louder (the user, at the hardware, 2026-09-19), so mono
+   * also lowers the mix master by `MONO_TRIM` dB and gives that step back when it ends. Level is dB
+   * of attenuation, one unit per dB, so the step is a plain `+MONO_TRIM` held to `LEVEL_MAX`: a
+   * master already at the bottom simply moves less, and mono gives back only as much as it took.
+   *
+   * The master fader still works while mono is on. Mono owns only its own step, so ending it puts
+   * the master where it is now minus that step, and never above where it was before mono began:
+   * riding the level quieter is kept, and ending mono can never make the mix louder than it was.
    */
   setMono(mix: number, on: boolean): boolean {
     this.#checkMix(mix);
@@ -517,11 +536,16 @@ export class ChannelsModel {
       });
     if (on) {
       const pans = Object.fromEntries(slots.map((slot) => [String(slot), mixer.strip(slot).peek().pan]));
-      if (!editMix((config) => ({ ...config, mono: { pans } }))) return false;
+      const master = mixer.strip("master").peek().level;
+      if (!editMix((config) => ({ ...config, mono: { pans, master_level: master } }))) return false;
+      mixer.setLevel("master", monoLevel(master));
       for (const slot of slots) mixer.sendPan(slot, PAN_CENTRE);
       return true;
     }
+    const before = saved?.master_level;
     if (!editMix(({ mono: _mono, ...config }) => config)) return false;
+    // A workspace written before mono compensated the level has no master level to give back.
+    if (before !== undefined) mixer.setLevel("master", Math.max(mixer.strip("master").peek().level - (monoLevel(before) - before), before));
     for (const [slot, pan] of Object.entries(saved?.pans ?? {}).sort(([a], [b]) => Number(a) - Number(b))) mixer.sendPan(Number(slot), pan);
     return true;
   }

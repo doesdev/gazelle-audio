@@ -65,8 +65,13 @@ export interface MixerGroup {
 
 export interface MixConfig {
   name?: string;
-  /** Present while the mix is summed to mono: its channels are centred, and these are the pans to restore, by mixer input slot. */
-  mono?: { pans: Record<string, number> };
+  /**
+   * Present while the mix is summed to mono: its channels are centred, and these are the pans to
+   * restore, by mixer input slot, with the mix master's level just before mono lowered it
+   * (`master_level`, dB of attenuation). A workspace written before mono compensated the level has
+   * no `master_level`, and one written now still loads without it.
+   */
+  mono?: { pans: Record<string, number>; master_level?: number };
 }
 
 /** A device's mixer as the user laid it out; the device keeps routing and levels. */

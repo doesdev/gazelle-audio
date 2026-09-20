@@ -60,10 +60,11 @@ export class GaMixMaster extends GaElement {
         if (destination !== undefined && channel !== undefined && !Number.isNaN(destination)) void channels.setMixOutput(mix, { destination, channel }, true);
       },
     });
-    // Mono: the app centres the mix's pans and restores them after; the device has no switch for it.
+    // Mono: the app centres the mix's pans and lowers the master by 6 dB, putting both back after; the
+    // device has no switch for it.
     const mono = h(
       "button",
-      { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, "data-explain": "master.mono", title: "Sum this mix to mono: pans every channel to centre, and restores the pans when turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },
+      { type: "button", class: "mono", "data-testid": `mix-mono-${mix}`, "aria-label": `Mix ${mix + 1} mono`, "data-explain": "master.mono", title: "Sum this mix to mono: pans every channel to centre and lowers the mix by 6 dB, so the level stays about the same. Both are put back when it is turned off", "on:click": () => channels.setMono(mix, !channels.isMono(mix)) },
       "Mono",
     );
     this.watch(() => mono.setAttribute("aria-pressed", String(channels.isMono(mix))));

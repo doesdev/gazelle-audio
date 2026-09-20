@@ -52,7 +52,7 @@ The **+** after the last channel adds one. Each mix has 32 inputs; on the Quadro
 At the right of the row:
 
 - the mix's **name** (type to rename it);
-- **Mono**, which sums the mix to mono by centring every channel's pan, and restores the pans when turned off. It is the same Mono as the Control Room's;
+- **Mono**, which sums the mix to mono by centring every channel's pan and lowering the mix by 6 dB, so the level stays about the same; both are put back when it is turned off. It is the same Mono as the Control Room's;
 - **Outputs**: where the mix plays, as chips. The chip's × stops the mix feeding that output at once; **+ Output...** adds one;
 - the master fader and **M**.
 
