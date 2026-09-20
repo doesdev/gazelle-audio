@@ -15,6 +15,7 @@ export interface WorkspaceParts {
   surfaces?: unknown[];
   cables?: unknown[];
   control_room?: Record<string, { outputs: number[] }>;
+  aggregate?: Record<string, unknown>;
 }
 
 /** Replaces the server's workspace with these parts; anything not given is empty. */

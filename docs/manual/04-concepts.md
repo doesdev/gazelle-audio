@@ -1,6 +1,6 @@
 # Concepts
 
-Both interfaces are built the same way: sources, a routing matrix, four internal mixes, effect chains and outputs. Gazelle names things the way the devices do, so the words here are the words on screen. The [glossary](18-glossary.md) has short definitions.
+Both interfaces are built the same way: sources, a routing matrix, four internal mixes, effect chains and outputs. Gazelle names things the way the devices do, so the words here are the words on screen. The [glossary](19-glossary.md) has short definitions.
 
 ## Devices
 

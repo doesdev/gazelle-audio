@@ -15,7 +15,7 @@
 //   state (scroll, open sections, a selection in progress) lives in `view`, for the tab only:
 //   pages are rebuilt on every change of address and read it back when they are.
 
-import { connect, GazelleError, topologies, type UpdateStatus, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
+import { connect, GazelleError, topologies, type UpdateStatus, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Aggregate, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
 import { ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
@@ -27,6 +27,7 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
+import { AggregateModel } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
 import { updatePrompt, type UpdatePrompt } from "./update.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
@@ -821,6 +822,31 @@ export class Store {
     import: (snapshots) => this.#client.snapshots.import(snapshots),
     recallPlan: (id, ask) => this.#client.snapshots.recallPlan(id, ask),
   });
+
+  /**
+   * The aggregate audio driver: one driver a DAW opens with several interfaces underneath it. The
+   * server works out whether this PC can run it; this keeps that answer current while the Aggregate
+   * page is open and makes the calls its buttons press. The setup itself is the workspace's
+   * `aggregate` section, edited through `editWorkspace` like everything else there.
+   */
+  readonly aggregate: AggregateModel = new AggregateModel({
+    read: () => this.#client.aggregate.read(),
+    matchBuffers: (size, options) => this.#client.aggregate.matchBuffers(size, options),
+    register: () => this.#client.aggregate.register(),
+    unregister: () => this.#client.aggregate.unregister(),
+    command: (deviceId, command, args) => this.#invokeCommand(deviceId, command, args, {}),
+    // Through `this`, not `this.#timers` itself: a field's value is worked out before the
+    // constructor's body has put the timers in place.
+    timers: { setTimeout: (callback, ms) => this.#timers.setTimeout(callback, ms), clearTimeout: (handle) => this.#timers.clearTimeout(handle) },
+  });
+
+  /**
+   * Edits the aggregate's setup in the workspace. Saving it is what exports the file the driver
+   * reads and tells the driver to look again, so nothing else has to be sent.
+   */
+  editAggregate(update: (aggregate: Aggregate) => Aggregate): boolean {
+    return this.editWorkspace((workspace) => ({ ...workspace, aggregate: update(workspace.aggregate ?? {}) }));
+  }
 
   #knownInputs(deviceId: string): InputsModel | undefined {
     const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;

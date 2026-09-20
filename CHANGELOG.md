@@ -10,6 +10,37 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **Record across both interfaces at once.** Gazelle Aggregate is a single audio driver a DAW
+  opens with two or more interfaces underneath it, so a Quadro and a Studio+ appear as one device
+  with one long list of channels. The new **Aggregate** page sets it up and runs it.
+- **The Aggregate page says whether your PC can actually do it, and why not.** One Ready or Not
+  ready, then every reason in plain words: an interface whose driver is missing, two interfaces
+  sharing a USB host controller, rates or buffer sizes that differ, no cable declared between
+  them, an interface clocked from the wrong place, or one that is not locked. Where Gazelle can
+  put a reason right there is a button beside it that does exactly that, and matching buffer
+  sizes asks for a second click first, because it restarts a DAW's audio.
+- **Registering the driver from the app.** A DAW will not offer Gazelle Aggregate until Windows
+  lists it, which needs administrator rights: the page offers it behind Windows' own prompt, and
+  shows the command for anyone who would rather run it themselves. It is the one thing in Gazelle
+  that asks for administrator rights. It also says which copy of the driver the registration
+  points at, so a Gazelle that has moved can be registered again.
+- **Set the aggregate up on the page**: which interfaces it opens and in what order, which one
+  drives the callback, how the streams line up, the sample rate and buffer size, a name for each
+  interface, and a trim in samples to line up what each one records. Each interface's driver
+  buffer size and Safe Mode are there too, the same settings the Devices page shows, with a
+  button to put them all on one size. The setup is kept in the workspace, so it travels with a
+  backup.
+- **See whether it is holding, while the DAW plays.** The page shows the plan the driver is
+  running and, for every interface, the gap in samples between it and the one driving the
+  callback: in step is what you want, and a gap that keeps growing is two clocks rather than one.
+  A stalled interface is said as a stall. The driver's own log is on the page as well, so a
+  session that would not start last night can be explained today.
+- A manual chapter for it: **The Aggregate page**, covering what an aggregate needs before it can
+  work at all, how to set it up, what each reason means, what the gap is, and what to do when
+  something is wrong.
+
 ## [1.2.0] - 2026-09-20
 
 A Mixer that shows one mix at a time, updates that tell you what they are doing, and a set of

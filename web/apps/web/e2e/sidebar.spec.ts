@@ -22,7 +22,7 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-const ROUTES = ["devices/loopback-0", "workspace", "inputs/loopback-0", "inputs/loopback-1", "outputs/loopback-0", "mixer/loopback-0", "routing/loopback-0", "routing/loopback-1"];
+const ROUTES = ["devices/loopback-0", "workspace", "inputs/loopback-0", "inputs/loopback-1", "outputs/loopback-0", "mixer/loopback-0", "routing/loopback-0", "routing/loopback-1", "aggregate"];
 
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
 

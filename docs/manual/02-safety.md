@@ -42,7 +42,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **What Gazelle does.** Very little, honestly. Gazelle does not analyse routing for loops. It keeps a mix's own outputs out of the sources a digital port strip offers, and the [×2 badge](#doubled-signals) catches one special case of the same signal arriving twice, but it will let you build a loop if the device allows one.
 
-**What you should do.** Change routing with monitors low. Be careful with the Routing page's destinations for inputs you are also monitoring, with effect chains fed from other chains, and with [digital cables](13-surfaces-and-cables.md) in both directions between two interfaces. If you hear a rising howl or tone, silence the speakers first.
+**What you should do.** Change routing with monitors low. Be careful with the Routing page's destinations for inputs you are also monitoring, with effect chains fed from other chains, and with [digital cables](14-surfaces-and-cables.md) in both directions between two interfaces. If you hear a rising howl or tone, silence the speakers first.
 
 ## 48V phantom power
 
@@ -54,7 +54,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 - **A linked preamp group asks once for all of them**, and says how many: **Confirm 3** switches three preamps on.
 - **48V is offered only for the Mic input type.** For Line and Hi-Z it is disabled.
 - A pending confirmation is forgotten when you leave the page, so a half-made confirmation is never completed later.
-- Snapshot recall, when it is built, leaves 48V off by default, asks for its own tick every time, and would switch 48V on last, while the outputs are silenced (see [Snapshots](14-snapshots-and-backup.md#what-recall-will-do)).
+- Snapshot recall, when it is built, leaves 48V off by default, asks for its own tick every time, and would switch 48V on last, while the outputs are silenced (see [Snapshots](15-snapshots-and-backup.md#what-recall-will-do)).
 
 **What you should do.** Check what is plugged in before you switch 48V on. Turn monitors down, or mute the input's channel, before switching it either way, and give it a few seconds after switching off before you unplug anything.
 
@@ -106,7 +106,7 @@ After: both strips show a **×2** badge, on the Mixer page and in the mixer dock
 
 **If the device disappears.** Gazelle notices within about two seconds, removes it from the sidebar, and adds it back when it returns, reading its state afresh. Unplugging and replugging while Gazelle runs has only been tested against simulated devices.
 
-**Multi-step changes.** Most controls send one command. Applying a mixer layout, a channel's routing or a mix's outputs sends a few in a row. The one feature that would send many (recalling a snapshot) is deliberately not built: its plan exists and can be previewed, and it is designed to silence the outputs first, set 48V last, ask before raising any output by more than 6 dB, and stop at the first failure with the outputs still silenced. See [Snapshots](14-snapshots-and-backup.md#what-recall-will-do).
+**Multi-step changes.** Most controls send one command. Applying a mixer layout, a channel's routing or a mix's outputs sends a few in a row. The one feature that would send many (recalling a snapshot) is deliberately not built: its plan exists and can be previewed, and it is designed to silence the outputs first, set 48V last, ask before raising any output by more than 6 dB, and stop at the first failure with the outputs still silenced. See [Snapshots](15-snapshots-and-backup.md#what-recall-will-do).
 
 ## Other hazards worth knowing
 

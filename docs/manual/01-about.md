@@ -41,7 +41,7 @@ Almost everything has an automated test against a built-in emulator of both devi
 
 Written, tested against the emulator, and **never yet tried on a real device**: device presets (save and recall), hard mute, DC coupling, the test oscillator, S/PDIF sample rate conversion, reordering effects or chains of several effects, every effect parameter except the one above, the Studio+ Equalizer, reverb settings, reverb sends and returns, Control Room mono and talkback, cross-device surfaces and digital cables in use, unplugging and replugging a device while Gazelle runs, Start on boot, the installer and the updater. Snapshot *recall* is deliberately not built at all.
 
-If something behaves differently on your unit, it is most likely a difference nobody has seen yet, not your mistake. The [Troubleshooting](16-troubleshooting.md) chapter says how to report it.
+If something behaves differently on your unit, it is most likely a difference nobody has seen yet, not your mistake. The [Troubleshooting](17-troubleshooting.md) chapter says how to report it.
 
 ## Independence and trademarks
 
@@ -57,6 +57,6 @@ The manual describes Gazelle as the code stands at version 1.2.0 on Windows. The
 - [Getting started](03-getting-started.md) takes you from download to a first look.
 - [Concepts](04-concepts.md) explains the devices' building blocks: inputs, mixes, routing, outputs, effects.
 - Chapters 5 to 14 go through the app and each of its pages.
-- [Troubleshooting](16-troubleshooting.md), the [command line and API](17-command-line-and-api.md) and the [glossary](18-glossary.md) are for reference.
+- [Troubleshooting](17-troubleshooting.md), the [command line and API](18-command-line-and-api.md) and the [glossary](19-glossary.md) are for reference.
 
 A two-page [cheat sheet](../cheat-sheet.md) is printed separately, to keep beside the desk.

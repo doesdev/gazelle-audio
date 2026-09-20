@@ -10,6 +10,7 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 - **48V** takes two clicks (or Ctrl+click). Check for ribbon mics; mind the thump.
 - **Clock and sample rate** changes interrupt audio. Each asks for **Confirm**. Stop playback first.
 - **Driver buffer size and Safe Mode** (Devices, Driver) restart a DAW's audio. Each asks for **Confirm**; refused while a DAW uses ASIO unless **Change anyway**.
+- **Match buffer sizes** (Aggregate) restarts the audio of every program using those drivers. Asks for **Confirm**. Stop the DAW first.
 - **×2** on a strip: the same audio reaches that mix twice, about +6 dB. Putting one input into a mix that already has it asks for **Confirm** first.
 - **Test oscillator**: 0 dBFS is as loud as the device goes. Start at -18. Tone on takes two clicks.
 - **DC coupling** (Quadro) can damage speakers. Leave it off. On takes two clicks.
@@ -29,6 +30,8 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 | Display disagrees with device | Reload; **Read from device** (Routing, Effects) |
 | Port 8420 in use | `--bind 127.0.0.1:8421` |
 | No window | WebView2 missing: tray **Open Gazelle** opens the browser |
+| DAW does not list Gazelle Aggregate | Not registered: Aggregate page, **Register the driver** (the one admin prompt) |
+| Aggregate gap grows, or clicks | Two clocks: check the cable and every clock source while the DAW plays |
 | SmartScreen warning | Unsigned: **More info**, **Run anyway**, only for the official download |
 
 ## Install and start
@@ -72,6 +75,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Mixer | One mix at a time as named channels: the fader is the level in that mix. **Show all channels** for the rest; Mono, outputs per mix |
 | Routing | Source for every destination; Read from device |
 | Effects | Chains, effect settings, reverb |
+| Aggregate | Both interfaces as one driver a DAW opens: ready or not and why, registering, order, trims, the live gap |
 
 **Sidebar:** Devices (click a card to switch device), Meter (**Clear** for clip lights), Control Room (volume, Mute, Dim, Mono per output; Studio+ talkback). **Dock:** a mix's faders at the bottom of every page. **Header:** USB or LOOPBACK, Dry run, connection, **?** explain mode (with it on, the version reads out left of the backend badge; not on a phone).
 
@@ -93,9 +97,9 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 
 **Double-click resets:** fader -20 dB; output, CR and talkback volume -30 dB; Studio+ Send and reverb sends off; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
 
-**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, putting one input into a mix twice, remove a channel, strip, surface, cable or snapshot. Off is one click.
+**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, matching the aggregate's buffer sizes, unregistering the aggregate driver, putting one input into a mix twice, remove a channel, strip, surface, cable, snapshot or aggregate interface. Off is one click.
 
-**Wheel ignored:** the Mixer's Mix buttons, clock source, sample rate, driver buffer size, Add effect, a channel's Input and Main mix, + Output, Route, mix pin.
+**Wheel ignored:** the Mixer's Mix buttons, clock source, sample rate, driver buffer size, Add effect, a channel's Input and Main mix, + Output, Route, mix pin, every menu on the Aggregate page.
 
 **Hold:** Talk (mouse, Space or Enter).
 

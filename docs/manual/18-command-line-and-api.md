@@ -30,7 +30,7 @@ Both take the same options. `gazelle-audio-server.exe --help` lists them; this t
 | `--no-update` | off | No update checks this run |
 | `--no-window` | off | No desktop window; open the app in a browser |
 | `--log-dir <DIR>` | `%LOCALAPPDATA%\gazelle\logs` for tray runs | Also log to a size-capped file in DIR |
-| `--install` | | Install this copy for the current user and stop. See [Install](15-install-update-uninstall.md#install) |
+| `--install` | | Install this copy for the current user and stop. See [Install](16-install-update-uninstall.md#install) |
 | `--start` | | With `--install`: start the installed copy |
 | `--no-start` | | With `--install`: do not start it, and do not ask |
 | `--uninstall` | | Remove the installed copy and stop. Settings and logs are kept unless `--purge` |

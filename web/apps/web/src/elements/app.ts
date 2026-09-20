@@ -233,7 +233,7 @@ export class GaApp extends GaElement {
       if (current.page === "surface") {
         // A surface's address names the surface, and its strips name their own devices.
         deviceId = current.id;
-      } else if (current.page !== "workspace") {
+      } else if (current.page !== "workspace" && current.page !== "aggregate") {
         const named = current.id === undefined ? undefined : store.devices.value.find((d) => d.id === current.id);
         deviceId = current.id ?? store.deviceInView(known);
         // A device the address names is the selected one from here on, when this page can show it.
@@ -338,6 +338,8 @@ function pageFor(page: Page, id: string | undefined): HTMLElement {
       return id === undefined ? h("p", { class: "placeholder" }, "No devices are connected.") : h("ga-device-status", { "device-id": id });
     case "workspace":
       return h("ga-workspace");
+    case "aggregate":
+      return h("ga-aggregate");
     case "inputs":
       return id === undefined ? h("p", { class: "placeholder" }, "No device of known model is connected.") : h("ga-inputs", { "device-id": id });
     case "outputs":

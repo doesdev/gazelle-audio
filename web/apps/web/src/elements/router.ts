@@ -1,10 +1,11 @@
 // Hash routes: #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
-// #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing, #/effects[/<device id>], and
-// #/surface/<surface id>, which has no tab of its own: surfaces are opened from the Workspace page.
+// #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing, #/effects[/<device id>],
+// #/aggregate, and #/surface/<surface id>, which has no tab of its own: surfaces are opened from
+// the Workspace page.
 
 import { signal } from "../core/signal.ts";
 
-export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing" | "effects" | "surface";
+export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing" | "effects" | "aggregate" | "surface";
 
 export interface Route {
   page: Page;
@@ -21,6 +22,7 @@ export const PAGES: readonly { page: Page; label: string }[] = [
   { page: "mixer", label: "Mixer" },
   { page: "routing", label: "Routing" },
   { page: "effects", label: "Effects" },
+  { page: "aggregate", label: "Aggregate" },
 ];
 
 export function parseRoute(hash: string): Route {

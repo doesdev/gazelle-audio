@@ -82,7 +82,7 @@ The device's own five preset slots, stored in the device. **Zen Studio+ only.**
 
 Recall was checked on a Studio+ on 2026-09-20: a level changed after saving came back on recall. Gazelle cannot read what a preset holds, so treat a recall as a change to anything, 48V and the clock included.
 
-**Why the Quadro has none.** Its firmware accepts a recall and does nothing: checked twice, at two slot numbers, with nothing changing on the device. Antelope's own Quadro panel never sends the command either, and what it calls presets there are files it stores on the computer and replays. Saving into a slot nothing can recall would be a trap, so Gazelle offers the Quadro neither, and its cards and status do not name a preset slot. Use [snapshots](14-snapshots-and-backup.md) instead.
+**Why the Quadro has none.** Its firmware accepts a recall and does nothing: checked twice, at two slot numbers, with nothing changing on the device. Antelope's own Quadro panel never sends the command either, and what it calls presets there are files it stores on the computer and replays. Saving into a slot nothing can recall would be a trap, so Gazelle offers the Quadro neither, and its cards and status do not name a preset slot. Use [snapshots](15-snapshots-and-backup.md) instead.
 
 ## Power and brightness
 

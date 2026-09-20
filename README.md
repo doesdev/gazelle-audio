@@ -31,7 +31,7 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 
 **Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 
-If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/16-troubleshooting.md#reporting-a-problem).
+If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/17-troubleshooting.md#reporting-a-problem).
 
 ## Safety
 
@@ -80,7 +80,7 @@ cargo build --release -p gazelle-audio-server --features window
 
 **Without hardware**, to look around: `gazelle-audio-server --backend loopback`.
 
-More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/15-install-update-uninstall.md).
+More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/16-install-update-uninstall.md).
 
 ## Known limitations
 

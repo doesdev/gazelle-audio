@@ -20,6 +20,7 @@ const loaders: Readonly<Record<string, () => Promise<Definitions>>> = {
   "ga-outputs": async () => [["ga-outputs", (await import("./outputs-page.ts")).GaOutputs]],
   "ga-routing": async () => [["ga-routing", (await import("./routing-page.ts")).GaRouting]],
   "ga-effects": async () => [["ga-effects", (await import("./effects-page.ts")).GaEffects]],
+  "ga-aggregate": async () => [["ga-aggregate", (await import("./aggregate-page.ts")).GaAggregate]],
   // The surface page is made of surface strips, which the mixer dock can show as well: one chunk
   // holds both, and whichever asks first defines both.
   "ga-surface": async () => {

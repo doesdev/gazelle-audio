@@ -24,6 +24,7 @@ const PAGE_KEYS: Record<string, string> = {
   mixer: "header.page.mixer",
   routing: "header.page.routing",
   effects: "header.page.effects",
+  aggregate: "header.page.aggregate",
 };
 
 export class GaHeader extends GaElement {
@@ -91,7 +92,10 @@ export class GaHeader extends GaElement {
         /* A zero-height line break, ordered between the two lines. */
         .bar::after { content: ""; order: 1; flex: 0 0 100%; }
         nav { order: 2; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-        .theme, .reset { order: 3; max-width: 120px; }
+        /* Tighter tabs, so all of them fit a tablet's width on their own line rather than
+           scrolling out of reach: the eighth (Aggregate) would not otherwise. */
+        nav a { padding: 4px 7px; font-size: 13px; }
+        .theme, .reset { order: 3; max-width: 104px; }
       }
       @media (max-width: 480px) {
         .brand { font-size: 17px; }

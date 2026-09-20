@@ -121,6 +121,6 @@ An uninstall started from the install folder itself copies itself to your tempor
 | `%APPDATA%\gazelle\window.json` | The window's size and position |
 | `%APPDATA%\gazelle\update.json` | Update settings |
 | `%APPDATA%\gazelle\setup.json` | Present only if you chose **Run without installing** |
-| `%LOCALAPPDATA%\gazelle\logs\gazelle.log` | The log; see [Logs](16-troubleshooting.md#logs) |
+| `%LOCALAPPDATA%\gazelle\logs\gazelle.log` | The log; see [Logs](17-troubleshooting.md#logs) |
 
 Setting the `GAZELLE_CONFIG_DIR` environment variable moves the settings (not the logs) elsewhere.

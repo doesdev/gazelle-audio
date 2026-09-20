@@ -124,8 +124,61 @@ async function workspace(): Promise<void> {
     ],
     cables: [{ id: "c1", from: { device_id: STUDIO, port: "ADAT_OUT", first: 0 }, to: { device_id: QUADRO, port: "ADAT_IN", first: 0 }, channels: 8 }],
     control_room: { [QUADRO]: { outputs: [0, 1, 2, 3] } },
+    // Two interfaces in the aggregate, so its page has a card for each with every control on it.
+    aggregate: { devices: [{ key: "Zen Quadro Synergy Core", name: "Quadro", device_id: QUADRO, input_trim: 8 }, { key: "Zen Studio+", name: "Studio+", device_id: STUDIO }], callback_master: "Quadro", alignment: "aligned" },
   });
 }
+
+/**
+ * The Aggregate page as a working aggregate fills it: a blocking reason with its fix, a warning,
+ * a registration pointing at a copy that has gone, and a DAW streaming with a plan, a gap, a stall,
+ * a refusal and an event log. None of it reaches a driver.
+ */
+const AGGREGATE_ANSWER = {
+  read_at_ms: 1,
+  configured: true,
+  export_path: "C:\\gazelle\\aggregate.json",
+  drivers: [
+    { key: "Zen Quadro Synergy Core", description: "Zen Quadro Synergy Core", clsid: "{1}", dll: "q.dll", dll_present: true, configured: true, is_aggregate: false },
+    { key: "Zen Studio+", description: "Zen Studio+", clsid: "{2}", dll: "s.dll", dll_present: true, configured: true, is_aggregate: false },
+    { key: "Other interface", description: "Other interface", clsid: "{4}", dll: "o.dll", dll_present: true, configured: false, is_aggregate: false },
+  ],
+  registration: {
+    registered: true,
+    clsid: "{3}",
+    name: "Gazelle Aggregate",
+    dll: "C:\\old\\gazelle_aggregate.dll",
+    dll_present: false,
+    message: "Registered, pointing at a copy that has gone.",
+    register_command: "regsvr32 /s gazelle_aggregate.dll",
+    unregister_command: "regsvr32 /s /u gazelle_aggregate.dll",
+    dll_search: { state: "found", dll: "C:\\gazelle\\gazelle_aggregate.dll" },
+  },
+  devices: [
+    { name: "Quadro", key: "Zen Quadro Synergy Core", registered: true, entry_key: "Zen Quadro Synergy Core", device_id: QUADRO, attached: true, family: "quadro", clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 }, driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 }, is_master: true },
+    { name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
+  ],
+  ready: false,
+  reasons: [
+    { code: "buffers_differ", severity: "blocking", message: "The drivers are on different buffer sizes (256 and 128).", fix: { kind: "match_buffers", method: "POST", route: "aggregate/match-buffers", body: { buffer_size: 256 }, label: "Put them all on 256 samples" } },
+    { code: "controller_unknown", severity: "warning", message: "Quadro's USB host controller could not be found." },
+  ],
+  status: {
+    state: "read",
+    open: true,
+    streaming: true,
+    generation: 5,
+    generation_in_force: 4,
+    up_to_date: false,
+    plan: { master: "Quadro", rate: 96000, buffer_size: 256, inputs: 40, outputs: 40, alignment: "aligned", input_latency: 611, output_latency: 733 },
+    devices: [
+      { name: "Quadro", driver_name: "Quadro", streaming: true, stalled: false, is_master: true, sample_gap: 0, callbacks: 1200, dropped: 0, starved: 0 },
+      { name: "Studio+", driver_name: "Studio+", streaming: false, stalled: true, is_master: false, sample_gap: -64, callbacks: 900, dropped: 2, starved: 3 },
+    ],
+    last_refusal: "Studio+ will not run at 96000 Hz, so neither will the aggregate",
+  },
+  events: [{ at: "2026-09-21 09:14:02", kind: "session-started", message: "40 in, 40 out at 96000 Hz" }],
+};
 
 test("every control, readout, badge and heading on every page carries a key the catalogue explains", async ({ page }) => {
   test.setTimeout(240_000);
@@ -232,6 +285,15 @@ test("every control, readout, badge and heading on every page carries a key the 
   await page.getByTestId("workspace-import").click();
   await expect(page.getByTestId("workspace-import-confirm")).toBeVisible();
   await check(page, "workspace");
+
+  // The Aggregate page, with a reason to fix, a registration to put right, both interfaces'
+  // controls, a Confirm showing, and a DAW streaming with a gap and a stall.
+  await page.route("**/api/v1/aggregate**", (route) => (route.request().method() === "POST" ? route.fulfill({ json: { buffer_size: 256, changed: 2, refused: 0, devices: [] } }) : route.fulfill({ json: AGGREGATE_ANSWER })));
+  await visit("aggregate", "ga-aggregate");
+  await page.getByTestId("device-0-buffer").selectOption("512");
+  await expect(page.getByTestId("device-0-buffer-confirm")).toBeVisible();
+  await check(page, "aggregate");
+  await page.unroute("**/api/v1/aggregate**");
 
   // A lazy page that could not be loaded leaves its message and a Try again in its place.
   await page.route(/routing-page.*\.js$/, (route) => route.abort());

@@ -1,0 +1,705 @@
+// <ga-aggregate>: the Aggregate page. One audio driver a DAW opens, with two or more interfaces
+// underneath it, and everything about whether this PC can actually run it.
+//
+// The page is read from top to bottom and answers four questions in that order. Is it usable, and
+// if not, why, in words with a button beside each thing Gazelle can put right? Is the driver
+// registered, and is the copy Windows has registered the one that is here now? What is in the
+// aggregate, what is each interface doing, and how do you change any of it? And, while a DAW has
+// it open, is the clock link holding, which is the gap in samples between each device and the one
+// driving the callback.
+//
+// Almost nothing here decides anything. `GET /api/v1/aggregate` answers all of it at once, reasons
+// and fixes included, and the store polls it while this page is on screen: every second while
+// audio is running, more slowly while it is not, and not at all once the page has gone. The
+// ordinary case is that no DAW has the driver open and the driver has published nothing, which is
+// not a fault and does not read as one.
+//
+// The setup itself lives in the workspace, so editing it here saves it there; the server exports
+// the file the driver reads and tells the driver to look again. Choosing which channels of an
+// interface to expose is the one part of the setup this page does not offer: the file takes it and
+// the server checks it, so a workspace that has it keeps it untouched.
+
+import { h } from "../core/dom.ts";
+import { effect } from "../core/signal.ts";
+import {
+  buffersMatch,
+  deviceViews,
+  fixNeedsConfirming,
+  gapView,
+  matchTarget,
+  statusLine,
+  type Aggregate,
+  type AggregateAnswer,
+  type AggregateDevice,
+  type AggregateDeviceView,
+  type AggregateFix,
+  type AggregateReason,
+} from "../store/aggregate.ts";
+import { driverControls } from "../store/driver.ts";
+import { SAMPLE_RATES, type Store } from "../store/store.ts";
+import { bindConfirm, confirmedChoice } from "./controls.ts";
+import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+
+/** `SAMPLE_RATES` in Hz, which is how the aggregate's setup and the driver's file say a rate. */
+const RATE_HZ = [32000, 44100, 48000, 88200, 96000, 176400, 192000];
+
+/** The sizes offered when no driver has been read yet, as every Antelope driver here offers. */
+const BUFFER_SIZES = [16, 32, 64, 128, 256, 512, 1024, 2048];
+
+const RESTARTS = "every program using these drivers restarts its audio";
+
+export class GaAggregate extends GaElement {
+  static override styles = [
+    sheet(`
+      :host { display: block; max-width: 760px; }
+      ga-section + ga-section { margin-top: 10px; }
+      .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+      .bar .spacer { flex: 1; }
+      .verdict { padding: 2px 10px; border-radius: 3px; font-weight: 700; letter-spacing: 0.04em; background: var(--ga-surface-inset); color: var(--ga-text-muted); }
+      .verdict[data-ready="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .verdict[data-ready="false"] { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
+      .note { margin: 6px 0 0; font-size: 11px; color: var(--ga-text-muted); }
+      .note.warning { color: var(--ga-state-mute); }
+      code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; word-break: break-all; }
+      .reasons { display: grid; gap: 6px; margin: 0; padding: 4px 0 0; list-style: none; }
+      .reason { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .severity { padding: 0 5px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-inverse); background: var(--ga-text-muted); }
+      .severity[data-severity="blocking"] { background: var(--ga-state-mute); }
+      .severity[data-severity="warning"] { background: var(--ga-state-solo); }
+      .device-card { display: grid; gap: 8px; padding: 8px 10px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .device-card + .device-card { margin-top: 6px; }
+      .device-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .device-head .name { width: 160px; }
+      .device-head .spacer { flex: 1; }
+      .device-head .order { min-width: 26px; padding: 0 4px; }
+      .device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 12px; }
+      .cell { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px; }
+      .cell .label { color: var(--ga-text-secondary); font-size: 11px; }
+      /* A DLL path and a refusal are long, and a phone is narrow: they wrap rather than push the
+         page sideways, which is the rule every other page keeps. */
+      .fields { grid-template-columns: max-content minmax(0, 1fr); }
+      .fields dd, .cell > span, .live-row > * { min-width: 0; }
+      .readout { max-width: 100%; overflow-wrap: anywhere; }
+      .choice { display: inline-flex; align-items: center; gap: 6px; }
+      .safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
+      .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
+      .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
+      .gap[data-tone="good"] { color: var(--ga-accent); }
+      .gap[data-tone="off"], .gap[data-tone="stalled"] { color: var(--ga-state-mute); font-weight: 700; }
+      .gap[data-tone="idle"] { color: var(--ga-text-muted); }
+      .setup { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; padding: 4px 0; }
+      .setup .label { color: var(--ga-text-secondary); font-size: 11px; }
+      .setup select, .setup input { justify-self: start; min-height: 24px; }
+      .trim { width: 84px; }
+      .add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+      .events { display: grid; gap: 2px; margin: 0; padding: 4px 0 0; list-style: none; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
+      .events li { display: flex; gap: 8px; }
+      .events .at { color: var(--ga-text-muted); white-space: nowrap; }
+      .events .kind { min-width: 110px; color: var(--ga-text-secondary); }
+      .confirm, button[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .live { display: grid; gap: 6px; }
+      .live-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, minmax(0, auto)); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+
+      /* Phone width: nothing sits side by side, and the long readouts wrap rather than scroll. */
+      @media (max-width: 480px) {
+        .reason { grid-template-columns: auto minmax(0, 1fr); }
+        .reason .fix { grid-column: 1 / -1; justify-self: start; }
+        .device-grid { grid-template-columns: minmax(0, 1fr); }
+        .device-head .name { width: 100%; }
+        .setup { grid-template-columns: minmax(0, 1fr); }
+        .live-row { grid-template-columns: minmax(0, 1fr) auto; }
+      }
+    `),
+  ];
+
+  /** The effects of the parts that are rebuilt when the setup changes, disposed with them. */
+  readonly #rebuilt: (() => void)[] = [];
+
+  #renew(): (fn: () => void) => void {
+    for (const dispose of this.#rebuilt.splice(0)) dispose();
+    return (fn: () => void) => {
+      this.#rebuilt.push(effect(fn));
+    };
+  }
+
+  protected override render(): void {
+    const store = useStore();
+    const model = store.aggregate;
+    this.onDisconnect(model.activate());
+    this.onDisconnect(() => {
+      for (const dispose of this.#rebuilt.splice(0)) dispose();
+    });
+
+    const verdict = h("span", { class: "verdict", "data-testid": "aggregate-verdict", "data-explain": "aggregate.verdict" }, "Reading...");
+    const state = h("span", { class: "muted", "data-testid": "aggregate-state" });
+    const again = h(
+      "button",
+      { type: "button", "data-testid": "aggregate-refresh", "data-explain": "aggregate.refresh", title: "Ask the server again now", "on:click": () => void model.refresh() },
+      "Read again",
+    );
+    const readAt = h("span", { class: "muted", "data-testid": "aggregate-read-at" });
+    const problem = h("p", { class: "note warning", role: "alert", "data-testid": "aggregate-problem", hidden: true });
+    const outcome = h("p", { class: "note", role: "status", "data-testid": "aggregate-outcome", "data-explain": "aggregate.outcome", hidden: true });
+
+    const reasons = h("ul", { class: "reasons", "data-testid": "aggregate-reasons" });
+    const noReasons = h("p", { class: "note", "data-testid": "aggregate-no-reasons", hidden: true }, "Nothing is in the way. A DAW can open Gazelle Aggregate and every interface under it is ready.");
+    const readySection = h(
+      "ga-section",
+      { heading: "Ready to use", explain: "aggregate.ready" },
+      reasons,
+      noReasons,
+      outcome,
+      h("p", { class: "note" }, "An aggregate needs each interface on its own USB host controller, one digital cable between them, and every interface clocked from that cable rather than from USB."),
+    );
+
+    const registration = h("dl", { class: "fields", "data-testid": "aggregate-registration" });
+    const registerButton = h("button", { type: "button", "data-testid": "aggregate-register", "data-explain": "aggregate.register" }, "Register the driver");
+    const unregisterButton = h("button", { type: "button", "data-testid": "aggregate-unregister", "data-explain": "aggregate.unregister" }, "Unregister");
+    registerButton.addEventListener("click", () => void model.setRegistered(true));
+    this.onDisconnect(bindConfirm(unregisterButton, "Unregister", () => void model.setRegistered(false)));
+    const command = h("code", { "data-testid": "aggregate-command" });
+    const registrationSection = h(
+      "ga-section",
+      { heading: "Registration", explain: "aggregate.registration" },
+      registration,
+      h("p", { class: "note" }, h("span", { "data-testid": "aggregate-admin-note" }, "Registering the driver writes to the part of Windows that lists audio drivers for every program on this PC, so Windows puts up its own administrator prompt. It is the one thing in Gazelle that asks for administrator rights, and declining the prompt changes nothing.")),
+      h("div", { class: "add" }, registerButton, unregisterButton),
+      h("p", { class: "note" }, "Or run this yourself, in a prompt started as an administrator: ", command),
+    );
+
+    const devices = h("div", { "data-testid": "aggregate-devices" });
+    const noDevices = h("p", { class: "note", "data-testid": "aggregate-no-devices", hidden: true }, "No interfaces have been chosen yet. Add the ones the aggregate should open, in the order their channels should appear to a DAW.");
+    const matchButton = h("button", { type: "button", "data-testid": "aggregate-match", "data-explain": "aggregate.match" }, "Match buffer sizes");
+    this.onDisconnect(
+      bindConfirm(matchButton, "Match buffer sizes", () => {
+        const size = matchTarget(model.answer.peek());
+        if (size !== undefined) void model.matchBuffers(size);
+      }),
+    );
+    const addSelect = h("select", { "aria-label": "Interface to add", "data-testid": "aggregate-add-select", "data-no-wheel": true, "data-explain": "aggregate.add-select" });
+    const addButton = h("button", { type: "button", "data-testid": "aggregate-add", "data-explain": "aggregate.add", "on:click": () => this.#addDevice(store, addSelect.value) }, "Add");
+    const devicesSection = h(
+      "ga-section",
+      { heading: "Interfaces", explain: "aggregate.devices" },
+      noDevices,
+      devices,
+      h("div", { class: "add" }, addSelect, addButton, h("span", { class: "spacer" }), matchButton),
+      h("p", { class: "note" }, `Buffer size and Safe Mode are the audio driver's own settings on this PC, the same ones the Devices page shows. Changing either, or matching them, takes a confirming click, because ${RESTARTS}.`),
+    );
+
+    const setup = h("div", { class: "setup", "data-testid": "aggregate-setup" });
+    const exportPath = h("code", { "data-testid": "aggregate-export-path" });
+    const setupSection = h(
+      "ga-section",
+      { heading: "Setup", explain: "aggregate.setup" },
+      setup,
+      h("p", { class: "note" }, "Saved in the workspace, and written out for the driver at ", exportPath, ". The driver picks up a change at once when nothing is streaming, and at the next buffer change when a DAW is running."),
+    );
+
+    const plan = h("dl", { class: "fields", "data-testid": "aggregate-plan" });
+    const live = h("div", { class: "live", "data-testid": "aggregate-live" });
+    const liveNote = h("p", { class: "note", "data-testid": "aggregate-live-note" });
+    const liveSection = h("ga-section", { heading: "While a DAW has it open", explain: "aggregate.live" }, liveNote, plan, live);
+
+    const events = h("ul", { class: "events", "data-testid": "aggregate-events" });
+    const eventsNote = h("p", { class: "note", "data-testid": "aggregate-events-note" });
+    const eventsSection = h("ga-section", { heading: "What happened", explain: "aggregate.events" }, eventsNote, events);
+
+    const unavailable = h(
+      "p",
+      { class: "placeholder", "data-testid": "aggregate-unavailable", hidden: true },
+      "This server does not offer the aggregate driver. It is answered only to a program on the same PC, so a Gazelle reached over the network shows nothing here.",
+    );
+    const sections = h("div", { "data-testid": "aggregate-sections" }, readySection, registrationSection, devicesSection, setupSection, liveSection, eventsSection);
+
+    this.root.replaceChildren(h("div", { class: "bar" }, verdict, state, h("span", { class: "spacer" }), readAt, again), problem, unavailable, sections);
+
+    // Whether the server offers any of this at all. A server bound off loopback is not a failure.
+    this.watch(() => {
+      const offered = model.offered.value;
+      unavailable.hidden = offered !== false;
+      sections.hidden = offered === false;
+      again.hidden = offered === false;
+      verdict.hidden = offered === false;
+      state.hidden = offered === false;
+    });
+
+    this.watch(() => {
+      const why = model.problem.value;
+      problem.hidden = why === undefined;
+      problem.textContent = why ?? "";
+    });
+
+    this.watch(() => {
+      const said = model.outcome.value;
+      outcome.hidden = said === undefined;
+      outcome.textContent = said?.text ?? "";
+      outcome.classList.toggle("warning", said?.problem === true);
+    });
+
+    this.watch(() => {
+      const busy = model.busy.value;
+      for (const button of [registerButton, unregisterButton, matchButton, addButton]) button.disabled = busy !== undefined;
+      for (const button of reasons.querySelectorAll<HTMLButtonElement>("button.fix")) button.disabled = busy !== undefined;
+    });
+
+    this.watch(() => {
+      const answer = model.answer.value;
+      if (answer === undefined) return;
+      verdict.textContent = answer.ready ? "Ready" : "Not ready";
+      verdict.setAttribute("data-ready", String(answer.ready));
+      state.textContent = statusLine(answer.status);
+      readAt.textContent = `Read at ${new Date(answer.read_at_ms).toLocaleTimeString()}.`;
+      this.#showReasons(model, reasons, noReasons, answer);
+      this.#showRegistration(registration, command, registerButton, unregisterButton, answer);
+      this.#showPlan(plan, live, liveNote, answer);
+      this.#showEvents(events, eventsNote, answer);
+      matchButton.hidden = answer.devices.length < 2;
+      matchButton.title = buffersMatch(answer) ? "Every interface is already on one buffer size" : `Put every interface on ${matchTarget(answer) ?? "one"} samples: ${RESTARTS}`;
+    });
+
+    // The cards and the setup are rebuilt only when the setup itself changes, so a poll landing
+    // does not take away a name half typed or a menu half chosen.
+    let shown: string | undefined;
+    this.watch(() => {
+      const config = store.workspace.value?.aggregate;
+      noDevices.hidden = (config?.devices ?? []).length > 0;
+      // Only the list itself decides what is built; everything else about the setup is followed by
+      // the controls' own effects, so a rate chosen elsewhere does not throw away a name half typed.
+      const shape = JSON.stringify(config?.devices ?? []);
+      if (shape === shown) return;
+      shown = shape;
+      const watch = this.#renew();
+      this.#buildDevices(store, devices, config, watch);
+      this.#buildSetup(store, setup, config, watch);
+    });
+
+    this.watch(() => {
+      const answer = model.answer.value;
+      exportPath.textContent = answer?.export_path ?? "";
+      this.#fillAdd(store, addSelect, addButton, answer);
+    });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Is it usable
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * The reasons, rebuilt only when they change. A row carries an armed Confirm and the answer is
+   * read every second, so replacing the rows on every poll would take a first click away again
+   * before the second one could land.
+   */
+  #reasonsShown: string | undefined;
+
+  #showReasons(model: Store["aggregate"], list: HTMLElement, none: HTMLElement, answer: AggregateAnswer): void {
+    none.hidden = answer.reasons.length > 0;
+    list.hidden = answer.reasons.length === 0;
+    const shown = JSON.stringify(answer.reasons);
+    if (shown === this.#reasonsShown) return;
+    this.#reasonsShown = shown;
+    list.replaceChildren(...answer.reasons.map((reason) => this.#reasonRow(model, reason)));
+  }
+
+  #reasonRow(model: Store["aggregate"], reason: AggregateReason): HTMLElement {
+    const severity = h(
+      "span",
+      { class: "severity", "data-severity": reason.severity, "data-testid": `reason-severity-${reason.code}`, "data-explain": "aggregate.severity" },
+      reason.severity === "blocking" ? "STOPS IT" : "WORTH KNOWING",
+    );
+    const text = h("span", { "data-testid": `reason-${reason.code}` }, reason.message);
+    const fix = reason.fix === undefined ? undefined : this.#fixButton(model, reason, reason.fix);
+    return h("li", { class: "reason", "data-testid": `reason-row-${reason.code}` }, severity, text, ...(fix === undefined ? [] : [fix]));
+  }
+
+  /**
+   * The button for a reason the server already knows how to put right. It sends the request the
+   * answer named and nothing else; one that interrupts a DAW asks for a second click first.
+   */
+  #fixButton(model: Store["aggregate"], reason: AggregateReason, fix: AggregateFix): HTMLElement {
+    const button = h("button", { type: "button", class: "fix", "data-testid": `reason-fix-${reason.code}`, "data-explain": "aggregate.fix", title: fix.label }, fix.label);
+    if (fixNeedsConfirming(fix)) {
+      button.title = `${fix.label}: ${RESTARTS}`;
+      // The disarm is not kept: the row is thrown away whole when the reasons change, and a
+      // timer of three seconds on a button that is gone has nothing left to arm.
+      bindConfirm(button, fix.label, () => void model.applyFix(fix));
+    } else {
+      button.addEventListener("click", () => void model.applyFix(fix));
+    }
+    return button;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Registration
+  // -------------------------------------------------------------------------------------------
+
+  #showRegistration(fields: HTMLElement, command: HTMLElement, register: HTMLButtonElement, unregister: HTMLButtonElement, answer: AggregateAnswer): void {
+    const { registration } = answer;
+    const search = registration.dll_search;
+    const rows: [label: string, value: string, key: string, testid: string][] = [
+      ["Registered", registration.registered ? "Yes" : "No", "aggregate.registered", "registered"],
+      ["What a DAW lists it as", registration.name, "aggregate.driver-name", "driver-name"],
+      ["Registration points at", registration.dll ?? "Nothing: it is not registered", "aggregate.registered-dll", "registered-dll"],
+      ["That file is there", registration.registered ? (registration.dll_present ? "Yes" : "No, so a DAW opening it would fail") : "Nothing is registered", "aggregate.dll-present", "dll-present"],
+      ["The copy Gazelle would register", search.state === "found" ? search.dll : search.message, "aggregate.found-dll", "found-dll"],
+    ];
+    fields.replaceChildren(
+      ...rows.flatMap(([label, value, key, testid]) => [
+        h("dt", {}, label),
+        h("dd", {}, h("span", { class: "readout", "data-testid": `aggregate-${testid}`, "data-explain": key }, value)),
+      ]),
+    );
+    register.hidden = registration.registered && registration.dll_present;
+    register.textContent = registration.registered ? "Register it again" : "Register the driver";
+    unregister.hidden = !registration.registered;
+    command.textContent = (registration.registered ? registration.unregister_command : registration.register_command) ?? "There is no copy of the driver on this PC to register.";
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The interfaces: what each one is doing, and how to change it
+  // -------------------------------------------------------------------------------------------
+
+  #buildDevices(store: Store, into: HTMLElement, config: Aggregate | undefined, watch: (fn: () => void) => void): void {
+    const list = config?.devices ?? [];
+    into.replaceChildren(...list.map((device, index) => this.#deviceCard(store, device, index, list.length, watch)));
+  }
+
+  #deviceCard(store: Store, device: AggregateDevice, index: number, total: number, watch: (fn: () => void) => void): HTMLElement {
+    const model = store.aggregate;
+    const named = device.name ?? device.key ?? device.clsid ?? `Interface ${index + 1}`;
+    const testid = `device-${index}`;
+
+    const name = h("input", { class: "name", "aria-label": "Name for this interface", placeholder: device.key ?? "Interface", "data-testid": `${testid}-name`, "data-explain": "aggregate.device-name" });
+    const showName = commitOnEnter(
+      name,
+      (value) => this.#editDevice(store, index, (current) => withField(current, "name", value.trim() === "" ? undefined : value.trim())),
+      () => device.name ?? "",
+      store.view<string | undefined>(`draft:aggregate:${index}:name`, undefined),
+    );
+    showName(device.name ?? "");
+
+    const up = h("button", { type: "button", class: "order", "data-testid": `${testid}-up`, "data-explain": "aggregate.device-up", "aria-label": `Move ${named} earlier`, title: "Earlier: its channels come before the others", "on:click": () => this.#move(store, index, -1) }, "↑");
+    const down = h("button", { type: "button", class: "order", "data-testid": `${testid}-down`, "data-explain": "aggregate.device-down", "aria-label": `Move ${named} later`, title: "Later: its channels come after the others", "on:click": () => this.#move(store, index, 1) }, "↓");
+    up.disabled = index === 0;
+    down.disabled = index === total - 1;
+    const remove = h("button", { type: "button", "data-testid": `${testid}-remove`, "data-explain": "aggregate.device-remove", "aria-label": `Take ${named} out of the aggregate` }, "Remove");
+    this.onDisconnect(bindConfirm(remove, "Remove", () => this.#removeDevice(store, index)));
+
+    const which = h("span", { class: "readout", "data-testid": `${testid}-entry`, "data-explain": "aggregate.device-entry" }, device.key ?? device.clsid ?? "Not named");
+
+    // Which of Gazelle's devices this is: what makes its clock, rate and buffer readable at all.
+    const idSelect = h("select", { "aria-label": `Which connected device ${named} is`, "data-testid": `${testid}-device-id`, "data-no-wheel": true, "data-explain": "aggregate.device-id" });
+    idSelect.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "device_id", idSelect.value === "" ? undefined : idSelect.value)));
+
+    const channels = h("span", { class: "readout", "data-testid": `${testid}-channels`, "data-explain": "aggregate.device-channels" });
+    const clock = h("span", { class: "readout", "data-testid": `${testid}-clock`, "data-explain": "aggregate.device-clock" });
+    const lock = h("span", { class: "lock", "data-testid": `${testid}-lock`, "data-explain": "aggregate.device-lock" }, "LOCK");
+    const rate = h("span", { class: "readout", "data-testid": `${testid}-rate`, "data-explain": "aggregate.device-rate" });
+    const gap = h("span", { class: "readout gap", "data-testid": `${testid}-gap`, "data-explain": "aggregate.device-gap" });
+
+    // The driver's buffer size and Safe Mode, exactly as the Devices page offers them.
+    const bufferMenu = h("select", { "aria-label": `Buffer size for ${named}`, "data-testid": `${testid}-buffer`, "data-no-wheel": true, "data-explain": "aggregate.device-buffer" });
+    const deviceId = device.device_id;
+    const bufferChoice = confirmedChoice(
+      bufferMenu,
+      `${testid}-buffer-confirm`,
+      "aggregate.device-buffer-confirm",
+      (size) => `Put ${named}'s driver on ${size} samples: ${RESTARTS}`,
+      (size) => {
+        if (deviceId !== undefined) void store.setDriver(deviceId, { buffer_size: size });
+      },
+    );
+    this.onDisconnect(bufferChoice.disarm);
+
+    let safeMode = false;
+    const safe = h("button", { type: "button", class: "safe", "aria-label": `Safe Mode for ${named}`, "aria-pressed": "false", "data-testid": `${testid}-safe`, "data-explain": "aggregate.device-safe" }, "Off");
+    this.onDisconnect(
+      bindConfirm(safe, () => (safeMode ? "On" : "Off"), () => {
+        if (deviceId !== undefined) void store.setDriver(deviceId, { safe_mode: !safeMode });
+      }),
+    );
+
+    const inTrim = h("input", { class: "trim", type: "number", step: "1", "aria-label": `Input trim for ${named}, in samples`, "data-testid": `${testid}-in-trim`, "data-explain": "aggregate.device-in-trim" });
+    const outTrim = h("input", { class: "trim", type: "number", step: "1", "aria-label": `Output trim for ${named}, in samples`, "data-testid": `${testid}-out-trim`, "data-explain": "aggregate.device-out-trim" });
+    inTrim.value = String(device.input_trim ?? 0);
+    outTrim.value = String(device.output_trim ?? 0);
+    inTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "input_trim", trimOf(inTrim.value))));
+    outTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "output_trim", trimOf(outTrim.value))));
+
+    const cell = (label: string, ...value: (Node | string)[]) => h("div", { class: "cell" }, h("span", { class: "label" }, label), h("span", {}, ...value));
+
+    const card = h(
+      "div",
+      { class: "device-card", "data-testid": `aggregate-${testid}` },
+      h("div", { class: "device-head" }, h("span", { class: "label" }, `${index + 1}.`), name, which, h("span", { class: "spacer" }), up, down, remove),
+      h(
+        "div",
+        { class: "device-grid" },
+        cell("Gazelle device", idSelect),
+        cell("Channels", channels),
+        cell("Clock", clock, " ", lock),
+        cell("Rate", rate),
+        cell("Buffer", h("span", { class: "choice" }, bufferMenu, bufferChoice.confirm)),
+        cell("Safe Mode", safe),
+        cell("Input trim", inTrim),
+        cell("Output trim", outTrim),
+        cell("Gap", gap),
+      ),
+    );
+
+    watch(() => {
+      // The menu of connected devices, with whatever the setup names kept even when it is away.
+      const attached = store.devices.value;
+      const options = [h("option", { value: "" }, "Not said")];
+      for (const found of attached) options.push(h("option", { value: found.id }, `${found.model ?? found.id} (${found.id})`));
+      if (deviceId !== undefined && !attached.some((found) => found.id === deviceId)) options.push(h("option", { value: deviceId }, `${deviceId} (not connected)`));
+      idSelect.replaceChildren(...options);
+      idSelect.value = deviceId ?? "";
+      idSelect.disabled = !store.connected.value;
+    });
+
+    watch(() => {
+      const view = viewFor(model.answer.value, device, index);
+      const report = view?.report;
+      const exposed = (chosen: number[] | undefined, all: string) => (chosen === undefined ? all : `${chosen.length}`);
+      channels.textContent = `${exposed(device.inputs, "All")} in, ${exposed(device.outputs, "All")} out`;
+      channels.title = device.inputs === undefined && device.outputs === undefined ? "Every channel the interface has" : "Only the channels the workspace names";
+      clock.textContent = report?.clock?.source ?? (report?.attached === true ? "Not reported" : "Not connected");
+      lock.toggleAttribute("data-locked", report?.clock?.locked === true);
+      lock.textContent = report?.clock?.locked === true ? "LOCK" : "NO LOCK";
+      rate.textContent = report?.clock?.hz === undefined ? "Not known" : `${Number((report.clock.hz / 1000).toFixed(3))} kHz`;
+      const reading = gapFor(view);
+      gap.textContent = reading.text;
+      gap.setAttribute("data-tone", reading.tone);
+    });
+
+    watch(() => {
+      // The sizes the driver offers, read as the Devices page reads them; its own reading wins.
+      const controls = deviceId === undefined ? undefined : driverControls(store.driver(deviceId).value);
+      const summary = viewFor(model.answer.value, device, index)?.report?.driver;
+      const sizes = controls?.sizes ?? BUFFER_SIZES;
+      const current = controls?.buffer ?? summary?.buffer_size;
+      if ([...bufferMenu.options].map((option) => Number(option.value)).join() !== sizes.join()) {
+        bufferMenu.replaceChildren(...sizes.map((size) => h("option", { value: String(size) }, `${size} samples`)));
+      }
+      if (current !== undefined) {
+        bufferChoice.current = current;
+        if (!bufferChoice.armed()) bufferMenu.value = String(current);
+      }
+      bufferMenu.disabled = deviceId === undefined || current === undefined || !store.connected.value;
+      safeMode = controls?.safeMode ?? summary?.safe_mode ?? false;
+      safe.setAttribute("aria-pressed", String(safeMode));
+      if (!safe.hasAttribute("data-armed")) safe.textContent = summary?.safe_mode === undefined && controls === undefined ? "Not read" : safeMode ? "On" : "Off";
+      safe.disabled = deviceId === undefined || !store.connected.value;
+      for (const field of [inTrim, outTrim, name]) field.disabled = !store.connected.value;
+    });
+
+    if (deviceId !== undefined) void store.loadDriver(deviceId);
+    return card;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Editing the setup
+  // -------------------------------------------------------------------------------------------
+
+  #buildSetup(store: Store, into: HTMLElement, config: Aggregate | undefined, watch: (fn: () => void) => void): void {
+    const devices = config?.devices ?? [];
+    const master = h("select", { "aria-label": "Which interface drives the callback", "data-testid": "aggregate-master", "data-no-wheel": true, "data-explain": "aggregate.master" });
+    master.replaceChildren(
+      h("option", { value: "" }, "The first one"),
+      ...devices.map((device, index) => h("option", { value: nameOf(device, index) }, nameOf(device, index))),
+    );
+    master.addEventListener("change", () => store.editAggregate((current) => withField(current, "callback_master", master.value === "" ? undefined : master.value)));
+
+    const alignment = h(
+      "select",
+      { "aria-label": "How the streams line up", "data-testid": "aggregate-alignment", "data-no-wheel": true, "data-explain": "aggregate.alignment" },
+      h("option", { value: "aligned" }, "Aligned: every interface in step"),
+      h("option", { value: "lowest_latency" }, "Lowest latency: no padding"),
+    );
+    alignment.addEventListener("change", () => store.editAggregate((current) => ({ ...current, alignment: alignment.value === "lowest_latency" ? "lowest_latency" : "aligned" })));
+
+    const rate = h(
+      "select",
+      { "aria-label": "Sample rate for the aggregate", "data-testid": "aggregate-rate", "data-no-wheel": true, "data-explain": "aggregate.rate" },
+      h("option", { value: "" }, "Whatever the interfaces are on"),
+      ...RATE_HZ.map((hz, index) => h("option", { value: String(hz) }, SAMPLE_RATES[index] as string)),
+    );
+    rate.addEventListener("change", () => store.editAggregate((current) => withField(current, "rate", rate.value === "" ? undefined : Number(rate.value))));
+
+    const buffer = h(
+      "select",
+      { "aria-label": "Buffer size to offer a DAW", "data-testid": "aggregate-buffer", "data-no-wheel": true, "data-explain": "aggregate.buffer" },
+      h("option", { value: "" }, "Whatever the drivers are on"),
+      ...BUFFER_SIZES.map((size) => h("option", { value: String(size) }, `${size} samples`)),
+    );
+    buffer.addEventListener("change", () => store.editAggregate((current) => withField(current, "buffer_size", buffer.value === "" ? undefined : Number(buffer.value))));
+
+    into.replaceChildren(
+      h("span", { class: "label" }, "Callback master"),
+      master,
+      h("span", { class: "label" }, "Alignment"),
+      alignment,
+      h("span", { class: "label" }, "Sample rate"),
+      rate,
+      h("span", { class: "label" }, "Buffer size"),
+      buffer,
+    );
+
+    watch(() => {
+      const current = store.workspace.value?.aggregate;
+      master.value = typeof current?.callback_master === "string" && devices.some((device, index) => nameOf(device, index) === current.callback_master) ? current.callback_master : "";
+      alignment.value = current?.alignment === "lowest_latency" ? "lowest_latency" : "aligned";
+      rate.value = typeof current?.rate === "number" && RATE_HZ.includes(current.rate) ? String(current.rate) : "";
+      buffer.value = typeof current?.buffer_size === "number" && BUFFER_SIZES.includes(current.buffer_size) ? String(current.buffer_size) : "";
+      for (const control of [master, alignment, rate, buffer]) control.disabled = !store.connected.value;
+    });
+  }
+
+  #fillAdd(store: Store, select: HTMLSelectElement, add: HTMLButtonElement, answer: AggregateAnswer | undefined): void {
+    const already = new Set((store.workspace.peek()?.aggregate?.devices ?? []).map((device) => (device.key ?? "").toLowerCase()));
+    const offered = (answer?.drivers ?? []).filter((entry) => !entry.is_aggregate && !already.has(entry.key.toLowerCase()));
+    select.replaceChildren(...(offered.length === 0 ? [h("option", { value: "" }, "No other audio driver on this PC")] : offered.map((entry) => h("option", { value: entry.key }, entry.description ?? entry.key))));
+    select.disabled = offered.length === 0;
+    add.disabled = offered.length === 0;
+  }
+
+  #addDevice(store: Store, key: string): void {
+    if (key === "") return;
+    store.editAggregate((current) => ({ ...current, devices: [...(current.devices ?? []), { key, name: key }] }));
+  }
+
+  #removeDevice(store: Store, index: number): void {
+    store.editAggregate((current) => ({ ...current, devices: (current.devices ?? []).filter((_, at) => at !== index) }));
+  }
+
+  #move(store: Store, index: number, by: number): void {
+    store.editAggregate((current) => {
+      const devices = [...(current.devices ?? [])];
+      const to = index + by;
+      const moved = devices[index];
+      const other = devices[to];
+      if (moved === undefined || other === undefined) return current;
+      devices[index] = other;
+      devices[to] = moved;
+      return { ...current, devices };
+    });
+  }
+
+  #editDevice(store: Store, index: number, change: (device: AggregateDevice) => AggregateDevice): void {
+    store.editAggregate((current) => {
+      const devices = [...(current.devices ?? [])];
+      const at = devices[index];
+      if (at === undefined) return current;
+      devices[index] = change(at);
+      return { ...current, devices };
+    });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Live, while a DAW has it open
+  // -------------------------------------------------------------------------------------------
+
+  #showPlan(fields: HTMLElement, rows: HTMLElement, note: HTMLElement, answer: AggregateAnswer): void {
+    const status = answer.status;
+    if (status.state !== "read") {
+      note.textContent = status.message;
+      fields.hidden = true;
+      rows.replaceChildren();
+      return;
+    }
+    note.textContent = statusLine(status);
+    const plan = status.plan;
+    fields.hidden = plan === undefined;
+    if (plan !== undefined) {
+      const row = (label: string, value: string, key: string, testid: string) => [h("dt", {}, label), h("dd", {}, h("span", { class: "readout", "data-testid": `plan-${testid}`, "data-explain": key }, value))];
+      fields.replaceChildren(
+        ...row("Master", plan.master, "aggregate.plan-master", "master"),
+        ...row("Rate", `${Number((plan.rate / 1000).toFixed(3))} kHz`, "aggregate.plan-rate", "rate"),
+        ...row("Buffer", `${plan.buffer_size} samples`, "aggregate.plan-buffer", "buffer"),
+        ...row("Channels", `${plan.inputs} in, ${plan.outputs} out`, "aggregate.plan-channels", "channels"),
+        ...row("Alignment", plan.alignment === "lowest_latency" ? "Lowest latency" : "Aligned", "aggregate.plan-alignment", "alignment"),
+        ...row("Latency", `${plan.input_latency} in, ${plan.output_latency} out, in samples`, "aggregate.plan-latency", "latency"),
+        ...(status.up_to_date ? [] : row("Setup in force", `Generation ${status.generation_in_force}, and Gazelle has asked for ${status.generation}`, "aggregate.plan-generation", "generation")),
+        ...(status.last_refusal === undefined ? [] : row("Last refused", status.last_refusal, "aggregate.plan-refusal", "refusal")),
+      );
+    }
+    rows.replaceChildren(
+      ...status.devices.map((device) => {
+        const reading = gapView(device);
+        return h(
+          "div",
+          { class: "live-row", "data-testid": `live-${device.name}` },
+          h("span", {}, device.name, device.is_master ? " (master)" : ""),
+          h("span", { class: "readout gap", "data-tone": reading.tone, "data-testid": `live-gap-${device.name}`, "data-explain": "aggregate.live-gap" }, reading.text),
+          h("span", { class: "readout", "data-testid": `live-callbacks-${device.name}`, "data-explain": "aggregate.live-callbacks" }, `${device.callbacks} blocks`),
+          h("span", { class: "readout", "data-testid": `live-dropped-${device.name}`, "data-explain": "aggregate.live-dropped" }, `${device.dropped} dropped`),
+          h("span", { class: "readout", "data-testid": `live-starved-${device.name}`, "data-explain": "aggregate.live-starved" }, `${device.starved} starved`),
+        );
+      }),
+    );
+  }
+
+  #showEvents(list: HTMLElement, note: HTMLElement, answer: AggregateAnswer): void {
+    if (answer.events_error !== undefined) {
+      note.textContent = answer.events_error;
+      list.replaceChildren();
+      return;
+    }
+    note.textContent =
+      answer.events.length === 0
+        ? "The driver has written nothing yet. It writes a line only when something happens, so an empty log is a driver that has never run here."
+        : "The driver's own log, newest last. It is kept on disk, so a session that would not start last night still says why today.";
+    list.replaceChildren(
+      ...answer.events.map((event) =>
+        h(
+          "li",
+          { "data-testid": "aggregate-event" },
+          h("span", { class: "at" }, event.at),
+          h("span", { class: "kind" }, event.kind),
+          h("span", {}, event.message),
+        ),
+      ),
+    );
+  }
+}
+
+/**
+ * `{ ...base, [field]: value }`, except that an undefined value takes the field out rather than
+ * putting it in as undefined. Both the workspace and the driver's file mean "not set" by the field
+ * being absent, and a key written as null would be a value the driver would have to make sense of.
+ */
+function withField<T extends object, K extends keyof T>(base: T, field: K, value: T[K] | undefined): T {
+  const next = { ...base };
+  if (value === undefined) delete next[field];
+  else next[field] = value;
+  return next;
+}
+
+const nameOf = (device: AggregateDevice, index: number): string => device.name ?? device.key ?? device.clsid ?? `Interface ${index + 1}`;
+
+/** A trim as the file takes it: a whole number of samples, and nothing at all for zero. */
+function trimOf(value: string): number | undefined {
+  const samples = Math.trunc(Number(value));
+  return Number.isFinite(samples) && samples !== 0 ? samples : undefined;
+}
+
+/** This configured device's place in the answer, by name first and then by position. */
+function viewFor(answer: AggregateAnswer | undefined, device: AggregateDevice, index: number): AggregateDeviceView | undefined {
+  const views = deviceViews(answer);
+  const name = device.name ?? device.key;
+  return views.find((view) => view.name === name) ?? views[index];
+}
+
+/** The gap line for a card: the driver's figure, or why there is not one. */
+function gapFor(view: AggregateDeviceView | undefined): { text: string; tone: string } {
+  const live = view?.live;
+  if (live === undefined) return { text: "No DAW has it open", tone: "idle" };
+  return gapView(live);
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "ga-aggregate": GaAggregate;
+  }
+}
