@@ -155,8 +155,8 @@ const AGGREGATE_ANSWER = {
     dll_search: { state: "found", dll: "C:\\gazelle\\gazelle_aggregate.dll" },
   },
   devices: [
-    { name: "Quadro", key: "Zen Quadro Synergy Core", registered: true, entry_key: "Zen Quadro Synergy Core", device_id: QUADRO, attached: true, family: "quadro", clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 }, driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 }, is_master: true },
-    { name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
+    { name: "Quadro", key: "Zen Quadro Synergy Core", registered: true, entry_key: "Zen Quadro Synergy Core", device_id: QUADRO, matched_by: "chosen", channels: { inputs: ["Mic 1", "Mic 2"], outputs: ["Monitor L", "Monitor R"], source: "gazelle" }, attached: true, family: "quadro", clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 }, driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 }, is_master: true },
+    { name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, matched_by: "worked_out", channels: { inputs: ["Line 1", "Line 2"], outputs: ["Main L", "Main R"], source: "gazelle" }, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
   ],
   ready: false,
   reasons: [

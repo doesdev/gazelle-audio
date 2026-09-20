@@ -15,21 +15,37 @@
 // not a fault and does not read as one.
 //
 // The setup itself lives in the workspace, so editing it here saves it there; the server exports
-// the file the driver reads and tells the driver to look again. Choosing which channels of an
-// interface to expose is the one part of the setup this page does not offer: the file takes it and
-// the server checks it, so a workspace that has it keeps it untouched.
+// the file the driver reads and tells the driver to look again. That includes each interface's
+// channels: which of them the aggregate exposes, and what a DAW calls each one.
+//
+// Which of Gazelle's devices an entry is comes from the answer, not from this page: the server
+// resolves it the same way for every route, so an interface nobody has pinned still reads its
+// clock, rate and buffer. Choosing one in the menu pins it, and Work it out gives it back.
 
 import { h } from "../core/dom.ts";
 import { effect } from "../core/signal.ts";
 import {
+  autoChannelName,
   buffersMatch,
+  channelCounts,
+  channelLabel,
+  channelSummary,
+  CHANNEL_LABEL_MAX,
   deviceViews,
   fixNeedsConfirming,
   gapView,
+  isExposed,
+  matchedBy,
+  matchNote,
   matchTarget,
+  resolvedDeviceId,
   statusLine,
+  suggestedChannelName,
+  withChannelExposed,
+  withChannelName,
   type Aggregate,
   type AggregateAnswer,
+  type AggregateChannelNames,
   type AggregateDevice,
   type AggregateDeviceView,
   type AggregateFix,
@@ -80,7 +96,19 @@ export class GaAggregate extends GaElement {
       .fields { grid-template-columns: max-content minmax(0, 1fr); }
       .fields dd, .cell > span, .live-row > * { min-width: 0; }
       .readout { max-width: 100%; overflow-wrap: anywhere; }
-      .choice { display: inline-flex; align-items: center; gap: 6px; }
+      .choice { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .worked { font-size: 11px; color: var(--ga-text-muted); }
+      /* The Channels part of a card: closed to one line, and a row per channel when it is open. */
+      .channels { padding: 2px 8px; border-radius: 3px; background: var(--ga-surface-inset); }
+      .channels > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+      .channels .side { margin: 8px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-secondary); }
+      .channel-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 2px 0; }
+      .channel-row > * { min-width: 0; }
+      .channel-row .auto, .channel-row .hint { font-size: 11px; overflow-wrap: anywhere; }
+      .channel-row .hint { color: var(--ga-text-muted); }
+      .channel-row input { min-height: 24px; }
+      .expose { min-width: 34px; }
+      .expose[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
       .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
@@ -108,6 +136,8 @@ export class GaAggregate extends GaElement {
         .device-head .name { width: 100%; }
         .setup { grid-template-columns: minmax(0, 1fr); }
         .live-row { grid-template-columns: minmax(0, 1fr) auto; }
+        .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
+        .channel-row .field, .channel-row .hint { grid-column: 1 / -1; }
       }
     `),
   ];
@@ -388,8 +418,14 @@ export class GaAggregate extends GaElement {
     const which = h("span", { class: "readout", "data-testid": `${testid}-entry`, "data-explain": "aggregate.device-entry" }, device.key ?? device.clsid ?? "Not named");
 
     // Which of Gazelle's devices this is: what makes its clock, rate and buffer readable at all.
+    // The answer settles it whether or not anybody has chosen, and this follows the answer.
+    let resolvedId = typeof device.device_id === "string" ? device.device_id : undefined;
+    /** The device whose driver has been asked for, so a resolved id asks for it exactly once. */
+    let loadedDriver: string | undefined;
     const idSelect = h("select", { "aria-label": `Which connected device ${named} is`, "data-testid": `${testid}-device-id`, "data-no-wheel": true, "data-explain": "aggregate.device-id" });
     idSelect.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "device_id", idSelect.value === "" ? undefined : idSelect.value)));
+    const worked = h("span", { class: "readout worked", "data-testid": `${testid}-worked-out`, "data-explain": "aggregate.device-worked-out", hidden: true }, "Worked out; choosing pins it");
+    const notMatched = h("p", { class: "note warning", "data-testid": `${testid}-match-note`, hidden: true });
 
     const channels = h("span", { class: "readout", "data-testid": `${testid}-channels`, "data-explain": "aggregate.device-channels" });
     const clock = h("span", { class: "readout", "data-testid": `${testid}-clock`, "data-explain": "aggregate.device-clock" });
@@ -399,14 +435,13 @@ export class GaAggregate extends GaElement {
 
     // The driver's buffer size and Safe Mode, exactly as the Devices page offers them.
     const bufferMenu = h("select", { "aria-label": `Buffer size for ${named}`, "data-testid": `${testid}-buffer`, "data-no-wheel": true, "data-explain": "aggregate.device-buffer" });
-    const deviceId = device.device_id;
     const bufferChoice = confirmedChoice(
       bufferMenu,
       `${testid}-buffer-confirm`,
       "aggregate.device-buffer-confirm",
       (size) => `Put ${named}'s driver on ${size} samples: ${RESTARTS}`,
       (size) => {
-        if (deviceId !== undefined) void store.setDriver(deviceId, { buffer_size: size });
+        if (resolvedId !== undefined) void store.setDriver(resolvedId, { buffer_size: size });
       },
     );
     this.onDisconnect(bufferChoice.disarm);
@@ -415,7 +450,7 @@ export class GaAggregate extends GaElement {
     const safe = h("button", { type: "button", class: "safe", "aria-label": `Safe Mode for ${named}`, "aria-pressed": "false", "data-testid": `${testid}-safe`, "data-explain": "aggregate.device-safe" }, "Off");
     this.onDisconnect(
       bindConfirm(safe, () => (safeMode ? "On" : "Off"), () => {
-        if (deviceId !== undefined) void store.setDriver(deviceId, { safe_mode: !safeMode });
+        if (resolvedId !== undefined) void store.setDriver(resolvedId, { safe_mode: !safeMode });
       }),
     );
 
@@ -426,6 +461,36 @@ export class GaAggregate extends GaElement {
     inTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "input_trim", trimOf(inTrim.value))));
     outTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "output_trim", trimOf(outTrim.value))));
 
+    // Every channel of this interface: which of them the aggregate exposes, and what a DAW calls
+    // each one. Closed, it is the one line that says what is exposed and how many are named.
+    const inputRows = h("div", { "data-testid": `${testid}-inputs` });
+    const outputRows = h("div", { "data-testid": `${testid}-outputs` });
+    const unknownChannels = h(
+      "p",
+      { class: "note", "data-testid": `${testid}-channels-unknown`, hidden: true },
+      "How many channels this interface has is not known until a DAW opens the aggregate or Gazelle knows which device it is.",
+    );
+    const channelsNote = h(
+      "p",
+      { class: "note", "data-testid": `${testid}-channels-note`, hidden: true },
+      "A name given here is what a DAW shows, with the automatic name in brackets after it, and Gazelle's own names are only a suggestion, because the audio driver may put its channels in another order.",
+    );
+    const channelsPart = h(
+      "details",
+      { class: "channels", "data-testid": `${testid}-channels-part` },
+      h("summary", { "data-testid": `${testid}-channels-open`, "data-explain": "aggregate.device-channels-open" }, h("span", { class: "label" }, "Channels"), channels),
+      channelsNote,
+      unknownChannels,
+      inputRows,
+      outputRows,
+    );
+    // Open or closed is this tab's, not the workspace's, so a poll or a rebuild leaves it as it was.
+    const opened = store.view<boolean>(`aggregate:${index}:channels-open`, false);
+    channelsPart.open = opened.peek();
+    channelsPart.addEventListener("toggle", () => {
+      opened.value = channelsPart.open;
+    });
+
     const cell = (label: string, ...value: (Node | string)[]) => h("div", { class: "cell" }, h("span", { class: "label" }, label), h("span", {}, ...value));
 
     const card = h(
@@ -435,8 +500,7 @@ export class GaAggregate extends GaElement {
       h(
         "div",
         { class: "device-grid" },
-        cell("Gazelle device", idSelect),
-        cell("Channels", channels),
+        cell("Gazelle device", h("span", { class: "choice" }, idSelect, worked)),
         cell("Clock", clock, " ", lock),
         cell("Rate", rate),
         cell("Buffer", h("span", { class: "choice" }, bufferMenu, bufferChoice.confirm)),
@@ -445,25 +509,36 @@ export class GaAggregate extends GaElement {
         cell("Output trim", outTrim),
         cell("Gap", gap),
       ),
+      notMatched,
+      channelsPart,
     );
 
     watch(() => {
-      // The menu of connected devices, with whatever the setup names kept even when it is away.
+      // Which device this is, as the answer resolved it, and the menu of the connected ones with
+      // whatever the setup names kept even when it is away.
+      const view = viewFor(model.answer.value, device, index);
+      resolvedId = resolvedDeviceId(view, device);
+      const how = matchedBy(view);
       const attached = store.devices.value;
-      const options = [h("option", { value: "" }, "Not said")];
+      const options = [h("option", { value: "" }, "Work it out")];
       for (const found of attached) options.push(h("option", { value: found.id }, `${found.model ?? found.id} (${found.id})`));
-      if (deviceId !== undefined && !attached.some((found) => found.id === deviceId)) options.push(h("option", { value: deviceId }, `${deviceId} (not connected)`));
+      if (resolvedId !== undefined && !attached.some((found) => found.id === resolvedId)) options.push(h("option", { value: resolvedId }, `${resolvedId} (not connected)`));
       idSelect.replaceChildren(...options);
-      idSelect.value = deviceId ?? "";
+      idSelect.value = resolvedId ?? "";
       idSelect.disabled = !store.connected.value;
+      worked.hidden = how !== "worked_out";
+      const why = matchNote(view);
+      notMatched.hidden = why === undefined;
+      notMatched.textContent = why ?? "";
+      if (resolvedId !== undefined && resolvedId !== loadedDriver) {
+        loadedDriver = resolvedId;
+        void store.loadDriver(resolvedId);
+      }
     });
 
     watch(() => {
       const view = viewFor(model.answer.value, device, index);
       const report = view?.report;
-      const exposed = (chosen: number[] | undefined, all: string) => (chosen === undefined ? all : `${chosen.length}`);
-      channels.textContent = `${exposed(device.inputs, "All")} in, ${exposed(device.outputs, "All")} out`;
-      channels.title = device.inputs === undefined && device.outputs === undefined ? "Every channel the interface has" : "Only the channels the workspace names";
       clock.textContent = report?.clock?.source ?? (report?.attached === true ? "Not reported" : "Not connected");
       lock.toggleAttribute("data-locked", report?.clock?.locked === true);
       lock.textContent = report?.clock?.locked === true ? "LOCK" : "NO LOCK";
@@ -475,8 +550,11 @@ export class GaAggregate extends GaElement {
 
     watch(() => {
       // The sizes the driver offers, read as the Devices page reads them; its own reading wins.
-      const controls = deviceId === undefined ? undefined : driverControls(store.driver(deviceId).value);
-      const summary = viewFor(model.answer.value, device, index)?.report?.driver;
+      // The device is the one the answer resolved, so this is live without anybody choosing one.
+      const view = viewFor(model.answer.value, device, index);
+      const id = resolvedDeviceId(view, device);
+      const controls = id === undefined ? undefined : driverControls(store.driver(id).value);
+      const summary = view?.report?.driver;
       const sizes = controls?.sizes ?? BUFFER_SIZES;
       const current = controls?.buffer ?? summary?.buffer_size;
       if ([...bufferMenu.options].map((option) => Number(option.value)).join() !== sizes.join()) {
@@ -486,16 +564,101 @@ export class GaAggregate extends GaElement {
         bufferChoice.current = current;
         if (!bufferChoice.armed()) bufferMenu.value = String(current);
       }
-      bufferMenu.disabled = deviceId === undefined || current === undefined || !store.connected.value;
+      bufferMenu.disabled = id === undefined || current === undefined || !store.connected.value;
       safeMode = controls?.safeMode ?? summary?.safe_mode ?? false;
       safe.setAttribute("aria-pressed", String(safeMode));
       if (!safe.hasAttribute("data-armed")) safe.textContent = summary?.safe_mode === undefined && controls === undefined ? "Not read" : safeMode ? "On" : "Off";
-      safe.disabled = deviceId === undefined || !store.connected.value;
+      safe.disabled = id === undefined || !store.connected.value;
       for (const field of [inTrim, outTrim, name]) field.disabled = !store.connected.value;
     });
 
-    if (deviceId !== undefined) void store.loadDriver(deviceId);
+    // The channel rows are rebuilt only when how many there are, or what Gazelle calls them,
+    // changes: a poll landing every second must not take away a label half typed.
+    let built: string | undefined;
+    watch(() => {
+      const view = viewFor(model.answer.value, device, index);
+      const counts = channelCounts(view);
+      const names = view?.report?.channels;
+      channels.textContent = channelSummary(device, counts);
+      channels.title = device.inputs === undefined && device.outputs === undefined ? "Every channel the interface has" : "Only the channels the workspace names";
+      const known = counts.inputs !== undefined || counts.outputs !== undefined;
+      unknownChannels.hidden = known;
+      channelsNote.hidden = !known;
+      const shape = JSON.stringify([counts, names]);
+      if (shape !== built) {
+        built = shape;
+        inputRows.replaceChildren(...this.#channelRows(store, device, index, named, true, counts.inputs, names));
+        outputRows.replaceChildren(...this.#channelRows(store, device, index, named, false, counts.outputs, names));
+      }
+      const connected = store.connected.value;
+      for (const control of channelsPart.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button.expose, input.field")) control.disabled = !connected;
+    });
+
     return card;
+  }
+
+  /**
+   * One side of an interface's channels: a heading and a row each, or nothing at all when how many
+   * there are is not known. A count that is not known offers nothing rather than guessing at one.
+   */
+  #channelRows(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, count: number | undefined, names: AggregateChannelNames | undefined): Node[] {
+    if (count === undefined) return [];
+    const heading = h("p", { class: "side" }, input ? "INPUTS" : "OUTPUTS");
+    return [heading, ...Array.from({ length: count }, (_, channel) => this.#channelRow(store, device, index, named, input, channel, count, names))];
+  }
+
+  /**
+   * One channel: what it is called by itself, whether the aggregate exposes it, and the name the
+   * person gives it, which a DAW shows with the automatic one in brackets after it.
+   */
+  #channelRow(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, channel: number, count: number, names: AggregateChannelNames | undefined): HTMLElement {
+    const side = input ? "in" : "out";
+    const testid = `device-${index}-${side}-${channel}`;
+    const listKey = input ? "inputs" : "outputs";
+    const nameKey = input ? "input_names" : "output_names";
+    const auto = autoChannelName(named, channel);
+    const exposed = isExposed(device[listKey], channel);
+
+    const expose = h(
+      "button",
+      {
+        type: "button",
+        class: "expose",
+        "aria-pressed": String(exposed),
+        "aria-label": `Expose ${auto}`,
+        title: exposed ? `${auto} is one of the channels a DAW sees` : `${auto} is kept out of what a DAW sees`,
+        "data-testid": `${testid}-expose`,
+        "data-explain": "aggregate.channel-expose",
+        "on:click": () => this.#editDevice(store, index, (current) => withField(current, listKey, withChannelExposed(current[listKey] as number[] | undefined, count, channel, !exposed))),
+      },
+      exposed ? "On" : "Off",
+    );
+
+    const label = h("input", {
+      class: "field",
+      maxlength: String(CHANNEL_LABEL_MAX),
+      placeholder: auto,
+      "aria-label": `Name for ${auto}`,
+      "data-testid": `${testid}-label`,
+      "data-explain": "aggregate.channel-label",
+    });
+    const showLabel = commitOnEnter(
+      label,
+      (value) => this.#editDevice(store, index, (current) => withField(current, nameKey, withChannelName(current[nameKey] as Record<string, string> | undefined, channel, value))),
+      () => channelLabel(device[nameKey], channel),
+      store.view<string | undefined>(`draft:aggregate:${index}:${side}:${channel}`, undefined),
+    );
+    showLabel(channelLabel(device[nameKey], channel));
+
+    const hint = suggestedChannelName(names, input, channel);
+    return h(
+      "div",
+      { class: "channel-row", "data-testid": testid },
+      expose,
+      h("span", { class: "auto readout", "data-testid": `${testid}-auto`, "data-explain": "aggregate.channel-auto" }, auto),
+      label,
+      h("span", { class: "hint readout", "data-testid": `${testid}-hint`, "data-explain": "aggregate.channel-hint" }, hint === undefined ? "" : `Gazelle calls it ${hint}`),
+    );
   }
 
   // -------------------------------------------------------------------------------------------

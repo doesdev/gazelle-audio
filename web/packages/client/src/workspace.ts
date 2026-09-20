@@ -141,6 +141,14 @@ export interface AggregateDevice {
   /** Which of its inputs to expose, by the device's own numbering from zero; all of them when unset. */
   inputs?: number[];
   outputs?: number[];
+  /**
+   * What the person calls this device's inputs, by the device's own channel numbering from zero,
+   * which is the numbering `inputs` uses. A DAW shows the name with the automatic one in brackets
+   * after it, as `Vocal mic (Quadro 1)`. A channel with no name here is left out rather than
+   * written as an empty string.
+   */
+  input_names?: Record<string, string>;
+  output_names?: Record<string, string>;
   /** Which Gazelle device this is, which is how its clock, rate and buffer are read. Not in the driver's file. */
   device_id?: string;
   [field: string]: unknown;

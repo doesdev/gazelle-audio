@@ -28,7 +28,8 @@ Each reason is marked **STOPS IT** or **WORTH KNOWING**. Only a reason that stop
 | Not registered | Windows does not list Gazelle Aggregate, so no DAW will offer it. See [Registering](#registering) |
 | Registered, and the file has gone | It is registered, pointing at a copy of Gazelle that has moved or been replaced. Register it again |
 | An interface is not one of this PC's audio drivers | Its own driver is not installed, or the interface is unplugged |
-| An interface is not connected to Gazelle | Gazelle cannot read its clock or buffer, so it cannot check them |
+| An interface is not connected to Gazelle | The interface its card names is not plugged in, so Gazelle cannot read its clock or buffer |
+| Gazelle cannot tell which interface it is | Two of the same model are connected, or its audio driver does not say what model it is. Choose it on its card. A warning |
 | Its driver could not be read | Antelope's driver would not answer. See [Troubleshooting](17-troubleshooting.md) |
 | Two interfaces on one USB host controller | The one that cannot be worked around in software. Move one to another controller |
 | A host controller could not be found | Gazelle could not tell which controller an interface is on, so it cannot check this. A warning |
@@ -59,8 +60,8 @@ One card per interface, in the order their channels appear to a DAW. The order i
 | On the card | What it is |
 |---|---|
 | **Name** | What to call it. A DAW names its channels after this, so keep it short and recognisable |
-| **Gazelle device** | Which of the interfaces Gazelle is connected to this one is. Without it, the clock and rate read as not known |
-| **Channels** | How many of its inputs and outputs the aggregate exposes. All means every one it has |
+| **Gazelle device** | Which of the interfaces Gazelle is connected to this one is. Left on **Work it out**, Gazelle settles it itself whenever exactly one interface of that model is connected, and says "Worked out" beside the menu. Choosing one pins it, which is what two of the same model need |
+| **Channels** | Every input and output the interface has, and what each one is called. See [Naming the channels](#naming-the-channels) |
 | **Clock** and **LOCK** | What it says it is clocked from now, and whether it is locked |
 | **Rate** | The sample rate it reports |
 | **Buffer** and **Safe Mode** | Antelope's driver settings for this interface, the same ones the [Devices page](06-devices-page.md) shows. Each takes a confirming click, and changing either restarts the audio of every program using that driver |
@@ -69,7 +70,17 @@ One card per interface, in the order their channels appear to a DAW. The order i
 
 **Up** and **Down** move an interface along the list; **Remove** takes it out and asks twice. Choose one from the menu at the bottom and press **Add** to put a new one at the end. **Match buffer sizes** puts every interface on the buffer size the callback master is on.
 
-Choosing which channels of an interface to expose is not on this page. An aggregate set up by hand can name them, and Gazelle leaves that alone.
+### Naming the channels
+
+**Channels** on a card opens the interface's whole channel list, inputs and then outputs. Each row is one channel: whether the aggregate exposes it, what it is called automatically, a field for your own name, and, where Gazelle knows it, the name Gazelle itself uses for that channel.
+
+A channel with no name of its own reaches a DAW as the interface's name and its number, "Quadro 1". Name it and the DAW shows your name with the automatic one in brackets after it, "Vocal mic (Quadro 1)", so the track says what it is and still says where it came from. A name is at most 31 characters, which is all the audio driver carries; clearing the field puts the channel back to its automatic name.
+
+Turning a channel off keeps it out of the aggregate altogether, so a DAW never lists it. While every channel is exposed, nothing is recorded in the setup, which is what "all of them" means, and turning everything back on takes it out again.
+
+Gazelle's own names are a suggestion, not the truth: they are the names on the [Inputs](07-inputs-page.md) and [Outputs](08-outputs-page.md) pages, in Gazelle's order, and an audio driver may put its channels in another order. Check one against what you actually hear before trusting the rest.
+
+The number of channels comes from the driver itself while a DAW has the aggregate open. Before that, Gazelle uses what it knows about the matched interface, and where it knows neither, it says so rather than guessing.
 
 ## Setup
 

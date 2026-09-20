@@ -62,6 +62,24 @@ export interface AggregateDriverSummary {
   message?: string;
 }
 
+/**
+ * How the device this entry names was settled on: the workspace pinned it, the server worked it
+ * out from the model and what is connected, or it could not be told at all.
+ */
+export type AggregateMatchedBy = "chosen" | "worked_out" | "none";
+
+/**
+ * The names Gazelle itself shows for a device's channels, in Gazelle's order.
+ *
+ * It is a hint and nothing more: the vendor audio driver need not put its channels in the order
+ * Gazelle does, so a page offers these as a suggestion and never writes one by itself.
+ */
+export interface AggregateChannelNames {
+  inputs: string[];
+  outputs: string[];
+  source: "gazelle" | "none";
+}
+
 /** One configured device, with everything known about it now. */
 export interface AggregateDeviceReport {
   /** What the setup calls it, which is what its channels are named after. */
@@ -72,7 +90,14 @@ export interface AggregateDeviceReport {
   registered: boolean;
   /** The registry key that matched. */
   entry_key?: string;
+  /** The device this entry resolved to, pinned by the workspace or worked out by the server. */
   device_id?: string;
+  /** How `device_id` was arrived at. Older servers leave it out. */
+  matched_by?: AggregateMatchedBy;
+  /** Why it could not be told which device this is, and what would settle it. Only with `none`. */
+  match_note?: string;
+  /** Gazelle's own names for this device's channels, as a suggestion. */
+  channels?: AggregateChannelNames;
   /** Whether that device is connected to Gazelle now, which is what makes the readings possible. */
   attached: boolean;
   family?: "quadro" | "studio";
@@ -109,6 +134,7 @@ export type AggregateReasonCode =
   | "not_registered"
   | "dll_missing"
   | "device_not_attached"
+  | "device_not_matched"
   | "driver_unreadable"
   | "one_usb_controller"
   | "controller_unknown"
@@ -160,6 +186,9 @@ export interface AggregateDeviceStatus {
   /** Its inputs read as silence and its outputs are muted until it calls back again. */
   stalled: boolean;
   is_master: boolean;
+  /** How many of this device's channels the driver published for the session it is running. */
+  inputs?: number;
+  outputs?: number;
   /** This device's sample count minus the master's. Growing in one direction is two clocks. */
   sample_gap: number;
   callbacks: number;

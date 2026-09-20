@@ -18,11 +18,13 @@ import { signal, type ReadonlySignal } from "../core/signal.ts";
 import type {
   Aggregate,
   AggregateAnswer,
+  AggregateChannelNames,
   AggregateDeviceReport,
   AggregateDeviceStatus,
   AggregateEvent,
   AggregateFix,
   AggregateMatchBuffers,
+  AggregateMatchedBy,
   AggregatePlan,
   AggregateReason,
   AggregateRegistrationRun,
@@ -35,12 +37,14 @@ import type {
 export type {
   Aggregate,
   AggregateAnswer,
+  AggregateChannelNames,
   AggregateDevice,
   AggregateDeviceReport,
   AggregateDeviceStatus,
   AggregateEvent,
   AggregateFix,
   AggregateMatchBuffers,
+  AggregateMatchedBy,
   AggregatePlan,
   AggregateReason,
   AggregateRegistrationRun,
@@ -180,6 +184,140 @@ export function deviceViews(answer: AggregateAnswer | undefined): AggregateDevic
   });
   for (const [name, device] of live) views.push({ name, live: device });
   return views;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Which Gazelle device an entry is
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The device this entry turned out to be: what the server resolved, and failing that whatever the
+ * workspace pinned.
+ *
+ * The server settles this the same way for every route, so an entry nobody has pinned still has a
+ * device behind it whenever the model and what is connected leave only one answer. The page reads
+ * its clock, rate and buffer through this, which is why they are live without anybody choosing.
+ */
+export function resolvedDeviceId(view: AggregateDeviceView | undefined, device: AggregateDevice | undefined): string | undefined {
+  const resolved = view?.report?.device_id;
+  const configured = typeof device?.device_id === "string" ? device.device_id : undefined;
+  return resolved ?? configured;
+}
+
+/**
+ * How that device was arrived at. A server too old to say falls back to the plain reading: an id
+ * is one somebody pinned, and no id is nothing to go on.
+ */
+export function matchedBy(view: AggregateDeviceView | undefined): AggregateMatchedBy {
+  const report = view?.report;
+  if (report?.matched_by !== undefined) return report.matched_by;
+  return report?.device_id === undefined ? "none" : "chosen";
+}
+
+/** Why the device could not be told, when it could not. Nothing at all when it could. */
+export function matchNote(view: AggregateDeviceView | undefined): string | undefined {
+  return matchedBy(view) === "none" ? view?.report?.match_note : undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The channels of one interface
+// ---------------------------------------------------------------------------------------------
+
+/** The most a channel label may be, in characters, which is what the driver's file takes. */
+export const CHANNEL_LABEL_MAX = 31;
+
+/** How many channels an interface has each way, or nothing where that is not known yet. */
+export interface ChannelCounts {
+  inputs: number | undefined;
+  outputs: number | undefined;
+}
+
+/**
+ * How many channels to list for one interface.
+ *
+ * The count the driver published while a DAW had it open is the true one, because it is what the
+ * vendor driver itself said. Gazelle's own channel names are the fallback. With neither, the
+ * number is not known, and a page offers nothing to edit rather than guessing at one.
+ */
+export function channelCounts(view: AggregateDeviceView | undefined): ChannelCounts {
+  const names = view?.report?.channels;
+  const count = (published: number | undefined, listed: string[] | undefined): number | undefined => {
+    if (typeof published === "number" && published > 0) return published;
+    return listed !== undefined && listed.length > 0 ? listed.length : undefined;
+  };
+  return { inputs: count(view?.live?.inputs, names?.inputs), outputs: count(view?.live?.outputs, names?.outputs) };
+}
+
+/** What a channel is called when nobody has named it: the interface's name and its number from one. */
+export function autoChannelName(interfaceName: string, channel: number): string {
+  return `${interfaceName} ${channel + 1}`;
+}
+
+/** Gazelle's own name for a channel, when it has one. It is a suggestion, never written by itself. */
+export function suggestedChannelName(names: AggregateChannelNames | undefined, input: boolean, channel: number): string | undefined {
+  if (names === undefined || names.source !== "gazelle") return undefined;
+  const found = (input ? names.inputs : names.outputs)[channel];
+  return found === undefined || found.trim() === "" ? undefined : found;
+}
+
+/** The name the workspace gives a channel, by the device's own numbering from zero. */
+export function channelLabel(names: Record<string, string> | undefined, channel: number): string {
+  const found = names?.[String(channel)];
+  return typeof found === "string" ? found : "";
+}
+
+/** Whether a channel is exposed. Nothing chosen means every channel is, which is what absent means. */
+export function isExposed(chosen: number[] | undefined, channel: number): boolean {
+  return chosen === undefined || chosen.includes(channel);
+}
+
+/**
+ * The `inputs` or `outputs` field after exposing or not exposing one channel.
+ *
+ * Absent means all of them, both in the workspace and in the driver's file, so the field appears
+ * only once something is not exposed and goes away again the moment everything is.
+ */
+export function withChannelExposed(chosen: number[] | undefined, count: number, channel: number, exposed: boolean): number[] | undefined {
+  const all = Array.from({ length: count }, (_, at) => at);
+  const kept = new Set(chosen === undefined ? all : chosen.filter((one) => Number.isInteger(one) && one >= 0 && one < count));
+  if (exposed) kept.add(channel);
+  else kept.delete(channel);
+  if (kept.size === count) return undefined;
+  return [...kept].sort((a, b) => a - b);
+}
+
+/**
+ * The `input_names` or `output_names` map after naming, or un-naming, one channel.
+ *
+ * A label that is empty or only spaces means the channel is not named, so its entry comes out
+ * rather than being written as an empty string, and a map with nothing left in it goes away too.
+ */
+export function withChannelName(names: Record<string, string> | undefined, channel: number, label: string): Record<string, string> | undefined {
+  const next = { ...(names ?? {}) };
+  const trimmed = label.trim().slice(0, CHANNEL_LABEL_MAX);
+  if (trimmed === "") delete next[String(channel)];
+  else next[String(channel)] = trimmed;
+  return Object.keys(next).length === 0 ? undefined : next;
+}
+
+/** How many of a device's channels carry a name, counting only ones the interface actually has. */
+export function namedCount(names: Record<string, string> | undefined, count: number | undefined): number {
+  return Object.entries(names ?? {}).filter(([key, value]) => {
+    const channel = Number(key);
+    if (!Number.isInteger(channel) || channel < 0 || value.trim() === "") return false;
+    return count === undefined || channel < count;
+  }).length;
+}
+
+/**
+ * The one line that stands for a card's Channels part while it is closed: what is exposed, and how
+ * many channels have been given a name of their own.
+ */
+export function channelSummary(device: AggregateDevice, counts: ChannelCounts): string {
+  const exposed = (chosen: number[] | undefined) => (chosen === undefined ? "All" : String(chosen.length));
+  const named = namedCount(device.input_names, counts.inputs) + namedCount(device.output_names, counts.outputs);
+  const shown = `${exposed(device.inputs)} in, ${exposed(device.outputs)} out`;
+  return named === 0 ? shown : `${shown}, ${named} named`;
 }
 
 /**

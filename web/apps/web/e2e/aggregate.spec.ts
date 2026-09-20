@@ -42,6 +42,7 @@ const deviceReport = (name: string, parts: Record<string, unknown> = {}) => ({
   registered: true,
   entry_key: name,
   device_id: "loopback-0",
+  matched_by: "chosen",
   attached: true,
   family: "quadro",
   clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 },
@@ -437,6 +438,161 @@ test("the order of the interfaces is the order of the channels, and it can be ch
 });
 
 // ---------------------------------------------------------------------------------------------
+// Which Gazelle device an entry is
+// ---------------------------------------------------------------------------------------------
+
+test("an interface Gazelle worked out for itself is live without anybody choosing, and choosing pins it", async ({ page }) => {
+  // Nothing in the workspace says which device this is: the server worked it out from the answer.
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
+  await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { matched_by: "worked_out", is_master: true })] }));
+  await open(page);
+
+  await expect(page.getByTestId("device-0-device-id")).toHaveValue("loopback-0");
+  await expect(page.getByTestId("device-0-worked-out")).toBeVisible();
+  await expect(page.getByTestId("device-0-match-note")).toBeHidden();
+  // The controls that need a device are live, because the server resolved one.
+  await expect(page.getByTestId("device-0-buffer")).toBeEnabled();
+  await expect(page.getByTestId("device-0-buffer")).toHaveValue("256");
+  await expect(page.getByTestId("device-0-safe")).toBeEnabled();
+  // And nothing was written: it is worked out each time rather than pinned.
+  const devices = async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? []) as { device_id?: string }[];
+  expect((await devices())[0]?.device_id).toBeUndefined();
+
+  // Choosing one pins it in the workspace, which is the whole difference.
+  await page.getByTestId("device-0-device-id").selectOption("loopback-1");
+  await expect.poll(async () => (await devices())[0]?.device_id).toBe("loopback-1");
+});
+
+test("an interface Gazelle cannot tell shows the note saying why, and leaves its driver controls dead", async ({ page }) => {
+  const why = "Two interfaces of this model are connected, so Gazelle cannot tell which one this is. Choose it here.";
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
+  await fakeAggregate(
+    page,
+    answer({
+      devices: [deviceReport("Quadro", { device_id: undefined, matched_by: "none", match_note: why, driver: {} })],
+      reasons: [{ code: "device_not_matched", severity: "warning", message: `Gazelle cannot tell which of its devices Quadro is. ${why}`, device: "Quadro" }],
+    }),
+  );
+  await open(page);
+
+  await expect(page.getByTestId("device-0-match-note")).toHaveText(why);
+  await expect(page.getByTestId("device-0-worked-out")).toBeHidden();
+  await expect(page.getByTestId("device-0-device-id")).toHaveValue("");
+  await expect(page.getByTestId("device-0-buffer")).toBeDisabled();
+  // The reason is worth knowing rather than blocking, and there is nothing to press.
+  await expect(page.getByTestId("reason-severity-device_not_matched")).toHaveText("WORTH KNOWING");
+  await expect(page.getByTestId("reason-fix-device_not_matched")).toHaveCount(0);
+  await expect(page.getByTestId("aggregate-verdict")).toHaveText("Ready");
+});
+
+// ---------------------------------------------------------------------------------------------
+// The channels: which of them a DAW sees, and what it calls them
+// ---------------------------------------------------------------------------------------------
+
+const withChannels = (parts: Record<string, unknown> = {}) =>
+  deviceReport("Quadro", { channels: { inputs: ["Mic 1", "Mic 2", "Mic 3", "Mic 4"], outputs: ["Main L", "Main R"], source: "gazelle" }, ...parts });
+
+/** The one configured interface, as the server has it now. */
+const configured = async (): Promise<Record<string, unknown>> => (((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[0] ?? {}) as Record<string, unknown>;
+
+test("the channels are listed one by one, with Gazelle's own names beside them as a suggestion", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await fakeAggregate(page, answer({ devices: [withChannels()] }));
+  await open(page);
+
+  // Closed, it is one line, and the rows are not on screen.
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+  await expect(page.getByTestId("device-0-in-0-label")).toBeHidden();
+
+  await page.getByTestId("device-0-channels-open").click();
+  await expect(page.getByTestId("device-0-in-0-auto")).toHaveText("Quadro 1");
+  await expect(page.getByTestId("device-0-in-3-auto")).toHaveText("Quadro 4");
+  await expect(page.getByTestId("device-0-in-4")).toHaveCount(0, { timeout: 2000 });
+  await expect(page.getByTestId("device-0-out-1-auto")).toHaveText("Quadro 2");
+  await expect(page.getByTestId("device-0-in-1-hint")).toHaveText("Gazelle calls it Mic 2");
+  await expect(page.getByTestId("device-0-out-0-hint")).toHaveText("Gazelle calls it Main L");
+  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "Quadro 1");
+  await expect(page.getByTestId("device-0-channels-note")).toContainText("in brackets");
+});
+
+test("with no count to go on the channels are not guessed at, and the page says why", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
+  await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { device_id: undefined, matched_by: "none", driver: {} })] }));
+  await open(page);
+  await page.getByTestId("device-0-channels-open").click();
+  await expect(page.getByTestId("device-0-channels-unknown")).toContainText("not known until a DAW opens the aggregate");
+  await expect(page.getByTestId("device-0-in-0")).toHaveCount(0);
+});
+
+test("not exposing a channel writes the ones that are left, and exposing it again takes the field away", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await fakeAggregate(page, answer({ devices: [withChannels()] }));
+  await open(page);
+  await page.getByTestId("device-0-channels-open").click();
+
+  await expect(page.getByTestId("device-0-in-2-expose")).toHaveText("On");
+  await page.getByTestId("device-0-in-2-expose").click();
+  await expect.poll(async () => (await configured())["inputs"]).toEqual([0, 1, 3]);
+  await expect(page.getByTestId("device-0-in-2-expose")).toHaveText("Off");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("3 in, All out");
+  // The card was rebuilt by that edit, and the part stayed open.
+  await expect(page.getByTestId("device-0-in-2-expose")).toBeVisible();
+
+  // Everything exposed again means no field at all, which is what the driver's file takes as all.
+  await page.getByTestId("device-0-in-2-expose").click();
+  await expect.poll(async () => Object.hasOwn(await configured(), "inputs")).toBe(false);
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+});
+
+test("naming a channel writes the name, and clearing it takes the entry out rather than writing nothing", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await fakeAggregate(page, answer({ devices: [withChannels()] }));
+  await open(page);
+  await page.getByTestId("device-0-channels-open").click();
+
+  await page.getByTestId("device-0-in-0-label").fill("Vocal mic");
+  await page.getByTestId("device-0-in-0-label").press("Enter");
+  await expect.poll(async () => (await configured())["input_names"]).toEqual({ "0": "Vocal mic" });
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out, 1 named");
+  await expect(page.getByTestId("device-0-in-0-label")).toHaveValue("Vocal mic");
+  // A label is at most 31 characters, and the field will not take more.
+  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("maxlength", "31");
+
+  await page.getByTestId("device-0-out-1-label").fill("   ");
+  await page.getByTestId("device-0-out-1-label").press("Enter");
+  await expect.poll(async () => Object.hasOwn(await configured(), "output_names")).toBe(false);
+
+  await page.getByTestId("device-0-in-0-label").fill("");
+  await page.getByTestId("device-0-in-0-label").press("Enter");
+  await expect.poll(async () => Object.hasOwn(await configured(), "input_names")).toBe(false);
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+});
+
+test("a poll landing leaves a label half typed where it was, and the Channels part as it was", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  const captured = await fakeAggregate(page, answer({ devices: [withChannels()] }));
+  await open(page);
+  await page.getByTestId("device-0-channels-open").click();
+  await page.getByTestId("device-0-in-1-label").fill("Snare to");
+
+  // A poll landing rebuilds nothing, and the half-typed name is still there afterwards.
+  const before = captured.reads;
+  await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before + 1);
+  await expect(page.getByTestId("device-0-in-1-label")).toHaveValue("Snare to");
+  await expect(page.getByTestId("device-0-in-1-label")).toBeFocused();
+
+  await expect(page.getByTestId("device-0-channels-part")).toHaveAttribute("open", "");
+  expect(await configured(), "and nothing half typed was written").not.toHaveProperty("input_names");
+
+  // Leaving the field commits it, as every field on this page does. The card is rebuilt around
+  // the name, and the Channels part is still open with the name where it was typed.
+  await page.getByTestId("device-0-in-1-label").press("Enter");
+  await expect.poll(async () => (await configured())["input_names"]).toEqual({ "1": "Snare to" });
+  await expect(page.getByTestId("device-0-in-1-label")).toHaveValue("Snare to");
+  await expect(page.getByTestId("device-0-channels-part")).toHaveAttribute("open", "");
+});
+
+// ---------------------------------------------------------------------------------------------
 // Live, while a DAW has it open
 // ---------------------------------------------------------------------------------------------
 
@@ -548,7 +704,7 @@ test("at phone width the page fits, with nothing running off the side", async ({
     page,
     answer({
       ready: false,
-      devices: [deviceReport("Quadro", { is_master: true }), deviceReport("Studio+")],
+      devices: [withChannels({ is_master: true }), deviceReport("Studio+")],
       status: streaming([liveDevice("Quadro", { is_master: true }), liveDevice("Studio+", { sample_gap: 64 })]),
       reasons: [
         {
@@ -566,6 +722,9 @@ test("at phone width the page fits, with nothing running off the side", async ({
   await expect(page.getByTestId("reason-fix-buffers_differ")).toBeVisible();
   await expect(page.getByTestId("device-0-buffer")).toBeVisible();
   await expect(page.getByTestId("live-gap-Studio+")).toHaveText("64 samples ahead");
+  // Every channel row is on screen too, which is the widest thing this page has.
+  await page.getByTestId("device-0-channels-open").click();
+  await expect(page.getByTestId("device-0-in-0-label")).toBeVisible();
   // The window itself does not scroll sideways, which is the phone rule the other pages keep.
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   const main = page.locator("ga-app main");

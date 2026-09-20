@@ -876,10 +876,37 @@ export const CATALOGUE: Catalogue = {
   "aggregate.device-id": {
     title: "Gazelle device",
     what: "Which of the interfaces Gazelle is connected to this one is. It is how its clock, rate and buffer size can be read and changed from here.",
-    effect: "Saved in the workspace. It is Gazelle's own, and is not written into the driver's file.",
-    watch: "Without it, the clock and rate read as not known, and two units of one model cannot be told apart.",
+    effect: "Gazelle works it out by itself where the model and what is connected leave one answer. Choosing one here pins it; Work it out hands it back.",
+    watch: "Pin one when two units of the same model are connected, because then nothing else can tell them apart.",
   },
-  "aggregate.device-channels": { title: "Channels", what: "How many of this interface's inputs and outputs the aggregate exposes. All means every one it has; a number is the selection the workspace names." },
+  "aggregate.device-worked-out": {
+    title: "Worked out",
+    what: "Nobody chose this device: Gazelle settled on it from the model and what is connected, and everything on this card is read from it.",
+    effect: "Choosing a device in the menu beside this pins it, so it stops being worked out afresh each time.",
+  },
+  "aggregate.device-channels": { title: "Channels", what: "How many of this interface's inputs and outputs the aggregate exposes, and how many of them have been given a name. All means every one it has." },
+  "aggregate.device-channels-open": {
+    title: "Channels",
+    what: "Opens the list of this interface's inputs and outputs, where each one can be kept out of what a DAW sees or given a name of its own.",
+    effect: "Opening and closing it changes nothing. It stays as you leave it while the app is open.",
+  },
+  "aggregate.channel-expose": {
+    title: "Expose this channel",
+    what: "Whether the aggregate offers this channel to a DAW at all. Off keeps it out, so a DAW never sees it.",
+    effect: "Saved in the workspace and written out for the driver. A DAW using the aggregate sees the change at its next buffer change.",
+    watch: "Taking a channel out moves the numbering of the ones after it, so a DAW session may need its tracks pointing at the right inputs again.",
+  },
+  "aggregate.channel-auto": { title: "What it is called by itself", what: "The name this channel has when nobody has named it: the interface's name and the channel's number from one." },
+  "aggregate.channel-label": {
+    title: "Name for this channel",
+    what: "What to call this channel. A DAW shows it with the automatic name in brackets after it, as Vocal mic (Quadro 1). Up to 31 characters; empty is not named.",
+    effect: "Saved in the workspace and written out for the driver when you press Enter or leave the field.",
+  },
+  "aggregate.channel-hint": {
+    title: "What Gazelle calls it",
+    what: "The name this channel has on Gazelle's own pages, offered as a suggestion.",
+    watch: "It is a suggestion and nothing more: the interface's audio driver may put its channels in another order than Gazelle does, so check before copying it.",
+  },
   "aggregate.device-clock": {
     title: "Clock source",
     what: "What this interface says it is clocked from, as it reports it now.",

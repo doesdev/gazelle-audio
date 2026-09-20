@@ -32,6 +32,15 @@ version that has not been published yet.
   buffer size and Safe Mode are there too, the same settings the Devices page shows, with a
   button to put them all on one size. The setup is kept in the workspace, so it travels with a
   backup.
+- **Gazelle works out which connected interface each one is**, whenever exactly one of that model
+  is plugged in, so its clock, its rate and its driver settings can be read and changed without
+  choosing anything. Two of one model, or a driver that does not say what model it is, is the one
+  case it asks: the card says so, and choosing an interface there settles it for good.
+- **Name the channels.** Each interface's card opens on its whole channel list, and any channel
+  can be given your own name and be kept out of the aggregate altogether. A named channel reaches
+  a DAW as your name with the automatic one in brackets, "Vocal mic (Quadro 1)", so a track says
+  what it is and still says where it came from. Gazelle offers its own names for that interface's
+  channels as a suggestion, because an audio driver may put its channels in another order.
 - **See whether it is holding, while the DAW plays.** The page shows the plan the driver is
   running and, for every interface, the gap in samples between it and the one driving the
   callback: in step is what you want, and a gap that keeps growing is two clocks rather than one.

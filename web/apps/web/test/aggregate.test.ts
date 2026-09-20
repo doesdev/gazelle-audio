@@ -13,17 +13,31 @@ import {
   AGGREGATE_OPEN_POLL_MS,
   AGGREGATE_POLL_MS,
   AggregateModel,
+  autoChannelName,
   buffersMatch,
+  channelCounts,
+  channelLabel,
+  channelSummary,
+  CHANNEL_LABEL_MAX,
   deviceViews,
   fixNeedsConfirming,
   fixRequest,
   gapView,
+  isExposed,
+  matchedBy,
+  matchNote,
   matchBuffersText,
   matchTarget,
+  namedCount,
   pollDelayMs,
   registrationText,
+  resolvedDeviceId,
   statusLine,
+  suggestedChannelName,
+  withChannelExposed,
+  withChannelName,
   type AggregateContext,
+  type AggregateDevice,
 } from "../src/store/aggregate.ts";
 import { Store } from "../src/store/store.ts";
 import { device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
@@ -195,6 +209,115 @@ test("buffers match only when every size that could be read is the same one", ()
   assert.equal(buffersMatch(answer({ devices: [report("A", { driver: { buffer_size: 256 } }), report("B", { driver: { buffer_size: 256 } })] })), true);
   assert.equal(buffersMatch(answer({ devices: [report("A", { driver: { buffer_size: 256 } }), report("B", { driver: { buffer_size: 128 } })] })), false);
   assert.equal(buffersMatch(answer({ devices: [report("A", { driver: {} })] })), false, "nothing read is not a match");
+});
+
+// ---------------------------------------------------------------------------------------------
+// Which Gazelle device an entry is
+// ---------------------------------------------------------------------------------------------
+
+/** The one view of a one-device answer, which is what the page reads a card from. */
+const viewOf = (parts: Partial<AggregateAnswer["devices"][number]> = {}, status?: AggregateStatusReading) =>
+  deviceViews(answer({ devices: [report("Quadro", parts)], ...(status === undefined ? {} : { status }) }))[0];
+
+test("the device an entry is comes from the answer, and the workspace's own choice is the fallback", () => {
+  assert.equal(resolvedDeviceId(viewOf({ device_id: "serial:Q", matched_by: "worked_out" }), { key: "Quadro" }), "serial:Q");
+  assert.equal(resolvedDeviceId(viewOf({ device_id: "serial:Q", matched_by: "chosen" }), { device_id: "serial:Q" }), "serial:Q");
+  // A server that answered nothing at all leaves whatever the workspace pinned, so the card still works.
+  assert.equal(resolvedDeviceId(undefined, { device_id: "serial:Q" }), "serial:Q");
+  assert.equal(resolvedDeviceId(viewOf({ matched_by: "none" }), { key: "Quadro" }), undefined);
+});
+
+test("how the device was arrived at is what the answer says, and an older server is read plainly", () => {
+  assert.equal(matchedBy(viewOf({ device_id: "serial:Q", matched_by: "worked_out" })), "worked_out");
+  assert.equal(matchedBy(viewOf({ device_id: "serial:Q", matched_by: "chosen" })), "chosen");
+  assert.equal(matchedBy(viewOf({ matched_by: "none" })), "none");
+  assert.equal(matchedBy(viewOf({ device_id: "serial:Q" })), "chosen", "a server too old to say, with a device");
+  assert.equal(matchedBy(viewOf({})), "none", "and with none");
+});
+
+test("the note saying why a device could not be told is shown only when it could not", () => {
+  const why = "Two Zen Quadro Synergy Core are connected. Choose which one this is.";
+  assert.equal(matchNote(viewOf({ matched_by: "none", match_note: why })), why);
+  assert.equal(matchNote(viewOf({ device_id: "serial:Q", matched_by: "worked_out", match_note: why })), undefined, "a match that worked has nothing to explain");
+});
+
+// ---------------------------------------------------------------------------------------------
+// The channels of one interface
+// ---------------------------------------------------------------------------------------------
+
+const gazelleNames = { inputs: ["Mic 1", "Mic 2", "Mic 3"], outputs: ["Monitor L", "Monitor R"], source: "gazelle" as const };
+
+test("how many channels to list is the count the driver published, then Gazelle's names, then nothing", () => {
+  const published = live({ devices: [liveDevice("Quadro", { inputs: 16, outputs: 24 })] });
+  assert.deepEqual(channelCounts(viewOf({ channels: gazelleNames }, published)), { inputs: 16, outputs: 24 }, "what the driver itself said wins");
+  assert.deepEqual(channelCounts(viewOf({ channels: gazelleNames })), { inputs: 3, outputs: 2 });
+  assert.deepEqual(channelCounts(viewOf({})), { inputs: undefined, outputs: undefined }, "nothing known is not a guess");
+  assert.deepEqual(channelCounts(viewOf({ channels: { inputs: [], outputs: [], source: "none" } })), { inputs: undefined, outputs: undefined });
+  assert.deepEqual(channelCounts(undefined), { inputs: undefined, outputs: undefined });
+});
+
+test("a channel with no name of its own is the interface's name and its number from one", () => {
+  assert.equal(autoChannelName("Quadro", 0), "Quadro 1");
+  assert.equal(autoChannelName("Zen Studio+", 15), "Zen Studio+ 16");
+});
+
+test("Gazelle's own name for a channel is offered only when Gazelle has one", () => {
+  assert.equal(suggestedChannelName(gazelleNames, true, 1), "Mic 2");
+  assert.equal(suggestedChannelName(gazelleNames, false, 0), "Monitor L");
+  assert.equal(suggestedChannelName(gazelleNames, true, 9), undefined, "past the end of what it knows");
+  assert.equal(suggestedChannelName({ inputs: ["Mic 1"], outputs: [], source: "none" }, true, 0), undefined, "a source of none is no suggestion");
+  assert.equal(suggestedChannelName(undefined, true, 0), undefined);
+});
+
+test("nothing chosen means every channel is exposed, which is what the field being absent means", () => {
+  assert.equal(isExposed(undefined, 7), true);
+  assert.equal(isExposed([0, 1], 1), true);
+  assert.equal(isExposed([0, 1], 2), false);
+});
+
+test("the exposed channels appear as a field only while something is left out, and go away again", () => {
+  // Every channel exposed and one turned off: the field appears, with the rest in it.
+  assert.deepEqual(withChannelExposed(undefined, 4, 2, false), [0, 1, 3]);
+  // The last one put back takes the field away, because absent is what all of them means.
+  assert.equal(withChannelExposed([0, 1, 3], 4, 2, true), undefined);
+  assert.deepEqual(withChannelExposed([0, 1, 3], 4, 3, false), [0, 1]);
+  assert.deepEqual(withChannelExposed([2, 0], 4, 1, true), [0, 1, 2], "and what comes back is in order");
+  assert.deepEqual(withChannelExposed([0, 1], 4, 5, false), [0, 1], "a channel the interface does not have changes nothing");
+  assert.equal(withChannelExposed([0, 1], 2, 1, true), undefined, "a list that is already all of them is no list");
+});
+
+test("naming a channel writes it, and clearing one takes the entry out rather than writing nothing", () => {
+  assert.deepEqual(withChannelName(undefined, 0, "Vocal mic"), { "0": "Vocal mic" });
+  assert.deepEqual(withChannelName({ "0": "Vocal mic" }, 1, "Room"), { "0": "Vocal mic", "1": "Room" });
+  assert.deepEqual(withChannelName({ "0": "Vocal mic", "1": "Room" }, 1, ""), { "0": "Vocal mic" });
+  assert.equal(withChannelName({ "0": "Vocal mic" }, 0, "   "), undefined, "only spaces is not a name, and the last one out takes the map with it");
+  assert.deepEqual(withChannelName(undefined, 0, "  Vocal mic  "), { "0": "Vocal mic" }, "the spaces around a name are not part of it");
+  const long = "x".repeat(CHANNEL_LABEL_MAX + 9);
+  assert.equal(withChannelName(undefined, 0, long)?.["0"]?.length, CHANNEL_LABEL_MAX);
+});
+
+test("the names counted are the ones on channels the interface actually has", () => {
+  assert.equal(namedCount({ "0": "Vocal mic", "9": "Talkback" }, 4), 1);
+  assert.equal(namedCount({ "0": "Vocal mic", "9": "Talkback" }, undefined), 2, "with no count, every name counts");
+  assert.equal(namedCount({ "0": "  " }, 4), 0);
+  assert.equal(namedCount(undefined, 4), 0);
+});
+
+test("the Channels line says what is exposed and how many are named", () => {
+  const device = (parts: Partial<AggregateDevice>): AggregateDevice => ({ key: "Quadro", ...parts });
+  assert.equal(channelSummary(device({}), { inputs: 16, outputs: 24 }), "All in, All out");
+  assert.equal(channelSummary(device({ inputs: [0, 1] }), { inputs: 16, outputs: 24 }), "2 in, All out");
+  assert.equal(
+    channelSummary(device({ inputs: Array.from({ length: 16 }, (_, at) => at), outputs: Array.from({ length: 24 }, (_, at) => at), input_names: { "0": "Vocal mic", "1": "Room" }, output_names: { "0": "Main L" } }), { inputs: 16, outputs: 24 }),
+    "16 in, 24 out, 3 named",
+  );
+  assert.equal(channelSummary(device({ input_names: { "0": "Vocal mic" } }), { inputs: undefined, outputs: undefined }), "All in, All out, 1 named");
+});
+
+test("the label a channel shows is the workspace's, and a channel with none shows nothing", () => {
+  assert.equal(channelLabel({ "3": "Vocal mic" }, 3), "Vocal mic");
+  assert.equal(channelLabel({ "3": "Vocal mic" }, 4), "");
+  assert.equal(channelLabel(undefined, 0), "");
 });
 
 // ---------------------------------------------------------------------------------------------
