@@ -29,6 +29,15 @@ version that has not been published yet.
 
 ### Changed
 
+- The Quadro no longer offers device presets. Its firmware accepts a recall and does nothing with
+  it, and Antelope's own panel never sends one, so the buttons, the save slot and the preset shown
+  on its card and status are gone. The Studio+ keeps them, where recall works. Use snapshots on the
+  Quadro.
+
+- Mono lowers the mix by as much as summing it actually gains on your device, instead of a flat
+  6 dB. Measured at both: the Studio+ gains the full 6 dB, while the Quadro's centre attenuation
+  has already taken some of it, so at -4.5 dB Mono barely changes the level at all.
+
 - **Mono no longer jumps the level.** Summing a mix to mono makes both sides play through each
   output, which was about 6 dB louder; Gazelle now lowers that mix by 6 dB while Mono is on and
   gives that step back when you turn it off. You can still ride the mix's master while Mono is on,

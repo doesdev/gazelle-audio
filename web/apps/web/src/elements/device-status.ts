@@ -14,9 +14,10 @@ const STATUS_REPORT = "0x73";
 /** How long a first Standby click waits for its confirmation, as 48V does. */
 const ARM_MS = 3000;
 
-const LIVE_FIELDS: readonly [field: string, label: string, format: (value: unknown) => string][] = [
+const LIVE_FIELDS: readonly [field: string, label: string, format: (value: unknown) => string, family?: "quadro" | "studio"][] = [
   ["power_on", "Power", (value) => (value ? "On" : "Standby")],
-  ["current_preset", "Preset", (value) => String(value)],
+  // The slot the device is on: only where a preset can be recalled, so not on the Quadro.
+  ["current_preset", "Preset", (value) => String(value), "studio"],
   ["sync_source", "Sync source", (value) => String(value)],
 ];
 
@@ -90,7 +91,8 @@ export class GaDeviceStatus extends GaElement {
       live.replaceChildren(h("dd", { class: "muted" }, "This device's model is unknown, so its reports cannot be decoded."));
     } else {
       this.onDisconnect(store.watchReport(id, STATUS_REPORT));
-      for (const [fieldName, label, format] of LIVE_FIELDS) {
+      for (const [fieldName, label, format, only] of LIVE_FIELDS) {
+        if (only !== undefined && only !== device.family) continue;
         const readout = h("span", { class: "readout", "data-field": fieldName, "data-explain": LIVE_KEYS[fieldName] }, "…");
         live.append(...field(label, readout));
         this.watch(() => {
@@ -159,11 +161,14 @@ export class GaDeviceStatus extends GaElement {
       });
     }
 
-    // Presets: the device's own five slots. Recall may change anything at once, 48V and the clock
-    // among what a preset may hold, and saving overwrites what is in the slot, so each takes a
-    // confirming second click, as 48V does.
+    // Presets: the device's own five slots, offered on the Studio+ only. The Quadro accepts a
+    // recall and does nothing with it (measured at the device, 2026-09-20), and Antelope's own
+    // Quadro panel never sends one: what it calls presets there are its session files. Saving into
+    // a slot nothing can recall would be a trap, so the Quadro is offered neither.
+    // Recall may change anything at once, 48V and the clock among it, and saving overwrites the
+    // slot, so each takes a confirming second click, as 48V does.
     let presetSection: HTMLElement | undefined;
-    if (device.family !== null) {
+    if (device.family === "studio") {
       const slots = Array.from({ length: PRESET_SLOTS }, (_, i) => i + 1);
       const buttons = slots.map((slot) =>
         h("button", { type: "button", "data-testid": `preset-${slot}`, "aria-label": `Recall preset ${slot}`, title: `Recall preset ${slot}: click twice`, "data-explain": "devices.preset-recall", "data-explain-name": String(slot) }, String(slot)),

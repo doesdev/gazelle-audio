@@ -40,7 +40,7 @@ for (const theme of ["gazelle-dark", "gazelle-light", "community:studio-blue"]) 
   test(`screenshots in ${theme}`, async ({ page }) => {
     await page.goto(`${server.url}/#/devices/loopback-0`);
     await page.getByLabel("Theme").selectOption(theme);
-    await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("…");
+    await expect(page.locator('ga-device-status [data-field="power_on"]')).not.toHaveText("…");
     await page.evaluate(() => document.fonts.ready);
     const file = theme.replace(":", "-");
     await page.screenshot({ path: `${REPO_ROOT}/web/test-results/design/${file}-devices.png` });

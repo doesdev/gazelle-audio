@@ -10,7 +10,7 @@ The Devices page (`#/devices`) is where Gazelle opens. It shows one device, the 
 
 ## Status report
 
-Power (**On** or **Standby**), the current **Preset**, and the **Sync source**, live from the device's own status report. A device whose model Gazelle does not know shows a note instead.
+Power (**On** or **Standby**), the **Sync source**, and on a Studio+ the current **Preset**, live from the device's own status report. A device whose model Gazelle does not know shows a note instead.
 
 ## Clock
 
@@ -57,7 +57,7 @@ The loopback emulator has no driver, so its Driver section says so and offers no
 
 ## Panning law (Quadro)
 
-**Centre attenuation**: how much a signal panned to the centre is lowered in every mix: 0 dB, -3 dB, -4.5 dB or -6 dB. It also affects a mix summed to mono.
+**Centre attenuation**: how much a signal panned to the centre is lowered in every mix: 0 dB, -3 dB, -4.5 dB or -6 dB. It also affects a mix summed to mono: the more it takes at centre, the less Mono has to lower the mix.
 
 ## DC coupling (Quadro)
 
@@ -75,12 +75,14 @@ Turning a **Tone** on takes two clicks, the second on **Confirm**; turning it of
 
 ## Presets
 
-The device's own five preset slots, stored in the device.
+The device's own five preset slots, stored in the device. **Zen Studio+ only.**
 
 - **1 to 5** recall that preset on a second click: the button reads **Confirm** after the first, for three seconds. The current preset is highlighted.
 - **Save into** a slot, then **Save**, then **Confirm save** within three seconds. Saving overwrites what was in the slot.
 
-These are not Gazelle's snapshots: Gazelle cannot read what a preset holds, and nobody has checked yet exactly which settings a preset recall changes. Treat a recall as a change to anything, 48V and the clock included. Preset save and recall have never been tried from Gazelle on a real device.
+Recall was checked on a Studio+ on 2026-09-20: a level changed after saving came back on recall. Gazelle cannot read what a preset holds, so treat a recall as a change to anything, 48V and the clock included.
+
+**Why the Quadro has none.** Its firmware accepts a recall and does nothing: checked twice, at two slot numbers, with nothing changing on the device. Antelope's own Quadro panel never sends the command either, and what it calls presets there are files it stores on the computer and replays. Saving into a slot nothing can recall would be a trap, so Gazelle offers the Quadro neither, and its cards and status do not name a preset slot. Use [snapshots](14-snapshots-and-backup.md) instead.
 
 ## Power and brightness
 

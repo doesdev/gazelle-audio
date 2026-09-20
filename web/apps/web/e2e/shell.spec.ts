@@ -34,7 +34,9 @@ test("the served page lists both loopback devices under the safety header", asyn
   await expect(page.getByTestId("backend")).toHaveText("loopback");
   await expect(page.getByTestId("dry-run")).toBeVisible();
   await expect(page.getByTestId("connection")).toHaveText("Connected");
-  await expect(page.locator('ga-device-status [data-field="current_preset"]')).not.toHaveText("…");
+  // A live field filling in from the status report. Power, since the preset slot is shown only
+  // where one can be recalled, which is not the Quadro this page opens on.
+  await expect(page.locator('ga-device-status [data-field="power_on"]')).not.toHaveText("…");
 });
 
 test("a renamed device keeps its name after a reload", async ({ page }) => {
@@ -214,6 +216,22 @@ test("the Devices page switches the Studio+'s S/PDIF sample-rate converter; the 
   }
 });
 
+test("the Quadro offers no presets, since its firmware ignores a recall", async ({ page }) => {
+  // Measured at the devices on 2026-09-20: the Studio+ recalls, the Quadro accepts the command and
+  // does nothing, and Antelope's own Quadro panel never sends it (its presets are session files).
+  await page.goto(`${server.url}/#/devices/loopback-0`);
+  await expect(page.getByTestId("clock-source")).toBeVisible();
+  await expect(page.getByTestId("preset-1")).toHaveCount(0);
+  await expect(page.getByTestId("preset-save")).toHaveCount(0);
+  await expect(page.locator("ga-device-status")).not.toContainText("Preset");
+  // Nor on its sidebar card, which showed the slot it was on.
+  await expect(page.locator('ga-device-list a[data-device-id="loopback-0"]')).not.toContainText("Preset");
+  // The Studio+ keeps both, and its card still names the slot.
+  await page.goto(`${server.url}/#/devices/loopback-1`);
+  await expect(page.getByTestId("preset-1")).toHaveCount(1);
+  await expect(page.locator('ga-device-list a[data-device-id="loopback-1"]')).toContainText("Preset");
+});
+
 test("the Devices page recalls a device preset and saves into one, each behind a confirm", async ({ page }) => {
   const frames: { command?: string; args?: Record<string, number> }[] = [];
   page.on("websocket", (socket) =>
@@ -222,7 +240,8 @@ test("the Devices page recalls a device preset and saves into one, each behind a
     }),
   );
   const sent = (command: string) => frames.filter((f) => f.command === command).map((f) => f.args?.["preset_idx"]);
-  await page.goto(`${server.url}/#/devices/loopback-0`);
+  // The Studio+: the model whose firmware actually recalls (measured 2026-09-20).
+  await page.goto(`${server.url}/#/devices/loopback-1`);
 
   // A preset may hold anything, 48V and the clock included, so recalling one asks too.
   await page.getByTestId("preset-3").click();

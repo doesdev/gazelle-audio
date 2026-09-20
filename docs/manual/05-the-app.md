@@ -57,13 +57,13 @@ At the right, two menus. **Double-click** chooses what a double-click does to a 
 
 One sidebar holds three sections, each folded or opened by clicking its title. It sits on the right; the arrow button at its top moves it to the other side, and the double arrow folds it to a narrow rail.
 
-- **Devices.** A card per interface: its name, the measured clock rate and **LOCKED** or **NO LOCK**, **On** or **Standby**, the current preset, and a light that shows input signal (and turns to the clip colour briefly on a clip). Click a card to show that device on the current page.
+- **Devices.** A card per interface: its name, the measured clock rate and **LOCKED** or **NO LOCK**, **On** or **Standby**, the current preset (Studio+ only), and a light that shows input signal (and turns to the clip colour briefly on a clip). Click a card to show that device on the current page.
 - **Meter.** The shown device's outputs as level bars with a held peak and a clip light. The Quadro reports Monitor, HP1, HP2 and Line out; the Studio+ reports its output levels in a way Gazelle does not read yet, so it shows a note instead. **Clear** clears every clip light on every device; the menu beside it sets how long a clip light stays lit after the clip ends (2, 5, 10 or 30 seconds, or **Hold** until cleared). Clicking a single clip light clears it.
 - **Control Room.** The outputs you monitor on, for the shown device: by default Monitor, HP1 and HP2; the **CR** button on the Outputs page adds or removes others. Each has a volume bar, **Mute**, **Dim** (Quadro) and **Mono**, and a caption saying what feeds it. On a Studio+, the talkback controls sit below: a **Talk** button you hold, the talkback level, and which of HP1, HP2 and Monitor it goes to.
 
 ![The Control Room panel for a Quadro with four outputs chosen, each with its volume, Mute, Dim and Mono.](../images/control-room.png)
 
-**Mono** in the Control Room sums the mix that feeds the output to mono, by centring every channel's pan in that mix and lowering that mix by 6 dB so the level stays about the same; both are put back afterwards. Every output playing that mix goes mono too, and the button's tooltip names them. If more than one mix, or no mix, feeds the output, Mono is disabled and its tooltip says why. The first press may read the device's routing first, to find the mix.
+**Mono** in the Control Room sums the mix that feeds the output to mono, by centring every channel's pan in that mix and lowering that mix by as much as summing gains (6 dB on the Studio+, less on the Quadro, where centre attenuation already takes some) so the level stays about the same; both are put back afterwards. Every output playing that mix goes mono too, and the button's tooltip names them. If more than one mix, or no mix, feeds the output, Mono is disabled and its tooltip says why. The first press may read the device's routing first, to find the mix.
 
 ## The mixer dock
 

@@ -8,13 +8,14 @@
 //
 // Mono (per output since 2026-09-17): neither model can make an output mono, so an output's Mono
 // sums the mix routed to it, which every other output playing that mix hears too; the button names
-// them. Summing both sides is louder, so mono also lowers that mix by 6 dB and gives that step back
+// them. Summing both sides is louder, so mono also lowers that mix by what the device gains (6 dB
+// where a centred strip loses nothing, less where its panning law already takes some) and gives that step back
 // when it ends. Which mix feeds an output is known once its routing is read. The panel reads nothing on
 // its own, so until then the button reads the routing first; an output no mix feeds (or several do)
 // has it disabled, with the reason as its title.
 
 import { h } from "../core/dom.ts";
-import type { OutputFeed } from "../store/channels.ts";
+import { monoTrim, type OutputFeed } from "../store/channels.ts";
 import { formatVolume, VOLUME_MAX, type OutputInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary, levelReset } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -225,9 +226,12 @@ export class GaMonitor extends GaElement {
             break;
           }
           const others = state.others.map(pairName);
+          // How much mono will take off this mix here: 6 dB where centring costs nothing, less
+          // where the device's panning law already takes some of what summing gains.
+          const trim = monoTrim(store.centreAttenuation(deviceId));
           usable = true;
           pressed = channels.isMono(state.mixes[0] as number);
-          button.title = `Sums ${mixes[0]} to mono${others.length > 0 ? `, so ${list(others)} ${others.length === 1 ? "goes" : "go"} mono too` : ""}: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.`;
+          button.title = `Sums ${mixes[0]} to mono${others.length > 0 ? `, so ${list(others)} ${others.length === 1 ? "goes" : "go"} mono too` : ""}: pans its channels to centre${trim > 0 ? ` and lowers that mix by ${trim} dB` : ""}, so the level stays about the same. ${trim > 0 ? "Both are" : "The pans are"} put back when it is turned off.`;
           label = `${output.name} mono (${mixes[0]}${others.length > 0 ? `, also ${list(others)}` : ""})`;
           break;
         }

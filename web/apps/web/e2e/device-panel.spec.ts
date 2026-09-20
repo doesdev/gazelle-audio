@@ -74,7 +74,9 @@ test("each card shows the device's clock, power, preset and input level from its
     await expect(it.locator(".rate")).toHaveText(/kHz|…/);
     await expect(it.locator(".lock")).toHaveText(/LOCKED|NO LOCK/);
     await expect(it.locator(".power")).toHaveText(/^(On|Standby)$/);
-    await expect(it.locator(".preset")).toHaveText(/^Preset \d+$/);
+    // The slot the device is on, named only where one can be recalled: the Studio+ (measured 2026-09-20).
+    if (id === "loopback-1") await expect(it.locator(".preset")).toHaveText(/^Preset \d+$/);
+    else await expect(it.locator(".preset")).toHaveCount(0);
     await expect(it.locator(".input")).toHaveAttribute("data-level", /^(quiet|signal|clip)$/);
   }
 });

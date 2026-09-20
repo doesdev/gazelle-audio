@@ -166,7 +166,8 @@ test.describe("confirms", () => {
   test("a device preset recalls on a confirming second click; one click sends nothing, and a wait forgets it", async ({ page }) => {
     const frames = recordFrames(page);
     const recalled = () => frames.filter((f) => f.command === "preset_recall").map((f) => f.args?.["preset_idx"]);
-    await page.goto(`${server.url}/#/devices/loopback-0`);
+    // The Studio+: the Quadro ignores a recall, so Gazelle does not offer its slots (measured 2026-09-20).
+    await page.goto(`${server.url}/#/devices/loopback-1`);
     const three = page.getByTestId("preset-3");
     await expect(three).toHaveText("3");
     await expect(three).toHaveAttribute("title", "Recall preset 3: click twice");

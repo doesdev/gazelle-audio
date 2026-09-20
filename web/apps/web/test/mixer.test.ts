@@ -417,3 +417,37 @@ test("a mix left mono by a version that did not lower the level restores its pan
   assert.equal(mixer.strip("master").peek().level, 36, "no level to give back, so the master is left as it is");
   assert.equal(mixer.strip(6).peek().pan, PAN_CENTRE);
 });
+
+test("mono's trim follows the panning law, since a centred strip may already be attenuated", async () => {
+  // Measured at the devices, 2026-09-20: a strip centred on the Quadro loses what its panning law
+  // says (0, 3, 4.5 or 6 dB), so summing both sides gains only what is left of 6 dB. The Studio+
+  // has no law and loses nothing at centre, so its mono is about 6 dB louder.
+  const { client, store } = setup();
+  await store.start();
+  const channels = store.channels("loopback-0");
+  channels.add();
+  const mixer = store.mixer("loopback-0", 1);
+  const master = () => mixer.strip("master").peek().level;
+  const trimAt = async (law: number) => {
+    store.setPanningLaw("loopback-0", law);
+    await flush();
+    mixer.setLevel("master", 20);
+    assert.equal(channels.setMono(1, true), true);
+    const trim = master() - 20;
+    assert.equal(channels.setMono(1, false), true);
+    assert.equal(master(), 20, "and it is given back whatever the law");
+    return trim;
+  };
+  assert.equal(await trimAt(0), 6, "0 dB law: centring costs nothing, so the sum is the whole 6 dB");
+  assert.equal(await trimAt(2), 3, "-3 dB law");
+  assert.equal(await trimAt(3), 2, "-4.5 dB law, rounded to the quieter dB");
+  assert.equal(await trimAt(1), 0, "-6 dB law: the sum gives back exactly what centring took");
+
+  const studio = store.channels("loopback-1");
+  studio.add();
+  const studioMixer = store.mixer("loopback-1", 1);
+  studioMixer.setLevel("master", 20);
+  assert.equal(studio.setMono(1, true), true);
+  assert.equal(studioMixer.strip("master").peek().level, 26, "the Studio+ has no panning law: the full 6 dB");
+  client.invocations.length = 0;
+});

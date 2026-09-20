@@ -12,7 +12,7 @@ The vendor's software gives each interface a panel application of its own, so tw
 
 ## What it does
 
-- **Devices:** clock source and sample rate with lock status, device presets, power, front panel brightness, a test oscillator, the Quadro's panning law and DC coupling.
+- **Devices:** clock source and sample rate with lock status, device presets (Studio+), power, front panel brightness, a test oscillator, the Quadro's panning law and DC coupling.
 - **Inputs:** preamp type, gain, 48V (with a two-click confirmation) and phase; digital input gains; microphone emulation with polar patterns on the Quadro.
 - **Mixer:** all four mixes as named, coloured, grouped channels; choose each channel's input and mixes and Gazelle does the routing; per-mix mono; saved layouts; links across channels and across devices; a **×2** badge when the same signal reaches a mix twice.
 - **Routing:** the full matrix, with click, shift-click and drag.
@@ -27,9 +27,9 @@ Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Stu
 
 Over a thousand automated tests run against a built-in emulator of both devices, and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That shows Gazelle sends what it means to send; it cannot show what your device does with it.
 
-**Driven and checked on the real devices:** finding and opening both interfaces and reading their state; mixer faders, mute and solo on both, read back from every mix; input and output metering (Quadro); microphone emulation with an Edge Duo (Quadro); front panel brightness (Quadro); inserting and removing one effect and changing one effect setting (Quadro); the effects meter report with signal (Quadro); changing the driver's buffer size and Safe Mode, including with a DAW recording (both).
+**Driven and checked on the real devices:** finding and opening both interfaces and reading their state; mixer faders, mute and solo on both, read back from every mix; input and output metering (Quadro); microphone emulation with an Edge Duo (Quadro); front panel brightness (Quadro); inserting and removing one effect and changing one effect setting (Quadro); the effects meter report with signal (Quadro); changing the driver's buffer size and Safe Mode, including with a DAW recording (both); and, on 2026-09-20, per-mix fader writes, chains of several effects and reordering them (both models), the Studio+'s effect meter report with effects loaded, hard mute, DC coupling, the test oscillator and its levels, snapshot capture and compare, preset save (both) and recall (Studio+; the Quadro ignores it), and the panning law's effect on a centre-panned channel.
 
-**Written and tested against the emulator only, never on a device:** device preset save and recall, hard mute, DC coupling, the test oscillator, S/PDIF sample rate conversion, reordering effects and chains of several effects, all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
+**Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 
 If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/16-troubleshooting.md#reporting-a-problem).
 

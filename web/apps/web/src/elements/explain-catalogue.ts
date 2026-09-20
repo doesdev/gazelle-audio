@@ -143,9 +143,9 @@ export const CATALOGUE: Catalogue = {
   "cr.mono": {
     title: "{name} mono",
     name: "Output",
-    what: "Neither model can make an output mono, so this sums the mix that feeds {name} to mono: every channel in that mix is panned to centre, and the mix lowered by 6 dB so the level stays about the same. Both are put back when it is turned off.",
+    what: "Neither model can make an output mono, so this sums the mix that feeds {name} to mono: every channel in that mix is panned to centre, and the mix lowered by what summing gains on that device so the level stays about the same. Both are put back when it is turned off.",
     effect: "Every other output that plays the same mix goes mono with it. The button's own tooltip names them.",
-    watch: "It centres the mix's pans on the device and lowers that mix's master by 6 dB, because summing both sides into each output is about that much louder. A mix that also feeds a recording input records mono meanwhile. Disabled when no one mix feeds this output.",
+    watch: "It centres the mix's pans on the device and lowers that mix's master by what that gains: about 6 dB where a centred strip loses nothing (the Studio+), less on the Quadro, whose panning law already takes some of it (measured at both devices). A mix that also feeds a recording input records mono meanwhile. Disabled when no one mix feeds this output.",
   },
   "cr.mono-badge": { title: "MONO", what: "The Quadro reports {name} as mono. The app can show this but has no command to change it.", name: "this output" },
   "cr.feed": { title: "What feeds {name}", name: "this output", what: "The mix routed to {name}, or the sources it plays straight, or Muted, from the device's routing." },

@@ -124,9 +124,15 @@ export class GaDeviceList extends GaElement {
     const rate = h("span", { class: "rate" }, "…");
     const lock = h("span", { class: "lock", "data-explain": "devicelist.lock" }, "NO LOCK");
     const power = h("span", { class: "power" }, "…");
-    const preset = h("span", { class: "preset" }, "…");
+    // The slot the device is on, where one can be recalled: the Quadro ignores a recall, so its
+    // card says nothing about presets (measured at the device, 2026-09-20).
+    const preset = device.family === "studio" ? h("span", { class: "preset" }, "…") : undefined;
     const input = h("span", { class: "input", "data-level": "quiet", role: "img", "aria-label": "Inputs: quiet", "data-explain": "devicelist.input" });
-    card.append(input, h("span", { class: "clock", "data-explain": "devicelist.clock" }, rate, lock), h("span", { class: "state", "data-explain": "devicelist.state" }, power, h("span", { "aria-hidden": "true" }, "·"), preset));
+    card.append(
+      input,
+      h("span", { class: "clock", "data-explain": "devicelist.clock" }, rate, lock),
+      h("span", { class: "state", "data-explain": "devicelist.state" }, power, ...(preset === undefined ? [] : [h("span", { "aria-hidden": "true" }, "·"), preset])),
+    );
 
     disposers.push(store.watchReport(device.id, STATUS_REPORT));
     disposers.push(
@@ -140,7 +146,7 @@ export class GaDeviceList extends GaElement {
         lock.toggleAttribute("data-locked", clock?.locked === true);
         power.textContent = state.power === undefined ? "…" : state.power ? "On" : "Standby";
         power.toggleAttribute("data-standby", state.power === false);
-        preset.textContent = state.preset === undefined ? "…" : `Preset ${state.preset}`;
+        if (preset !== undefined) preset.textContent = state.preset === undefined ? "…" : `Preset ${state.preset}`;
         input.setAttribute("data-level", state.input);
         input.setAttribute("aria-label", `Inputs: ${state.input === "quiet" ? "quiet" : state.input === "signal" ? "signal" : "clipped"}`);
       }),

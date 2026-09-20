@@ -79,6 +79,9 @@ export const BRIGHTNESS_MAX = 100;
  */
 export const PANNING_LAWS = ["0 dB", "-6 dB", "-3 dB", "-4.5 dB"] as const;
 
+/** What each of [`PANNING_LAWS`] takes off a centre-panned strip, in dB (measured at the device, 2026-09-20). */
+export const PANNING_LAW_DB: readonly number[] = [0, 6, 3, 4.5];
+
 /**
  * The test oscillator's frequencies, in `set_sine_gen`'s index order. Both panels offer these two,
  * though the field is two bits wide; the other two codes are not used and are not offered here.
@@ -744,6 +747,8 @@ export class Store {
       saved: computed(() => this.#workspace.value?.layouts ?? []),
       editSaved: (update) => this.editWorkspace((workspace) => ({ ...workspace, layouts: update([...(workspace.layouts ?? [])]) })),
       mixer: (mix) => this.mixer(deviceId, mix),
+      // The Quadro's panning law; the Studio+ has none and loses nothing at centre (measured 2026-09-20).
+      centreAttenuation: () => this.centreAttenuation(deviceId),
       meteredMix: {
         get: () => this.selectedMix(deviceId),
         set: (mix) => this.selectMix(deviceId, mix),
@@ -1709,6 +1714,14 @@ export class Store {
     const io = side === "inputs" ? 0 : 1;
     void this.#invokeCommand(deviceId, "set_dc_coupled", { dc_coupled: on ? 1 : 0, dc_coupled_io: io }, { coalesce: `dc_coupled:${side}:${deviceId}` });
     return true;
+  }
+
+  /**
+   * How many dB a centre-panned strip loses on this device: its panning law where it has one, and 0
+   * on a model without one. Measured at both devices on 2026-09-20; it is what mono's trim follows.
+   */
+  centreAttenuation(deviceId: string): number {
+    return this.panningLaws(deviceId) === undefined ? 0 : (PANNING_LAW_DB[this.panningLaw(deviceId).value] ?? 0);
   }
 
   /** The panning laws a device offers, or undefined for a model that has none (the Studio+). */

@@ -66,7 +66,8 @@ test("labels, readouts and headings inside a shadow root look the same selected,
   await page.goto(`${server.url}/#/devices/loopback-0`);
   const status = page.locator("ga-device-status");
   const label = status.locator(".fields dt").first();
-  const readout = status.locator('[data-field="current_preset"]');
+  // Power, which every model shows; the preset slot is shown only where one can be recalled.
+  const readout = status.locator('[data-field="power_on"]');
   const heading = status.locator("ga-section .title").first();
   await expect(readout).toBeVisible();
 

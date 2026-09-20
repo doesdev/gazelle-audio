@@ -22,20 +22,30 @@ export const QUADRO_EFFECT_SLOTS = 6;
 const SLOTS = 32;
 
 /**
- * How much mono lowers the mix master, in dB. Centring both sides sums them into each output, which
- * is about 6 dB louder; taking 6 dB off the master leaves the level about where it was.
+ * How much mono lowers the mix master, in dB, for a device whose centre-panned strips lose
+ * `centreAttenuation` dB (its panning law, where it has one).
+ *
+ * Centring both sides puts each into both outputs, which sums to about 6 dB more, but centring has
+ * already cost whatever the law takes, so only the difference is left. Measured at both devices on
+ * 2026-09-20, against a 1 kHz tone: the Studio+ loses nothing at centre and gains the whole 6 dB,
+ * while the Quadro at its -4.5 dB law came back level. Rounded to the quieter whole dB, since the
+ * level is dB and mono should never end up louder than the stereo it replaced.
  */
-export const MONO_TRIM = 6;
+export function monoTrim(centreAttenuation: number): number {
+  return Math.min(6, Math.max(0, Math.round(6 - centreAttenuation)));
+}
 
-/** The master level mono sets from the level it found: `MONO_TRIM` dB quieter, held to the bottom of the range. */
-export function monoLevel(level: number): number {
-  return Math.min(LEVEL_MAX, Math.max(0, Math.round(level)) + MONO_TRIM);
+/** The master level mono sets from the level it found: `trim` dB quieter, held to the bottom of the range. */
+export function monoLevel(level: number, trim: number): number {
+  return Math.min(LEVEL_MAX, Math.max(0, Math.round(level)) + trim);
 }
 
 export interface ChannelsContext {
   deviceId: string;
   family: "quadro" | "studio";
   topology: Topology;
+  /** How many dB a centre-panned strip loses on this device: its panning law, or 0 for a model without one. */
+  centreAttenuation(): number;
   /** The device's layout in the workspace, or undefined when it has none yet. */
   layout: ReadonlySignal<DeviceMixer | undefined>;
   /** Changes the layout (starting from an empty one); false when the workspace is not loaded. */
@@ -538,14 +548,17 @@ export class ChannelsModel {
       const pans = Object.fromEntries(slots.map((slot) => [String(slot), mixer.strip(slot).peek().pan]));
       const master = mixer.strip("master").peek().level;
       if (!editMix((config) => ({ ...config, mono: { pans, master_level: master } }))) return false;
-      mixer.setLevel("master", monoLevel(master));
+      mixer.setLevel("master", monoLevel(master, monoTrim(this.#context.centreAttenuation())));
       for (const slot of slots) mixer.sendPan(slot, PAN_CENTRE);
       return true;
     }
     const before = saved?.master_level;
     if (!editMix(({ mono: _mono, ...config }) => config)) return false;
     // A workspace written before mono compensated the level has no master level to give back.
-    if (before !== undefined) mixer.setLevel("master", Math.max(mixer.strip("master").peek().level - (monoLevel(before) - before), before));
+    // The step mono took, worked out the same way it was applied, so a law changed meanwhile cannot
+    // give back more than was taken: the master never ends above where it was before mono began.
+    const step = before === undefined ? 0 : monoLevel(before, monoTrim(this.#context.centreAttenuation())) - before;
+    if (before !== undefined) mixer.setLevel("master", Math.max(mixer.strip("master").peek().level - step, before));
     for (const [slot, pan] of Object.entries(saved?.pans ?? {}).sort(([a], [b]) => Number(a) - Number(b))) mixer.sendPan(Number(slot), pan);
     return true;
   }

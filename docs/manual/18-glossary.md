@@ -50,9 +50,9 @@
 
 **Mix.** One of the device's four internal mixers: 32 inputs, each with level, pan, mute and solo, summed to a stereo output.
 
-**Mono.** Gazelle's mono for a mix: every channel's pan centred and the mix lowered by 6 dB, both put back afterwards. The devices have no mono setting of their own.
+**Mono.** Gazelle's mono for a mix: every channel's pan centred and the mix lowered by as much as summing gains on that device, both put back afterwards. The devices have no mono setting of their own.
 
-**Preset (device).** One of the five settings slots stored in the interface itself. Not the same as a snapshot.
+**Preset (device).** One of the five settings slots stored in the interface itself, on the Studio+. Not the same as a snapshot. The Quadro ignores a recall, so Gazelle does not offer its slots.
 
 **Recall.** Putting a snapshot back on the devices. Planned and previewable, not built.
 
