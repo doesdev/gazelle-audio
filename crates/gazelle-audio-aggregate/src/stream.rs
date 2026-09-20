@@ -15,7 +15,6 @@
 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::Instant;
 
 use gazelle_audio_stream_abi::raw::{time_flags, CallbacksRaw, Samples, Time};
 use gazelle_audio_stream_abi::sample;
@@ -197,7 +196,6 @@ pub struct Stream {
     /// Which half the DAW is on, so a control call can see it without the scratch.
     published_half: AtomicUsize,
     running: AtomicBool,
-    began: Instant,
     scratch: UnsafeCell<Scratch>,
 }
 
@@ -268,7 +266,6 @@ impl Stream {
             position: AtomicU64::new(0),
             published_half: AtomicUsize::new(0),
             running: AtomicBool::new(false),
-            began: Instant::now(),
             scratch: UnsafeCell::new(Scratch {
                 stage_in,
                 stage_out,
