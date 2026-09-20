@@ -459,7 +459,9 @@ mod tests {
         // A device's real converter latency can differ from the figure its driver reports. Measured
         // at the devices on 2026-09-21: with the same source into both, the Studio+'s recording sat
         // about 28 samples behind the Quadro's, and it stayed there when the two microphones were
-        // swapped, so it belongs to the device and not to the microphone. A trim nulls it.
+        // swapped, so it belongs to the device and not to the microphone. A trim nulls it: a device
+        // that records late admits to less latency than it has, so its trim is positive and the
+        // others are held back to meet it. A trim of the wrong sign doubles the error.
         let mut devices = this_pc();
         devices[1].input_trim = -28;
         let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices");

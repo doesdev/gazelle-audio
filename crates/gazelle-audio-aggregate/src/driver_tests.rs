@@ -650,7 +650,15 @@ fn a_trim_in_the_file_moves_a_device_and_the_latency_the_daw_is_told() {
     let (was_in, was_out) = plain.latencies().expect("a plan exists");
     plain.dispose_buffers();
 
-    // A small trim moves the device that carries the longest path, so the figure follows it.
+    // The device that records late admits to less latency than it has: a positive trim puts that
+    // back, the device becomes the longest path, and every other device is held back to meet it.
+    let mut config = both(Alignment::Aligned);
+    config.devices[1].input_trim = Some(9);
+    let mut late = running(&pc, config);
+    assert_eq!(late.latencies().expect("a plan exists").0, was_in + 9, "the figure follows the device that records late");
+    late.dispose_buffers();
+
+    // A small negative trim shortens the longest path, so the figure follows it down.
     let mut config = both(Alignment::Aligned);
     config.devices[1].input_trim = Some(-2);
     let mut small = running(&pc, config);
