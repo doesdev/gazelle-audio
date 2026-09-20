@@ -54,21 +54,19 @@ driver. A file that is not valid JSON is refused, with the file named, rather th
 order, takes the first one as the device that drives the callback, exposes every channel, and lines
 the devices up.
 
-A worked example, which is the setup phase 0 measured:
+**To give a device only some of its channels**, add `inputs` or `outputs` with the indexes to keep:
+`"inputs": [0, 1, 2, 3]` exposes that device's first four inputs and no others. Leave the field out
+to take them all, which is almost always what you want; a device with a long list of playback
+channels you never record is the case where it is worth trimming.
+
+A worked example, which is the setup phase 0 measured. Every device here gives all of its channels,
+which is what most people want:
 
 ```json
 {
   "devices": [
-    {
-      "key": "Zen Quadro Synergy Core",
-      "name": "Quadro",
-      "inputs": [0, 1, 2, 3],
-      "outputs": [0, 1]
-    },
-    {
-      "clsid": "{AE4A4452-A316-11E5-A113-080027F6C1F4}",
-      "name": "Studio+"
-    }
+    { "key": "Zen Quadro Synergy Core", "name": "Quadro" },
+    { "clsid": "{AE4A4452-A316-11E5-A113-080027F6C1F4}", "name": "Studio+" }
   ],
   "callback_master": "Quadro",
   "alignment": "aligned",
