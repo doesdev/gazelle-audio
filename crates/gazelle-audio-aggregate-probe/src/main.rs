@@ -2,10 +2,10 @@
 //! **one process**, and do they stay in step when the S/PDIF cable locks them together?
 //!
 //! This is a **host**, not a driver. It contains no Steinberg SDK code and compiles against none:
-//! the driver object's vtable is declared from the interface's public shape in `probe/windows.rs`,
-//! and this crate builds with the SDK absent. It is MIT like the rest of the workspace. The
-//! aggregate **driver** planned after this will be a separate component under GPLv3, because the
-//! SDK it must use is offered as GPLv3 or under a signed agreement with Steinberg.
+//! the driver object's vtable is declared from the interface's public shape, in
+//! `gazelle-audio-stream-abi`, and this crate builds with the SDK absent. It is MIT like the rest
+//! of the workspace, and so is the aggregate driver that followed it: that driver implements the
+//! same interface from the same hand written declaration, and needs no SDK either.
 //!
 //! What it does to the hardware: it reads. It never sets a sample rate, a clock source or a
 //! buffer size, never opens a vendor control panel, and writes nothing but zeroes, to the output

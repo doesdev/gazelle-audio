@@ -5,6 +5,8 @@ members = [
     "crates/gazelle-audio-transport",
     "crates/gazelle-audio-server",
     "crates/gazelle-audio-capture",
+    # The audio driver interface itself, declared by hand and shared by the two crates below.
+    "crates/gazelle-audio-stream-abi",
     # Phase 0 of the aggregate driver: a hardware probe, never shipped.
     "crates/gazelle-audio-aggregate-probe",
     # Release chores (SHA256SUMS and its signature). Never shipped.

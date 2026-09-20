@@ -1017,6 +1017,7 @@ name = "gazelle-audio-aggregate-probe"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "gazelle-audio-stream-abi",
  "windows-sys 0.61.2",
 ]
 
@@ -1080,6 +1081,13 @@ dependencies = [
  "ureq",
  "windows-sys 0.61.2",
  "wry",
+]
+
+[[package]]
+name = "gazelle-audio-stream-abi"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

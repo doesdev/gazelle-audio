@@ -11,9 +11,10 @@ means a driver that presents itself as one device and opens both vendor drivers 
 only works if the two vendor drivers tolerate living in the same process. This probe finds out.
 
 It is a **host**, not a driver. It contains no Steinberg SDK code and compiles against none: the
-driver object's vtable is declared in `src/probe/windows.rs` from the interface's public shape, and
-the crate builds with the SDK absent. It is MIT like the rest of the workspace. The aggregate
-driver planned after this will be a separate component under GPLv3.
+driver object's vtable is declared in `gazelle-audio-stream-abi` from the interface's public shape,
+and the crate builds with the SDK absent. It is MIT like the rest of the workspace, and so is the
+aggregate driver that followed it: `gazelle-audio-aggregate` implements the same interface from the
+same hand written declaration, and needs no SDK either.
 
 Windows and 64 bit only.
 
