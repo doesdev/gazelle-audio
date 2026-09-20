@@ -73,6 +73,41 @@ pub struct DriverSummary {
     pub message: Option<String>,
 }
 
+/// How Gazelle worked out which connected interface a configured device is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchedBy {
+    /// The setup names a device of Gazelle's, and that device is connected now.
+    Chosen,
+    /// The setup names none, and the driver's registry entry says which model it is, of which
+    /// exactly one is connected.
+    WorkedOut,
+    /// Neither, so nothing about this interface can be read or changed from here.
+    #[default]
+    None,
+}
+
+/// The names Gazelle shows for a device's channels, as the Inputs and Outputs pages name them.
+///
+/// **A hint for the page, not ground truth about the audio driver.** These are Gazelle's own
+/// names, in the order its own pages show them; the vendor driver publishes its channels in
+/// whatever order it likes, and the two need not line up. They are here so a page offering the
+/// person a label for each channel can start from a name they already recognise, not so anything
+/// can be matched up by position.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ChannelNames {
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    /// `gazelle` when they came from the matched device, `none` when there is no matched device.
+    pub source: &'static str,
+}
+
+impl Default for ChannelNames {
+    fn default() -> Self {
+        ChannelNames { inputs: Vec::new(), outputs: Vec::new(), source: "none" }
+    }
+}
+
 /// One configured device, with everything known about it now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DeviceReport {
@@ -93,6 +128,14 @@ pub struct DeviceReport {
     /// True when that device is attached to Gazelle now, which is what makes the live readings
     /// below possible.
     pub attached: bool,
+    /// How `device_id` above was arrived at, so the page can say whether the person chose this
+    /// interface or Gazelle worked it out.
+    pub matched_by: MatchedBy,
+    /// Only when nothing was matched: why not, and what would settle it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_note: Option<String>,
+    /// What Gazelle calls this device's channels, for a page offering to label them.
+    pub channels: ChannelNames,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

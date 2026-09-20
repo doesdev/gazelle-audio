@@ -7,7 +7,10 @@
 //!   with the reasons behind it. Every reason carries a code and, where Gazelle can put it right,
 //!   the route and the value to send.
 //! - `POST /api/v1/aggregate/match-buffers`: put every configured device on one buffer size,
-//!   through the same write path and the same refusals as the per device driver route.
+//!   through the same write path and the same refusals as the per device driver route. Which
+//!   interface each entry is comes from the one rule the answer uses
+//!   (`crate::aggregate::service::match_device`), so a device the page can read is never one this
+//!   route says it cannot find.
 //! - `POST /api/v1/aggregate/register` and `/unregister`: run the registrar as an administrator,
 //!   which is the one thing Gazelle does that asks for that. The answer always carries the
 //!   command a person could run instead.
@@ -35,7 +38,7 @@ use serde_json::json;
 
 use crate::aggregate::config::device_name;
 use crate::aggregate::elevate::{arguments_for, command_for, DllSearch, REGISTRAR};
-use crate::aggregate::service::{serial_of, AggregateService};
+use crate::aggregate::service::{match_device, serial_of, AggregateService};
 use crate::driver::{DriverChange, DriverWriteReport, WriteRefusal};
 use crate::error::ServerError;
 use crate::handover;
@@ -133,29 +136,32 @@ async fn match_buffers(
             "No interfaces have been chosen for the aggregate yet, so there is nothing to match.".into(),
         ));
     };
-    let wanted: Vec<(String, Option<crate::device::descriptor::DeviceId>)> =
-        config.devices.iter().map(|device| (device_name(device), device.device_id.clone())).collect();
-    let attached: std::collections::BTreeSet<String> = service.devices.descriptors().into_iter().map(|d| d.id.0).collect();
+    let wanted = config.devices.clone();
 
     let outcomes = tokio::task::spawn_blocking(move || {
         let change = DriverChange { buffer_size: Some(ask.buffer_size), safe_mode: None, force: ask.force };
+        // Which interface each entry is, worked out exactly as the answer on the page worked it
+        // out, so a device the page could read is never one this route says it cannot find.
+        let entries = service.registry.entries().unwrap_or_default();
+        let attached = service.devices.descriptors();
         wanted
-            .into_iter()
-            .map(|(name, id)| {
-                let unavailable = |message: String| DeviceOutcome {
+            .iter()
+            .map(|device| {
+                let name = device_name(device);
+                let found = match_device(device, &entries, &attached);
+                let unavailable = |message: String, id: Option<String>| DeviceOutcome {
                     device: name.clone(),
-                    device_id: id.as_ref().map(|id| id.0.clone()),
+                    device_id: id,
                     result: None,
                     error: Some(WriteRefusal { code: crate::driver::RefusalCode::Unavailable, message }),
                 };
-                let Some(id) = id.clone() else {
-                    return unavailable(format!("{name} does not say which of Gazelle's devices it is, so its driver cannot be found."));
+                let Some(descriptor) = found.descriptor else {
+                    let why = found.note.unwrap_or_else(|| format!("{name} could not be matched to a connected interface, so its driver cannot be found."));
+                    return unavailable(why, device.device_id.as_ref().map(|id| id.0.clone()));
                 };
-                if !attached.contains(&id.0) {
-                    return unavailable(format!("{name} is not connected to Gazelle, so its driver was not changed."));
-                }
+                let id = descriptor.id;
                 let Some(serial) = serial_of(&id) else {
-                    return unavailable(format!("{name} reports no serial, which is how its driver is found."));
+                    return unavailable(format!("{name} reports no serial, which is how its driver is found."), Some(id.0.clone()));
                 };
                 match service.driver.write(id.as_str(), serial, &change, force_dry_run) {
                     Ok(report) => DeviceOutcome { device: name, device_id: Some(id.0), result: Some(report), error: None },
@@ -585,6 +591,73 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["error"]["code"], "not_configured");
         assert!(h.quadro.sets().is_empty());
+    }
+
+    /// The bug this route had: a setup that never said which interface each entry is read fine on
+    /// the page, because the answer works the model out, and then refused every write.
+    #[tokio::test]
+    async fn a_setup_that_names_no_interface_is_still_written_to_because_the_model_settles_it() {
+        let h = harness();
+        let mut config = pair();
+        for device in &mut config.devices {
+            device.device_id = None;
+        }
+        config.devices[1].key = Some(STUDIO_KEY.into());
+        h.store.save(&workspace_with(config)).unwrap();
+
+        let (_, body) = get(&h.app, "/api/v1/aggregate").await;
+        assert_eq!(body["devices"][0]["matched_by"], "worked_out");
+        assert_eq!(body["devices"][0]["device_id"], format!("serial:{QUADRO}"));
+        assert!(body["devices"][0].get("match_note").is_none(), "nothing to explain when it was worked out");
+        assert_eq!(body["devices"][0]["channels"]["source"], "gazelle");
+        assert_eq!(body["devices"][0]["channels"]["inputs"][0], "Preamp 1");
+        assert_eq!(body["devices"][0]["channels"]["outputs"][0], "Monitor L");
+        assert!(
+            body["reasons"].as_array().unwrap().iter().all(|r| r["code"] != "device_not_matched"),
+            "one of each model is plugged in, so there is nothing to ask: {body}"
+        );
+
+        let (status, body) = post(&h.app, "/api/v1/aggregate/match-buffers", r#"{"buffer_size":256}"#).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["changed"], 2, "{body}");
+        assert_eq!(body["devices"][0]["device_id"], format!("serial:{QUADRO}"), "and it says which interface it wrote to");
+        assert_eq!(h.quadro.sets().len(), 1);
+        assert_eq!(h.studio.sets().len(), 1);
+    }
+
+    /// The one case where it genuinely cannot be worked out. The refusal says what would settle it,
+    /// and the answer carries the same words against the device itself.
+    #[tokio::test]
+    async fn a_device_gazelle_cannot_tell_apart_is_refused_by_name_and_the_answer_says_why() {
+        let h = harness_with(FakeRegistry {
+            entries: vec![
+                FakeRegistry::entry(QUADRO_KEY, "{1}", r"C:\q.dll"),
+                FakeRegistry::entry("Focusrite USB", "{2}", r"C:\f.dll"),
+                FakeRegistry::entry(AGGREGATE_NAME, AGGREGATE_CLSID, r"C:\a.dll"),
+            ],
+            present: [r"C:\q.dll".into(), r"C:\f.dll".into(), r"C:\a.dll".into()].into_iter().collect(),
+            failure: None,
+        });
+        let mut config = pair();
+        config.devices[0].device_id = None;
+        config.devices[1] = AggregateDevice { key: Some("Focusrite USB".into()), name: Some("Focusrite".into()), ..AggregateDevice::default() };
+        h.store.save(&workspace_with(config)).unwrap();
+
+        let (_, body) = get(&h.app, "/api/v1/aggregate").await;
+        assert_eq!(body["devices"][1]["matched_by"], "none");
+        assert_eq!(body["devices"][1]["attached"], false);
+        assert_eq!(body["devices"][1]["channels"]["source"], "none");
+        assert!(body["devices"][1]["match_note"].as_str().unwrap().contains("does not say which model it is"), "{body}");
+        let unmatched = body["reasons"].as_array().unwrap().iter().find(|r| r["code"] == "device_not_matched").expect("{body}");
+        assert_eq!(unmatched["device"], "Focusrite");
+        assert_eq!(unmatched["severity"], "warning");
+
+        let (_, body) = post(&h.app, "/api/v1/aggregate/match-buffers", r#"{"buffer_size":256}"#).await;
+        assert_eq!(body["changed"], 1, "the one it could work out was still changed: {body}");
+        assert_eq!(body["devices"][1]["error"]["code"], "unavailable");
+        assert!(body["devices"][1]["error"]["message"].as_str().unwrap().contains("Choose it on its card"));
+        assert_eq!(h.quadro.sets().len(), 1);
+        assert!(h.studio.sets().is_empty());
     }
 
     #[tokio::test]

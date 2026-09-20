@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::aggregate::{rate_index, RATES};
-use crate::workspace::model::{Aggregate, AggregateDevice, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, TRIM_MAX};
+use crate::workspace::model::{Aggregate, AggregateDevice, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, TRIM_MAX};
 
 /// The buffer sizes a configuration may ask for: powers of two the drivers offer.
 pub const BUFFER_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192];
@@ -118,6 +118,26 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
                 }
             }
         }
+        for (what, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
+            for (&channel, label) in labels {
+                if channel > AGGREGATE_CHANNEL_MAX {
+                    return bad(format!("{what} labels channel {channel}, which is outside 0..{AGGREGATE_CHANNEL_MAX}"));
+                }
+                let label = label.trim();
+                if label.is_empty() {
+                    return bad(format!("{what} gives channel {channel} a blank label. Give it something to be called, or leave the channel out."));
+                }
+                let length = label.chars().count();
+                if length > CHANNEL_NAME_MAX {
+                    return bad(format!(
+                        "{what} calls channel {channel} {label:?}, which is {length} characters. A channel's label is at most {CHANNEL_NAME_MAX}, because that is what the interface carries and the name in a DAW is built from it."
+                    ));
+                }
+                if label.chars().any(char::is_control) {
+                    return bad(format!("{what} calls channel {channel} {label:?}, which has a control character in it. A label is plain text."));
+                }
+            }
+        }
     }
     if let Some(master) = config.callback_master.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         if !config.devices.iter().any(|device| names_device(device, master)) {
@@ -178,6 +198,14 @@ fn export_device(device: &AggregateDevice) -> Value {
         if let Some(value) = value {
             out.insert(name.into(), value);
         }
+    }
+    // A channel the person has not named is not in the map, and a map with nothing in it is left
+    // out entirely rather than written as an empty object.
+    for (name, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
+        if labels.is_empty() {
+            continue;
+        }
+        out.insert(name.into(), Value::Object(labels.iter().map(|(channel, label)| (channel.to_string(), Value::from(label.clone()))).collect()));
     }
     for (name, value) in &device.extra {
         out.insert(name.clone(), value.clone());
@@ -251,6 +279,47 @@ mod tests {
         assert!(check(&config).unwrap_err().contains("outputs names channel 1024"));
         config.devices[0].outputs = Some(vec![0, 1, 1]);
         assert_eq!(check(&config).unwrap_err(), "device 'Quadro': outputs names channel 1 twice");
+    }
+
+    /// What a channel may be called: the interface carries 31 characters and the name in a DAW is
+    /// built from it, so anything longer would arrive cut in half.
+    #[test]
+    fn a_channel_label_must_be_a_channel_that_exists_and_a_name_that_fits_on_the_interface() {
+        let mut config = pair();
+        config.devices[0].input_names = [(0, "Vocal mic".to_string()), (3, "Room".to_string())].into_iter().collect();
+        config.devices[0].output_names = [(0, "Main L".to_string())].into_iter().collect();
+        check(&config).expect("a label per channel, on either side");
+
+        config.devices[0].input_names.insert(AGGREGATE_CHANNEL_MAX + 1, "Nowhere".into());
+        assert_eq!(check(&config).unwrap_err(), "device 'Quadro': input_names labels channel 1024, which is outside 0..1023");
+
+        let mut config = pair();
+        config.devices[0].input_names = [(2, "   ".to_string())].into_iter().collect();
+        assert_eq!(
+            check(&config).unwrap_err(),
+            "device 'Quadro': input_names gives channel 2 a blank label. Give it something to be called, or leave the channel out."
+        );
+
+        config.devices[0].input_names = [(2, "a".repeat(CHANNEL_NAME_MAX))].into_iter().collect();
+        check(&config).expect("exactly what the interface carries is still a label");
+        config.devices[0].input_names = [(2, "a".repeat(CHANNEL_NAME_MAX + 1))].into_iter().collect();
+        let too_long = check(&config).unwrap_err();
+        assert!(too_long.contains("which is 32 characters"), "{too_long}");
+        assert!(too_long.contains("at most 31"), "{too_long}");
+
+        config.devices[0].input_names.clear();
+        config.devices[0].output_names = [(1, "Main\tR".to_string())].into_iter().collect();
+        assert!(check(&config).unwrap_err().contains("has a control character in it"));
+    }
+
+    #[test]
+    fn a_channel_label_is_exported_to_the_driver_and_a_side_with_none_is_left_out() {
+        let mut config = pair();
+        config.devices[0].input_names = [(0, "Vocal mic".to_string()), (10, "Room".to_string())].into_iter().collect();
+        let document = export_document(&config);
+        assert_eq!(document["devices"][0]["input_names"], serde_json::json!({ "0": "Vocal mic", "10": "Room" }));
+        assert!(document["devices"][0].get("output_names").is_none(), "a side nobody has named is not written as an empty object");
+        assert!(document["devices"][1].get("input_names").is_none());
     }
 
     #[test]

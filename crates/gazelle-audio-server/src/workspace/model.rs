@@ -147,6 +147,15 @@ pub struct AggregateDevice {
     pub inputs: Option<Vec<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs: Option<Vec<u32>>,
+    /// What the person calls this device's inputs, by the device's own channel number from zero,
+    /// the same numbering [`AggregateDevice::inputs`] uses. A channel with a label of its own is
+    /// called "Vocal mic (Quadro 1)" in a DAW; one without keeps the plain "Quadro 1". A channel
+    /// that is not named is left out, so an empty map is the same as saying nothing.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input_names: BTreeMap<u32, String>,
+    /// As [`AggregateDevice::input_names`], for its outputs.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub output_names: BTreeMap<u32, String>,
     /// Which Gazelle device this is, when the user has said so, which is how the readiness answer
     /// reads its clock, its rate and its buffer. Gazelle's own, not the driver's: it is left out
     /// of the exported file.
@@ -167,6 +176,10 @@ pub const TRIM_MAX: i32 = 192_000;
 /// The highest channel index a device may expose. No interface has anything like this many; it
 /// only catches a number that is not a channel.
 pub const AGGREGATE_CHANNEL_MAX: u32 = 1023;
+
+/// The longest a channel's label may be, in characters. The interface carries 31, and the name a
+/// DAW shows is built from it, so a longer one would arrive cut in half.
+pub const CHANNEL_NAME_MAX: usize = 31;
 
 /// What one device's Control Room panel shows.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

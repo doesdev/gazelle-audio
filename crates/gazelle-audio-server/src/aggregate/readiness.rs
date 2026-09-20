@@ -30,8 +30,12 @@ pub enum ReasonCode {
     NotRegistered,
     /// It is registered and the DLL its class id names is not there any more.
     DllMissing,
-    /// A configured device is not attached to Gazelle, so its live state cannot be read.
+    /// A configured device names one of Gazelle's devices, and that device is not attached now, so
+    /// its live state cannot be read.
     DeviceNotAttached,
+    /// A configured device names none of Gazelle's, and which connected interface it is could not
+    /// be worked out, so nothing about it can be read or changed from here.
+    DeviceNotMatched,
     /// Its audio driver could not be read.
     DriverUnreadable,
     /// Two or more devices are on one USB host controller, which cannot carry both.
@@ -176,13 +180,33 @@ fn per_device(devices: &[DeviceReport]) -> Vec<Reason> {
             );
             continue;
         }
-        if !device.attached {
+        // Two ways an entry has no live device behind it, and they are different things to be
+        // told. One names an interface of Gazelle's that is not plugged in now; the other names
+        // none, and which of the connected ones it is could not be worked out. Only one of them
+        // can be true of an entry, so only one is ever said.
+        if !device.attached && device.device_id.is_some() {
             reasons.push(
                 Reason::new(
                     ReasonCode::DeviceNotAttached,
                     Severity::Warning,
                     format!(
                         "{} is not connected to Gazelle, so its clock, its rate and its buffer cannot be checked. Its driver is installed, so the aggregate may still open it.",
+                        device.name
+                    ),
+                )
+                .about(device),
+            );
+            continue;
+        }
+        if !device.attached {
+            // Why it could not be worked out is on the device's own report, as `match_note`, so
+            // the card can say it in place rather than the message saying it twice.
+            reasons.push(
+                Reason::new(
+                    ReasonCode::DeviceNotMatched,
+                    Severity::Warning,
+                    format!(
+                        "Gazelle cannot tell which connected interface {} is, so its clock, its rate and its driver settings cannot be checked or changed from here. Choosing it on its card settles it.",
                         device.name
                     ),
                 )
@@ -394,6 +418,9 @@ mod tests {
             entry_key: Some("Zen Quadro Synergy Core".into()),
             device_id: Some(DeviceId::from_serial("Q")),
             attached: true,
+            matched_by: crate::aggregate::MatchedBy::Chosen,
+            match_note: None,
+            channels: crate::aggregate::ChannelNames::default(),
             family: Some("quadro".into()),
             clock: Some(ClockReading { source_index: 5, source: Some("USB".into()), locked: true, hz: 96000, rate_index: 4 }),
             driver: DriverSummary { sample_rate: Some(96000), buffer_size: Some(512), safe_mode: Some(true), asio_clients: Some(0), message: None },
@@ -472,6 +499,26 @@ mod tests {
         let reasons = reasons(true, true, true, &[quadro(), away], &cabled());
         assert_eq!(codes(&reasons), [ReasonCode::DeviceNotAttached]);
         assert!(ready(&reasons), "its driver is there, so the aggregate may still open it");
+    }
+
+    /// A setup entry that names none of Gazelle's devices, with nothing else settling which it is.
+    #[test]
+    fn a_device_gazelle_cannot_tell_apart_is_said_so_once_and_not_also_called_disconnected() {
+        let unmatched = DeviceReport {
+            device_id: None,
+            attached: false,
+            matched_by: crate::aggregate::MatchedBy::None,
+            match_note: Some("More than one Zen Studio+ is connected, so Gazelle cannot tell which of them Studio+ is. Choose it on its card.".into()),
+            ..studio()
+        };
+        let reasons = reasons(true, true, true, &[quadro(), unmatched], &cabled());
+        assert_eq!(codes(&reasons), [ReasonCode::DeviceNotMatched], "one reason, not this and not connected as well");
+        assert_eq!(reasons[0].device.as_deref(), Some("Studio+"));
+        assert_eq!(reasons[0].device_id, None);
+        assert!(reasons[0].message.contains("cannot be checked or changed from here"));
+        assert!(reasons[0].message.ends_with("Choosing it on its card settles it."));
+        assert!(reasons[0].fix.is_none(), "the page writes the workspace itself");
+        assert!(ready(&reasons), "it is something to know, not something that stops the driver opening");
     }
 
     #[test]

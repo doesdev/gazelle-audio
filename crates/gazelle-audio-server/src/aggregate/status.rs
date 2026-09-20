@@ -50,6 +50,10 @@ pub struct DeviceStatus {
     /// inputs read as silence and its outputs are muted until it calls back again.
     pub stalled: bool,
     pub is_master: bool,
+    /// How many of its channels the aggregate exposed, which is the one count that comes from the
+    /// audio driver itself rather than from what Gazelle knows about the interface.
+    pub inputs: u32,
+    pub outputs: u32,
     /// How far this device's stream is from the master's, in samples. Zero on the master itself,
     /// and only worth reading while both are streaming. Growing in one direction is two clocks.
     pub sample_gap: i64,
@@ -276,6 +280,8 @@ fn from_snapshot(snapshot: &shared::Snapshot) -> AggregateStatus {
             streaming: device.streaming != 0,
             stalled: device.stalled != 0,
             is_master: device.is_master != 0,
+            inputs: device.inputs,
+            outputs: device.outputs,
             sample_gap: device.gap,
             callbacks: device.callbacks,
             dropped: device.dropped,
