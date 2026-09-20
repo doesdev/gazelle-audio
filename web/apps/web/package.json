@@ -1,6 +1,6 @@
 {
   "name": "gazelle-audio-web",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "The Gazelle Audio web UI, served by gazelle-audio-server",
   "license": "MIT",
   "private": true,

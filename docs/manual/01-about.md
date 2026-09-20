@@ -24,7 +24,7 @@ The vendor's software gives each interface its own panel application, so two int
 
 This matters for software that controls equipment connected to speakers and headphones, so it is said plainly here and in full in the [Safety](02-safety.md) chapter.
 
-Gazelle has been used on **one person's two interfaces**: one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. It has not been tried on any other unit, any other firmware, any other computer or any other operating system. It is new software, at version 1.1.0.
+Gazelle has been used on **one person's two interfaces**: one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. It has not been tried on any other unit, any other firmware, any other computer or any other operating system. It is new software, at version 1.2.0.
 
 Almost everything has an automated test against a built-in emulator of both devices (over a thousand tests across the server and the web app), and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That proves Gazelle sends what it means to send. It does not prove what a real device does with it. On the real hardware, these have been driven and checked:
 
@@ -51,7 +51,7 @@ Gazelle is free software under the MIT licence and comes with no warranty of any
 
 ## About this manual
 
-The manual describes Gazelle as the code stands at version 1.1.0 on Windows. The screenshots were taken from the running app against its built-in emulator (`--backend loopback`), so the device names are made up and the meters show a test pattern.
+The manual describes Gazelle as the code stands at version 1.2.0 on Windows. The screenshots were taken from the running app against its built-in emulator (`--backend loopback`), so the device names are made up and the meters show a test pattern.
 
 - [Safety](02-safety.md) comes before everything else. Please read it.
 - [Getting started](03-getting-started.md) takes you from download to a first look.

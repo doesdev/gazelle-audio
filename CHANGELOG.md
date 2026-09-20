@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-20
+
+A Mixer that shows one mix at a time, updates that tell you what they are doing, and a set of
+fixes from a session at the real devices.
+
 ### Added
 
 - **See which version you are running.** The tray menu's first line now names it, and with the
