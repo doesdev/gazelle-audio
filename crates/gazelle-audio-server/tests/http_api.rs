@@ -132,18 +132,32 @@ async fn channel_links_round_trip_and_are_validated() {
     assert_eq!(body["links"][0]["id"], "l1", "rejected saves change nothing");
 }
 
-/// A mix in mono keeps the pans to restore in the workspace, by mixer input slot.
-/// The server rejects slots and pans the hardware does not have.
+/// A mix in mono keeps the pans to restore in the workspace, by mixer input slot, and the master
+/// level mono lowered, so ending mono can give that step back. The server rejects slots, pans and
+/// levels the hardware does not have. A workspace written before mono lowered the level, with no
+/// master level, still loads, and one written now leaves the field out when there is none.
 #[tokio::test]
 async fn mono_mixes_round_trip_and_are_validated() {
     let app = app();
     let workspace = |mono: Value| json!({"version": 1, "groups": [], "links": [], "aliases": {}, "mixers": {"loopback-0": {"mixes": [{"name": "Monitors", "mono": mono}], "groups": [], "channels": []}}});
-    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(json!({"pans": {"6": 10, "7": 62}}))).await;
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(json!({"pans": {"6": 10, "7": 62}, "master_level": 26}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, body) = get(app.clone(), "/api/v1/workspace").await;
     assert_eq!(body["mixers"]["loopback-0"]["mixes"][0]["mono"]["pans"]["7"], 62);
+    assert_eq!(body["mixers"]["loopback-0"]["mixes"][0]["mono"]["master_level"], 26, "the master level to give back round-trips");
 
-    for (why, mono) in [("slot outside the mix", json!({"pans": {"32": 10}})), ("pan below the range", json!({"pans": {"6": 1}})), ("pan above the range", json!({"pans": {"6": 63}}))] {
+    // A workspace an older version wrote: mono, no master level. It loads, and comes back without one.
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(json!({"pans": {"6": 10}}))).await;
+    assert_eq!(status, StatusCode::OK, "a mono mix with no master level still loads: {body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert_eq!(body["mixers"]["loopback-0"]["mixes"][0]["mono"]["master_level"], Value::Null, "no master level, no field, so an older version still reads it");
+
+    for (why, mono) in [
+        ("slot outside the mix", json!({"pans": {"32": 10}})),
+        ("pan below the range", json!({"pans": {"6": 1}})),
+        ("pan above the range", json!({"pans": {"6": 63}})),
+        ("master level above the range", json!({"pans": {"6": 10}, "master_level": 91})),
+    ] {
         let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(mono)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
     }

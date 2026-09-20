@@ -269,8 +269,13 @@ fn check_mixer(mixer: &DeviceMixer) -> Result<(), String> {
     if mixer.mixes.len() > MIXER_COUNT as usize {
         return Err(format!("{} mixes named, the device has {MIXER_COUNT}", mixer.mixes.len()));
     }
-    use crate::workspace::model::{PAN_MAX, PAN_MIN};
+    use crate::workspace::model::{LEVEL_MAX, PAN_MAX, PAN_MIN};
     for (index, mix) in mixer.mixes.iter().enumerate() {
+        if let Some(level) = mix.mono.as_ref().and_then(|m| m.master_level) {
+            if level > LEVEL_MAX {
+                return Err(format!("mix {}: mono master level {level} is outside 0..{LEVEL_MAX}", index + 1));
+            }
+        }
         for (&slot, &pan) in mix.mono.iter().flat_map(|m| m.pans.iter()) {
             if slot >= MIXER_SLOTS {
                 return Err(format!("mix {}: mono pan for slot {slot}, outside 0..{}", index + 1, MIXER_SLOTS - 1));

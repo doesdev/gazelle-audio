@@ -212,11 +212,20 @@ pub struct MonoMix {
     /// Mixer input slot → the pan (2..=62) it had, or was moved to, while mono.
     #[serde(default)]
     pub pans: BTreeMap<u32, u32>,
+    /// The mix master's level (dB of attenuation, 0..=90) just before mono lowered it, so
+    /// ending mono can give back exactly the step mono took. Absent in a workspace written
+    /// before mono compensated the level, and left out again when it is absent, so a
+    /// workspace still loads in either version: nothing here denies unknown fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_level: Option<u32>,
 }
 
 /// The device pan range; 32 is centre.
 pub const PAN_MIN: u32 = 2;
 pub const PAN_MAX: u32 = 62;
+
+/// The mixer level range, in dB of attenuation: 0 is 0 dB and 90 is -90 dB.
+pub const LEVEL_MAX: u32 = 90;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MixerGroup {
