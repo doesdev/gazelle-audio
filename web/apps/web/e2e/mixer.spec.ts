@@ -698,7 +698,7 @@ test("a set-up mixer can be saved as a layout, and an empty mixer offers saved l
   await expect(page.getByTestId("name-6")).toHaveValue("Vox");
 });
 
-test("Mono on a mix master centres its channels' pans, keeps pan moves for later and restores them when turned off", async ({ page }) => {
+test("Mono on a mix master centres its channels' pans, takes 6 dB off the master, keeps pan moves for later and restores both when turned off", async ({ page }) => {
   const frames = recordFrames(page);
   await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
@@ -712,10 +712,15 @@ test("Mono on a mix master centres its channels' pans, keeps pan moves for later
   await expect.poll(() => panSent().at(-1)).toBe(2);
   await expect(pan).not.toHaveAttribute("data-centred");
 
+  // The Quadro's master is channel 0: level is dB of attenuation, so mono adds 6 and gives it back.
+  const masterSent = () => frames.filter((f) => f.command === "set_mixer" && f.args?.["channel"] === 0).map((f) => Number(f.args?.["level"]));
   const mono = page.getByTestId("mix-mono-0");
+  await expect(mono).toHaveAttribute("title", /lowers the mix by 6 dB/);
   await mono.click();
   await expect(mono).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => panSent().at(-1)).toBe(32);
+  await expect.poll(() => masterSent().length).toBe(1);
+  const before = (masterSent()[0] as number) - 6;
   const count = panSent().length;
   await pan.focus();
   await pan.press("ArrowRight");
@@ -725,6 +730,7 @@ test("Mono on a mix master centres its channels' pans, keeps pan moves for later
   await mono.click();
   await expect(mono).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => panSent().at(-1)).toBe(3);
+  await expect.poll(() => masterSent().at(-1), "the master gets mono's 6 dB back").toBe(before);
 });
 
 test("the wheel over a pan moves it a step at a time, up for right, and keeps the page still (the user, 2026-09-17)", async ({ page }) => {

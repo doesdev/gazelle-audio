@@ -143,9 +143,9 @@ export const CATALOGUE: Catalogue = {
   "cr.mono": {
     title: "{name} mono",
     name: "Output",
-    what: "Neither model can make an output mono, so this sums the mix that feeds {name} to mono: every channel in that mix is panned to centre, and panned back when it is turned off.",
+    what: "Neither model can make an output mono, so this sums the mix that feeds {name} to mono: every channel in that mix is panned to centre, and the mix lowered by 6 dB so the level stays about the same. Both are put back when it is turned off.",
     effect: "Every other output that plays the same mix goes mono with it. The button's own tooltip names them.",
-    watch: "It centres the mix's pans on the device, and the panning law (Quadro) sets how loud the centred sum is. A mix that also feeds a recording input records mono meanwhile. Disabled when no one mix feeds this output.",
+    watch: "It centres the mix's pans on the device and lowers that mix's master by 6 dB, because summing both sides into each output is about that much louder. A mix that also feeds a recording input records mono meanwhile. Disabled when no one mix feeds this output.",
   },
   "cr.mono-badge": { title: "MONO", what: "The Quadro reports {name} as mono. The app can show this but has no command to change it.", name: "this output" },
   "cr.feed": { title: "What feeds {name}", name: "this output", what: "The mix routed to {name}, or the sources it plays straight, or Muted, from the device's routing." },
@@ -318,9 +318,9 @@ export const CATALOGUE: Catalogue = {
   "master.name": { title: "Mix name", what: "The mix's name, shown in menus and on its master. " + WORKSPACE + " " + NOTHING_SENT },
   "master.mono": {
     title: "Mono",
-    what: "Sums this mix to mono. Neither model has a mono switch, so the app pans every channel in the mix to centre and keeps their pans to put back when it is turned off.",
-    effect: "Every output and recording input playing this mix goes mono.",
-    watch: "No level is changed: on the Quadro the panning law sets how loud the centred sum is.",
+    what: "Sums this mix to mono. Neither model has a mono switch, so the app pans every channel in the mix to centre and lowers this mix's master by 6 dB, keeping both to put back when it is turned off.",
+    effect: "Every output and recording input playing this mix goes mono, at about the level it played before, since summing both sides into each output is about 6 dB louder.",
+    watch: "The master fader still works while mono is on. Ending mono gives back only mono's own 6 dB, so a level you rode meanwhile is kept and the mix never ends louder than it started. On the Quadro the panning law sets how loud a centred channel is.",
   },
   "master.outputs": { title: "Where this mix plays", what: "Each output pair this mix is routed to, from the device's routing." },
   "master.output": { title: "{name}", name: "Output", what: "This mix plays on {name}." },
@@ -666,7 +666,7 @@ export const CATALOGUE: Catalogue = {
   "devices.panning-law": {
     title: "Panning law",
     what: "How much a centred signal is turned down in every mix: 0, -3, -4.5 or -6 dB.",
-    effect: "Every pan is heard through it, and so is Mono, which works by centring pans.",
+    effect: "Every pan is heard through it, and so is Mono, which works by centring pans and taking 6 dB off the mix.",
   },
   "devices.dc-inputs": {
     title: "DC coupled inputs",

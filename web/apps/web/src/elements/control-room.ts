@@ -8,7 +8,8 @@
 //
 // Mono (per output since 2026-09-17): neither model can make an output mono, so an output's Mono
 // sums the mix routed to it, which every other output playing that mix hears too; the button names
-// them. Which mix feeds an output is known once its routing is read. The panel reads nothing on
+// them. Summing both sides is louder, so mono also lowers that mix by 6 dB and gives that step back
+// when it ends. Which mix feeds an output is known once its routing is read. The panel reads nothing on
 // its own, so until then the button reads the routing first; an output no mix feeds (or several do)
 // has it disabled, with the reason as its title.
 
@@ -226,7 +227,7 @@ export class GaMonitor extends GaElement {
           const others = state.others.map(pairName);
           usable = true;
           pressed = channels.isMono(state.mixes[0] as number);
-          button.title = `Sums ${mixes[0]} to mono${others.length > 0 ? `, so ${list(others)} ${others.length === 1 ? "goes" : "go"} mono too` : ""}: pans its channels to centre, and restores them when turned off.`;
+          button.title = `Sums ${mixes[0]} to mono${others.length > 0 ? `, so ${list(others)} ${others.length === 1 ? "goes" : "go"} mono too` : ""}: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.`;
           label = `${output.name} mono (${mixes[0]}${others.length > 0 ? `, also ${list(others)}` : ""})`;
           break;
         }

@@ -269,8 +269,10 @@ function recordFrames(page: Page): Frame[] {
   return frames;
 }
 
-const monoMixes = async (deviceId: string) =>
-  (((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { mixes?: { mono?: unknown }[] }> }).mixers[deviceId]?.mixes ?? []).map((m) => m?.mono !== undefined);
+const monoState = async (deviceId: string) =>
+  ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { mixes?: { mono?: { master_level?: number } }[] }> }).mixers[deviceId]?.mixes ?? [];
+
+const monoMixes = async (deviceId: string) => (await monoState(deviceId)).map((m) => m?.mono !== undefined);
 
 
 type Slot = [number, number];
@@ -329,7 +331,13 @@ test("each Control Room output fed by a mix has a Mono button for that mix, nami
   await mono(0).click();
   await expect(mono(0)).toHaveAttribute("aria-pressed", "true");
   const panSent = () => frames.filter((f) => f.command === "set_mixer_cfg" && f.args?.["channel"] === 1).map((f) => [f.args?.["mixer_id"], f.args?.["pan"]]);
+  // The Studio+ master is channel 0: mono takes 6 dB off it and gives the step back when it ends.
+  const masterSent = () => frames.filter((f) => f.command === "set_mixer_cfg" && f.args?.["channel"] === 0).map((f) => Number(f.args?.["level"]));
   await expect.poll(panSent).toEqual([[0, 32]]);
+  await expect.poll(() => masterSent().length, "mono lowers the master").toBe(1);
+  await expect.poll(async () => typeof (await monoState("loopback-1"))[0]?.mono?.master_level, "the level before mono is kept in the workspace").toBe("number");
+  const kept = (await monoState("loopback-1"))[0]?.mono?.master_level as number;
+  expect(masterSent()[0], "6 dB quieter, level being dB of attenuation").toBe(kept + 6);
   const routingRead = frames.findIndex((f) => f.command === "get_routing" && f.ext3 === 3);
   const mixesRead = frames.findIndex((f) => f.command === "get_mixer");
   const centred = frames.findIndex((f) => f.command === "set_mixer_cfg");
@@ -340,14 +348,14 @@ test("each Control Room output fed by a mix has a Mono button for that mix, nami
 
   // HP1 plays the same mix, so it is mono too, and each names the other; USB REC 1/2 plays it as well.
   await expect(mono(1)).toHaveAttribute("aria-pressed", "true");
-  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono, so HP1 and USB REC 1/2 go mono too: pans its channels to centre, and restores them when turned off.");
-  await expect(mono(1)).toHaveAttribute("title", "Sums Mix 1 to mono, so Monitor and USB REC 1/2 go mono too: pans its channels to centre, and restores them when turned off.");
+  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono, so HP1 and USB REC 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
+  await expect(mono(1)).toHaveAttribute("title", "Sums Mix 1 to mono, so Monitor and USB REC 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
   await expect(mono(0)).toHaveAttribute("aria-label", "Monitor mono (Mix 1, also HP1 and USB REC 1/2)");
   await expect(panel(page).getByTestId("cr-feed-0")).toHaveText("Mix 1");
   // HP2 plays the named Mix 2, which is not mono; so does Reamp, which the panel does not show.
   await expect(mono(2)).toBeEnabled();
   await expect(mono(2)).toHaveAttribute("aria-pressed", "false");
-  await expect(mono(2)).toHaveAttribute("title", "Sums Mix 2: Cue to mono, so Reamp goes mono too: pans its channels to centre, and restores them when turned off.");
+  await expect(mono(2)).toHaveAttribute("title", "Sums Mix 2: Cue to mono, so Reamp goes mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
   await expect(panel(page).getByTestId("cr-feed-2")).toHaveText("Mix 2: Cue");
   // Line out plays USB straight: no mix to sum.
   await expect(mono(3)).toBeDisabled();
@@ -366,6 +374,8 @@ test("each Control Room output fed by a mix has a Mono button for that mix, nami
   await expect.poll(() => monoMixes("loopback-1")).toEqual([false, false]);
   await expect.poll(() => panSent().length).toBe(2);
   expect(panSent().every(([mix]) => mix === 0), "only Mix 1's pans are sent").toBe(true);
+  await expect.poll(() => masterSent().length, "and the master gets its 6 dB back").toBe(2);
+  expect(masterSent()[1]).toBe(kept);
 
   // Coming back from a dropped connection enables the controls again, but not a Mono with no mix to sum.
   await frames.drop();
@@ -398,7 +408,7 @@ test("on the Quadro, Mono reads the routing and the mixes before keeping the pan
   expect(mixesRead, "and both before the pans are kept and centred").toBeLessThan(centred());
   expect(frames[centred()]?.args).toMatchObject({ mixer_id: 0, pan: 32 });
   await expect(mono(0)).toHaveAttribute("aria-pressed", "true");
-  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono: pans its channels to centre, and restores them when turned off.");
+  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
 
   await expect(mono(1)).toBeDisabled();
   await expect(mono(1)).toHaveAttribute("title", "The routing to HP1 could not be read, so the mix that feeds it is not known.");

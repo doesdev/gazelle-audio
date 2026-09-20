@@ -53,7 +53,7 @@ Gazelle presents the mixer as **channels**: a named, coloured strip that knows i
 
 A mix's output is a source like any other, so a mix plays wherever it is routed: the Monitor output, a headphone output, a recording channel for a talkback or a loopback recording, or a digital output.
 
-**Mono** for a mix is not a device setting: neither model has one. Gazelle sums a mix to mono by centring every channel's pan in it, and remembers the pans to put back when mono is turned off.
+**Mono** for a mix is not a device setting: neither model has one. Gazelle sums a mix to mono by centring every channel's pan in it, and remembers the pans to put back when mono is turned off. Centring both sides sums them into each output, which is about 6 dB louder, so Gazelle also lowers that mix's master by 6 dB and gives that step back when mono ends. The master fader still works while mono is on, and ending mono never leaves the mix louder than it was before.
 
 ## Routing
 

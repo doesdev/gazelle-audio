@@ -29,6 +29,10 @@ version that has not been published yet.
 
 ### Changed
 
+- **Mono no longer jumps the level.** Summing a mix to mono makes both sides play through each
+  output, which was about 6 dB louder; Gazelle now lowers that mix by 6 dB while Mono is on and
+  gives that step back when you turn it off. You can still ride the mix's master while Mono is on,
+  and turning Mono off never leaves the mix louder than it was before.
 - The Mixer shows one mix at a time, and only what is routed to it. Pick a mix from the row of
   buttons at the top; a strip's fader is that channel's level in the mix you picked, whether it is
   the channel's main mix or one it is sent to. **Show all channels** beside the buttons brings back
