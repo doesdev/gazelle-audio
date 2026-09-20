@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use super::{AsioEntry, BufferSizes, ClockSource, Description, Host, Step, SubDriver, QUADRO_CLSID, STUDIO_CLSID};
+use super::{AsioEntry, BufferSizes, ClockSource, Description, Host, Position, Step, SubDriver, QUADRO_CLSID, STUDIO_CLSID};
 
 /// What a fake driver answers, and where it refuses.
 #[derive(Clone, Debug)]
@@ -23,6 +23,9 @@ pub struct Spec {
     pub fails_at: Option<(Step, String)>,
     /// Rates `canSampleRate` says yes to.
     pub rates: Vec<f64>,
+    /// The samples a second this driver's own sample position advances by, which is its real clock
+    /// and need not match the pace it calls back at.
+    pub position_rate: f64,
 }
 
 impl Spec {
@@ -38,6 +41,7 @@ impl Spec {
             callbacks_per_second: 44_100.0 / 512.0,
             fails_at: None,
             rates: vec![44_100.0, 48_000.0, 88_200.0, 96_000.0],
+            position_rate: 44_100.0,
         }
     }
 
@@ -53,6 +57,7 @@ impl Spec {
             callbacks_per_second: 44_100.0 / 512.0,
             fails_at: None,
             rates: vec![44_100.0, 48_000.0, 88_200.0, 96_000.0],
+            position_rate: 44_100.0,
         }
     }
 
@@ -63,6 +68,12 @@ impl Spec {
 
     pub fn preferring(mut self, preferred: i32) -> Spec {
         self.preferred = preferred;
+        self
+    }
+
+    /// A driver whose sample position advances at its own rate: two crystals, not one.
+    pub fn positions_at(mut self, samples_per_second: f64) -> Spec {
+        self.position_rate = samples_per_second;
         self
     }
 
@@ -82,6 +93,11 @@ pub struct FakeSub {
     spec: Spec,
     log: Log,
     ticks: Rc<RefCell<HashMap<String, u64>>>,
+    /// The pace the PC counts by, shared with it: a rate change has to reach there, as a real
+    /// driver's would, or the run would still be counted at the old rate.
+    pace: Rc<RefCell<HashMap<String, f64>>>,
+    /// The fake PC's clock in nanoseconds, which `wait` moves on.
+    now: Rc<RefCell<i64>>,
     started: bool,
     created: bool,
 }
@@ -134,6 +150,22 @@ impl SubDriver for FakeSub {
         self.spec.rates.contains(&hz)
     }
 
+    fn set_rate(&mut self, hz: f64) -> Result<(), String> {
+        self.note(&format!("set_rate {hz}"));
+        let moved = hz / self.spec.rate;
+        if let Some((step, said)) = self.spec.fails_at.clone() {
+            if step == Step::SetRate {
+                return Err(said);
+            }
+        }
+        // A driver that moves rate calls back proportionally faster, as the real one does.
+        self.spec.callbacks_per_second *= moved;
+        self.spec.position_rate *= moved;
+        self.spec.rate = hz;
+        self.pace.borrow_mut().insert(self.name.clone(), self.spec.callbacks_per_second);
+        Ok(())
+    }
+
     fn create_buffers(&mut self, inputs: i32, outputs: i32, size: i32) -> Result<(), String> {
         self.note(&format!("createBuffers {inputs} in, {outputs} out, {size}"));
         if let Some(message) = self.refuse(Step::CreateBuffers) {
@@ -169,6 +201,14 @@ impl SubDriver for FakeSub {
     fn callbacks(&self) -> u64 {
         self.ticks.borrow().get(&self.name).copied().unwrap_or(0)
     }
+
+    fn position(&mut self) -> Option<Position> {
+        // The fake PC's clock: nanoseconds since the run began, and the samples this driver's own
+        // rate has passed in that time. Two rates make two clocks, which is the drifting case.
+        let nanos = *self.now.borrow();
+        let samples = (self.spec.position_rate * nanos as f64 / 1e9).round() as i64;
+        Some(Position { samples, nanos })
+    }
 }
 
 impl Drop for FakeSub {
@@ -181,6 +221,10 @@ impl Drop for FakeSub {
 pub struct FakePc {
     pub entries: Vec<AsioEntry>,
     pub specs: HashMap<String, Spec>,
+    /// Each driver's callbacks a second, which a rate change moves.
+    pace: Rc<RefCell<HashMap<String, f64>>>,
+    /// The PC's clock in nanoseconds, shared with every driver it made.
+    now: Rc<RefCell<i64>>,
     /// Which drivers were actually created, in order.
     pub log: Log,
     ticks: Rc<RefCell<HashMap<String, u64>>>,
@@ -215,6 +259,8 @@ impl FakePc {
         FakePc {
             entries,
             specs,
+            pace: Rc::new(RefCell::new(HashMap::new())),
+            now: Rc::new(RefCell::new(0)),
             log: Rc::new(RefCell::new(Vec::new())),
             ticks: Rc::new(RefCell::new(HashMap::new())),
             uncreatable: HashMap::new(),
@@ -250,17 +296,23 @@ impl Host for FakePc {
             spec,
             log: self.log.clone(),
             ticks: self.ticks.clone(),
+            pace: self.pace.clone(),
+            now: self.now.clone(),
             started: false,
             created: false,
         }))
     }
 
-    fn wait(&self, seconds: u64) -> Duration {
-        // No sleeping: each driver simply makes the callbacks its own pace would have made.
+    fn wait_ms(&self, ms: u64) -> Duration {
+        // The same clock the fake drivers answer positions from, so a fitted rate is theirs. The
+        // count comes from the whole run so far, not this slice: rounding each slice would inflate
+        // it, the way a real driver's count never would.
+        *self.now.borrow_mut() += ms as i64 * 1_000_000;
+        let seconds = *self.now.borrow() as f64 / 1e9;
         for (name, spec) in &self.specs {
-            let made = (spec.callbacks_per_second * seconds as f64).round() as u64;
-            *self.ticks.borrow_mut().entry(name.clone()).or_insert(0) += made;
+            let per_second = self.pace.borrow().get(name).copied().unwrap_or(spec.callbacks_per_second);
+            self.ticks.borrow_mut().insert(name.clone(), (per_second * seconds).round() as u64);
         }
-        Duration::from_secs(seconds)
+        Duration::from_millis(ms)
     }
 }

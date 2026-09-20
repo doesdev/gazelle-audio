@@ -4,11 +4,15 @@ use super::fake::{FakePc, Spec};
 use super::*;
 
 fn options() -> Options {
-    Options { proceed: true, seconds: 10, only: None, rate: None }
+    Options { proceed: true, seconds: 10, only: None, rate: None, set_rate: None }
 }
 
 fn both() -> FakePc {
     FakePc::this_pc(Spec::quadro(), Spec::studio())
+}
+
+fn both_with(quadro: Spec, studio: Spec) -> FakePc {
+    FakePc::this_pc(quadro, studio)
 }
 
 fn run_named(name: &str, callbacks: u64, buffer: i32) -> Run {
@@ -235,4 +239,97 @@ fn class_ids_match_whatever_their_case_or_braces() {
     // The order is the probe's, not the registry's: the clock master first.
     assert_eq!(chosen[0].target(), Some("quadro"));
     assert_eq!(chosen[1].target(), Some("studio"));
+}
+
+#[test]
+fn set_rate_moves_every_driver_before_any_buffer_is_made() {
+    // The drivers idle at whatever Windows last used (44.1 kHz here), and a DAW moves them when it
+    // opens. The probe does the same with --set-rate, so drift can be measured at the rate the user
+    // records at. Every driver moves before any of them makes buffers, as the aggregate will do.
+    let pc = both();
+    let outcome = run(&pc, &Options { set_rate: Some(96_000.0), ..options() }).expect("the run must work");
+    assert_eq!(outcome.opened.iter().map(|o| o.description.rate).collect::<Vec<_>>(), [96_000.0, 96_000.0]);
+    let calls = pc.calls();
+    let first_buffers = calls.iter().position(|c| c.contains("createBuffers")).expect("buffers were made");
+    let last_set = calls.iter().rposition(|c| c.contains("set_rate")).expect("the rate was set");
+    assert!(last_set < first_buffers, "every rate is set before the first buffer: {calls:?}");
+    // At 96 kHz in 512 sample buffers the callbacks come about twice as often as at 44.1.
+    assert_eq!(rate_of(&outcome.runs[0], outcome.elapsed), 187.5);
+}
+
+#[test]
+fn a_driver_that_refuses_the_rate_says_so_and_nothing_starts() {
+    let pc = both_with(Spec::quadro(), Spec::studio().failing(Step::SetRate, "rate not supported"));
+    let outcome = run(&pc, &Options { set_rate: Some(96_000.0), ..options() }).expect("a refusal is an answer");
+    let failure = outcome.failure.expect("the refusal is recorded");
+    assert_eq!(failure.step, Step::SetRate);
+    assert_eq!(failure.driver, "studio");
+    assert_eq!(failure.already_open, 1, "the Quadro was open while the Studio+ refused");
+    assert!(outcome.runs.is_empty(), "nothing ran");
+    assert!(!pc.calls().iter().any(|c| c.contains("start")), "and nothing started: {:?}", pc.calls());
+}
+
+#[test]
+fn sample_positions_measure_the_two_clocks_far_more_finely_than_callbacks_do() {
+    // Counting callbacks quantises to a buffer, so a 20 second run cannot tell a locked pair from a
+    // pair that is 50 parts per million apart. getSamplePosition reports an exact sample count with
+    // a timestamp, which gives each driver's real rate and so the difference between them.
+    let pc = both();
+    let outcome = run(&pc, &options()).expect("the run must work");
+    let measured = clocks(&outcome.positions).expect("both drivers reported a position");
+    assert_eq!(measured.rates, [96_000.0, 96_000.0].map(|_| 44_100.0), "the fake runs both at 44.1 kHz");
+    assert_eq!(measured.parts_per_million, 0.0, "one clock, so no difference at all");
+}
+
+#[test]
+fn a_pair_on_two_crystals_shows_up_in_parts_per_million() {
+    // 50 ppm at 44.1 kHz is about 2.2 samples a second: under half a callback over ten seconds, so
+    // the callback count would still read "in step" while the positions say otherwise.
+    let drifting = Spec::studio().at(44_100.0 * (1.0 - 50e-6) / 512.0).positions_at(44_100.0 * (1.0 - 50e-6));
+    let pc = both_with(Spec::quadro(), drifting);
+    let outcome = run(&pc, &options()).expect("the run must work");
+    assert_eq!(drift(&outcome.runs, outcome.elapsed).expect("two runs").verdict, Verdict::InStep, "callbacks cannot see it");
+    let measured = clocks(&outcome.positions).expect("both drivers reported a position");
+    assert!((measured.parts_per_million - 50.0).abs() < 1.0, "{} ppm", measured.parts_per_million);
+}
+
+#[test]
+fn many_readings_fitted_see_through_the_quantising_that_two_endpoints_cannot() {
+    // A sample position steps a whole buffer at a time and the timestamps step a millisecond, so
+    // comparing the first reading with the last measures the quantising, not the clocks (seen at the
+    // devices, 2026-09-20: two locked units read exactly one buffer apart). Reading all through the
+    // run and fitting a line through each driver's points averages that out.
+    let pc = both();
+    let outcome = run(&pc, &options()).expect("the run must work");
+    let fitted = fitted_clocks(&outcome.series).expect("both drivers were sampled");
+    assert!(fitted.parts_per_million.abs() < 1.0, "one clock: {} ppm", fitted.parts_per_million);
+    assert_eq!(fitted.verdict, Verdict::InStep);
+    assert!(fitted.readings >= 10, "the run is sampled all the way through, not just at its ends");
+}
+
+#[test]
+fn a_fitted_pair_on_two_crystals_reads_their_real_difference() {
+    let apart = Spec::studio().positions_at(44_100.0 * (1.0 - 44e-6));
+    let pc = both_with(Spec::quadro(), apart);
+    let outcome = run(&pc, &options()).expect("the run must work");
+    let fitted = fitted_clocks(&outcome.series).expect("both drivers were sampled");
+    assert!((fitted.parts_per_million - 44.0).abs() < 2.0, "{} ppm", fitted.parts_per_million);
+    assert_eq!(fitted.verdict, Verdict::Drifting);
+}
+
+#[test]
+fn the_gap_between_the_two_counts_grows_only_when_the_clocks_differ() {
+    // No timestamps in this one: the two drivers are read together, so their sample counts can be
+    // subtracted. Locked, the gap stays where it started; apart, it grows run after run, and that
+    // growth is what a long run can see and a short one cannot.
+    let locked = gap(&run(&both(), &Options { seconds: 600, ..options() }).expect("the run must work").series).expect("two series");
+    assert_eq!(locked.last, 0, "one clock keeps the counts together");
+    assert_eq!(locked.widest, 0);
+    assert_eq!(locked.samples_per_second, 0.0);
+
+    // 44 parts per million at 44.1 kHz is about 1.9 samples a second: over ten minutes, 1164.
+    let apart = Spec::studio().positions_at(44_100.0 * (1.0 - 44e-6));
+    let drifting = gap(&run(&both_with(Spec::quadro(), apart), &Options { seconds: 600, ..options() }).expect("the run must work").series).expect("two series");
+    assert!(drifting.last > 1100 && drifting.last < 1200, "the gap grew to {}", drifting.last);
+    assert!((drifting.samples_per_second - 1.94).abs() < 0.1, "{} samples a second", drifting.samples_per_second);
 }

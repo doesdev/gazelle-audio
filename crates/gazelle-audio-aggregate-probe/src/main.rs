@@ -20,7 +20,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use probe::{buffer_mismatch, drift, rate_of, Opened, Options, Outcome, Verdict, NO_HARDWARE};
+use probe::{buffer_mismatch, clocks, drift, fitted_clocks, gap, rate_of, Opened, Options, Outcome, Verdict, NO_HARDWARE};
 
 /// Open both Antelope USB ASIO drivers in one process and see whether they coexist.
 #[derive(Parser, Debug)]
@@ -35,6 +35,9 @@ struct Cli {
     /// Run one driver alone: "quadro", "studio", or any part of a driver's name.
     #[arg(long, value_name = "NAME")]
     only: Option<String>,
+    /// Move every driver to this rate before it streams, as a DAW does. The probe's only write.
+    #[arg(long, value_name = "HZ")]
+    set_rate: Option<f64>,
     /// Ask each driver whether it can run at this rate. Asked, never set.
     #[arg(long, value_name = "HZ")]
     rate: Option<f64>,
@@ -48,7 +51,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let options = Options { proceed: cli.yes, seconds: cli.seconds, only: cli.only, rate: cli.rate };
+    let options = Options { proceed: cli.yes, seconds: cli.seconds, only: cli.only, rate: cli.rate, set_rate: cli.set_rate };
     here(&options)
 }
 
@@ -132,7 +135,8 @@ fn report(outcome: &Outcome, options: &Options) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    println!("Both instantiated and started together: {}", yes_no(outcome.all_started()));
+    let together = if outcome.targets.len() > 1 { "Both instantiated and started together" } else { "Instantiated and started" };
+    println!("{together}: {}", yes_no(outcome.all_started()));
     println!("Ran for {:.3} s", outcome.elapsed.as_secs_f64());
     println!();
     for run in &outcome.runs {
@@ -146,6 +150,71 @@ fn report(outcome: &Outcome, options: &Options) -> ExitCode {
         );
     }
     println!();
+
+    // The plainest measurement of the two, and the one to believe over a long run: the drivers are
+    // read together, so their counts can simply be subtracted. No timestamps, no fitting. A count
+    // moves a buffer at a time, so a gap only shows once the clocks have pulled a buffer apart:
+    // at one sample a second and 512 samples to a buffer, that is eight minutes.
+    if let Some(gap) = gap(&outcome.series) {
+        println!("The gap between the two sample counts, read together {} times over {:.1} s:", outcome.series.first().map_or(0, |s| s.points.len()), gap.seconds);
+        println!("  started at    {} samples", gap.first);
+        println!("  ended         {:+} samples from there (widest {:+})", gap.last, gap.widest);
+        println!("  growing at    {:+.3} samples per second", gap.samples_per_second);
+        if gap.last == 0 && gap.widest == 0 {
+            println!("  The counts never parted. Either one clock feeds both, or the run was too");
+            println!("  short for a difference to reach a whole buffer: {} samples at this rate.", 512);
+        }
+        println!();
+    }
+
+    // The clocks as a line fitted through readings taken all through the run. A single reading is
+    // quantised to a buffer and to a millisecond, so this is the measurement to believe; the two
+    // endpoint figures below are kept because they show that quantising for what it is.
+    if let Some(fitted) = fitted_clocks(&outcome.series) {
+        println!("The two clocks, fitted through {} readings each:", fitted.readings);
+        for (name, rate) in fitted.names.iter().zip(fitted.rates.iter()) {
+            println!("  {name:<12} {rate:.3} samples per second");
+        }
+        println!("  difference    {:+.3} samples per second ({:+.2} parts per million)", fitted.samples_per_second, fitted.parts_per_million);
+        match fitted.verdict {
+            Verdict::InStep => {
+                println!("  One clock. The two devices keep the same sample count, so an aggregate of");
+                println!("  them needs no resampling: only a fixed offset between the two streams.");
+            }
+            Verdict::Drifting => {
+                println!("  Two clocks. They pull apart by {:.1} samples a second, which is about", fitted.samples_per_second.abs());
+                println!("  {:.0} samples an hour, so an aggregate would need the cable and the clock", fitted.samples_per_second.abs() * 3600.0);
+                println!("  source set, or it would have to resample.");
+            }
+        }
+        println!();
+    }
+
+    // The drivers' own sample positions, which measure the two clocks far more finely than counting
+    // whole buffers can: a crystal pair tens of parts per million apart moves less than one callback
+    // in a run this short, and that shows up here.
+    if let Some(clocks) = clocks(&outcome.positions) {
+        println!("The same, from the first and last readings only (quantised, kept for comparison):");
+        for (name, rate) in clocks.names.iter().zip(clocks.rates.iter()) {
+            println!("  {name:<12} {rate:.3} samples per second");
+        }
+        // The raw readings too: a rate is samples over the driver's own timestamps, so two drivers
+        // that time by different clocks would be compared wrongly. These show whether they agree.
+        for p in &outcome.positions {
+            let (samples, nanos) = (p.last.samples - p.first.samples, p.last.nanos - p.first.nanos);
+            println!("    {:<10} {samples} samples over {:.6} s (first {} at {} ns)", p.name, nanos as f64 / 1e9, p.first.samples, p.first.nanos);
+        }
+        // Samples against samples, which needs no timestamp at all: two positions read microseconds
+        // apart, so a locked pair must advance by the same count.
+        if let (Some(a), Some(b)) = (outcome.positions.first(), outcome.positions.get(1)) {
+            let (da, db) = (a.last.samples - a.first.samples, b.last.samples - b.first.samples);
+            let ppm = if db != 0 { (da as f64 / db as f64 - 1.0) * 1e6 } else { 0.0 };
+            println!("  samples against samples: {da} and {db}, {:+} apart ({ppm:+.2} parts per million)", da - db);
+        }
+        println!("  difference    {:+.3} samples per second ({:+.2} parts per million)", clocks.samples_per_second, clocks.parts_per_million);
+        println!("  These two rates are quantised by the readings themselves, so read the fit above.");
+        println!();
+    }
 
     match drift(&outcome.runs, outcome.elapsed) {
         Some(drift) => {

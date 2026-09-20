@@ -34,7 +34,7 @@ use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY,
 };
 
-use super::{AsioEntry, BufferSizes, ClockSource, Description, Host, SubDriver};
+use super::{AsioEntry, BufferSizes, ClockSource, Description, Host, Position, SubDriver};
 
 /// Where every ASIO driver on a PC registers itself.
 const ASIO_KEY: &str = r"SOFTWARE\ASIO";
@@ -443,9 +443,9 @@ impl Host for ThisPc {
         }))
     }
 
-    fn wait(&self, seconds: u64) -> Duration {
+    fn wait_ms(&self, ms: u64) -> Duration {
         let started = Instant::now();
-        std::thread::sleep(Duration::from_secs(seconds));
+        std::thread::sleep(Duration::from_millis(ms));
         started.elapsed()
     }
 }
@@ -579,6 +579,12 @@ impl SubDriver for WindowsSub {
         unsafe { ((*(*self.object).vtable).can_sample_rate)(self.object, hz) == OK }
     }
 
+    fn set_rate(&mut self, hz: f64) -> Result<(), String> {
+        // The only call in this file that changes anything on the PC, and only with --set-rate.
+        let code = unsafe { ((*(*self.object).vtable).set_sample_rate)(self.object, hz) };
+        self.check("setSampleRate", code)
+    }
+
     fn create_buffers(&mut self, inputs: i32, outputs: i32, size: i32) -> Result<(), String> {
         let slot = &SLOTS[self.slot];
         if outputs as usize > MAX_OUT {
@@ -639,6 +645,19 @@ impl SubDriver for WindowsSub {
 
     fn callbacks(&self) -> u64 {
         SLOTS[self.slot].count.load(Ordering::Relaxed)
+    }
+
+    fn position(&mut self) -> Option<Position> {
+        // Both halves are 32 bits, high word first, as the interface carries a 64 bit count on a
+        // platform whose compiler may have none. The timestamp is system time in nanoseconds.
+        let mut samples = SamplesRaw { hi: 0, lo: 0 };
+        let mut stamp = SamplesRaw { hi: 0, lo: 0 };
+        let code = unsafe { ((*(*self.object).vtable).get_sample_position)(self.object, &mut samples, &mut stamp) };
+        if code != OK {
+            return None;
+        }
+        let join = |v: &SamplesRaw| ((v.hi as u64) << 32 | v.lo as u64) as i64;
+        Some(Position { samples: join(&samples), nanos: join(&stamp) })
     }
 }
 

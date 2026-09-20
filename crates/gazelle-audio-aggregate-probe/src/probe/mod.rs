@@ -105,6 +105,9 @@ pub trait SubDriver {
     fn describe(&mut self) -> Result<Description, String>;
     /// `canSampleRate`, which asks and changes nothing.
     fn can_rate(&mut self, hz: f64) -> bool;
+    /// `setSampleRate`. The one thing the probe writes, and only when asked for with --set-rate:
+    /// the drivers idle at whatever Windows last used, and a DAW moves them the same way.
+    fn set_rate(&mut self, hz: f64) -> Result<(), String>;
     /// Open `inputs` inputs and `outputs` outputs at `size` samples, with the silent callback.
     fn create_buffers(&mut self, inputs: i32, outputs: i32, size: i32) -> Result<(), String>;
     fn start(&mut self) -> Result<(), String>;
@@ -112,6 +115,10 @@ pub trait SubDriver {
     fn dispose_buffers(&mut self);
     /// How many times the driver has called back since `create_buffers`.
     fn callbacks(&self) -> u64;
+    /// `getSamplePosition`: the samples the driver has passed and the system time it read them at,
+    /// in nanoseconds. Read twice, this gives the driver's real rate, which is what tells two
+    /// clocks apart: counting callbacks can only see whole buffers.
+    fn position(&mut self) -> Option<Position>;
 }
 
 /// The PC: the registry, COM, and the wait while the drivers run.
@@ -120,8 +127,8 @@ pub trait Host {
     fn entries(&self) -> Result<Vec<AsioEntry>, String>;
     /// Create the driver object. The caller keeps every driver it opened alive until the end.
     fn open(&self, entry: &AsioEntry) -> Result<Box<dyn SubDriver>, String>;
-    /// Let the drivers run, and say how long that actually was.
-    fn wait(&self, seconds: u64) -> Duration;
+    /// Wait a slice of the run, so positions can be read all the way through it.
+    fn wait_ms(&self, ms: u64) -> Duration;
 }
 
 /// What the probe was asked to do.
@@ -134,11 +141,13 @@ pub struct Options {
     pub only: Option<String>,
     /// A rate to ask each driver about. Asked, never set.
     pub rate: Option<f64>,
+    /// Move every driver to this rate before any buffers are made. The probe's only write.
+    pub set_rate: Option<f64>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { proceed: false, seconds: 20, only: None, rate: None }
+        Options { proceed: false, seconds: 20, only: None, rate: None, set_rate: None }
     }
 }
 
@@ -148,6 +157,7 @@ pub enum Step {
     Create,
     Init,
     Read,
+    SetRate,
     CreateBuffers,
     Start,
 }
@@ -158,6 +168,7 @@ impl Step {
             Step::Create => "CoCreateInstance",
             Step::Init => "init",
             Step::Read => "reading the driver",
+            Step::SetRate => "setSampleRate",
             Step::CreateBuffers => "createBuffers",
             Step::Start => "start",
         }
@@ -204,6 +215,160 @@ pub enum Verdict {
     InStep,
     /// The counts moved apart: the two devices are running off different clocks.
     Drifting,
+}
+
+/// One `getSamplePosition` reading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Position {
+    pub samples: i64,
+    pub nanos: i64,
+}
+
+/// A driver's two readings, from just after it started to just before it stopped.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Positions {
+    pub name: String,
+    pub first: Position,
+    pub last: Position,
+}
+
+impl Positions {
+    /// The rate the driver actually ran at, in samples a second, or None when the two readings are
+    /// too close together in time to divide by.
+    pub fn rate(&self) -> Option<f64> {
+        let nanos = self.last.nanos - self.first.nanos;
+        if nanos <= 0 {
+            return None;
+        }
+        Some((self.last.samples - self.first.samples) as f64 * 1e9 / nanos as f64)
+    }
+}
+
+/// What the two drivers' own sample positions say about their clocks.
+#[derive(Clone, Debug)]
+pub struct Clocks {
+    pub names: [String; 2],
+    pub rates: [f64; 2],
+    /// How far apart the two rates are, in parts per million. One clock reads 0.
+    pub parts_per_million: f64,
+    /// The first rate minus the second, in samples a second.
+    pub samples_per_second: f64,
+}
+
+/// Two clocks are called apart at a part per million, which is far below anything a crystal pair
+/// manages and far above the noise of two readings taken microseconds apart.
+pub const PPM_ALLOWANCE: f64 = 1.0;
+
+/// Every reading taken of one driver while it ran.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Series {
+    pub name: String,
+    pub points: Vec<Position>,
+}
+
+impl Series {
+    /// The driver's rate in samples a second, by least squares through its readings. Fitting rather
+    /// than taking the ends is what sees past the buffer and millisecond steps in the readings.
+    pub fn rate(&self) -> Option<f64> {
+        let n = self.points.len();
+        if n < 3 {
+            return None;
+        }
+        let (mut sx, mut sy, mut sxx, mut sxy) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let base = self.points[0];
+        for p in &self.points {
+            let x = (p.nanos - base.nanos) as f64 / 1e9;
+            let y = (p.samples - base.samples) as f64;
+            sx += x;
+            sy += y;
+            sxx += x * x;
+            sxy += x * y;
+        }
+        let n = n as f64;
+        let denominator = n * sxx - sx * sx;
+        if denominator.abs() < f64::EPSILON {
+            return None;
+        }
+        Some((n * sxy - sx * sy) / denominator)
+    }
+}
+
+/// The two drivers' clocks as their readings fit them.
+#[derive(Clone, Debug)]
+pub struct Fitted {
+    pub names: [String; 2],
+    pub rates: [f64; 2],
+    pub parts_per_million: f64,
+    pub samples_per_second: f64,
+    /// Readings per driver that the fit is made of.
+    pub readings: usize,
+    pub verdict: Verdict,
+}
+
+/// What the readings taken through the run say about the two clocks.
+pub fn fitted_clocks(series: &[Series]) -> Option<Fitted> {
+    let (a, b) = (series.first()?, series.get(1)?);
+    let (ra, rb) = (a.rate()?, b.rate()?);
+    if rb == 0.0 {
+        return None;
+    }
+    let ppm = (ra / rb - 1.0) * 1e6;
+    Some(Fitted {
+        names: [a.name.clone(), b.name.clone()],
+        rates: [ra, rb],
+        parts_per_million: ppm,
+        samples_per_second: ra - rb,
+        readings: a.points.len().min(b.points.len()),
+        verdict: if ppm.abs() <= PPM_ALLOWANCE { Verdict::InStep } else { Verdict::Drifting },
+    })
+}
+
+/// How far apart the two drivers' sample counts drift, with no timestamp involved: the pair is
+/// read together, so subtracting one count from the other says whether they are keeping step.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gap {
+    /// The difference at the first reading, which is where it started.
+    pub first: i64,
+    /// The difference at the last reading, less where it started.
+    pub last: i64,
+    /// The furthest it ever got from where it started.
+    pub widest: i64,
+    /// How fast it grew, in samples a second, across the readings.
+    pub samples_per_second: f64,
+    /// How long the readings covered, in seconds, by the first driver's own timestamps.
+    pub seconds: f64,
+}
+
+/// The gap between two drivers' counts across the readings, or None without two series.
+pub fn gap(series: &[Series]) -> Option<Gap> {
+    let (a, b) = (series.first()?, series.get(1)?);
+    let pairs: Vec<(i64, i64)> = a.points.iter().zip(b.points.iter()).map(|(x, y)| (x.nanos, x.samples - y.samples)).collect();
+    let (&(_, first), &(last_nanos, last)) = (pairs.first()?, pairs.last()?);
+    let widest = pairs.iter().map(|&(_, d)| d - first).max_by_key(|d| d.abs()).unwrap_or(0);
+    let seconds = (last_nanos - pairs[0].0) as f64 / 1e9;
+    Some(Gap {
+        first,
+        last: last - first,
+        widest,
+        samples_per_second: if seconds > 0.0 { (last - first) as f64 / seconds } else { 0.0 },
+        seconds,
+    })
+}
+
+/// What the pair's positions say, or None unless both drivers reported twice.
+pub fn clocks(positions: &[Positions]) -> Option<Clocks> {
+    let (a, b) = (positions.first()?, positions.get(1)?);
+    let (ra, rb) = (a.rate()?, b.rate()?);
+    if rb == 0.0 {
+        return None;
+    }
+    let ppm = (ra / rb - 1.0) * 1e6;
+    Some(Clocks {
+        names: [a.name.clone(), b.name.clone()],
+        rates: [ra, rb],
+        parts_per_million: ppm,
+        samples_per_second: ra - rb,
+    })
 }
 
 /// The difference between two runs.
@@ -271,6 +436,10 @@ pub struct Outcome {
     pub listed_only: bool,
     pub opened: Vec<Opened>,
     pub runs: Vec<Run>,
+    /// Each driver's sample position just after it started and just before it stopped.
+    pub positions: Vec<Positions>,
+    /// Every reading taken through the run, per driver, which is what the clocks are fitted from.
+    pub series: Vec<Series>,
     pub elapsed: Duration,
     pub failure: Option<Failure>,
 }
@@ -323,6 +492,8 @@ pub fn run(host: &dyn Host, options: &Options) -> Result<Outcome, String> {
         listed_only: !options.proceed,
         opened: Vec::new(),
         runs: Vec::new(),
+        positions: Vec::new(),
+        series: Vec::new(),
         elapsed: Duration::ZERO,
         failure: None,
     };
@@ -364,6 +535,23 @@ pub fn run(host: &dyn Host, options: &Options) -> Result<Outcome, String> {
         open.push((name, sub));
     }
 
+    // Every driver moves to the asked rate before any of them makes buffers, which is the order the
+    // aggregate will use: a driver that cannot follow must stop the run before anything streams.
+    if failed.is_none() {
+        if let Some(hz) = options.set_rate {
+            let count = open.len();
+            for (name, sub) in open.iter_mut() {
+                if let Err(message) = sub.set_rate(hz) {
+                    failed = Some(Failure { driver: name.clone(), step: Step::SetRate, message, already_open: count.saturating_sub(1) });
+                    break;
+                }
+                if let Some(opened) = outcome.opened.iter_mut().find(|o| &o.name == name) {
+                    opened.description.rate = hz;
+                }
+            }
+        }
+    }
+
     if failed.is_none() {
         let count = open.len();
         for (name, sub) in open.iter_mut() {
@@ -389,8 +577,40 @@ pub fn run(host: &dyn Host, options: &Options) -> Result<Outcome, String> {
         }
     }
 
+    let mut first_positions: Vec<(String, Position)> = Vec::new();
     if failed.is_none() {
-        outcome.elapsed = host.wait(options.seconds);
+        for (name, sub) in open.iter_mut() {
+            if let Some(position) = sub.position() {
+                first_positions.push((name.clone(), position));
+            }
+        }
+    }
+
+    // Read every driver often, all through the run: a reading is quantised to a buffer and to a
+    // millisecond, so a line fitted through many of them measures the clocks, while the difference
+    // between two endpoints measures mostly the quantising.
+    const SLICE_MS: u64 = 100;
+    if failed.is_none() {
+        let mut series: Vec<Series> = open.iter().map(|(name, _)| Series { name: name.clone(), points: Vec::new() }).collect();
+        let mut elapsed = Duration::ZERO;
+        let slices = (options.seconds * 1000 / SLICE_MS).max(1);
+        for _ in 0..slices {
+            elapsed += host.wait_ms(SLICE_MS);
+            for (index, (_, sub)) in open.iter_mut().enumerate() {
+                if let Some(position) = sub.position() {
+                    if let Some(s) = series.get_mut(index) {
+                        s.points.push(position);
+                    }
+                }
+            }
+        }
+        outcome.elapsed = elapsed;
+        outcome.series = series;
+        for (name, sub) in open.iter_mut() {
+            let Some(last) = sub.position() else { continue };
+            let Some((_, first)) = first_positions.iter().find(|(n, _)| n == name) else { continue };
+            outcome.positions.push(Positions { name: name.clone(), first: *first, last });
+        }
         outcome.runs = open
             .iter()
             .map(|(name, sub)| Run {
