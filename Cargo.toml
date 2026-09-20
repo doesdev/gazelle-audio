@@ -9,6 +9,8 @@ members = [
     "crates/gazelle-audio-stream-abi",
     # Phase 0 of the aggregate driver: a hardware probe, never shipped.
     "crates/gazelle-audio-aggregate-probe",
+    # Phase 1 of the aggregate driver: the driver itself, unregistered and never shipped.
+    "crates/gazelle-audio-aggregate",
     # Release chores (SHA256SUMS and its signature). Never shipped.
     "xtask",
 ]

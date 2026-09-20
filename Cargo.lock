@@ -1013,6 +1013,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gazelle-audio-aggregate"
+version = "0.1.0"
+dependencies = [
+ "gazelle-audio-stream-abi",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "gazelle-audio-aggregate-probe"
 version = "0.1.0"
 dependencies = [
