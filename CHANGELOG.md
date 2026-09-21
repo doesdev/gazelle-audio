@@ -83,6 +83,10 @@ version that has not been published yet.
 
 ### Fixed
 
+- **Picking a device in the sidebar works on every page.** On a surface it used to take you off the
+  surface, and on the Aggregate page it did nothing at all. On a page that shows no one device it
+  now selects the device and keeps you where you are, as the Workspace page always did, and the
+  next page with a device opens on it.
 - **A mixer strip fed by something the interface does not meter on its own now shows a level.**
   The test oscillator, an emulated mic and a loopback return used to leave a strip's meter dead
   while the same signal showed on the output meters, because the interface reports no meter for

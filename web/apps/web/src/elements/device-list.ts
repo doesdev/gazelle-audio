@@ -4,9 +4,14 @@
 // input has signal or has clipped.
 //
 // Picking a card switches the page you are on to that device (the user, 2026-09-16), so the pages
-// need no device picker of their own. On the Workspace page, which shows no one device, it selects
-// the device without leaving, and the next page with a device opens on it. The card marked is the
-// device the page shows, or on the Workspace page the one selected.
+// need no device picker of their own. A page that shows no one device (the Workspace, the Aggregate
+// page and a surface) selects the device without leaving, and the next page with a device opens on
+// it. The card marked is the device the page shows, or on such a page the one selected.
+//
+// That used to be true of the Workspace alone. Everywhere else a card linked to the page it was
+// already on with no device named, so on the Aggregate page a click changed nothing at all, and on
+// a surface, whose own id is the surface's and not a device's, it would have dropped the surface
+// (found 2026-09-21).
 
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
@@ -18,6 +23,9 @@ const STATUS_REPORT = "0x73";
 
 /** The pages that show one device, and so can switch to another in place. */
 const DEVICE_PAGES: readonly Page[] = ["devices", "inputs", "outputs", "mixer", "routing", "effects"];
+
+/** Whether a page shows one device; on any other a card selects a device rather than leaving. */
+export const showsOneDevice = (page: Page): boolean => DEVICE_PAGES.includes(page);
 
 export class GaDeviceList extends GaElement {
   static override styles = [
@@ -87,10 +95,10 @@ export class GaDeviceList extends GaElement {
         "data-explain": "devicelist.card",
         "data-explain-name": name,
         "on:click": (event: Event) => {
-          // The Workspace page shows no one device: select it and stay. A page that needs a device of
+          // A page that shows no one device: select it and stay. A page that needs a device of
           // known model cannot show one of unknown model, so its card does nothing there.
           if (card.getAttribute("aria-disabled") === "true") event.preventDefault();
-          else if (route.peek().page === "workspace") {
+          else if (!showsOneDevice(route.peek().page)) {
             event.preventDefault();
             store.selectDevice(device.id);
           }
@@ -105,12 +113,16 @@ export class GaDeviceList extends GaElement {
       effect(() => {
         const current = route.value;
         const page = current.page;
-        const known = page !== "devices" && page !== "workspace";
+        const oneDevice = showsOneDevice(page);
+        const known = oneDevice && page !== "devices";
         const usable = !known || device.family !== null;
         card.setAttribute("aria-disabled", String(!usable));
         card.title = usable ? "" : "This device's model is unknown, so only its Devices page can show it";
-        card.setAttribute("href", DEVICE_PAGES.includes(page) ? href({ page, id: device.id }) : href({ page }));
-        const shown = page === "workspace" ? store.selectedDevice.value : (current.id ?? store.deviceInView(known));
+        // On a page with no one device the link is the page exactly as it is, id and all, so that
+        // opening it in a new tab or following it from the keyboard leaves it where it was: a click
+        // selects instead, above.
+        card.setAttribute("href", oneDevice ? href({ page, id: device.id }) : href(current));
+        const shown = oneDevice ? (current.id ?? store.deviceInView(known)) : store.selectedDevice.value;
         if (shown === device.id) card.setAttribute("aria-current", "page");
         else card.removeAttribute("aria-current");
       }),

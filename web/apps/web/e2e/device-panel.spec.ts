@@ -53,6 +53,30 @@ test("on the Workspace page, picking a device selects it without leaving, and th
   await expect(page.locator("ga-outputs")).toHaveAttribute("device-id", "loopback-1");
 });
 
+// Opened fresh on a page that shows no one device, a card used to link to that same page with no
+// device named: on the Aggregate page a click did nothing at all, and on a surface, whose own id is
+// the surface's, it dropped the surface. They now select, as the Workspace page always did.
+test("on the Aggregate page and a surface, picking a device selects it where you are, and the next page opens on it", async ({ page }) => {
+  await putWorkspace(server, { surfaces: [{ id: "music", name: "Music", mixes: {}, strips: [] }] });
+  for (const [where, element] of [
+    ["aggregate", "ga-aggregate"],
+    ["surface/music", "ga-surface"],
+  ] as const) {
+    await page.goto(`${server.url}/#/${where}`);
+    await expect(page.locator(element)).toBeVisible();
+    for (const id of ["loopback-1", "loopback-0"]) {
+      await card(page, id).click();
+      await expect(page, `picking ${id} on ${where} stays there, surface and all`).toHaveURL(new RegExp(`#/${where}$`));
+      await expect(card(page, id)).toHaveAttribute("aria-current", "page");
+      // Followed from the keyboard or opened in a new tab, a card leads back to the page as it is.
+      await expect(card(page, id)).toHaveAttribute("href", `#/${where}`);
+    }
+  }
+  await card(page, "loopback-1").click();
+  await page.locator('ga-header nav a[data-page="mixer"]').click();
+  await expect(page.locator("ga-mixer")).toHaveAttribute("device-id", "loopback-1");
+});
+
 test("the pages have no device dropdown of their own", async ({ page }) => {
   for (const [name, element] of [
     ["inputs", "ga-inputs"],
