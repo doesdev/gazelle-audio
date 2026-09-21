@@ -23,10 +23,27 @@ function cargo(): string {
 
 const server = spawn(
   cargo(),
-  ["run", "-p", "gazelle-audio-server", "--", "--bind", `127.0.0.1:${SERVER_PORT}`, "--no-persist", "--no-web-ui", "--no-tray", "--loopback-cyclic-ms", "50"],
+  // `--backend loopback` is the whole point of this script and is not optional: the server's own
+  // default is `usb`, which opens the attached interfaces, and this is run on machines that have
+  // them. `GAZELLE_NO_HARDWARE` is the same rule said twice, as every test and script says it.
+  [
+    "run",
+    "-p",
+    "gazelle-audio-server",
+    "--",
+    "--bind",
+    `127.0.0.1:${SERVER_PORT}`,
+    "--backend",
+    "loopback",
+    "--no-persist",
+    "--no-web-ui",
+    "--no-tray",
+    "--loopback-cyclic-ms",
+    "50",
+  ],
   // A separate target directory: Windows locks a running executable, so a dev server running from
   // target/debug would make every `cargo build` and test run meanwhile fail to replace it.
-  { cwd: repo, stdio: "inherit", env: { ...process.env, CARGO_TARGET_DIR: join(repo, "target", "dev") } },
+  { cwd: repo, stdio: "inherit", env: { ...process.env, CARGO_TARGET_DIR: join(repo, "target", "dev"), GAZELLE_NO_HARDWARE: "1" } },
 );
 server.on("exit", (code) => {
   console.error(`gazelle-audio-server exited (${code ?? "signal"})`);

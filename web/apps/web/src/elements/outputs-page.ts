@@ -58,8 +58,8 @@ export class GaOutputs extends GaElement {
       ${OUTPUT_CONTROL_STYLES}
       h2 { margin: 8px 0 6px; }
       .settings { display: grid; gap: 6px; max-width: 640px; }
-      .setting { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
-      .setting select { justify-self: start; min-height: 24px; }
+      .setting { --ga-field-height: 24px; display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .setting select { justify-self: start; }
       .talk[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .destinations { display: flex; flex-wrap: wrap; gap: 4px; }
       .destinations button[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }

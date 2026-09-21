@@ -56,6 +56,13 @@ version that has not been published yet.
   work at all, how to set it up, what each reason means, what the gap is, and what to do when
   something is wrong.
 
+### Changed
+
+- **Fields and their labels line up.** Boxes you type in, menus and the small value readouts are
+  now one height with one spacing throughout, and every label on a card or a settings block shares
+  a column, so values start in the same place down the page instead of stepping in and out row by
+  row. The Aggregate page, which was the most crowded, reads as proper columns now.
+
 ### Fixed
 
 - **A mixer strip fed by something the interface does not meter on its own now shows a level.**

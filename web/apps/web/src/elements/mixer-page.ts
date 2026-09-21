@@ -70,8 +70,8 @@ export class GaMixer extends GaElement {
       .px-field input:focus-visible { outline: none; }
       .px-field input::-webkit-inner-spin-button, .px-field input::-webkit-outer-spin-button { appearance: none; margin: 0; }
       .px-field .unit { font-size: 11px; color: var(--ga-text-muted); }
-      .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-      .bar select { min-height: 26px; }
+      /* The page's own controls: one field height for the row, so a menu and a button beside it match. */
+      .bar { --ga-field-height: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       /* The mix picker: one button per mix, joined like the width control, with the chosen one filled. */
       .mixes { display: flex; }
       .mixes .mix {
@@ -149,9 +149,8 @@ export class GaMixer extends GaElement {
       }
       .masters:empty { display: none; }
       .masters ga-mix-master { flex: 0 0 96px; }
-      .starts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .starts { --ga-field-height: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
       .starts:empty { display: none; }
-      .starts select, .starts button { min-height: 26px; }
       ${LINK_STYLES}
     `),
   ];

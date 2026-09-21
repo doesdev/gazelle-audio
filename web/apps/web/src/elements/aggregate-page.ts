@@ -108,29 +108,24 @@ export class GaAggregate extends GaElement {
       .severity[data-severity="warning"] { background: var(--ga-state-solo); }
       .device-card { display: grid; gap: 8px; padding: 8px 10px; border-radius: 3px; background: var(--ga-surface-raised); }
       .device-card + .device-card { margin-top: 6px; }
-      .device-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-      .device-head .name { width: 160px; }
+      /* The head names the interface and orders it. The name field and the readout beside it take
+         the fields' own height, so the two read as one thing rather than as two sizes of box. */
+      .device-head { gap: 6px; }
+      .device-head .name { flex: 0 1 180px; }
       .device-head .spacer { flex: 1; }
       .device-head .order { min-width: 26px; padding: 0 4px; }
-      .device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 12px; }
-      .cell { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px; }
-      .cell .label { color: var(--ga-text-secondary); font-size: 11px; }
-      /* A DLL path and a refusal are long, and a phone is narrow: they wrap rather than push the
-         page sideways, which is the rule every other page keeps. */
-      .fields { grid-template-columns: max-content minmax(0, 1fr); }
-      .fields dd, .cell > span, .live-row > * { min-width: 0; }
-      .readout { max-width: 100%; overflow-wrap: anywhere; }
-      .choice { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-      .worked { font-size: 11px; color: var(--ga-text-muted); }
-      /* The Channels part of a card: closed to one line, and a row per channel when it is open. */
-      .channels { padding: 2px 8px; border-radius: 3px; background: var(--ga-surface-inset); }
-      .channels > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+      .live-row > * { min-width: 0; }
+      /* Worked out for you rather than chosen: a hint beside the menu, not a value of its own. */
+      .worked { min-width: 0; padding: 0; border: 0; background: none; font-size: 11px; color: var(--ga-text-muted); }
+      /* The Channels part is the last row of the card's grid, so its label starts where every other
+         label on the card does. Closed it is one line; open it is a row per channel. */
+      .channels { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--ga-border-subtle); }
+      .channels > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); padding: 2px 0; cursor: pointer; }
       .channels .side { margin: 8px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-secondary); }
-      .channel-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 2px 0; }
+      .channel-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); align-items: center; gap: var(--ga-field-gap); padding: 2px 0; }
       .channel-row > * { min-width: 0; }
-      .channel-row .auto, .channel-row .hint { font-size: 11px; overflow-wrap: anywhere; }
+      .channel-row .auto, .channel-row .hint { font-size: 11px; }
       .channel-row .hint { color: var(--ga-text-muted); }
-      .channel-row input { min-height: 24px; }
       .expose { min-width: 34px; }
       .expose[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
@@ -139,9 +134,7 @@ export class GaAggregate extends GaElement {
       .gap[data-tone="good"] { color: var(--ga-accent); }
       .gap[data-tone="off"], .gap[data-tone="stalled"] { color: var(--ga-state-mute); font-weight: 700; }
       .gap[data-tone="idle"] { color: var(--ga-text-muted); }
-      .setup { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; padding: 4px 0; }
-      .setup .label { color: var(--ga-text-secondary); font-size: 11px; }
-      .setup select, .setup input { justify-self: start; min-height: 24px; }
+      .setup { padding: 4px 0; }
       .trim { width: 84px; }
       .add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
       .events { display: grid; gap: 2px; margin: 0; padding: 4px 0 0; list-style: none; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11px; }
@@ -176,9 +169,7 @@ export class GaAggregate extends GaElement {
       @media (max-width: 480px) {
         .reason { grid-template-columns: auto minmax(0, 1fr); }
         .reason .fix { grid-column: 1 / -1; justify-self: start; }
-        .device-grid { grid-template-columns: minmax(0, 1fr); }
-        .device-head .name { width: 100%; }
-        .setup { grid-template-columns: minmax(0, 1fr); }
+        .device-head .name { flex: 1 1 100%; }
         .live-row { grid-template-columns: minmax(0, 1fr) auto; }
         .calibrate-row, .reading, .trim-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
         .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
@@ -262,7 +253,7 @@ export class GaAggregate extends GaElement {
       h("p", { class: "note" }, `Buffer size and Safe Mode are the audio driver's own settings on this PC, the same ones the Devices page shows. Changing either, or matching them, takes a confirming click, because ${RESTARTS}.`),
     );
 
-    const setup = h("div", { class: "setup", "data-testid": "aggregate-setup" });
+    const setup = h("div", { class: "setup field-grid pairs", "data-testid": "aggregate-setup" });
     const exportPath = h("code", { "data-testid": "aggregate-export-path" });
     const setupSection = h(
       "ga-section",
@@ -524,7 +515,7 @@ export class GaAggregate extends GaElement {
     );
     const channelsPart = h(
       "details",
-      { class: "channels", "data-testid": `${testid}-channels-part` },
+      { class: "channels wide", "data-testid": `${testid}-channels-part` },
       h("summary", { "data-testid": `${testid}-channels-open`, "data-explain": "aggregate.device-channels-open" }, h("span", { class: "label" }, "Channels"), channels),
       channelsNote,
       unknownChannels,
@@ -538,26 +529,32 @@ export class GaAggregate extends GaElement {
       opened.value = channelsPart.open;
     });
 
-    const cell = (label: string, ...value: (Node | string)[]) => h("div", { class: "cell" }, h("span", { class: "label" }, label), h("span", {}, ...value));
+    // One grid for the whole card, two label-and-field pairs to a line: what you set down the left,
+    // what the interface reports down the right. Every label shares one column, so every value
+    // starts at the same place instead of wherever its own little grid happened to put it.
+    const field = (label: string, ...value: (Node | string)[]): Node[] => [
+      h("span", { class: "label" }, label),
+      value.length === 1 && value[0] instanceof HTMLElement ? value[0] : h("span", { class: "field-row" }, ...value),
+    ];
 
     const card = h(
       "div",
       { class: "device-card", "data-testid": `aggregate-${testid}` },
-      h("div", { class: "device-head" }, h("span", { class: "label" }, `${index + 1}.`), name, which, h("span", { class: "spacer" }), up, down, remove),
+      h("div", { class: "device-head field-row" }, h("span", { class: "label" }, `${index + 1}.`), name, which, h("span", { class: "spacer" }), up, down, remove),
       h(
         "div",
-        { class: "device-grid" },
-        cell("Gazelle device", h("span", { class: "choice" }, idSelect, worked)),
-        cell("Clock", clock, " ", lock),
-        cell("Rate", rate),
-        cell("Buffer", h("span", { class: "choice" }, bufferMenu, bufferChoice.confirm)),
-        cell("Safe Mode", safe),
-        cell("Input trim", inTrim),
-        cell("Output trim", outTrim),
-        cell("Gap", gap),
+        { class: "field-grid pairs" },
+        ...field("Gazelle device", idSelect, worked),
+        ...field("Clock", clock, lock),
+        ...field("Buffer", bufferMenu, bufferChoice.confirm),
+        ...field("Rate", rate),
+        ...field("Safe Mode", safe),
+        ...field("Gap", gap),
+        ...field("Input trim", inTrim),
+        ...field("Output trim", outTrim),
+        channelsPart,
       ),
       notMatched,
-      channelsPart,
     );
 
     watch(() => {
@@ -885,7 +882,7 @@ export class GaAggregate extends GaElement {
         { class: "note" },
         "The aggregate lines its interfaces up from the latency figures their own drivers report, and those figures are a little out, so two interfaces can still record a few tens of samples apart. This plays one click through the aggregate itself and hears where each interface puts it, which is the difference to put in the trims.",
       ),
-      h("div", { class: "setup", "data-testid": "calibrate-setup" }, h("span", { class: "label" }, "Pass"), direction, h("span", { class: "label" }, "Reference"), reference, h("span", { class: "label" }, "Clicks"), clicks, h("span", { class: "label" }, "Level"), level),
+      h("div", { class: "setup field-grid pairs", "data-testid": "calibrate-setup" }, h("span", { class: "label" }, "Pass"), direction, h("span", { class: "label" }, "Reference"), reference, h("span", { class: "label" }, "Clicks"), clicks, h("span", { class: "label" }, "Level"), level),
       rows,
       h("p", { class: "note", "data-testid": "calibrate-patch-note" }, "Patch it like this, one cable a line, then press Measure twice:"),
       cables,
@@ -1022,10 +1019,10 @@ export class GaAggregate extends GaElement {
     const input = pick("inputs", inputs, "Records the click", "aggregate.calibrate-records");
     const row = h(
       "div",
-      { class: "calibrate-row", "data-testid": `calibrate-row-${at}` },
+      { class: "calibrate-row field-line", "data-testid": `calibrate-row-${at}` },
       h("span", { class: "who" }, device),
-      h("span", { class: "cell" }, h("span", { class: "label" }, "Plays"), output),
-      h("span", { class: "cell" }, h("span", { class: "label" }, "Records"), input),
+      h("span", { class: "field-row" }, h("span", { class: "label" }, "Plays"), output),
+      h("span", { class: "field-row" }, h("span", { class: "label" }, "Records"), input),
     );
     return { row, output, input };
   }
@@ -1035,7 +1032,7 @@ export class GaAggregate extends GaElement {
     const view = readingView(reading);
     const row = h(
       "div",
-      { class: "reading", "data-testid": `calibrate-reading-${view.device}` },
+      { class: "reading field-line", "data-testid": `calibrate-reading-${view.device}` },
       h("span", {}, view.device, reading.is_reference ? " (reference)" : ""),
       h("span", { class: "readout lag", "data-tone": view.tone, "data-testid": `calibrate-lag-${view.device}`, "data-explain": "aggregate.calibrate-lag" }, view.lag),
       h("span", { class: "readout", "data-testid": `calibrate-spread-${view.device}`, "data-explain": "aggregate.calibrate-spread" }, view.spread),
@@ -1051,10 +1048,10 @@ export class GaAggregate extends GaElement {
   /** One trim the measurement implies: what it is now, what was measured, and what it would become. */
   #trimRow(trim: ReturnType<typeof trimRows>[number], at: number): HTMLElement {
     const cell = (label: string, value: string, testid: string, explain: string) =>
-      h("span", { class: "cell" }, h("span", { class: "label" }, label), h("span", { class: "readout", "data-testid": testid, "data-explain": explain }, value));
+      h("span", { class: "field-row" }, h("span", { class: "label" }, label), h("span", { class: "readout", "data-testid": testid, "data-explain": explain }, value));
     const row = h(
       "div",
-      { class: "trim-row", "data-testid": `calibrate-trim-${at}` },
+      { class: "trim-row field-line", "data-testid": `calibrate-trim-${at}` },
       h("span", {}, `${trim.device}, ${trim.what.toLowerCase()}`),
       cell("Now", trim.was, `calibrate-trim-${at}-was`, "aggregate.calibrate-trim-was"),
       cell("Measured", trim.measured, `calibrate-trim-${at}-measured`, "aggregate.calibrate-trim-measured"),
@@ -1106,7 +1103,7 @@ export class GaAggregate extends GaElement {
         const reading = gapView(device);
         return h(
           "div",
-          { class: "live-row", "data-testid": `live-${device.name}` },
+          { class: "live-row field-line", "data-testid": `live-${device.name}` },
           h("span", {}, device.name, device.is_master ? " (master)" : ""),
           h("span", { class: "readout gap", "data-tone": reading.tone, "data-testid": `live-gap-${device.name}`, "data-explain": "aggregate.live-gap" }, reading.text),
           h("span", { class: "readout", "data-testid": `live-callbacks-${device.name}`, "data-explain": "aggregate.live-callbacks" }, `${device.callbacks} blocks`),

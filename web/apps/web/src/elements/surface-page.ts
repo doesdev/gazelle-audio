@@ -32,8 +32,8 @@ export class GaSurface extends GaElement {
   static override styles = [
     sheet(`
       :host { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-      .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
-      .bar select, .bar input, .bar button { min-height: 26px; }
+      /* Everything on the bar to one height: the label field, the menus beside it and the buttons. */
+      .bar { --ga-field-height: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
       .name { margin: 0; font-family: "Josefin Sans Variable", system-ui, sans-serif; font-size: 16px; font-weight: 600; }
       .spacer { flex: 1; }
       .caption { font-size: 11px; color: var(--ga-text-secondary); }

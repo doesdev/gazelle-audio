@@ -31,7 +31,6 @@ export class GaDeviceStatus extends GaElement {
     sheet(`
       :host { display: block; max-width: 640px; }
       ga-section + ga-section { margin-top: 10px; }
-      .name { width: 100%; max-width: 280px; }
       .power { display: flex; gap: 6px; margin-top: 8px; }
       .brightness-row { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; margin-top: 8px; }
       .brightness-row .caption { font-size: 12px; color: var(--ga-text-secondary); }
@@ -40,7 +39,6 @@ export class GaDeviceStatus extends GaElement {
       .brightness .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .brightness .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
       .brightness[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
-      .clock select { min-height: 24px; }
       .choice { display: inline-flex; align-items: center; gap: 6px; }
       .lock { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-muted); background: var(--ga-surface-inset); }
       .lock[data-locked] { color: var(--ga-text-inverse); background: var(--ga-accent); }
@@ -51,7 +49,6 @@ export class GaDeviceStatus extends GaElement {
       .presets .save[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .presets .spacer { flex: 1; }
       .tone-row { display: flex; align-items: center; gap: 6px; }
-      .osc select { min-height: 24px; }
       .tone[aria-pressed="true"] { background: var(--ga-state-solo); color: var(--ga-text-inverse); }
       .power button { min-height: 26px; font-size: 12px; font-weight: 600; }
       .standby[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
