@@ -106,6 +106,28 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
                 return bad(format!("{what} is {trim} samples, which is outside -{TRIM_MAX}..{TRIM_MAX}"));
             }
         }
+        if let Some(phase) = &device.phase {
+            // Both ends or neither: a signal with nowhere to leave from, or nowhere to arrive, is
+            // not a measurement.
+            match (phase.master_output, phase.input) {
+                (None, _) => return bad(
+                    "phase needs master_output, which is the output channel of the interface that drives the callback that the cable leaves from".into(),
+                ),
+                (_, None) => return bad("phase needs input, which is this interface's own input channel the cable arrives on".into()),
+                (Some(output), Some(input)) => {
+                    for (what, channel) in [("master_output", output), ("input", input)] {
+                        if channel > AGGREGATE_CHANNEL_MAX {
+                            return bad(format!("phase names {what} {channel}, which is outside 0..{AGGREGATE_CHANNEL_MAX}"));
+                        }
+                    }
+                }
+            }
+            if master_of(config).is_some_and(|master| device_name(master) == named) {
+                return bad(
+                    "it drives the callback, and a phase is measured against the interface that drives the callback, so it cannot be measured against itself".into(),
+                );
+            }
+        }
         for (what, channels) in [("inputs", &device.inputs), ("outputs", &device.outputs)] {
             let Some(channels) = channels else { continue };
             let mut seen = BTreeSet::new();
@@ -199,6 +221,10 @@ fn export_device(device: &AggregateDevice) -> Value {
             out.insert(name.into(), value);
         }
     }
+    // Both ends of the measurement cable or neither, which is what the check above settled.
+    if let Some((output, input)) = device.phase.and_then(|phase| phase.master_output.zip(phase.input)) {
+        out.insert("phase".into(), serde_json::json!({ "master_output": output, "input": input }));
+    }
     // A channel the person has not named is not in the map, and a map with nothing in it is left
     // out entirely rather than written as an empty object.
     for (name, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
@@ -217,6 +243,7 @@ fn export_device(device: &AggregateDevice) -> Value {
 mod tests {
     use super::*;
     use crate::device::descriptor::DeviceId;
+    use crate::workspace::model::AggregatePhase;
 
     fn device(key: &str, name: &str) -> AggregateDevice {
         AggregateDevice { key: Some(key.into()), name: Some(name.into()), ..AggregateDevice::default() }
@@ -320,6 +347,42 @@ mod tests {
         assert_eq!(document["devices"][0]["input_names"], serde_json::json!({ "0": "Vocal mic", "10": "Room" }));
         assert!(document["devices"][0].get("output_names").is_none(), "a side nobody has named is not written as an empty object");
         assert!(document["devices"][1].get("input_names").is_none());
+    }
+
+    /// Where the cable a phase is measured over runs, and the two ways of getting it wrong.
+    #[test]
+    fn a_phase_needs_both_ends_of_its_cable_and_an_interface_that_is_not_the_master() {
+        let mut config = pair();
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        check(&config).expect("a follower with a cable declared into it");
+
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None });
+        assert_eq!(
+            check(&config).unwrap_err(),
+            "device 'Studio+': phase needs input, which is this interface's own input channel the cable arrives on"
+        );
+        config.devices[1].phase = Some(AggregatePhase { master_output: None, input: Some(16) });
+        assert!(check(&config).unwrap_err().contains("phase needs master_output"));
+
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(AGGREGATE_CHANNEL_MAX + 1) });
+        assert!(check(&config).unwrap_err().contains("phase names input 1024"));
+
+        // The interface that drives the callback is what everything else is measured against.
+        let mut master = pair();
+        master.devices[0].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        assert!(check(&master).unwrap_err().contains("cannot be measured against itself"), "{:?}", check(&master));
+    }
+
+    /// A trim and a phase are different things, and an interface may have both.
+    #[test]
+    fn a_phase_is_exported_to_the_driver_beside_the_trim_and_neither_stands_for_the_other() {
+        let mut config = pair();
+        config.devices[1].input_trim = Some(28);
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        let document = export_document(&config);
+        assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16 }));
+        assert_eq!(document["devices"][1]["input_trim"], 28);
+        assert!(document["devices"][0].get("phase").is_none(), "an interface with no cable declared says nothing");
     }
 
     #[test]

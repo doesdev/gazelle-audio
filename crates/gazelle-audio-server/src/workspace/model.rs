@@ -156,6 +156,11 @@ pub struct AggregateDevice {
     /// As [`AggregateDevice::input_names`], for its outputs.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub output_names: BTreeMap<u32, String>,
+    /// Where the cable the driver measures this interface's capture phase over runs. Left out
+    /// means it is not phase measured, and a session lines it up by the figures its driver
+    /// reports. Only an interface that does not drive the callback can have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<AggregatePhase>,
     /// Which Gazelle device this is, when the user has said so, which is how the readiness answer
     /// reads its clock, its rate and its buffer. Gazelle's own, not the driver's: it is left out
     /// of the exported file.
@@ -164,6 +169,28 @@ pub struct AggregateDevice {
     /// As [`Aggregate::extra`], per device.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// The digital path the driver measures one interface's capture phase over: which output of the
+/// interface that drives the callback feeds it, and which of its own inputs the cable arrives on.
+///
+/// Both are the interfaces' **own** channel numbers from zero, the numbering
+/// [`AggregateDevice::inputs`] and [`AggregateDevice::outputs`] use, so the setting survives a
+/// change to which channels are exposed. The driver keeps both of them out of the channel list a
+/// DAW sees, so nothing a DAW plays can land on the measurement channel.
+///
+/// **This is not a trim.** A trim ([`AggregateDevice::input_trim`]) is the constant somebody
+/// measured once with a cable and a click, and it is the same every session. A phase is what an
+/// interface's capture pipeline settles on when its stream starts, which is a different number
+/// every session and is measured rather than typed in. Both apply.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregatePhase {
+    /// The callback master's output channel the cable leaves from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_output: Option<u32>,
+    /// This interface's own input channel the cable arrives on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u32>,
 }
 
 /// How the aggregate lines its devices up.

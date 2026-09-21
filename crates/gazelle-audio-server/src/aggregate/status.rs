@@ -65,6 +65,22 @@ pub struct DeviceStatus {
     pub dropped: u64,
     /// Blocks that were not there when they were wanted, which is what a person hears as a click.
     pub starved: u64,
+    /// What this session made of where this interface's capture actually started: `not_configured`
+    /// when nothing was set up to measure it, `measuring` while the measurement is in flight,
+    /// `applied` when the interface was lined up by what was measured, and `not_heard`,
+    /// `off_the_grid` or `too_far` when the measurement was not one the driver would believe.
+    ///
+    /// **Not the trim.** The trim is the constant somebody measured once and wrote in the setup;
+    /// this is what changes every session and is measured at the start of each one.
+    pub phase: String,
+    /// What the measurement came to, in samples, before it was rounded to the whole multiple of 32
+    /// samples the hardware moves by. Positive means the interface's capture arrived later than
+    /// the figures its driver reports said it would. Only worth reading once `phase` says
+    /// something was measured.
+    pub phase_measured: i32,
+    /// What was added to its input path because of it. Zero unless `phase` is `applied`, because a
+    /// measurement that is not believed is a refusal to correct, never a correction of zero.
+    pub phase_applied: i32,
 }
 
 /// The whole record, read.
@@ -288,6 +304,9 @@ fn from_snapshot(snapshot: &shared::Snapshot) -> AggregateStatus {
             callbacks: device.callbacks,
             dropped: device.dropped,
             starved: device.starved,
+            phase: shared::record::phase::name(device.phase_state).to_string(),
+            phase_measured: device.phase_measured,
+            phase_applied: device.phase_applied,
         })
         .collect();
     let master = devices.iter().find(|device| device.is_master).map(|device| device.name.clone()).unwrap_or_default();

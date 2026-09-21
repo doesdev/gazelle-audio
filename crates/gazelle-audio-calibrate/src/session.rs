@@ -88,9 +88,14 @@ impl Outcome {
         self.refusal.is_none() && self.trims.iter().any(|trim| trim.not_applied.is_none())
     }
 
-    /// Whether the audio underneath the whole run was clean. A run that lost a block on any
-    /// interface was measuring through a fault, and a person deciding whether to believe the
-    /// numbers wants to be told that before they read them.
+    /// Whether the audio underneath the measurement was clean. A run that lost a block on any
+    /// interface between the first click and the last was measuring through a fault, and a person
+    /// deciding whether to believe the numbers wants to be told that before they read them.
+    ///
+    /// **Only what happened while it was measuring counts.** The settling time before the first
+    /// click is a stream starting, and an interface can take a block of silence there while the
+    /// callbacks find each other. Nothing is being measured yet, so nothing that happens there
+    /// makes a measurement untrue.
     ///
     /// Witnesses are not counted here. A witness carries the counters of the interface its channel
     /// is on, which is an interface that already has a reading, so counting both would say the same
@@ -99,7 +104,7 @@ impl Outcome {
         self.refusal.is_none() && self.readings.iter().all(|reading| reading.glitches.is_clean())
     }
 
-    /// What every interface lost while the run was going, added up.
+    /// What every interface lost while the measurement was going, added up.
     pub fn blocks_lost(&self) -> u64 {
         self.readings.iter().map(|reading| reading.glitches.lost()).sum()
     }
@@ -499,8 +504,14 @@ pub fn measure_against(
     // From here on the drivers are open and something has to let them go, whatever happens.
     // What the aggregate's rings have lost so far, which is nothing on buffers this run made
     // itself, but is taken rather than assumed so that what is reported is always the difference
-    // this run is answerable for.
+    // this run is answerable for. It is read again when the settling time is over, and it is that
+    // second reading a measurement is judged against: see `counting_from`.
     let before = lost_so_far(&aggregate);
+    let mut counting_from: Option<Vec<Glitches>> = None;
+    // The block the first click is played in. The run has to have captured everything before it
+    // for the counters to be read, and the poll below can only be late, never early.
+    let first_click = arena.emits().first().copied().unwrap_or(0);
+    let one_block = block.max(0) as usize;
     ARENA.store(arena.as_mut() as *mut Arena, Ordering::Release);
     let started = aggregate.start();
     let ran = match started {
@@ -510,6 +521,16 @@ pub fn measure_against(
             let mut index = 0usize;
             let mut stopped = false;
             while !arena.is_full() && since.elapsed() < limit {
+                // **A measurement counts only what happened while it was measuring.** A stream
+                // starting is not a silent run of audio: the interfaces' callbacks find each other
+                // in the first blocks of it, and an interface can take a block of silence doing so
+                // before a click has been played. Reading the counters here, with the settling time
+                // over and the first click about to go out, is what keeps that out of the answer,
+                // while a block lost between the first click and the last still spoils the run it
+                // was actually in.
+                if counting_from.is_none() && arena.captured_samples() + one_block >= first_click {
+                    counting_from = Some(lost_so_far(&aggregate));
+                }
                 if !pump(index) {
                     stopped = true;
                     break;
@@ -525,8 +546,10 @@ pub fn measure_against(
         Err(why) => Err(why),
     };
     aggregate.stop();
-    // Read before the buffers go, because the rings that hold the counts go with them.
-    let glitches = since(&before, &lost_so_far(&aggregate));
+    // Read before the buffers go, because the rings that hold the counts go with them. A run that
+    // never reached its first click is judged from where it started, which is the whole of it: it
+    // is a refusal either way, and a count taken from nowhere would be worse than one taken early.
+    let glitches = since(counting_from.as_deref().unwrap_or(&before), &lost_so_far(&aggregate));
     aggregate.dispose_buffers();
     ARENA.store(std::ptr::null_mut(), Ordering::Release);
     drop(aggregate);

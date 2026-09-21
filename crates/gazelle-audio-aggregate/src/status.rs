@@ -24,7 +24,7 @@
 use std::sync::Mutex;
 
 use gazelle_audio_aggregate_status::events::{self, Event};
-use gazelle_audio_aggregate_status::record::{alignment as codes, DriverArea, Line, Name};
+use gazelle_audio_aggregate_status::record::{alignment as codes, phase as phase_codes, DriverArea, Line, Name};
 use gazelle_audio_aggregate_status::Publisher;
 
 use crate::config::Alignment;
@@ -307,6 +307,15 @@ impl Reporter {
                 into.latency_out = device.latency_out;
                 into.pad_in = device.pad_in;
                 into.pad_out = device.pad_out;
+                // Nothing has been measured yet, and whether anything will be is what the file
+                // asked for. A session that lines nothing up measures nothing either.
+                into.phase_state = if device.phase.is_some() && plan.alignment == Alignment::Aligned {
+                    phase_codes::MEASURING
+                } else {
+                    phase_codes::NOT_CONFIGURED
+                };
+                into.phase_measured = 0;
+                into.phase_applied = 0;
                 into.streaming = 0;
                 into.stalled = 0;
                 into.gap = 0;
@@ -382,6 +391,17 @@ impl Reporter {
     /// the audio path only sets the flag in the record.
     pub fn stall_changed(&self, device: &str, stalled: bool) {
         self.note(if stalled { Event::Stalled } else { Event::Recovered }, device);
+    }
+
+    /// **What a session made of one interface's phase**: what was measured, what was applied, or
+    /// why nothing was. Called from the watcher thread, never the audio one, which only measures
+    /// and writes three numbers.
+    ///
+    /// This is the line that matters most of the ones here. The measurement is a different number
+    /// every session and the record holds it only while the DAW has the driver open, so without
+    /// this line there is nothing the next morning to say why two interfaces landed where they did.
+    pub fn phase_settled(&self, device: &str, state: u32, measured: i32, applied: i32) {
+        self.note(Event::Phase, &crate::phase::detail(device, state, measured, applied));
     }
 }
 
@@ -465,6 +485,47 @@ impl GlitchWatch {
                 news.push((index, dropped, starved));
             }
             self.seen[index] = lost;
+        }
+        news
+    }
+
+    /// Forget everything, which is what a new plan is.
+    pub fn clear(&mut self) {
+        self.seen.clear();
+    }
+}
+
+/// Which interfaces' phase measurements have just settled.
+///
+/// The same division of labour as [`StallWatch`] once more. The audio path measures and writes
+/// three numbers into the record; deciding that one of them is worth a line of the log is this, on
+/// the watcher's thread. One line per interface per session: the state only changes when a
+/// measurement finishes, and a session starting again puts it back to measuring, which is news of
+/// its own the next time it settles.
+#[derive(Default)]
+pub struct PhaseWatch {
+    /// What each device's state was at the last look.
+    seen: Vec<u32>,
+}
+
+impl PhaseWatch {
+    pub fn new() -> PhaseWatch {
+        PhaseWatch::default()
+    }
+
+    /// The devices whose measurement has just come to something, and what it came to. A device
+    /// still measuring, or with nothing set up, is not news.
+    pub fn settled(&mut self, now: &[u32]) -> Vec<usize> {
+        if self.seen.len() != now.len() {
+            self.seen = vec![phase_codes::NOT_CONFIGURED; now.len()];
+        }
+        let mut news = Vec::new();
+        for (index, &state) in now.iter().enumerate() {
+            let changed = self.seen[index] != state;
+            self.seen[index] = state;
+            if changed && (phase_codes::is_applied(state) || phase_codes::is_refused(state)) {
+                news.push(index);
+            }
         }
         news
     }

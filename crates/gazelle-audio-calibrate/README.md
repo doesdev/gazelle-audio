@@ -170,12 +170,23 @@ a trim until a run comes back with them agreeing.
 
 ## Whether the audio underneath was clean
 
-The aggregate counts the blocks it loses, per interface, and this reads those counters before and
-after its own run. **Every reading carries what its interface lost while it was being measured**,
-and a reading with anything but zero there is not turned into a trim: a click measured across a
-lost block is a whole buffer out, and nothing in a correlation can tell that apart from a real
-offset. The sentence says how many blocks went, which way, and what to do about it, which is to
-raise the buffer size or take the PC off whatever else it is doing and measure again.
+The aggregate counts the blocks it loses, per interface, and this reads those counters twice: once
+when the settling time is over and the first click is about to go out, and once when the run stops.
+**Every reading carries what its interface lost while it was being measured**, and a reading with
+anything but zero there is not turned into a trim: a click measured across a lost block is a whole
+buffer out, and nothing in a correlation can tell that apart from a real offset. The sentence says
+how many blocks went, which way, and what to do about it, which is to raise the buffer size or take
+the PC off whatever else it is doing and measure again.
+
+**It counts from the first click, not from the moment the interfaces were started.** A stream
+starting is not a quiet stretch of audio: the interfaces' callbacks find where they sit inside each
+other's block in the first few milliseconds, and an interface can take a block of silence doing it.
+At the hardware on 2026-09-20 that happened in four runs out of six, and it took four perfectly
+good trims with it: every one of those runs was marked unclean and had its trim refused over a
+block of silence that happened before the first click was played. Nothing is being measured during
+the settling time, so nothing that happens there can make a measurement untrue. A block lost
+between the first click and the last still spoils the run it was in, exactly as it did before.
+`settle_seconds` is what decides where that line falls.
 
 ## When the lag grows: two clocks, not an offset
 

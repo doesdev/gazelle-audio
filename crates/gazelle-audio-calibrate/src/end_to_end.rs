@@ -344,6 +344,76 @@ fn a_run_the_audio_went_wrong_under_says_so_and_offers_no_trim() {
     assert!(clean.readings.iter().all(|reading| reading.glitches.is_clean()));
 }
 
+/// A run with a block of silence in it, taken at the block of the run's choosing.
+///
+/// It leaves longer than the other runs here between starting and its first click, because that is
+/// what this is about: the driver forgives the first few blocks of a stream outright, and what has
+/// to be shown is a block lost after that and still before the measurement began.
+///
+/// Up to `slips_at` the interface that is not driving the callback hands its block over in time.
+/// At that block the master reaches the ring first and finds nothing, which is the block of
+/// silence, and from then on the follower is a block ahead: the arrangement a session settles into
+/// and keeps. It is the same thing whether it happens while the interfaces are starting or in the
+/// middle of the clicks, and the difference between those two is the whole of this.
+fn measured_slipping_at(slips_at: usize) -> Outcome {
+    let pc = two_interfaces();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (a, b): (Arc<FakeDevice>, Arc<FakeDevice>) = (pc.device("Device A"), pc.device("Device B"));
+    let mut to_a = Cable::new(0);
+    let mut to_b = Cable::new(CABLED_LATE as usize);
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        a.set_input(0, half, &to_a.carrying);
+        b.set_input(0, half, &to_b.carrying);
+        if index < slips_at {
+            b.fire(half);
+            a.fire(half);
+        } else {
+            a.fire(half);
+            b.fire(half);
+        }
+        to_a.carry(a.output(0, half));
+        to_b.carry(a.output(1, half));
+        true
+    };
+    let settling = Settings { settle_seconds: 0.05, ..settings() };
+    measure_against(host, config([0, 0]), "a test".to_string(), &rig(), &settling, &mut pump)
+}
+
+/// **A block of silence taken while the interfaces are starting does not spoil the run.** It
+/// happens before the first click, so no click was measured through it, and refusing a perfectly
+/// good trim over it is what four of six runs did at the hardware on 2026-09-20.
+#[test]
+fn a_block_lost_while_the_interfaces_are_starting_is_outside_the_measurement() {
+    // Twelve blocks in: past the handful the driver forgives outright, so the block is counted
+    // where it happened, and still a long way inside the settling time before the first click.
+    let outcome = measured_slipping_at(12);
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+    assert!(outcome.was_clean(), "nothing was lost while it was measuring: {:?}", outcome.readings);
+    assert_eq!(outcome.blocks_lost(), 0);
+    assert_eq!(outcome.readings[1].clicks_found, 4, "every click was measured: {:?}", outcome.readings[1]);
+    assert!(outcome.readings[1].spread_samples < 0.5, "and they all agreed with each other");
+    assert!(outcome.trims[1].not_applied.is_none(), "so the trim it asks for stands");
+    assert!(outcome.is_measured());
+}
+
+/// And the same block of silence, once the clicks have started, still spoils it.
+#[test]
+fn a_block_lost_between_the_clicks_still_spoils_the_run() {
+    // Half way through the run, which is between the first click and the second.
+    let outcome = measured_slipping_at(50);
+    assert_eq!(outcome.refusal, None, "the run finished: it is the audio under it that did not");
+    assert_eq!(outcome.readings[1].glitches.lost(), 1, "the block reached the reading: {:?}", outcome.readings[1]);
+    assert!(!outcome.was_clean());
+    assert!(!outcome.readings[1].is_usable(), "a measurement taken across a lost block is not one");
+    assert!(outcome.readings[1].note.contains("the audio was not clean"), "{}", outcome.readings[1].note);
+    assert!(outcome.trims[1].not_applied.is_some(), "and no trim is offered from it");
+    assert_eq!(outcome.trims[1].new, 0, "what was in the file stays in the file");
+    assert!(!outcome.is_measured());
+    // The reference interface does not cross a ring at all, so it never has this to lose.
+    assert!(outcome.readings[0].glitches.is_clean());
+}
+
 #[test]
 fn a_cable_that_is_not_plugged_in_is_a_cable_and_never_rewrites_a_trim() {
     let outcome = measured([0, 12], CABLED_LATE as usize, [true, false]);

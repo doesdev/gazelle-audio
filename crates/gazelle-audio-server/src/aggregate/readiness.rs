@@ -53,6 +53,10 @@ pub enum ReasonCode {
     ClockNotCabled,
     /// A device says it is not locked to its clock.
     NotLocked,
+    /// A cable already runs into this interface and nothing says which channels it is on, so the
+    /// driver cannot measure where its capture actually started and will line it up by the figures
+    /// its driver reports instead.
+    PhaseNotMeasured,
 }
 
 /// How much a reason matters. A warning is something to know; `ready` is false only when there is
@@ -149,6 +153,48 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
     reasons.extend(rates(devices));
     reasons.extend(buffers(devices));
     reasons.extend(clocks(devices, &workspace.cables));
+    reasons.extend(phases(devices, &workspace.cables));
+    reasons
+}
+
+/// Interfaces the driver could measure the capture phase of, and has not been told how to.
+///
+/// Two interfaces record a fixed number of samples apart within a session, and that number jumps
+/// by a whole multiple of 32 samples between sessions: each interface's capture pipeline settles on
+/// a different phase when its stream starts. The driver can measure that over the digital cable
+/// that already locks them together, and line the streams up by what it measured. It needs to be
+/// told which channels the cable is on, and until it is, every session lines up by the figures the
+/// drivers report.
+///
+/// **This is not the trim.** The trim is the constant somebody measured once with a cable and a
+/// click, and setting one does not answer this.
+fn phases(devices: &[DeviceReport], cables: &[Cable]) -> Vec<Reason> {
+    let mut reasons = Vec::new();
+    for device in devices.iter().filter(|d| !d.is_master && !d.phase_configured) {
+        let Some(id) = &device.device_id else { continue };
+        let arriving = cables.iter().find(|cable| {
+            &cable.to.device_id == id && devices.iter().any(|other| other.device_id.as_ref() == Some(&cable.from.device_id))
+        });
+        let Some(cable) = arriving else { continue };
+        let from = devices
+            .iter()
+            .find(|other| other.device_id.as_ref() == Some(&cable.from.device_id))
+            .map(|other| other.name.clone())
+            .unwrap_or_default();
+        reasons.push(
+            Reason::new(
+                ReasonCode::PhaseNotMeasured,
+                Severity::Warning,
+                format!(
+                    "{} has a {} cable from {} and has not been set up for phase measurement, so every session lines it up by the figures its driver reports. Each interface's capture starts a whole multiple of 32 samples away from the last session's, so the two land a different distance apart each time. Say which channels that cable is on and the driver measures it at the start of every session and lines the streams up by what it measured.",
+                    device.name,
+                    port_words(&cable.to.port),
+                    from
+                ),
+            )
+            .about(device),
+        );
+    }
     reasons
 }
 
@@ -427,6 +473,7 @@ mod tests {
             controller: Some(UsbController { instance_id: r"PCI\A".into(), description: "one".into() }),
             controller_error: None,
             is_master: true,
+            phase_configured: true,
         }
     }
 
@@ -465,6 +512,37 @@ mod tests {
         let reasons = reasons(true, true, true, &[quadro(), studio()], &cabled());
         assert!(reasons.is_empty(), "{reasons:?}");
         assert!(ready(&reasons));
+    }
+
+    /// An interface the driver could measure, and has not been told how to. It is something to
+    /// know rather than something that stops a session: without it the interfaces still record,
+    /// they just land a different distance apart each session.
+    #[test]
+    fn an_interface_that_could_be_phase_measured_and_is_not_set_up_for_it_is_said_so() {
+        let not_set_up = DeviceReport { phase_configured: false, ..studio() };
+        let reasons = reasons(true, true, true, &[quadro(), not_set_up], &cabled());
+        assert_eq!(codes(&reasons), [ReasonCode::PhaseNotMeasured]);
+        assert_eq!(reasons[0].device.as_deref(), Some("Studio+"));
+        assert_eq!(reasons[0].device_id, Some(DeviceId::from_serial("S")));
+        assert!(reasons[0].message.contains("S/PDIF cable from Quadro"), "{}", reasons[0].message);
+        assert!(reasons[0].message.contains("multiple of 32 samples"), "{}", reasons[0].message);
+        assert!(!reasons[0].message.to_ascii_lowercase().contains("trim"), "a phase is not a trim: {}", reasons[0].message);
+        assert!(reasons[0].fix.is_none(), "the page writes the workspace itself");
+        assert!(ready(&reasons), "it is something to know, not something that stops the driver opening");
+    }
+
+    #[test]
+    fn an_interface_with_no_cable_into_it_is_not_asked_to_be_phase_measured_as_well() {
+        // The measurement runs over the cable that locks the two together. With no cable declared
+        // there is a blocking reason already, and saying this as well would be saying it twice.
+        let not_set_up = DeviceReport { phase_configured: false, ..studio() };
+        let uncabled = reasons(true, true, true, &[quadro(), not_set_up], &Workspace::default());
+        assert_eq!(codes(&uncabled), [ReasonCode::NoCable]);
+        // And the interface that drives the callback is never asked: it is what the others are
+        // measured against.
+        let master_only = DeviceReport { phase_configured: false, ..quadro() };
+        let about_master = reasons(true, true, true, &[master_only, studio()], &cabled());
+        assert!(about_master.is_empty(), "{about_master:?}");
     }
 
     #[test]

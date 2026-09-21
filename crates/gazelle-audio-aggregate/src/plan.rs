@@ -5,12 +5,30 @@
 //! the buffer sizes every device can take, the one latency figure each way, and how far each
 //! device has to be held back so that the channels line up.
 
-use crate::config::{Alignment, Config, DeviceConfig, Labels};
+use crate::config::{Alignment, Config, DeviceConfig, Labels, PhaseConfig};
 use crate::sub::Description;
 use gazelle_audio_stream_abi::sample;
 
 /// The longest name the interface carries for a channel: thirty one characters and a terminator.
 pub const MAX_NAME: usize = 31;
+
+/// How one device's phase is measured, once the channels the file named have been found among the
+/// ones actually opened.
+///
+/// **Both channels are the driver's, not the DAW's.** They are opened at the devices, because the
+/// measurement needs them, and they are kept out of the channel list the DAW is given, so nothing a
+/// DAW plays can land on the measurement channel and the measurement can never be heard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhasePlan {
+    /// The master's own output channel number the cable leaves from.
+    pub master_output: i32,
+    /// This device's own input channel number the cable arrives on.
+    pub input: i32,
+    /// Where that output sits among the master's opened outputs.
+    pub master_slot: usize,
+    /// Where that input sits among this device's opened inputs.
+    pub input_slot: usize,
+}
 
 /// One device, as the aggregate will use it.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,6 +52,12 @@ pub struct DevicePlan {
     pub pad_out: i32,
     /// Whether this device's audio crosses a ring buffer, which is true of all but the master.
     pub buffered: bool,
+    /// How this device's capture phase is measured, when the file says.
+    pub phase: Option<PhasePlan>,
+    /// Slots of [`DevicePlan::inputs`] the driver opened for itself: the DAW is never given them.
+    pub reserved_inputs: Vec<usize>,
+    /// The same for [`DevicePlan::outputs`].
+    pub reserved_outputs: Vec<usize>,
 }
 
 /// One channel of the aggregate: which device it is on, and which of that device's exposed
@@ -81,6 +105,8 @@ pub struct Found {
     pub input_labels: Labels,
     /// The same for its outputs.
     pub output_labels: Labels,
+    /// Where the cable that this device's phase is measured over runs, from the file.
+    pub phase: Option<PhaseConfig>,
 }
 
 /// The channels of a device that are actually exposed: what was asked for, with anything the
@@ -94,6 +120,31 @@ fn selected(wanted: &Option<Vec<i32>>, available: i32) -> Vec<i32> {
         }
         None => (0..available).collect(),
     }
+}
+
+/// Where a channel sits among the ones a device has opened, opening it if it is not there yet.
+/// The measurement needs its channel whether or not the file asked for it to be exposed.
+fn place(channels: &mut Vec<i32>, channel: i32) -> usize {
+    match channels.iter().position(|&already| already == channel) {
+        Some(at) => at,
+        None => {
+            channels.push(channel);
+            channels.len() - 1
+        }
+    }
+}
+
+/// **Hold every device back to the longest path**, so that every channel of every device is the
+/// same distance from the converter, and answer what that distance is.
+///
+/// `pads` is written in place and nothing is allocated, because this is worked out again on the
+/// audio path when a measurement moves a device.
+pub fn hold_back(paths: &[i32], aligned: bool, pads: &mut [i32]) -> i32 {
+    let longest = paths.iter().copied().max().unwrap_or(0);
+    for (pad, &here) in pads.iter_mut().zip(paths) {
+        *pad = if aligned { longest - here } else { 0 };
+    }
+    longest
 }
 
 /// A channel's name, as short as the interface carries one: "Quadro 1", "Studio+ 12".
@@ -181,27 +232,59 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
             pad_in: 0,
             pad_out: 0,
             buffered: index != master,
+            phase: None,
+            reserved_inputs: Vec::new(),
+            reserved_outputs: Vec::new(),
         });
     }
 
-    if devices.iter().all(|d| d.inputs.is_empty() && d.outputs.is_empty()) {
-        return Err("the configuration exposes no channels at all".to_string());
+    // The channels the measurement runs over. They are opened at the devices, because the
+    // measurement needs them, and they never reach the channel list the DAW is given.
+    for (index, device) in found.iter().enumerate() {
+        let Some((master_output, input)) = device.phase.as_ref().and_then(PhaseConfig::channels) else { continue };
+        if index == master {
+            return Err(format!(
+                "{} drives the callback, and a phase is measured against the device that drives the callback, so it cannot be measured against itself",
+                device.name
+            ));
+        }
+        let master_name = &found[master].name;
+        if master_output >= found[master].description.outputs {
+            return Err(format!(
+                "{}'s phase is measured over {master_name}'s output {master_output}, and {master_name} has {} outputs, numbered from zero",
+                device.name, found[master].description.outputs
+            ));
+        }
+        if input >= device.description.inputs {
+            return Err(format!(
+                "{}'s phase is measured on its own input {input}, and it has {} inputs, numbered from zero",
+                device.name, device.description.inputs
+            ));
+        }
+        let master_slot = place(&mut devices[master].outputs, master_output);
+        if !devices[master].reserved_outputs.contains(&master_slot) {
+            devices[master].reserved_outputs.push(master_slot);
+        }
+        let input_slot = place(&mut devices[index].inputs, input);
+        if !devices[index].reserved_inputs.contains(&input_slot) {
+            devices[index].reserved_inputs.push(input_slot);
+        }
+        devices[index].phase = Some(PhasePlan { master_output, input, master_slot, input_slot });
     }
 
     // A device that is not the master hands its audio over a buffer, which costs one block each
     // way. Everything else is the device's own reported latency.
     let path_in: Vec<i32> = devices.iter().map(|d| d.latency_in + if d.buffered { block } else { 0 }).collect();
     let path_out: Vec<i32> = devices.iter().map(|d| d.latency_out + if d.buffered { block } else { 0 }).collect();
-    let input_latency = path_in.iter().copied().max().unwrap_or(0);
-    let output_latency = path_out.iter().copied().max().unwrap_or(0);
-
-    if config.alignment == Alignment::Aligned {
-        // Hold the earlier devices back to the slowest path, so every channel of every device is
-        // the same distance from the converter.
-        for (device, (&here_in, &here_out)) in devices.iter_mut().zip(path_in.iter().zip(path_out.iter())) {
-            device.pad_in = input_latency - here_in;
-            device.pad_out = output_latency - here_out;
-        }
+    let aligned = config.alignment == Alignment::Aligned;
+    let mut pads = vec![0i32; devices.len()];
+    let input_latency = hold_back(&path_in, aligned, &mut pads);
+    for (device, pad) in devices.iter_mut().zip(&pads) {
+        device.pad_in = *pad;
+    }
+    let output_latency = hold_back(&path_out, aligned, &mut pads);
+    for (device, pad) in devices.iter_mut().zip(&pads) {
+        device.pad_out = *pad;
     }
 
     let mut inputs = Vec::new();
@@ -210,15 +293,25 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
     let mut output_names = Vec::new();
     for (index, (device, configured)) in devices.iter().zip(found.iter()).enumerate() {
         for (slot, channel) in device.inputs.iter().enumerate() {
+            if device.reserved_inputs.contains(&slot) {
+                continue;
+            }
             inputs.push(ChannelRef { device: index, slot });
             let label = configured.input_labels.get(*channel as u32);
             input_names.push(labelled_name(&device.name, *channel as usize + 1, label));
         }
         for (slot, channel) in device.outputs.iter().enumerate() {
+            if device.reserved_outputs.contains(&slot) {
+                continue;
+            }
             outputs.push(ChannelRef { device: index, slot });
             let label = configured.output_labels.get(*channel as u32);
             output_names.push(labelled_name(&device.name, *channel as usize + 1, label));
         }
+    }
+
+    if inputs.is_empty() && outputs.is_empty() {
+        return Err("the configuration exposes no channels at all".to_string());
     }
 
     Ok(Plan {
@@ -333,7 +426,13 @@ mod tests {
             output_trim: 0,
             input_labels: Labels::default(),
             output_labels: Labels::default(),
+            phase: None,
         }
+    }
+
+    /// A cable from the master's output to this device's input, as the file declares one.
+    fn phase_over(master_output: i32, input: i32) -> PhaseConfig {
+        PhaseConfig { master_output: Some(master_output), input: Some(input) }
     }
 
     /// Labels as the file gives them: the device's own channel number, and what to call it.
@@ -603,6 +702,101 @@ mod tests {
         assert_eq!(plan.output_latency, 1212);
         assert_eq!(studio.pad_out, 0);
         assert_eq!(quadro.pad_out, 1212 - 799);
+    }
+
+    /// What a phase measurement costs the DAW: the two channels it runs over, which the DAW never
+    /// sees, so nothing it plays can land on the measurement channel.
+    #[test]
+    fn the_channels_a_phase_is_measured_over_are_kept_out_of_the_daws_list() {
+        let mut devices = this_pc();
+        devices[1].phase = Some(phase_over(8, 20));
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices and a cable");
+        // The Quadro's output 8 and the Studio+'s input 20 are opened at the devices...
+        assert!(plan.devices[0].outputs.contains(&8));
+        assert!(plan.devices[1].inputs.contains(&20));
+        let measured = plan.devices[1].phase.expect("the follower is measured");
+        assert_eq!((measured.master_output, measured.input), (8, 20));
+        assert_eq!(plan.devices[0].outputs[measured.master_slot], 8);
+        assert_eq!(plan.devices[1].inputs[measured.input_slot], 20);
+        // ...and neither is in the list the DAW is given, nor named in it.
+        assert_eq!(plan.outputs.len(), 16 + 24 - 1, "one of the Quadro's outputs is the driver's own");
+        assert_eq!(plan.inputs.len(), 16 + 24 - 1);
+        assert!(!plan.output_names.contains(&"Quadro 9".to_string()), "{:?}", plan.output_names);
+        assert!(!plan.input_names.contains(&"Studio+ 21".to_string()), "{:?}", plan.input_names);
+        // The channels beside them are untouched, and still name the sockets they are on.
+        assert_eq!(plan.output_names[7], "Quadro 8");
+        assert_eq!(plan.output_names[8], "Quadro 10", "the numbering follows the device, not the list");
+        assert_eq!(plan.devices[0].phase, None, "the device that drives the callback is not measured");
+    }
+
+    /// A channel the file did not ask to expose is still opened when the measurement needs it.
+    #[test]
+    fn a_measurement_channel_outside_what_the_file_exposes_is_opened_anyway_and_still_kept_back() {
+        let mut devices = this_pc();
+        devices[0].wanted_outputs = Some(vec![0, 1]);
+        devices[1].wanted_inputs = Some(vec![0, 1]);
+        devices[1].phase = Some(phase_over(8, 20));
+        let plan = plan(&devices, &Config::default(), None).expect("two ordinary devices and a cable");
+        assert_eq!(plan.devices[0].outputs, vec![0, 1, 8], "it is opened at the device");
+        assert_eq!(plan.devices[1].inputs, vec![0, 1, 20]);
+        assert_eq!(plan.output_names.iter().filter(|name| name.starts_with("Quadro")).count(), 2, "and not exposed");
+        assert_eq!(plan.input_names.iter().filter(|name| name.starts_with("Studio+")).count(), 2);
+    }
+
+    /// Three interfaces, each follower measured against the one that drives the callback.
+    #[test]
+    fn every_follower_is_measured_against_the_master_on_its_own_channels() {
+        let mut devices = this_pc();
+        devices.push(found("Orion", 32, 32, 700, 800));
+        devices[1].phase = Some(phase_over(8, 20));
+        devices[2].phase = Some(phase_over(9, 30));
+        let three = plan(&devices, &Config::default(), None).expect("three devices are no different");
+        assert_eq!(three.devices[1].phase.unwrap().input, 20);
+        assert_eq!(three.devices[2].phase.unwrap().input, 30);
+        // Both cables leave the master, on channels of its own, and both are kept back from the DAW.
+        assert_eq!(three.devices[0].reserved_outputs.len(), 2);
+        assert_eq!(three.outputs.len(), 16 - 2 + 24 + 32);
+        assert_eq!(three.inputs.len(), 16 + 24 - 1 + 32 - 1);
+
+        // Two followers may share one of the master's outputs, which is one cable split in two.
+        devices[2].phase = Some(phase_over(8, 30));
+        let shared = plan(&devices, &Config::default(), None).expect("one output feeding both");
+        assert_eq!(shared.devices[0].reserved_outputs.len(), 1, "the same output is kept back once");
+        assert_eq!(shared.outputs.len(), 16 - 1 + 24 + 32);
+    }
+
+    #[test]
+    fn a_phase_measured_over_a_channel_that_is_not_there_is_refused_by_name() {
+        let mut devices = this_pc();
+        devices[1].phase = Some(phase_over(99, 20));
+        let no_output = plan(&devices, &Config::default(), None).expect_err("the Quadro has 16 outputs");
+        assert!(no_output.contains("Studio+") && no_output.contains("99") && no_output.contains("16"), "{no_output}");
+
+        devices[1].phase = Some(phase_over(8, 99));
+        let no_input = plan(&devices, &Config::default(), None).expect_err("the Studio+ has 24 inputs");
+        assert!(no_input.contains("Studio+") && no_input.contains("99") && no_input.contains("24"), "{no_input}");
+    }
+
+    #[test]
+    fn the_device_that_drives_the_callback_cannot_be_measured_against_itself() {
+        let mut devices = this_pc();
+        devices[0].phase = Some(phase_over(8, 20));
+        let error = plan(&devices, &Config::default(), None).expect_err("there is nothing to measure it against");
+        assert!(error.contains("Quadro") && error.contains("drives the callback"), "{error}");
+        // The same setting on the device that is not the master is an ordinary measurement.
+        let mut moved = this_pc();
+        moved[1].phase = Some(phase_over(8, 20));
+        assert!(plan(&moved, &Config::default(), None).is_ok());
+    }
+
+    #[test]
+    fn a_device_with_no_phase_setting_is_planned_exactly_as_it_always_was() {
+        let plain = plan(&this_pc(), &Config::default(), Some(512)).expect("two ordinary devices");
+        assert!(plain.devices.iter().all(|device| device.phase.is_none()));
+        assert!(plain.devices.iter().all(|device| device.reserved_inputs.is_empty() && device.reserved_outputs.is_empty()));
+        assert_eq!(plain.inputs.len(), 40);
+        assert_eq!(plain.input_latency, 636 + 512);
+        assert_eq!(plain.devices[0].pad_in, 1148 - 639);
     }
 
     #[test]

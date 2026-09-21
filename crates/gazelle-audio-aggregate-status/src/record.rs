@@ -17,7 +17,12 @@ pub const MAGIC: u64 = u64::from_le_bytes(*b"GZAGGST1");
 /// The version of the layout below. A reader that understands this number and finds a different
 /// one refuses and says what it found, rather than reading rubbish out of a record it does not
 /// know the shape of.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// **2** added what a session measured of each interface's capture phase, which is three fields
+/// per device and so a record of a different size. The shared section's name carries this number,
+/// so a driver and a Gazelle built either side of the change do not meet at all rather than
+/// reading each other's bytes as the wrong fields.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// How many devices a record carries. The same limit the driver holds, and raising it is a new
 /// format version, because it changes the size of the record.
@@ -102,6 +107,52 @@ pub mod alignment {
     }
 }
 
+/// What became of one interface's phase measurement.
+///
+/// **A phase is not a trim.** The trim is the constant a person measured once with a cable and a
+/// click, and it lives in the configuration file. The phase is what the interface's capture
+/// pipeline settles on when its stream starts, which is a different number every session, and it
+/// is measured at the start of each one. Both apply.
+pub mod phase {
+    /// Nothing in the configuration file says how to measure this interface, so nothing was.
+    pub const NOT_CONFIGURED: u32 = 0;
+    /// The measurement is in flight: the signal has gone out and nothing has come back yet.
+    pub const MEASURING: u32 = 1;
+    /// It was measured and the interface was lined up by what was measured.
+    pub const APPLIED: u32 = 2;
+    /// Nothing arrived on the measurement channel, which is a refusal to correct rather than a
+    /// correction of zero.
+    pub const NOT_HEARD: u32 = 3;
+    /// Something arrived, and it was not near a whole multiple of 32 samples, which is the only
+    /// thing the hardware does. A figure that is not is a measurement of something else.
+    pub const OFF_THE_GRID: u32 = 4;
+    /// It was further out than any phase this driver will believe.
+    pub const TOO_FAR: u32 = 5;
+
+    /// Whether a code means the interface was lined up by what was measured.
+    pub fn is_applied(code: u32) -> bool {
+        code == APPLIED
+    }
+
+    /// Whether a code means a measurement was asked for and turned down.
+    pub fn is_refused(code: u32) -> bool {
+        matches!(code, NOT_HEARD | OFF_THE_GRID | TOO_FAR)
+    }
+
+    /// The one word this state goes by. A code this version does not know reads as nothing having
+    /// been set up, which is what a reader can say least wrongly about it.
+    pub fn name(code: u32) -> &'static str {
+        match code {
+            MEASURING => "measuring",
+            APPLIED => "applied",
+            NOT_HEARD => "not_heard",
+            OFF_THE_GRID => "off_the_grid",
+            TOO_FAR => "too_far",
+            _ => "not_configured",
+        }
+    }
+}
+
 /// One sub-device, as the driver sees it now.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -135,6 +186,16 @@ pub struct DeviceStatus {
     /// Samples this device is held back by so that every device lines up.
     pub pad_in: i32,
     pub pad_out: i32,
+    /// One of [`phase`]: what became of this interface's phase measurement this session.
+    pub phase_state: u32,
+    /// What the measurement came to, in samples, before it was rounded to what the hardware does.
+    /// Positive means this interface's capture arrived later than the reported figures said it
+    /// would. Only worth reading when [`DeviceStatus::phase_state`] says something was measured.
+    pub phase_measured: i32,
+    /// What was actually added to this interface's input path because of it, in samples. Zero
+    /// unless the state is [`phase::APPLIED`], because a measurement that is not trusted is a
+    /// refusal to correct and never a correction of zero.
+    pub phase_applied: i32,
     pub reserved: u32,
 }
 
@@ -238,11 +299,11 @@ mod tests {
         // a driver built today. If one of these fails, the format version has to move with it.
         assert_eq!(std::mem::size_of::<Name>(), 40);
         assert_eq!(std::mem::size_of::<Line>(), 264);
-        assert_eq!(std::mem::size_of::<DeviceStatus>(), 152);
-        assert_eq!(std::mem::size_of::<DriverArea>(), 1840);
+        assert_eq!(std::mem::size_of::<DeviceStatus>(), 168);
+        assert_eq!(std::mem::size_of::<DriverArea>(), 1968);
         assert_eq!(std::mem::size_of::<ControlArea>(), 64);
         assert_eq!(std::mem::size_of::<ControlArea>(), std::mem::size_of::<ControlSnapshot>());
-        assert_eq!(std::mem::size_of::<StatusRecord>(), 1936);
+        assert_eq!(std::mem::size_of::<StatusRecord>(), 2064);
         assert_eq!(std::mem::align_of::<StatusRecord>(), 8);
         assert_eq!(MAGIC.to_le_bytes(), *b"GZAGGST1");
     }
@@ -281,6 +342,21 @@ mod tests {
         broken.bytes[0] = 0xFF;
         broken.len = 1;
         assert_eq!(broken.get(), "", "bytes that are not text are not guessed at");
+    }
+
+    #[test]
+    fn a_phase_state_says_which_of_the_three_things_happened_and_an_unknown_one_says_nothing() {
+        assert!(phase::is_applied(phase::APPLIED));
+        assert!(!phase::is_applied(phase::MEASURING));
+        // Every refusal is a refusal, and neither measuring nor having nothing set up is one.
+        for code in [phase::NOT_HEARD, phase::OFF_THE_GRID, phase::TOO_FAR] {
+            assert!(phase::is_refused(code), "{code}");
+            assert!(!phase::is_applied(code));
+        }
+        assert!(!phase::is_refused(phase::MEASURING));
+        assert!(!phase::is_refused(phase::NOT_CONFIGURED));
+        assert_eq!(phase::name(phase::OFF_THE_GRID), "off_the_grid");
+        assert_eq!(phase::name(88), "not_configured", "a code from a later driver is not guessed at");
     }
 
     #[test]

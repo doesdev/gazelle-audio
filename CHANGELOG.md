@@ -55,6 +55,13 @@ version that has not been published yet.
 - A manual chapter for it: **The Aggregate page**, covering what an aggregate needs before it can
   work at all, how to set it up, what each reason means, what the gap is, and what to do when
   something is wrong.
+- **The aggregate writes down what a session lost.** Blocks that go missing are what you hear as a
+  click, and until now the count died with the session. The driver's log now says, when a session
+  ends, how long it ran and what each interface lost, and says so the first time anything goes
+  missing, so a session that sounded wrong last night can be looked up today.
+- **A measurement says whether the audio under it was clean**, and one taken across a dropout, or
+  one whose clicks disagreed with each other, reports honestly and offers no trim rather than
+  handing you a number that looks as good as any other.
 
 ### Changed
 

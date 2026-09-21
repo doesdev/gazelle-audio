@@ -27,6 +27,9 @@ Windows and 64 bit only.
   buffer, one block at a time.
 - Reports one input and one output latency figure for the whole aggregate, and holds the nearer
   devices back so that every channel lines up.
+- Measures, at the start of every session, where each interface's capture actually started, over the
+  digital cable that already locks them together, and lines the streams up by what it measured
+  rather than by what the drivers reported. See "The phase" below.
 - Runs every device at the same rate and the same buffer size, and refuses as a whole if any one of
   them will not.
 - Keeps going when a device stops calling back: its inputs read as silence, its outputs are muted,
@@ -93,13 +96,15 @@ to take them all, which is almost always what you want; a device with a long lis
 channels you never record is the case where it is worth trimming.
 
 A worked example, which is the setup phase 0 measured. Every device here gives all of its channels,
-which is what most people want:
+which is what most people want, and the Studio+ is measured over the S/PDIF cable that already
+clocks it:
 
 ```json
 {
   "devices": [
     { "key": "Zen Quadro Synergy Core", "name": "Quadro" },
-    { "clsid": "{AE4A4452-A316-11E5-A113-080027F6C1F4}", "name": "Studio+" }
+    { "clsid": "{AE4A4452-A316-11E5-A113-080027F6C1F4}", "name": "Studio+",
+      "phase": { "master_output": 8, "input": 16 } }
   ],
   "callback_master": "Quadro",
   "alignment": "aligned",
@@ -119,6 +124,7 @@ which is what most people want:
 | `devices[].name` | What to call this device's channels. | its registry key |
 | `devices[].input_trim` | Samples to add to what this device's driver says its input latency is. A device that records late takes a positive trim, and the others are held back to match it. | 0 |
 | `devices[].output_trim` | The same for its outputs. | 0 |
+| `devices[].phase` | How this interface's capture phase is measured at the start of a session, as `{"master_output": n, "input": n}`: the output of the interface that drives the callback the cable leaves from, and this interface's own input it arrives on, both by the devices' own channel numbering from zero. Not for the interface that drives the callback. See "The phase" below. | not measured |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |
 | `devices[].outputs` | Which of its outputs to expose. | all of them |
 | `devices[].input_names` | What to call its inputs, keyed by the device's own channel number from zero: `{"0": "Vocal mic"}`. The channel is then "Vocal mic (Quadro 1)". | the automatic name |
@@ -147,6 +153,122 @@ device that drives the callback is the one held back most.
 one buffer behind it. The latency figures reported are still the longest path, because that is the
 honest answer, but the channels do not line up with each other.
 
+## The phase
+
+**Two interfaces do not start their capture in the same place, and where they start changes every
+time.** Measured at the devices on 2026-09-21:
+
+- Within one session the two record a fixed number of samples apart. The spread of a measurement is
+  0.00 samples, and the same fractional part comes back every time.
+- Between sessions that number jumps by a whole multiple of 32 samples. Seen at 64, 128 and 256
+  sample buffers, with the vendor drivers' Safe Mode on and off.
+- The drivers report identical latency figures on every open, so the aggregate's own padding is the
+  same every run and is not the cause.
+- The aggregate moves a follower's audio only in whole blocks, so an offset smaller than a block was
+  already in what the drivers handed over. It is each interface's capture pipeline settling on a
+  different phase when its stream starts.
+- **The phase belongs to an interface's capture pipeline as a whole.** Witness channels settled it:
+  in six runs an interface's analogue input and its S/PDIF input moved together every time, their
+  difference constant at 47.29 samples to two decimals while the absolute figures jumped by 96 and
+  160 samples.
+
+That last one is what makes this worth doing: a phase measured on the digital input corrects the
+analogue inputs too, so one measurement over the cable that already locks the interfaces together
+lines up everything they record.
+
+### A phase is not a trim
+
+They are different things and both apply. Getting them mixed up is how somebody would correct the
+same thing twice.
+
+| | The trim | The phase |
+| --- | --- | --- |
+| What it is | The constant difference between what an interface's driver reports and what its converters really do | Where that interface's capture pipeline happened to start this time |
+| How it is found | Measured once, by hand, with a cable and a click | Measured by the driver, over the digital cable, at the start of every session |
+| How often it changes | Never | Every session, by whole multiples of 32 samples |
+| Where it lives | `input_trim` in this file | Nowhere: it is measured again each time, and written to the event log afterwards |
+
+Setting a trim does not answer the phase, and being phase measured does not make a trim
+unnecessary.
+
+### How it is measured
+
+Give the interface a `phase` and the driver measures it:
+
+```json
+{ "key": "ZenStudioTB ASIO Driver", "name": "Studio+",
+  "phase": { "master_output": 8, "input": 16 } }
+```
+
+`master_output` is the output of the interface that drives the callback that the cable leaves from,
+and `input` is this interface's own input that it arrives on. Both are the **devices' own** channel
+numbers from zero, the same numbering `inputs` and `outputs` use, so the setting survives a change
+to which channels are exposed. It is the cable the aggregate already needs for clocking: nothing new
+has to be plugged in.
+
+- **The path is configured, never guessed.** An interface with no `phase` is not measured, and its
+  session runs exactly as it did before this existed.
+- **Those two channels are the driver's, not the DAW's.** They are opened at the interfaces, because
+  the measurement needs them, and both are kept out of the channel list a DAW is given. Nothing a
+  DAW plays can land on the measurement channel, and the measurement can never be heard on a channel
+  anybody is using.
+- **It happens once, at the start of the session**, in the first fraction of a second, out of the
+  audio path's own blocks. The signal is the driver's own: a burst of four samples about 42 dB below
+  full scale, over a digital cable, where nothing is gained by making it louder.
+- **Each interface is measured on its own cable, against the one that drives the callback.** Three
+  interfaces are three independent measurements; nothing here assumes two.
+- **`"lowest_latency"` measures nothing**, because it holds nothing back on purpose and a
+  measurement would have nothing to do.
+
+What is measured is not the absolute distance but how far the capture landed from where the drivers'
+own figures put it: the master's reported output latency, this interface's reported input latency,
+and the one block the aggregate's own ring costs. That difference is what changes between sessions.
+
+### What it refuses
+
+A measurement the driver will not believe is **a refusal to correct, not a correction of zero**. The
+session then runs exactly as it does today, on the figures the drivers reported, and the reason goes
+into the event log where somebody will find it in the morning.
+
+- **Nothing arrived** on the measurement channel inside the window. The cable is out, or the
+  channels in the file are not the ones it is on.
+- **It was not near a whole multiple of 32 samples.** That is the only thing the hardware does, so a
+  figure that is not one is a measurement of something else. Up to 8 samples either side of a
+  multiple of 32 is taken as that multiple, which is what takes the digital path's own small
+  constant back out again.
+- **It was further out than a phase goes**, which is more than 512 samples either way.
+
+### What it does with it
+
+What was measured is added to that interface's input path and the padding is worked out again,
+which is exactly what this driver already does with a reported latency and a trim. An interface that
+turns out to be **early is delayed**; one that is **late** means the others are held back to meet it,
+and the aggregate's own input latency grows by as much.
+
+The driver does not interrupt the DAW to tell it that. It answers the figure in force whenever it is
+asked for it again, and it publishes it in the live record, but a DAW that read the latency before
+the audio started is still holding the figure it was given. Until it asks again the tracks line up
+with each other and sit up to the measured amount later than that DAW thinks they do, which for a
+measurement of one or two steps of 32 samples is well under a millisecond.
+
+**Changing the alignment after the DAW has had a block is a discontinuity**, and this is not free:
+the delays that were holding audio back drop what they were holding, so there is a click on the
+channels that moved. It happens in the first fraction of a second of a session, before anything is
+being recorded, and it is the price of lining the interfaces up by what they actually did rather
+than by what their drivers said they would do. Only the inputs move: the phase is a capture
+pipeline's, and the outputs are left where the reported figures put them.
+
+### What it says afterwards
+
+The live record carries, per interface, what the measurement came to, what was applied and which of
+the states above it is in, beside the gap. That goes the moment the DAW closes, so a line goes in the
+event log as well, and that line is the only thing that survives the session:
+
+```
+2026-09-21 21:14:09 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
+2026-09-22 09:02:41 phase Studio+ was not lined up: nothing arrived on its measurement channel. Check the cable and the channels the file names, or take the phase setting out. The session ran on the figures the drivers reported.
+```
+
 ## What it publishes, and what it keeps
 
 The driver has to work with Gazelle closed: **its configuration file is its only requirement**.
@@ -171,6 +293,8 @@ It holds, at any moment:
 - Per device: whether it is streaming, whether it has stalled, how many blocks it has dropped or
   been short of, and **the gap**, which is that device's sample count minus the master's. Zero
   while the two are locked, and growing in one direction when they are not.
+- Per device, beside the gap: what this session's phase measurement came to, what was applied
+  because of it, and which of its states it is in. See "The phase" above.
 - The callback count, the sample position, and the time of the last block on the machine's own
   clock, which is how a watcher can tell a driver that has stopped from one that is quiet.
 - The last refusal, in the same words the DAW was given, and where the configuration came from.
@@ -187,6 +311,7 @@ timer**, so every line in the file means something:
 
 ```
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
+2026-09-20 21:14:07 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
 2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken
@@ -194,8 +319,8 @@ timer**, so every line in the file means something:
 2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
 ```
 
-The words are `refused`, `stalled`, `recovered`, `glitched`, `session-started`, `session-ended`,
-`adopted` and `reset-asked`. The time is local, because the person reading it is the person it
+The words are `refused`, `stalled`, `recovered`, `glitched`, `phase`, `session-started`,
+`session-ended`, `adopted` and `reset-asked`. The time is local, because the person reading it is the person it
 happened to. This is the half that survives the driver exiting, which is exactly when somebody
 wants to know why last night's session would not start. The file is trimmed to its last 400 lines
 when the driver opens it, and that is the only time it is ever rewritten.
@@ -215,10 +340,27 @@ block would bury the file at exactly the moment it has to be readable.
 
 **None of that happens on the audio path.** The rings count a lost block with one relaxed add, and
 that is all the callback does. Turning a count into a line of the log is the watcher thread's work,
-and the session's totals are written on the thread the DAW stopped the driver from. A block that a
-device asked for before the callback has ever produced one is not counted at all: the devices that
-follow are started first, on purpose, so their first few callbacks ask for blocks nobody was ever
-going to have made, and counting those would put a miss on the record of every clean session.
+and the session's totals are written on the thread the DAW stopped the driver from.
+
+**The first few blocks of a stream are not counted, and this is why.** The two interfaces'
+callbacks are woken by two converters, and where one lands inside the other's block is not settled
+when a session starts. While the interface that drives the callback reaches the ring first there is
+nothing in it for it, and the block of silence it takes is what puts the other one a block ahead,
+which is where it stays for the rest of the session and which is exactly the one buffer the
+aggregate's arithmetic already allows a device that crosses a ring. Nothing is missing from a
+recording: it is a few milliseconds into a session, before anybody is recording, and what follows
+the silence is every sample the interface captured. Measured against both interfaces on 2026-09-20,
+at 256 samples: the interface that drives the callback lost nothing ever, dropped nothing ever; the
+follower took one of these in a five second session, none in a thirteen second one and one in a
+twenty five second one. It does not grow with the length of a session, because it is not a rate.
+Counting it would have put a lost block on the record of every clean session.
+
+**A block of silence after that is a real one** and is counted, reported and left audible as what it
+is. By then the ring has a whole buffer of room, so an empty one means the block was not made in
+time, and it costs that interface another buffer of path for the rest of the session on top of the
+click. The same forgiveness starts again for an interface coming back from a stall, whose ring was
+thrown away and whose two ends have to find each other again: that is already reported as a stall,
+and counting the refill would be reporting it twice under another name.
 
 ## Changing its mind while it is loaded
 

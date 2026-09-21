@@ -13,6 +13,9 @@
 pub struct Delay {
     /// How many samples each channel is held back by. Zero is a straight copy.
     samples: usize,
+    /// The longest delay this one can be moved to, which is what it has the memory for. The audio
+    /// path may change the length inside this and never outside it.
+    room: usize,
     channels: usize,
     history: Vec<i32>,
     /// Where in each channel's history the oldest sample sits.
@@ -20,13 +23,44 @@ pub struct Delay {
 }
 
 impl Delay {
-    /// A delay of `samples` over `channels` channels, starting silent.
+    /// A delay of `samples` over `channels` channels, starting silent, that will never be anything
+    /// else.
     pub fn new(channels: usize, samples: usize) -> Delay {
-        Delay { samples, channels, history: vec![0i32; channels * samples], at: 0 }
+        Delay::with_room(channels, samples, samples)
+    }
+
+    /// The same, with the memory for a delay of up to `room` samples, so that a measurement taken
+    /// once the session has started can move it without allocating on the audio path.
+    pub fn with_room(channels: usize, samples: usize, room: usize) -> Delay {
+        let room = room.max(samples);
+        Delay { samples, room, channels, history: vec![0i32; channels * room], at: 0 }
     }
 
     pub fn samples(&self) -> usize {
         self.samples
+    }
+
+    /// The longest this delay can be made.
+    pub fn room(&self) -> usize {
+        self.room
+    }
+
+    /// **Hold the audio back by a different number of samples**, which is what applying a
+    /// measurement comes to. Everything held is dropped, because a delay that changed length is a
+    /// discontinuity however it is done, and a sample kept across one would be played twice or
+    /// not at all.
+    ///
+    /// Allocates nothing: a length past the room this delay was made with is refused instead, and
+    /// the delay is left exactly as it was.
+    pub fn set_samples(&mut self, samples: usize) -> bool {
+        if samples > self.room {
+            return false;
+        }
+        if samples != self.samples {
+            self.samples = samples;
+            self.clear();
+        }
+        true
     }
 
     /// Hold `block` back in place. `block` is `channels` runs of `len` samples, one after another.
@@ -114,6 +148,39 @@ mod tests {
         delay.clear();
         let got = run(&mut delay, 1, &[&[7, 8, 9]]);
         assert_eq!(got[0], vec![0, 0, 0], "what was in the delay must not come back");
+    }
+
+    #[test]
+    fn a_delay_made_with_room_can_be_moved_inside_it_and_never_outside_it() {
+        // The room is allocated once, when the buffers are made, so that a phase measured after a
+        // session has started moves the delay without the audio path allocating anything.
+        let mut delay = Delay::with_room(1, 2, 8);
+        assert_eq!(delay.samples(), 2);
+        assert_eq!(delay.room(), 8);
+        assert!(delay.set_samples(5), "inside the room it was made with");
+        assert_eq!(delay.samples(), 5);
+        assert!(!delay.set_samples(9), "and never outside it");
+        assert_eq!(delay.samples(), 5, "a refusal leaves the delay exactly as it was");
+        assert!(delay.set_samples(0), "including down to nothing at all");
+
+        // What was held is dropped, because changing the length is a discontinuity whatever else
+        // is done, and a sample carried across one would be heard twice.
+        let mut held = Delay::with_room(1, 4, 8);
+        run(&mut held, 1, &[&[1, 2, 3, 4]]);
+        held.set_samples(2);
+        assert_eq!(run(&mut held, 1, &[&[7, 8, 9, 10]])[0], vec![0, 0, 7, 8]);
+        // And the new length is a real delay of that many samples, over every channel.
+        let mut wider = Delay::with_room(2, 0, 4);
+        assert!(wider.set_samples(1));
+        assert_eq!(run(&mut wider, 2, &[&[1, 2, 10, 20]])[0], vec![0, 1, 0, 10]);
+    }
+
+    #[test]
+    fn a_delay_that_was_never_given_room_cannot_be_moved_at_all() {
+        let mut fixed = Delay::new(1, 3);
+        assert_eq!(fixed.room(), 3);
+        assert!(!fixed.set_samples(4));
+        assert!(fixed.set_samples(3), "to what it already is, which changes nothing");
     }
 
     #[test]

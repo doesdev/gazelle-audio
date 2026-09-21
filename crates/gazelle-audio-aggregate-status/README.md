@@ -32,8 +32,8 @@ rather than finding each other and misreading.
 
 | | Now |
 | --- | --- |
-| Shared section | `Local\gazelle-aggregate-status-1` |
-| Reload event | `Local\gazelle-aggregate-reload-1` |
+| Shared section | `Local\gazelle-aggregate-status-2` |
+| Reload event | `Local\gazelle-aggregate-reload-2` |
 | Configuration file | `%APPDATA%\gazelle\aggregate.json` |
 | Event log | `%APPDATA%\gazelle\aggregate-events.log` |
 
@@ -42,7 +42,7 @@ and nothing here should be reachable from another account.
 
 ## The record
 
-`StatusRecord`, `#[repr(C)]`, 1936 bytes, 8 byte aligned. Fixed size, no pointers, no allocation.
+`StatusRecord`, `#[repr(C)]`, 2064 bytes, 8 byte aligned. Fixed size, no pointers, no allocation.
 Names are fixed byte arrays with a length, so a reader maps it and reads it without trusting a word
 of the writer's memory. A test asserts the size of every structure in it, because a size that moved
 silently is the one mistake this crate can make that nothing else would catch.
@@ -51,12 +51,12 @@ silently is the one mistake this crate can make that nothing else would catch.
 StatusRecord
   magic            u64    "GZAGGST1" as little endian bytes
   sequence         u64    the seqlock, atomic
-  format_version   u32    1
-  record_size      u32    1936
+  format_version   u32    2
+  record_size      u32    2064
   gate             u32    the driver's own writer gate, atomic
   reserved         u32
   control          ControlArea    64 bytes, written only by Gazelle
-  driver           DriverArea   1840 bytes, written only by the driver
+  driver           DriverArea   1968 bytes, written only by the driver
 ```
 
 ### Who writes what
@@ -102,7 +102,7 @@ is now expected to reach.
 | `config_source` | 256 bytes + length | Where the configuration in force was read from. |
 | `devices` | `[DeviceStatus; 8]` | |
 
-`DeviceStatus`, 152 bytes each:
+`DeviceStatus`, 168 bytes each:
 
 | Field | Type | What it is |
 | --- | --- | --- |
@@ -118,6 +118,9 @@ is now expected to reach.
 | `is_master` | `u32` | It drives the DAW's callback. |
 | `latency_in`, `latency_out` | `i32` | What its own driver reports, plus the trim from the configuration file. |
 | `pad_in`, `pad_out` | `i32` | Samples it is held back by so that every device lines up. |
+| `phase_state` | `u32` | What became of this interface's phase measurement this session: 0 nothing set up, 1 measuring, 2 applied, 3 nothing heard, 4 not near a multiple of 32 samples, 5 further out than the driver will believe. An unknown number reads as nothing set up. |
+| `phase_measured` | `i32` | What the measurement came to, in samples, before it was rounded to what the hardware does. Positive means this interface's capture arrived later than the reported figures said it would. |
+| `phase_applied` | `i32` | What was added to its input path because of it. Zero unless `phase_state` is 2: a measurement that is not trusted is a refusal to correct, never a correction of zero. |
 
 A string field is bytes plus a length. Read it through `Text::get`, which clamps the length to the
 array and answers nothing at all for bytes that are not text: a reader of a record it cannot trust
@@ -155,6 +158,7 @@ reads them:
 
 ```
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
+2026-09-20 21:14:07 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
 2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken
@@ -166,8 +170,13 @@ reads them:
 - The time is `YYYY-MM-DD HH:MM:SS`, **local**, because the person reading it is the person it
   happened to.
 - The second piece is one word, never two, so a line splits the same way whatever is in its detail.
-  The words are `refused`, `stalled`, `recovered`, `glitched`, `session-started`, `session-ended`,
-  `adopted`, `reset-asked`. `events::ALL` is the list, and it is the one both sides read.
+  The words are `refused`, `stalled`, `recovered`, `glitched`, `phase`, `session-started`,
+  `session-ended`, `adopted`, `reset-asked`. `events::ALL` is the list, and it is the one both
+  sides read.
+- **`phase` is what a session made of one interface's capture phase**: what was measured, what was
+  applied, or why nothing was. The live record above holds it only while the DAW has the driver
+  open, and the phase is a different number every session, so this line is the only thing that
+  survives one.
 - **`glitched` is the first block a session loses, and only the first.** The rest are counted, and
   the totals go in that session's `session-ended` line, along with how long it ran. The live record
   above holds the counts while the driver is running; those two lines are what is left of them once

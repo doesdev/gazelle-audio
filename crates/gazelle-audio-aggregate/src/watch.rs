@@ -25,7 +25,7 @@ use gazelle_audio_stream_abi::raw::selector;
 
 use crate::aggregate::Aggregate;
 use crate::config::Config;
-use crate::status::{GlitchWatch, Reporter, StallWatch};
+use crate::status::{GlitchWatch, PhaseWatch, Reporter, StallWatch};
 
 /// How long a wait lasts when nobody signals. The watcher looks around on a timeout as well as on
 /// a signal, which is how a device that stalled gets its line in the event log.
@@ -134,6 +134,7 @@ pub struct DriverWatch {
     reporter: Arc<Reporter>,
     stalls: Mutex<StallWatch>,
     glitches: Mutex<GlitchWatch>,
+    phases: Mutex<PhaseWatch>,
 }
 
 impl DriverWatch {
@@ -143,6 +144,7 @@ impl DriverWatch {
             reporter,
             stalls: Mutex::new(StallWatch::new()),
             glitches: Mutex::new(GlitchWatch::new()),
+            phases: Mutex::new(PhaseWatch::new()),
         }
     }
 
@@ -205,6 +207,7 @@ impl Reload for DriverWatch {
         self.reporter.update(|area| area.generation_in_force = generation);
         self.stalls.lock().expect("not poisoned").clear();
         self.glitches.lock().expect("not poisoned").clear();
+        self.phases.lock().expect("not poisoned").clear();
     }
 
     fn look_around(&self) {
@@ -222,6 +225,16 @@ impl Reload for DriverWatch {
         let first = self.glitches.lock().expect("not poisoned").first(&lost);
         for (index, dropped, starved) in first {
             self.reporter.first_glitch(area.devices[index].name.get(), dropped, starved);
+        }
+
+        // And the same again for a phase measurement that has just come to something. The audio
+        // path measured it and wrote three numbers; this is where they become the line that
+        // survives the session.
+        let states: Vec<u32> = area.devices[..count].iter().map(|device| device.phase_state).collect();
+        let settled = self.phases.lock().expect("not poisoned").settled(&states);
+        for index in settled {
+            let device = &area.devices[index];
+            self.reporter.phase_settled(device.name.get(), device.phase_state, device.phase_measured, device.phase_applied);
         }
     }
 

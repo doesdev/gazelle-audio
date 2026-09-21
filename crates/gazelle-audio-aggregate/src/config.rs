@@ -115,6 +115,51 @@ impl<'de> Deserialize<'de> for Labels {
     }
 }
 
+/// The digital path the driver measures a follower's phase over: which output of the device that
+/// drives the callback feeds it, and which of its own inputs the cable arrives on.
+///
+/// Both are the **devices' own** channel numbers from zero, the numbering `inputs` and `outputs`
+/// use, so the setting survives a change to which channels are exposed. Leaving the whole thing
+/// out means this interface is not phase measured, which is what every session did before this
+/// existed.
+///
+/// **This is not a trim.** A trim is the constant a person measured once with a cable and a click,
+/// and it stays the same for ever. A phase is what an interface's capture pipeline settles on when
+/// its stream starts, which is a different number every session. Both apply, and they are set up
+/// separately on purpose.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct PhaseConfig {
+    /// The callback master's output channel the cable leaves from.
+    #[serde(default)]
+    pub master_output: Option<i32>,
+    /// This device's input channel the cable arrives on.
+    #[serde(default)]
+    pub input: Option<i32>,
+}
+
+impl PhaseConfig {
+    /// Both channels, when both were given. Anything else is refused when the file is read, so by
+    /// the time a plan is made this is the only shape there is.
+    pub fn channels(&self) -> Option<(i32, i32)> {
+        match (self.master_output, self.input) {
+            (Some(output), Some(input)) => Some((output, input)),
+            _ => None,
+        }
+    }
+
+    /// What is wrong with the way it was written, if anything is.
+    fn problem(&self) -> Option<&'static str> {
+        match (self.master_output, self.input) {
+            (Some(output), Some(input)) if output >= 0 && input >= 0 => None,
+            (None, _) => Some(
+                "phase needs master_output, which is the output channel of the device that drives the callback that the cable leaves from",
+            ),
+            (_, None) => Some("phase needs input, which is this device's own input channel the cable arrives on"),
+            _ => Some("phase names a channel below zero, and channels are numbered from zero"),
+        }
+    }
+}
+
 /// One sub-device, and how to find it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DeviceConfig {
@@ -153,6 +198,11 @@ pub struct DeviceConfig {
     /// The same for the device's outputs.
     #[serde(default)]
     pub output_trim: Option<i32>,
+    /// How to measure this device's capture phase at the start of a session, over the digital
+    /// cable that already locks it to the others. Left out means it is not measured, and the
+    /// session runs on the figures the drivers report, exactly as it did before.
+    #[serde(default)]
+    pub phase: Option<PhaseConfig>,
 }
 
 impl DeviceConfig {
@@ -270,6 +320,9 @@ impl Config {
                 if channels.iter().any(|&c| c < 0) {
                     return Err(format!("{} lists a channel below zero", device.described()));
                 }
+            }
+            if let Some(why) = device.phase.as_ref().and_then(PhaseConfig::problem) {
+                return Err(format!("{}: {why}", device.described()));
             }
             for (field, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
                 if let Some(why) = labels.problem() {
@@ -403,6 +456,50 @@ mod tests {
         let not_text = Config::parse(r#"{"devices": [{"key": "Zen Quadro", "name": "Quadro", "input_names": {"0": 5}}]}"#)
             .expect_err("a name is text");
         assert!(not_text.contains("Quadro"), "{not_text}");
+    }
+
+    #[test]
+    fn a_device_can_say_which_cable_its_phase_is_measured_over() {
+        let config = Config::parse(
+            r#"{
+                "devices": [
+                    {"key": "Zen Quadro Synergy Core", "name": "Quadro"},
+                    {"key": "ZenStudioTB", "name": "Studio+", "input_trim": 28,
+                     "phase": {"master_output": 8, "input": 16}}
+                ],
+                "callback_master": "Quadro"
+            }"#,
+        )
+        .expect("the worked example in the README must parse");
+        assert_eq!(config.devices[0].phase, None, "the device that drives the callback is not measured");
+        let phase = config.devices[1].phase.expect("the follower is");
+        assert_eq!(phase.channels(), Some((8, 16)));
+        // A trim and a phase are different things, and a device can have both.
+        assert_eq!(config.devices[1].input_trim, Some(28));
+    }
+
+    #[test]
+    fn half_a_phase_setting_is_refused_and_says_which_half_is_missing() {
+        let no_input = Config::parse(
+            r#"{"devices": [{"key": "a", "name": "Studio+", "phase": {"master_output": 8}}]}"#,
+        )
+        .expect_err("a signal with nowhere to arrive is not a measurement");
+        assert!(no_input.contains("Studio+") && no_input.contains("input"), "{no_input}");
+        let no_output =
+            Config::parse(r#"{"devices": [{"key": "a", "name": "Studio+", "phase": {"input": 16}}]}"#)
+                .expect_err("and one with nowhere to leave from is not either");
+        assert!(no_output.contains("master_output"), "{no_output}");
+        let below_zero = Config::parse(
+            r#"{"devices": [{"key": "a", "name": "Studio+", "phase": {"master_output": -1, "input": 16}}]}"#,
+        )
+        .expect_err("there is no channel below zero");
+        assert!(below_zero.contains("below zero"), "{below_zero}");
+    }
+
+    #[test]
+    fn a_device_that_says_nothing_about_a_phase_is_not_measured_at_all() {
+        let config = Config::parse(r#"{"devices": [{"key": "Zen Quadro"}]}"#).expect("a phase is optional");
+        assert_eq!(config.devices[0].phase, None);
     }
 
     #[test]

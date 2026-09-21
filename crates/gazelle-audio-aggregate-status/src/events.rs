@@ -31,6 +31,10 @@ pub enum Event {
     Adopted,
     /// A new configuration arrived while a DAW was streaming, so the host was asked to reset.
     ResetAsked,
+    /// What a session's phase measurement came to, per interface: what was measured, what was
+    /// applied, or why nothing was. The measurement itself is gone the moment the driver is
+    /// released, so this line is the only thing that survives it.
+    Phase,
 }
 
 impl Event {
@@ -46,6 +50,7 @@ impl Event {
             Event::SessionEnded => "session-ended",
             Event::Adopted => "adopted",
             Event::ResetAsked => "reset-asked",
+            Event::Phase => "phase",
         }
     }
 
@@ -56,7 +61,7 @@ impl Event {
 
 /// Every kind of line the log can hold. One list, so that a new event cannot be written by a
 /// driver and then read back as nothing by the same build.
-pub const ALL: [Event; 8] = [
+pub const ALL: [Event; 9] = [
     Event::Refused,
     Event::Stalled,
     Event::Recovered,
@@ -65,6 +70,7 @@ pub const ALL: [Event; 8] = [
     Event::SessionEnded,
     Event::Adopted,
     Event::ResetAsked,
+    Event::Phase,
 ];
 
 /// One line of the log, taken apart.

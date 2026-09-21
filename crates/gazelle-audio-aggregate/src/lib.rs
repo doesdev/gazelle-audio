@@ -77,6 +77,7 @@ pub mod config;
 pub mod daw;
 pub mod delay;
 pub mod fake;
+pub mod phase;
 pub mod plan;
 pub mod registration;
 pub mod ring;

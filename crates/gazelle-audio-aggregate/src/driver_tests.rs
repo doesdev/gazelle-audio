@@ -7,9 +7,11 @@
 use std::sync::Arc;
 
 use crate::aggregate::{Aggregate, Wanted};
-use crate::config::{Alignment, Config, DeviceConfig};
+use crate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
 use crate::daw;
 use crate::fake::{FakeHost, FakePc, Spec, Step};
+use crate::phase;
+use gazelle_audio_aggregate_status::record::phase as phase_state;
 use crate::status::fake::{unmapped, watched, Written};
 use crate::sub::Host;
 use crate::watch::{DriverWatch, Reload};
@@ -259,6 +261,77 @@ fn a_device_that_runs_ahead_drops_blocks_rather_than_growing_without_end() {
     assert_eq!(ring.waiting(), 3);
     assert_eq!(ring.dropped(), 2, "what could not be carried was dropped, and counted");
     aggregate.dispose_buffers();
+}
+
+/// **What the start of a session looks like, and what it must not be logged as.**
+///
+/// Measured against both interfaces on 2026-09-20: the follower took a block of silence once or
+/// twice in the instant a session started, whatever the session went on to do, and never once it
+/// was running. It is the master's callback and the follower's finding where they sit inside each
+/// other's block: while the master arrives at the ring first there is nothing in it for it, and the
+/// silence it takes is what puts the follower a block ahead, where it stays. A driver that called
+/// that a lost block would report one on every clean session.
+#[test]
+fn a_session_that_starts_with_the_follower_behind_has_lost_nothing() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let mut aggregate = running(&pc, both(Alignment::LowestLatency));
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    feed(&pc, "Device B", 0, 0, 300);
+
+    // The arrangement with no room in it: the follower hands its block over only just in time.
+    for _ in 0..3 {
+        b.fire(0);
+        a.fire(0);
+    }
+    // And the master slips in front of it, which is the block of silence and the whole of this.
+    a.fire(0);
+    let heard = daw::with(|session| session.heard.clone());
+    assert_eq!(heard.last().unwrap()[2], vec![0; BLOCK as usize], "silence, because there was nothing there yet");
+    // From here the follower is a block ahead, which is where a session stays.
+    for _ in 0..12 {
+        b.fire(0);
+        a.fire(0);
+    }
+
+    let glitches = aggregate.stream().expect("the stream exists").glitches();
+    assert_eq!(glitches[1].starved, 0, "a session finding its footing has not lost a block");
+    assert_eq!(glitches[1].dropped, 0);
+    assert_eq!(glitches[0].starved + glitches[0].dropped, 0, "and the master never loses anything at all");
+    aggregate.dispose_buffers();
+}
+
+/// The same silence once the session is running, which is a different thing entirely: the follower
+/// had a whole block of room and still did not fill it in time.
+#[test]
+fn a_block_missed_once_the_session_is_running_is_counted_reported_and_heard_as_silence() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::LowestLatency));
+    go(&mut aggregate);
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    feed(&pc, "Device B", 0, 0, 300);
+
+    // Long enough that the two of them are settled, and every block of it comes through.
+    for _ in 0..16 {
+        b.fire(0);
+        a.fire(0);
+    }
+    assert_eq!(aggregate.stream().expect("streaming").glitches()[1].starved, 0);
+    let heard = daw::with(|session| session.heard.clone());
+    assert_eq!(heard.last().unwrap()[2], daw::tone(BLOCK as usize, 300), "the follower is being heard");
+
+    // And then one of its blocks is not ready.
+    a.fire(0);
+    let heard = daw::with(|session| session.heard.clone());
+    assert_eq!(heard.last().unwrap()[2], vec![0; BLOCK as usize], "what a lost block sounds like");
+    assert_eq!(aggregate.stream().expect("streaming").glitches()[1].starved, 1, "and it is counted");
+
+    aggregate.dispose_buffers();
+    let ended = written.of("session-ended");
+    assert_eq!(ended.len(), 1, "{:?}", written.lines());
+    assert!(ended[0].contains("A lost nothing"), "{}", ended[0]);
+    assert!(ended[0].contains("B dropped no blocks and missed 1 block"), "{}", ended[0]);
 }
 
 #[test]
@@ -1139,4 +1212,317 @@ fn the_watcher_lets_go_of_a_driver_that_has_been_released() {
     assert!(watcher.adopt(both(Alignment::Aligned), "a test".to_string(), 1).is_err());
     watcher.ask_host_to_reset();
     watcher.look_around();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The phase each interface's capture settles on, measured at the start of a session.
+// ---------------------------------------------------------------------------------------------
+
+/// A device with no latency of its own, so that what a test works out is the measurement's own
+/// arithmetic and nothing else, and a rate that makes the listening window a handful of blocks.
+fn quiet(inputs: i32, outputs: i32) -> Spec {
+    Spec { min: 2, max: 64, preferred: BLOCK, rate: QUIET_RATE, rates: vec![QUIET_RATE], ..Spec::default() }
+        .with_channels(inputs, outputs)
+        .with_latency(QUIET_LATENCY, QUIET_LATENCY)
+}
+
+/// What these devices report each way, which is what a measurement is residual to.
+const QUIET_LATENCY: i32 = 100;
+
+/// A rate that makes the block a sensible fraction of a second, so the window the driver listens
+/// for is tens of blocks rather than thousands.
+const QUIET_RATE: f64 = 2_000.0;
+
+/// Two devices, three channels each way, with nothing to line up until something is measured.
+fn quiet_pc() -> Arc<FakePc> {
+    Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", quiet(3, 3))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", quiet(3, 3)),
+    )
+}
+
+/// The same configuration as `both`, with a cable declared from the master's output to the
+/// follower's input, which is what its phase is measured over.
+fn cabled(master_output: i32, input: i32) -> Config {
+    let mut config = both(Alignment::Aligned);
+    config.devices[1].phase = Some(PhaseConfig { master_output: Some(master_output), input: Some(input) });
+    config
+}
+
+/// Where the burst has to arrive for the measurement to come to `residual` samples.
+///
+/// The signal leaves on the block the driver settles on, held back by whatever the master's own
+/// outputs are held back by; what the drivers' figures expect of it is the master's reported output
+/// latency, the follower's reported input latency and the one block the ring costs. Every one of
+/// those is nothing here except the block, which is what `quiet` is for.
+fn arrives_at(residual: i64) -> (u64, usize) {
+    let sent_at = phase::SETTLE_BLOCKS as i64 * BLOCK as i64 + BLOCK as i64;
+    let expected = QUIET_LATENCY as i64 * 2 + BLOCK as i64;
+    let position = sent_at + expected + residual;
+    ((position / BLOCK as i64) as u64, (position % BLOCK as i64) as usize)
+}
+
+/// Run a session, putting the measurement signal on the follower's measurement channel at the
+/// block and the offset a measurement of `residual` samples would land at. `None` cables nothing up.
+fn run_measuring(pc: &Arc<FakePc>, residual: Option<i64>, blocks: u64) {
+    run_measuring_from(pc, residual, 0, blocks)
+}
+
+/// The same, from a block other than the first, for a session that has already driven some.
+fn run_measuring_from(pc: &Arc<FakePc>, residual: Option<i64>, first: u64, blocks: u64) {
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    let arrival = residual.map(arrives_at);
+    for block in first..blocks {
+        let half = (block as usize) & 1;
+        let mut heard = vec![0i32; BLOCK as usize];
+        if let Some((at, offset)) = arrival {
+            if at == block {
+                heard[offset] = phase::AMPLITUDE;
+            }
+        }
+        // The follower's measurement channel is the last one it opened, because the file named a
+        // channel outside the ones the DAW is given.
+        b.set_input(2, half, &heard);
+        b.fire(half);
+        a.fire(half);
+    }
+}
+
+/// A watcher over a driver of this PC, for the tests that read the log rather than the record.
+fn watching(pc: &Arc<FakePc>, reporter: Arc<crate::status::Reporter>) -> DriverWatch {
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(pc) });
+    DriverWatch::new(&Arc::new(Mutex::new(Aggregate::new(host))), reporter)
+}
+
+#[test]
+fn the_channels_a_phase_is_measured_over_are_never_the_daws() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let aggregate = open(&pc, cabled(2, 2));
+    // Three channels each way on each device, less the master's measurement output and the
+    // follower's measurement input, so nothing a DAW plays can land on either of them.
+    assert_eq!(aggregate.channels(), (3 + 2, 2 + 3));
+    let inputs: Vec<String> = (0..5).map(|c| aggregate.channel_info(true, c).expect("a channel").name).collect();
+    assert_eq!(inputs, vec!["A 1", "A 2", "A 3", "B 1", "B 2"], "the follower's third input is the driver's own");
+    let outputs: Vec<String> = (0..5).map(|c| aggregate.channel_info(false, c).expect("a channel").name).collect();
+    assert_eq!(outputs, vec!["A 1", "A 2", "B 1", "B 2", "B 3"], "and the master's third output is as well");
+}
+
+#[test]
+fn the_measurement_signal_goes_out_on_the_drivers_own_channel_and_nowhere_else() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let mut aggregate = running(&pc, cabled(2, 2));
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    let (mut sent, mut sent_out) = (Vec::new(), Vec::new());
+    for block in 0..8u64 {
+        let half = (block as usize) & 1;
+        b.fire(half);
+        a.fire(half);
+        sent.push(a.output(2, half));
+        sent_out.push(a.output(0, half));
+    }
+    // One burst, once, on the channel the file named, and nothing at all on the ones the DAW has.
+    let bursts: Vec<usize> = sent.iter().enumerate().filter(|(_, run)| run.iter().any(|&s| s != 0)).map(|(at, _)| at).collect();
+    assert_eq!(bursts.len(), 1, "one signal a session, not one a block: {bursts:?}");
+    assert_eq!(sent[bursts[0]][0], phase::AMPLITUDE);
+    // An aligned session holds the master's own outputs back by a block, so what a device played
+    // on one callback is what the DAW wrote on the one before it.
+    let played = daw::with(|session| session.played.clone());
+    for block in 1..8usize {
+        assert_eq!(sent_out[block], played[block - 1][0], "what the DAW wrote is what came out of its own channels");
+    }
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_follower_cabled_with_a_known_phase_is_lined_up_by_what_was_measured() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, cabled(2, 2));
+    let reporter = Arc::clone(&aggregate.reporter);
+    go(&mut aggregate);
+
+    // Nothing has been measured yet, and the record says so rather than saying nothing.
+    let seen = reader.read().expect("a settled record");
+    assert_eq!(seen.devices()[1].phase_state, phase_state::MEASURING);
+    assert_eq!(seen.devices()[0].phase_state, phase_state::NOT_CONFIGURED, "the master is not measured");
+
+    // The interface's capture landed 32 samples later than its driver's figures put it, which is
+    // one of the whole multiples of 32 the hardware moves by.
+    run_measuring(&pc, Some(32), 80);
+    let seen = reader.read().unwrap();
+    let follower = seen.devices()[1];
+    assert_eq!(follower.phase_state, phase_state::APPLIED);
+    assert_eq!(follower.phase_measured, 32);
+    assert_eq!(follower.phase_applied, 32);
+    // An interface that records late means the others are held back to meet it, which is what the
+    // plan already does with the figures the drivers report.
+    assert_eq!(follower.pad_in, 0, "the late interface is where it is");
+    assert_eq!(seen.devices()[0].pad_in, BLOCK + 32, "and the other one waits for it");
+    assert_eq!(seen.driver.input_latency, QUIET_LATENCY + BLOCK + 32, "the figure in force follows what was measured");
+
+    // One line of the log, which is the only thing that survives the session.
+    let watcher = watching(&pc, reporter);
+    watcher.look_around();
+    watcher.look_around();
+    let said = written.of("phase");
+    assert_eq!(said.len(), 1, "once, not once per look: {:?}", written.lines());
+    assert!(said[0].contains("B was measured at 32 samples"), "{}", said[0]);
+    assert!(said[0].contains("lined up by 32"), "{}", said[0]);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_follower_whose_cable_is_out_is_left_exactly_where_the_drivers_figures_put_it() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, cabled(2, 2));
+    let reporter = Arc::clone(&aggregate.reporter);
+    go(&mut aggregate);
+    let was = reader.read().unwrap().driver.input_latency;
+
+    // Nothing at all arrives on the measurement channel, for longer than the driver listens.
+    run_measuring(&pc, None, 140);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::NOT_HEARD);
+    assert_eq!(seen.devices()[1].phase_applied, 0, "a refusal to correct, not a correction of zero");
+    assert_eq!(seen.driver.input_latency, was, "the session runs on the figures the drivers reported");
+    assert_eq!(seen.devices()[0].pad_in, BLOCK, "and nothing was moved");
+
+    let watcher = watching(&pc, reporter);
+    watcher.look_around();
+    let said = written.of("phase");
+    assert_eq!(said.len(), 1, "{:?}", written.lines());
+    assert!(said[0].contains("nothing arrived on its measurement channel"), "{}", said[0]);
+    assert!(said[0].contains("Check the cable"), "{}", said[0]);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_measurement_that_is_not_near_a_multiple_of_32_moves_nothing_and_says_why() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, cabled(2, 2));
+    let reporter = Arc::clone(&aggregate.reporter);
+    go(&mut aggregate);
+    let was = reader.read().unwrap().driver.input_latency;
+
+    // Something arrives, and it is nowhere near what the hardware does, so it is a measurement of
+    // something else.
+    run_measuring(&pc, Some(20), 80);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::OFF_THE_GRID);
+    assert_eq!(seen.devices()[1].phase_measured, 20, "what was measured is still said");
+    assert_eq!(seen.devices()[1].phase_applied, 0);
+    assert_eq!(seen.driver.input_latency, was);
+
+    let watcher = watching(&pc, reporter);
+    watcher.look_around();
+    let said = written.of("phase");
+    assert!(said[0].contains("20 samples"), "{}", said[0]);
+    assert!(said[0].contains("whole multiple of 32"), "{}", said[0]);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_follower_with_no_phase_configuration_behaves_exactly_as_it_did_before() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, both(Alignment::Aligned));
+    assert_eq!(aggregate.channels(), (6, 6), "every channel of both devices reaches the DAW");
+    go(&mut aggregate);
+    let was = reader.read().unwrap().driver.input_latency;
+
+    // Even with something on the channel a measurement would have used, nothing is measured.
+    run_measuring(&pc, Some(32), 80);
+    let seen = reader.read().unwrap();
+    assert!(seen.devices().iter().all(|device| device.phase_state == phase_state::NOT_CONFIGURED));
+    assert!(seen.devices().iter().all(|device| device.phase_applied == 0 && device.phase_measured == 0));
+    assert_eq!(seen.driver.input_latency, was);
+    assert_eq!(seen.devices()[0].pad_in, BLOCK, "held back by exactly what the drivers' figures say");
+    assert!(written.of("phase").is_empty(), "and there is nothing to say about it: {:?}", written.lines());
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn three_interfaces_are_each_measured_against_the_master_on_their_own_cable() {
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", quiet(3, 3))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", quiet(3, 3))
+            .with("Device C", "{CCCCCCCC-0000-0000-0000-000000000003}", r"c:\antelope\c.dll", quiet(3, 3)),
+    );
+    let mut config = cabled(2, 2);
+    config.devices.push(DeviceConfig {
+        key: Some("Device C".into()),
+        name: Some("C".into()),
+        phase: Some(PhaseConfig { master_output: Some(1), input: Some(2) }),
+        ..DeviceConfig::default()
+    });
+    let (mut aggregate, reader, _written) = reporting(&pc, config);
+    // Two of the master's outputs are the driver's own now, and one input of each follower.
+    assert_eq!(aggregate.channels(), (3 + 2 + 2, 1 + 3 + 3));
+    go(&mut aggregate);
+
+    // Each interface's capture settled somewhere of its own, and each is measured on its own
+    // cable: one landed 32 samples late, the other 64 early.
+    let (a, b, c) = (pc.device("Device A"), pc.device("Device B"), pc.device("Device C"));
+    let (late, early) = (arrives_at(32), arrives_at(-64));
+    for block in 0..80u64 {
+        let half = (block as usize) & 1;
+        for (device, (at, offset)) in [(&b, late), (&c, early)] {
+            let mut heard = vec![0i32; BLOCK as usize];
+            if at == block {
+                heard[offset] = phase::AMPLITUDE;
+            }
+            device.set_input(2, half, &heard);
+        }
+        b.fire(half);
+        c.fire(half);
+        a.fire(half);
+    }
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_applied, 32, "one interface was late");
+    assert_eq!(seen.devices()[2].phase_applied, -64, "and the other was early, which is its own answer");
+    // The late one sets the length of everything, and the early one is held back most.
+    assert_eq!(seen.driver.input_latency, QUIET_LATENCY + BLOCK + 32);
+    assert_eq!(seen.devices()[1].pad_in, 0);
+    assert_eq!(seen.devices()[2].pad_in, 32 + 64, "the early interface waits for the late one");
+    assert_eq!(seen.devices()[0].pad_in, BLOCK + 32);
+    aggregate.dispose_buffers();
+}
+
+#[test]
+fn a_session_started_again_is_measured_again_rather_than_keeping_the_last_ones_answer() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    let (mut aggregate, reader, _written) = reporting(&pc, cabled(2, 2));
+    go(&mut aggregate);
+    run_measuring(&pc, Some(32), 80);
+    assert_eq!(reader.read().unwrap().devices()[1].phase_applied, 32);
+
+    // A DAW that stops the audio and starts it again without letting the buffers go is measured
+    // again, because the phase is a different number every session.
+    aggregate.stop();
+    aggregate.start().expect("the same buffers, running again");
+    // The first block of the new session is what starts the measurement again, because nothing
+    // outside the audio path may touch what the audio path is using.
+    run_measuring_from(&pc, None, 0, 1);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::MEASURING, "the last session's answer is not kept");
+    assert_eq!(seen.devices()[1].phase_applied, 0);
+    assert_eq!(seen.devices()[0].pad_in, BLOCK, "and the padding is back to what the drivers' figures say");
+
+    run_measuring_from(&pc, Some(-32), 1, 80);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_applied, -32, "and this session's answer is its own");
+    // An interface that is early is delayed. It crosses a ring, which costs a block, and it
+    // measured 32 samples in front of that, so what it waits out is the rest.
+    assert_eq!(seen.devices()[1].pad_in, 32 - BLOCK);
+    assert_eq!(seen.devices()[0].pad_in, 0, "and the master is not held back for it at all");
+    assert_eq!(seen.driver.input_latency, QUIET_LATENCY, "the master's own path, which nothing measured");
+    aggregate.dispose_buffers();
 }

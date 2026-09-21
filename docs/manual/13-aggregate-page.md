@@ -111,6 +111,10 @@ This plays a click out of one interface and records it on every interface at onc
 
 **A drift finding is the serious one.** If the lag grows steadily through the run, the interfaces are not holding a single clock, and no trim fixes that. Check the digital cable and each interface's clock source, and remember that an interface left on Internal quietly becomes USB clocked the moment a DAW opens it.
 
+**The click has to be able to get there.** It leaves on one of the aggregate's playback channels and comes back on one of its record channels, so the interface's own routing has to carry it: from that playback channel to the socket the cable leaves, and from the socket it arrives at to the record channel. That is the same routing the [Routing page](10-routing-page.md) shows, and on a fresh interface it is often not set up, which reads as "nothing arrived" rather than as a bad cable. Check the path before blaming the lead.
+
+**Was the audio clean?** A run says so. Blocks that go missing during a measurement move the very thing being measured, so a run that lost any is reported as such and offers no trim. Run it again rather than believing it. The same goes for clicks that disagree with each other: the page shows the spread, and a spread near the buffer size means the eight clicks were not measuring one thing.
+
 If nothing arrives on an input, that is a cable, not a measurement, and the page says which one.
 
 ## While a DAW has it open

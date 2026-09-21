@@ -164,6 +164,7 @@ impl AggregateService {
                     driver: DriverSummary::default(),
                     controller: None,
                     controller_error: None,
+                    phase_configured: device.phase.is_some(),
                 };
                 if let Some(descriptor) = descriptor {
                     report.clock = self.clock(&descriptor);

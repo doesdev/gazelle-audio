@@ -14,15 +14,16 @@
 //! happens. Nothing is ever handed to a device without being written first.
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use gazelle_audio_stream_abi::raw::{time_flags, CallbacksRaw, Samples, Time};
 use gazelle_audio_stream_abi::sample;
 
-use crate::config::Config;
+use crate::config::{Alignment, Config};
 use crate::delay::Delay;
-use crate::plan::{ChannelRef, Plan};
+use crate::phase::{self, Detector};
+use crate::plan::{self, ChannelRef, Plan};
 use crate::ring::Ring;
 use crate::status::{Glitches, Reporter};
 use crate::sub::DeviceBuffers;
@@ -86,6 +87,22 @@ pub struct DeviceStream {
     pub stalled: AtomicBool,
     /// Set by the master, read by the device: write silence and play nothing you were given.
     pub mute_out: AtomicBool,
+    /// What the plan believes this device's input path to be, in samples, including the block a
+    /// buffered device's audio costs. What a measurement moves is this plus what it measured.
+    path_in: i32,
+    /// What the plan held this device's inputs back by, before anything was measured.
+    planned_pad_in: i32,
+    /// What it is actually held back by now, which a measurement can move.
+    pub pad_in: AtomicI32,
+    /// One of [`gazelle_audio_aggregate_status::record::phase`]: what became of this device's
+    /// measurement. Written by the audio path, read by the watcher thread and by anything
+    /// watching the record.
+    pub phase_state: AtomicU32,
+    /// What the measurement came to, before it was rounded to what the hardware does.
+    pub phase_measured: AtomicI32,
+    /// What was added to this device's input path because of it, which is nothing at all unless
+    /// the measurement was believed.
+    pub phase_applied: AtomicI32,
 }
 
 impl DeviceStream {
@@ -165,8 +182,28 @@ struct Scratch {
     delay_in: Vec<Delay>,
     delay_out: Vec<Delay>,
     watch: Vec<Watch>,
+    /// One per device: how this device's capture phase is measured, for the ones that are.
+    phase: Vec<Option<Detector>>,
+    /// Room to work the padding out again when a measurement moves a device, so that nothing on
+    /// the audio path allocates to do it.
+    paths: Vec<i32>,
+    pads: Vec<i32>,
+    /// Blocks the master has driven since the audio started, which is what the measurement counts
+    /// its own time in.
+    blocks: u64,
     /// Which half of the aggregate's own buffers the DAW is using.
     half: usize,
+}
+
+/// What a device's phase says about itself before a session has measured anything: that a
+/// measurement is in flight, or that nothing was set up to be measured.
+fn starting_state(configured: bool, measuring: bool) -> u32 {
+    use gazelle_audio_aggregate_status::record::phase as codes;
+    if configured && measuring {
+        codes::MEASURING
+    } else {
+        codes::NOT_CONFIGURED
+    }
 }
 
 /// How a device is watched for going away.
@@ -198,6 +235,18 @@ pub struct Stream {
     /// Which half the DAW is on, so a control call can see it without the scratch.
     published_half: AtomicUsize,
     running: AtomicBool,
+    /// Whether the devices are lined up with each other at all, which is what a phase measurement
+    /// moves. Nothing is measured when they are not: `lowest_latency` holds nothing back on
+    /// purpose, so there is nothing for a measurement to do.
+    aligned: bool,
+    /// The input latency actually in force, which a measurement can lengthen. It starts as the
+    /// figure the plan worked out from what the drivers reported.
+    input_latency: AtomicI32,
+    /// That figure, kept, because a session that starts again measures again from it.
+    planned_input_latency: i32,
+    /// Set when the audio starts, so that a DAW which stops and starts again without letting the
+    /// buffers go is measured again rather than running on the last session's figure.
+    rearm: AtomicBool,
     /// Where the block by block counters go. Writing through it is a compare and exchange and a
     /// run of plain stores into a mapped page; a reporter with nowhere to report does nothing at
     /// all, and either way this never waits, allocates or makes a call into the system.
@@ -231,14 +280,30 @@ impl Stream {
         let mut stage_out = Vec::new();
         let mut delay_in = Vec::new();
         let mut delay_out = Vec::new();
+        let mut detectors = Vec::new();
+        let aligned = plan.alignment == Alignment::Aligned;
+        // Only a session that lines the devices up has anything to measure, and only the devices
+        // the file gave a cable to are measured. Every device's input delay is given room for what
+        // a measurement can come to, because a phase moves every device's padding, not only the
+        // measured one's.
+        let measuring = aligned && plan.devices.iter().any(|device| device.phase.is_some());
+        let room = if measuring { 2 * phase::LIMIT.max(0) as usize } else { 0 };
+        let window = phase::window_blocks(rate, block);
         for (index, (device, device_buffers)) in plan.devices.iter().zip(buffers).enumerate() {
             let ins = device_buffers.inputs.len();
             let outs = device_buffers.outputs.len();
             let buffered = index != plan.master;
             stage_in.push(vec![0i32; ins * block]);
             stage_out.push(vec![0i32; outs * block]);
-            delay_in.push(Delay::new(ins, device.pad_in.max(0) as usize));
+            let pad_in = device.pad_in.max(0) as usize;
+            delay_in.push(Delay::with_room(ins, pad_in, pad_in + room));
             delay_out.push(Delay::new(outs, device.pad_out.max(0) as usize));
+            // What the drivers' own figures say the signal takes to come back: out of the master's
+            // converter, into this device's, and across the ring the aggregate's own path costs.
+            let expected = plan.devices[plan.master].latency_out + device.latency_in + plan.block;
+            detectors.push(device.phase.filter(|_| measuring).map(|phase| {
+                Detector::new(phase.master_slot, phase.input_slot, block, expected, window)
+            }));
             devices.push(DeviceStream {
                 name: device.name.clone(),
                 input_type: device.input_type,
@@ -251,6 +316,12 @@ impl Stream {
                 callbacks: AtomicU64::new(0),
                 stalled: AtomicBool::new(false),
                 mute_out: AtomicBool::new(false),
+                path_in: device.latency_in + if buffered { plan.block } else { 0 },
+                planned_pad_in: device.pad_in,
+                pad_in: AtomicI32::new(device.pad_in),
+                phase_state: AtomicU32::new(starting_state(device.phase.is_some(), measuring)),
+                phase_measured: AtomicI32::new(0),
+                phase_applied: AtomicI32::new(0),
                 buffers: device_buffers,
             });
         }
@@ -273,6 +344,10 @@ impl Stream {
             position: AtomicU64::new(0),
             published_half: AtomicUsize::new(0),
             running: AtomicBool::new(false),
+            aligned,
+            input_latency: AtomicI32::new(plan.input_latency),
+            planned_input_latency: plan.input_latency,
+            rearm: AtomicBool::new(false),
             reporter,
             scratch: UnsafeCell::new(Scratch {
                 stage_in,
@@ -280,6 +355,10 @@ impl Stream {
                 delay_in,
                 delay_out,
                 watch: vec![Watch::default(); count],
+                phase: detectors,
+                paths: vec![0i32; count],
+                pads: vec![0i32; count],
+                blocks: 0,
                 half: 0,
             }),
         }
@@ -298,6 +377,9 @@ impl Stream {
     /// never called.
     pub fn run(&self) {
         self.position.store(0, Ordering::Release);
+        // The phase is a different number every session, so the next block the master drives
+        // starts the measurement again rather than keeping the last session's answer.
+        self.rearm.store(true, Ordering::Release);
         self.running.store(true, Ordering::Release);
     }
 
@@ -364,8 +446,12 @@ impl Stream {
         }
         let block = self.block;
         let daw_half = scratch.half;
+        if self.rearm.swap(false, Ordering::AcqRel) {
+            self.start_measuring_again(scratch);
+        }
+        let now = scratch.blocks;
 
-        // 1. Every device's inputs, into its own staging run, held back to line up.
+        // 1. Every device's inputs, into its own staging run, as its own driver handed them over.
         for (index, sub) in self.devices.iter().enumerate() {
             let stage = &mut scratch.stage_in[index];
             if index == self.master {
@@ -377,7 +463,28 @@ impl Stream {
                     stage.fill(0);
                 }
             }
-            scratch.delay_in[index].process(stage, block);
+        }
+
+        // 2. A device whose phase is being measured is listened to before anything holds it back,
+        //    because what is being measured is where its own capture landed.
+        let mut measured_something = false;
+        for (index, sub) in self.devices.iter().enumerate() {
+            let Some(detector) = &mut scratch.phase[index] else { continue };
+            let slot = detector.input_slot;
+            let run = &scratch.stage_in[index][slot * block..(slot + 1) * block];
+            let Some(outcome) = detector.listen(run, now) else { continue };
+            sub.phase_measured.store(outcome.measured, Ordering::Release);
+            sub.phase_applied.store(outcome.applied(), Ordering::Release);
+            sub.phase_state.store(outcome.code(), Ordering::Release);
+            measured_something |= outcome.applied() != 0;
+        }
+        if measured_something {
+            self.line_up_again(scratch);
+        }
+
+        // 3. Held back, so that every device's channels line up with every other's.
+        for index in 0..self.devices.len() {
+            scratch.delay_in[index].process(&mut scratch.stage_in[index], block);
         }
 
         // 2. The channels the DAW asked for, in the order it asked for them.
@@ -406,6 +513,16 @@ impl Stream {
             let target = &mut scratch.stage_out[channel.device];
             target[channel.slot * block..(channel.slot + 1) * block].copy_from_slice(self.daw_out[index].half(daw_half));
         }
+        // The measurement signal is the driver's own, on a channel the DAW was never given, so
+        // nothing it plays is disturbed and nothing here can be heard on a channel anyone uses.
+        for index in 0..self.devices.len() {
+            let Some(detector) = &mut scratch.phase[index] else { continue };
+            let slot = detector.master_slot;
+            if detector.emits_on(now, self.devices[self.master].planned_pad_in) {
+                let stage = &mut scratch.stage_out[self.master];
+                Detector::write_burst(&mut stage[slot * block..(slot + 1) * block]);
+            }
+        }
         for (index, sub) in self.devices.iter().enumerate() {
             let stage = &mut scratch.stage_out[index];
             scratch.delay_out[index].process(stage, block);
@@ -422,6 +539,7 @@ impl Stream {
         self.watch_devices(scratch);
 
         self.position.fetch_add(block as u64, Ordering::AcqRel);
+        scratch.blocks = scratch.blocks.wrapping_add(1);
         scratch.half ^= 1;
         self.published_half.store(scratch.half, Ordering::Release);
 
@@ -429,6 +547,64 @@ impl Stream {
         //    the watcher thread this instant, this block's counters are skipped and the next
         //    block's are written instead.
         self.publish();
+    }
+
+    /// **Line the devices up again by what was measured.** The same arithmetic the plan does, over
+    /// each device's reported path plus whatever its own measurement came to, and the answer is
+    /// written into the delays that are already there.
+    ///
+    /// A delay that changed length is a discontinuity: what it was holding is dropped. That
+    /// happens in the first fraction of a second of a session, before a DAW is recording anything,
+    /// and it is the price of lining the interfaces up by what they actually did rather than by
+    /// what their drivers said they would do.
+    ///
+    /// Nothing here allocates: the two lists are the scratch's own and the delays were made with
+    /// room for this. A correction that will not fit in that room is put back rather than half
+    /// applied, because half an alignment is worse than none.
+    fn line_up_again(&self, scratch: &mut Scratch) {
+        for (index, sub) in self.devices.iter().enumerate() {
+            scratch.paths[index] = sub.path_in.saturating_add(sub.phase_applied.load(Ordering::Acquire));
+        }
+        let longest = plan::hold_back(&scratch.paths, self.aligned, &mut scratch.pads);
+        let fits = scratch
+            .pads
+            .iter()
+            .zip(scratch.delay_in.iter())
+            .all(|(pad, delay)| (*pad).max(0) as usize <= delay.room());
+        if !fits {
+            for sub in self.devices.iter() {
+                if gazelle_audio_aggregate_status::record::phase::is_applied(sub.phase_state.load(Ordering::Acquire)) {
+                    sub.phase_applied.store(0, Ordering::Release);
+                    sub.phase_state.store(gazelle_audio_aggregate_status::record::phase::TOO_FAR, Ordering::Release);
+                }
+            }
+            return;
+        }
+        for (index, pad) in scratch.pads.iter().enumerate() {
+            scratch.delay_in[index].set_samples((*pad).max(0) as usize);
+            self.devices[index].pad_in.store(*pad, Ordering::Release);
+        }
+        self.input_latency.store(longest, Ordering::Release);
+    }
+
+    /// Everything a session's measurement starts from, for a DAW that stopped the audio and
+    /// started it again without letting the buffers go: the phase is a different number every
+    /// session, so the last one's is not kept.
+    fn start_measuring_again(&self, scratch: &mut Scratch) {
+        use gazelle_audio_aggregate_status::record::phase as codes;
+        scratch.blocks = 0;
+        for (index, sub) in self.devices.iter().enumerate() {
+            let Some(detector) = &mut scratch.phase[index] else { continue };
+            detector.rearm();
+            sub.phase_measured.store(0, Ordering::Release);
+            sub.phase_applied.store(0, Ordering::Release);
+            sub.phase_state.store(codes::MEASURING, Ordering::Release);
+        }
+        for (index, sub) in self.devices.iter().enumerate() {
+            scratch.delay_in[index].set_samples(sub.planned_pad_in.max(0) as usize);
+            sub.pad_in.store(sub.planned_pad_in, Ordering::Release);
+        }
+        self.input_latency.store(self.planned_input_latency, Ordering::Release);
     }
 
     /// The block by block half of the status record: the counters, the time of this block, and the
@@ -442,10 +618,14 @@ impl Stream {
         let position = self.position.load(Ordering::Relaxed);
         let nanos = crate::now_nanos();
         let block = self.block as i64;
+        let input_latency = self.input_latency.load(Ordering::Acquire);
         self.reporter.try_update(|area| {
             area.callbacks = master_seen;
             area.position = position;
             area.last_block_nanos = nanos;
+            // What a session measured can lengthen this, so the record carries what is in force
+            // rather than what the plan worked out before anything was measured.
+            area.input_latency = input_latency;
             for (index, sub) in self.devices.iter().enumerate() {
                 let Some(into) = area.devices.get_mut(index) else { break };
                 let seen = sub.callbacks.load(Ordering::Relaxed);
@@ -461,6 +641,12 @@ impl Stream {
                 };
                 into.dropped = sub.in_ring.as_ref().map_or(0, Ring::dropped) + sub.out_ring.as_ref().map_or(0, Ring::dropped);
                 into.starved = sub.in_ring.as_ref().map_or(0, Ring::starved) + sub.out_ring.as_ref().map_or(0, Ring::starved);
+                // What this session made of this interface's capture phase, beside the gap,
+                // because the two are the same question asked of one moment and of the whole run.
+                into.phase_state = sub.phase_state.load(Ordering::Relaxed);
+                into.phase_measured = sub.phase_measured.load(Ordering::Relaxed);
+                into.phase_applied = sub.phase_applied.load(Ordering::Relaxed);
+                into.pad_in = sub.pad_in.load(Ordering::Relaxed);
             }
         });
     }
@@ -552,6 +738,12 @@ impl Stream {
                 starved: device.in_ring.as_ref().map_or(0, Ring::starved) + device.out_ring.as_ref().map_or(0, Ring::starved),
             })
             .collect()
+    }
+
+    /// The input latency actually in force, which is the plan's figure until a measurement moves
+    /// it. Read off the audio path by anything that has to answer for the whole aggregate.
+    pub fn input_latency(&self) -> i32 {
+        self.input_latency.load(Ordering::Acquire)
     }
 
     /// Whether a device is currently counted as gone.

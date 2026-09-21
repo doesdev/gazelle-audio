@@ -149,6 +149,10 @@ pub struct DeviceReport {
     pub controller_error: Option<String>,
     /// True when it is the device that drives the callback.
     pub is_master: bool,
+    /// True when the setup says where the cable the driver measures this interface's capture
+    /// phase over runs. An interface without it is lined up by the figures its driver reports,
+    /// which is what every session did before the measurement existed.
+    pub phase_configured: bool,
 }
 
 /// Whether Gazelle's own driver is registered, and what its class id points at.

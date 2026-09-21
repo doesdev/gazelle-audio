@@ -255,6 +255,7 @@ impl Aggregate {
                 output_trim: wanted.output_trim.unwrap_or(0),
                 input_labels: wanted.input_names.clone(),
                 output_labels: wanted.output_names.clone(),
+                phase: wanted.phase,
             });
             self.from_file.push(wanted.clone());
             self.descriptions.push(description);
@@ -308,9 +309,14 @@ impl Aggregate {
     }
 
     /// One figure each way, covering the whole aggregate.
+    ///
+    /// The input figure is the one actually in force: a session that measured where an interface's
+    /// capture started can have lengthened it, and a DAW that asks again gets what is true now
+    /// rather than what the drivers' figures said before anything was measured.
     pub fn latencies(&self) -> Option<(i32, i32)> {
         let plan = self.plan.as_ref()?;
-        Some((plan.input_latency, plan.output_latency))
+        let input = self.stream.as_ref().map_or(plan.input_latency, |stream| stream.input_latency());
+        Some((input, plan.output_latency))
     }
 
     pub fn rate(&self) -> f64 {
@@ -509,6 +515,7 @@ impl Aggregate {
                     output_trim: wanted.and_then(|w| w.output_trim).unwrap_or(0),
                     input_labels: wanted.map(|w| w.input_names.clone()).unwrap_or_default(),
                     output_labels: wanted.map(|w| w.output_names.clone()).unwrap_or_default(),
+                    phase: wanted.and_then(|w| w.phase),
                 }
             })
             .collect()
