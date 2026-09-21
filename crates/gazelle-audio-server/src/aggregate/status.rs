@@ -10,7 +10,9 @@
 //!    nothing about it is declared a second time here.
 //! 2. **Durable events** are lines in a small log file the driver appends to. They survive the
 //!    driver exiting, which is exactly when someone wants to know why last night's session would
-//!    not start.
+//!    not start. Its kinds are the driver's own words, `glitched` and `session-ended` among them,
+//!    which is where the blocks a session lost are written down once the live counters below have
+//!    gone with the driver.
 //! 3. **A change** is Gazelle writing the configuration file, bumping a generation counter in the
 //!    record and signalling a named event. The driver's watcher thread re-plans.
 //!

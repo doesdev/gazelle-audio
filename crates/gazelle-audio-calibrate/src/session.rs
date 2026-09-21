@@ -27,9 +27,25 @@ use serde::Serialize;
 use std::cell::UnsafeCell;
 
 use crate::click;
-use crate::measure::{self, Reading};
+use crate::measure::{self, Glitches, Reading};
 use crate::rig::{Direction, Rig, Settings};
 use crate::trim::{self, TrimChange};
+
+/// An extra input channel the run recorded and reported, which took no part in any trim.
+///
+/// A witness has no device of its own to be named by, because an interface may have several of
+/// them, so it carries the channel number it was and the name of the interface that channel
+/// belongs to. It is measured exactly as every reading is: against the reference channel, across
+/// all of the clicks.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Witness {
+    /// The aggregate input channel this was, counted as a DAW counts them.
+    pub channel: i32,
+    /// The interface that channel belongs to, as `aggregate.json` names it.
+    pub device: String,
+    /// What was heard on it, measured the same way everything else in the run was.
+    pub reading: Reading,
+}
 
 /// Everything one run found, or the one sentence saying why there was no run.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -43,6 +59,9 @@ pub struct Outcome {
     pub clicks: u32,
     /// One per interface, in the order they appear in `aggregate.json`.
     pub readings: Vec<Reading>,
+    /// The extra channels the run listened in on, in the order they were asked for. Kept apart
+    /// from the readings so that nothing downstream can mistake an observation for an interface.
+    pub witnesses: Vec<Witness>,
     /// One per interface: what the file said, what was measured, and what to write.
     pub trims: Vec<TrimChange>,
     /// Why nothing was measured. `None` means the run happened.
@@ -58,6 +77,7 @@ impl Outcome {
             block: 0,
             clicks: 0,
             readings: Vec::new(),
+            witnesses: Vec::new(),
             trims: Vec::new(),
             refusal: Some(why.into()),
         }
@@ -66,6 +86,22 @@ impl Outcome {
     /// Whether this run produced trims worth writing into the file.
     pub fn is_measured(&self) -> bool {
         self.refusal.is_none() && self.trims.iter().any(|trim| trim.not_applied.is_none())
+    }
+
+    /// Whether the audio underneath the whole run was clean. A run that lost a block on any
+    /// interface was measuring through a fault, and a person deciding whether to believe the
+    /// numbers wants to be told that before they read them.
+    ///
+    /// Witnesses are not counted here. A witness carries the counters of the interface its channel
+    /// is on, which is an interface that already has a reading, so counting both would say the same
+    /// lost blocks twice.
+    pub fn was_clean(&self) -> bool {
+        self.refusal.is_none() && self.readings.iter().all(|reading| reading.glitches.is_clean())
+    }
+
+    /// What every interface lost while the run was going, added up.
+    pub fn blocks_lost(&self) -> u64 {
+        self.readings.iter().map(|reading| reading.glitches.lost()).sum()
     }
 }
 
@@ -284,6 +320,38 @@ pub fn wait_for_the_devices(_block: usize) -> bool {
 /// What a run that was given up on says, in the words the person who stopped it would use.
 pub const STOPPED: &str = "the measurement was stopped part way, so nothing was measured";
 
+/// This thread's place in COM, held for as long as a run needs one and given back after.
+///
+/// A thread that was already in an apartment keeps the one it had: leaving somebody else's
+/// apartment would be a rudeness with consequences, and a run works perfectly well inside it.
+#[cfg(windows)]
+struct Apartment {
+    /// True only when this entry is the one that put the thread in, and so the one to take it out.
+    ours: bool,
+}
+
+#[cfg(windows)]
+impl Apartment {
+    fn enter() -> Apartment {
+        use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+        // Safety: a plain call with no pointer of ours, on the thread that is about to open a
+        // driver. RPC_E_CHANGED_MODE means the thread is already in the other kind of apartment,
+        // which is still an apartment, so the run goes ahead and nothing is undone afterwards.
+        let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        Apartment { ours: hr >= 0 }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        if self.ours {
+            // Safety: undoes exactly the one call above, on the same thread, and only that one.
+            unsafe { windows_sys::Win32::System::Com::CoUninitialize() };
+        }
+    }
+}
+
 /// **The one entry that opens anything.** Everything it refuses, it refuses before a device is
 /// opened or a sample is played.
 #[cfg(windows)]
@@ -295,6 +363,12 @@ pub fn measure(rig: &Rig, settings: &Settings) -> Outcome {
 /// follows a run and stops it. Every refusal is still made before a device is opened.
 #[cfg(windows)]
 pub fn measure_with(rig: &Rig, settings: &Settings, pump: Pump<'_>) -> Outcome {
+    // A vendor driver is a COM object, and the thread that asks for one has to have said so. In
+    // the driver this never comes up, because the thread is a DAW's and a DAW has already done it;
+    // here the thread is ours, and without this every driver refuses with CO_E_NOTINITIALIZED
+    // (0x800401F0), which is what the first run at the hardware met (2026-09-20). Apartment
+    // threaded, because that is what these drivers register themselves as.
+    let _com = Apartment::enter();
     if let Some(why) = no_hardware_refusal(std::env::var(NO_HARDWARE).ok().as_deref()) {
         return Outcome::refused(rig.direction, why);
     }
@@ -397,9 +471,12 @@ pub fn measure_against(
     // Everything the run needs, allocated before a single device is started.
     let samples = click::run_length(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);
     let emits = click::schedule(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);
+    // Every interface's own channel, and then the witnesses, in one arena: a witness is recorded
+    // exactly as a measured channel is, and only what is done with it afterwards differs.
+    let witness_devices = rig.witness_devices(on_input);
     let mut arena = Box::new(Arena::new(
         block.max(0) as usize,
-        rig.devices(),
+        rig.devices() + rig.witnesses.len(),
         samples,
         click::as_samples(settings.click_samples, settings.level()),
         emits,
@@ -408,6 +485,7 @@ pub fn measure_against(
     let wanted: Vec<Wanted> = rig
         .inputs
         .iter()
+        .chain(rig.witnesses.iter())
         .map(|&channel| Wanted { is_input: true, channel })
         .chain(rig.outputs.iter().map(|&channel| Wanted { is_input: false, channel }))
         .collect();
@@ -415,10 +493,14 @@ pub fn measure_against(
         Ok(pairs) => pairs,
         Err(why) => return Outcome::refused(direction, why),
     };
-    let (inputs, outputs) = pairs.split_at(rig.inputs.len());
+    let (inputs, outputs) = pairs.split_at(rig.inputs.len() + rig.witnesses.len());
     arena.buffers(inputs.to_vec(), outputs.to_vec());
 
     // From here on the drivers are open and something has to let them go, whatever happens.
+    // What the aggregate's rings have lost so far, which is nothing on buffers this run made
+    // itself, but is taken rather than assumed so that what is reported is always the difference
+    // this run is answerable for.
+    let before = lost_so_far(&aggregate);
     ARENA.store(arena.as_mut() as *mut Arena, Ordering::Release);
     let started = aggregate.start();
     let ran = match started {
@@ -443,6 +525,8 @@ pub fn measure_against(
         Err(why) => Err(why),
     };
     aggregate.stop();
+    // Read before the buffers go, because the rings that hold the counts go with them.
+    let glitches = since(&before, &lost_so_far(&aggregate));
     aggregate.dispose_buffers();
     ARENA.store(std::ptr::null_mut(), Ordering::Release);
     drop(aggregate);
@@ -458,21 +542,53 @@ pub fn measure_against(
         );
     }
 
-    let outcome = read_arena(&arena, rig, settings, &names, &old, rate, block);
+    let outcome = read_arena(&arena, rig, settings, &names, &witness_devices, &old, rate, block, &glitches);
     drop(arena);
     outcome
 }
 
+/// What each interface's rings have lost since the buffers were made, in device order.
+fn lost_so_far(aggregate: &Aggregate) -> Vec<Glitches> {
+    aggregate
+        .stream()
+        .map(|stream| {
+            stream
+                .glitches()
+                .into_iter()
+                .map(|glitch| Glitches { dropped: glitch.dropped, starved: glitch.starved })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What happened between two readings of those counters, which is what this run is answerable for.
+fn since(before: &[Glitches], after: &[Glitches]) -> Vec<Glitches> {
+    after
+        .iter()
+        .enumerate()
+        .map(|(index, now)| {
+            let was = before.get(index).copied().unwrap_or_default();
+            Glitches {
+                dropped: now.dropped.saturating_sub(was.dropped),
+                starved: now.starved.saturating_sub(was.starved),
+            }
+        })
+        .collect()
+}
+
 /// What the run captured, turned into readings and trims. No hardware, and no state: this is the
 /// same arithmetic the measurement tests run against signals made of data.
+#[allow(clippy::too_many_arguments)]
 fn read_arena(
     arena: &Arena,
     rig: &Rig,
     settings: &Settings,
     names: &[String],
+    witness_devices: &[usize],
     old: &[i32],
     rate: f64,
     block: i32,
+    glitches: &[Glitches],
 ) -> Outcome {
     let click = click::shape(settings.click_samples, settings.level());
     let reference = arena.channel(rig.reference);
@@ -508,11 +624,38 @@ fn read_arena(
             let channel = arena.channel(index);
             measure::lags_of_channel(&reference, &channel, &click, &emits, horizon, settings.search_samples)
         };
-        readings.push(measure::summarise(&name, &lags, emits.len(), rate));
+        let lost = glitches.get(index).copied().unwrap_or_default();
+        readings.push(measure::summarise(&name, &lags, emits.len(), rate, block, lost));
+    }
+
+    // The witnesses, after the readings and never among them. Each one is measured by the same
+    // call the readings are, and then it is simply reported: nothing here can refuse a run, throw
+    // a reading out or move a trim, because a witness is something heard and not something
+    // measured against.
+    let mut witnesses = Vec::new();
+    for (index, &channel) in rig.witnesses.iter().enumerate() {
+        let on = witness_devices.get(index).copied().unwrap_or(rig.reference);
+        let device = names.get(on).cloned().unwrap_or_else(|| format!("interface {on}"));
+        let capture = arena.channel(rig.devices() + index);
+        let lags = measure::lags_of_channel(&reference, &capture, &click, &emits, horizon, settings.search_samples);
+        // A witness has no name of its own, so it is called what it is: a channel, and whose.
+        let called = format!("input channel {channel} on {device}");
+        let lost = glitches.get(on).copied().unwrap_or_default();
+        let reading = measure::summarise(&called, &lags, emits.len(), rate, block, lost);
+        witnesses.push(Witness { channel, device, reading });
     }
 
     let trims = trim::implied_for_all(&readings, rig.direction, old, rig.reference);
-    Outcome { direction: rig.direction, rate, block, clicks: settings.clicks, readings, trims, refusal: None }
+    Outcome {
+        direction: rig.direction,
+        rate,
+        block,
+        clicks: settings.clicks,
+        readings,
+        witnesses,
+        trims,
+        refusal: None,
+    }
 }
 
 #[cfg(test)]

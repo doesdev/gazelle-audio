@@ -21,6 +21,9 @@ pub struct Ring {
     data: *mut i32,
     read: AtomicUsize,
     write: AtomicUsize,
+    /// Buffers the producer has published, ever. Only ever compared with zero, to tell a ring that
+    /// has not started from one that is late.
+    carried: AtomicU64,
     dropped: AtomicU64,
     starved: AtomicU64,
 }
@@ -40,6 +43,7 @@ impl Ring {
             data: Box::into_raw(vec![0i32; slots * len].into_boxed_slice()).cast(),
             read: AtomicUsize::new(0),
             write: AtomicUsize::new(0),
+            carried: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             starved: AtomicU64::new(0),
         }
@@ -86,6 +90,7 @@ impl Ring {
         let slot = unsafe { std::slice::from_raw_parts_mut(self.data.add(write * self.len), self.len) };
         fill(slot);
         self.write.store(next, Ordering::Release);
+        self.carried.fetch_add(1, Ordering::Relaxed);
         true
     }
 
@@ -96,7 +101,14 @@ impl Ring {
     pub fn pop_with(&self, take: impl FnOnce(&[i32])) -> bool {
         let read = self.read.load(Ordering::Relaxed);
         if read == self.write.load(Ordering::Acquire) {
-            self.starved.fetch_add(1, Ordering::Relaxed);
+            // A ring the producer has not put anything in yet is a stream that has not begun, not
+            // one that is late. The devices that follow are started before the one that drives the
+            // callback, on purpose, so their first few callbacks ask for blocks that nobody was
+            // ever going to have made: counting those would put a miss on the record of every
+            // clean session and leave the count worth nothing.
+            if self.carried.load(Ordering::Relaxed) > 0 {
+                self.starved.fetch_add(1, Ordering::Relaxed);
+            }
             return false;
         }
         // Safety: the producer never touches a slot it has published until the read index has
@@ -181,6 +193,21 @@ mod tests {
         let mut touched = false;
         assert!(!ring.pop_with(|_| touched = true));
         assert!(!touched, "the closure must not run when there is nothing to read");
+    }
+
+    #[test]
+    fn a_ring_nobody_has_filled_yet_is_not_a_device_that_is_late() {
+        // The devices that follow start before the one that drives the callback, so they ask for
+        // blocks before there are any. That is the stream beginning, not a click.
+        let ring = Ring::new(4, 2);
+        assert_eq!(pop(&ring), None);
+        assert_eq!(pop(&ring), None);
+        assert_eq!(ring.starved(), 0, "nothing was late, because nothing had been made yet");
+        // Once a block has come through, an empty ring is a block that did not arrive in time.
+        push(&ring, 1);
+        assert_eq!(pop(&ring), Some(1));
+        assert_eq!(pop(&ring), None);
+        assert_eq!(ring.starved(), 1);
     }
 
     #[test]

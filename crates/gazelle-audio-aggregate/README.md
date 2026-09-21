@@ -189,15 +189,36 @@ timer**, so every line in the file means something:
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
-2026-09-20 22:02:11 session-ended
+2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken
+2026-09-20 22:02:11 session-ended ran for 47 minutes 12 seconds. Quadro lost nothing; Studio+ dropped 3 blocks and missed 1 block
 2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
 ```
 
-The words are `refused`, `stalled`, `recovered`, `session-started`, `session-ended`, `adopted` and
-`reset-asked`. The time is local, because the person reading it is the person it happened to. This
-is the half that survives the driver exiting, which is exactly when somebody wants to know why last
-night's session would not start. The file is trimmed to its last 400 lines when the driver opens
-it, and that is the only time it is ever rewritten.
+The words are `refused`, `stalled`, `recovered`, `glitched`, `session-started`, `session-ended`,
+`adopted` and `reset-asked`. The time is local, because the person reading it is the person it
+happened to. This is the half that survives the driver exiting, which is exactly when somebody
+wants to know why last night's session would not start. The file is trimmed to its last 400 lines
+when the driver opens it, and that is the only time it is ever rewritten.
+
+### Blocks lost, and where they are written down
+
+The live record's counters go the moment the DAW closes, so **a session's line says what it lost**:
+how long it ran, and per interface how many blocks were dropped and how many were not there in
+time. That one line is the difference between a clean night and a bad one when somebody reads the
+file the next morning, and it is what makes "was anything dropped while I was recording?" a
+question the driver can answer after the fact.
+
+Two lines, not a stream of them. The **first** block a session loses gets a `glitched` line of its
+own, because the moment it first went wrong is usually what a person is looking for; every one
+after it is counted and nothing more, and the totals go in the session's own line. A line per lost
+block would bury the file at exactly the moment it has to be readable.
+
+**None of that happens on the audio path.** The rings count a lost block with one relaxed add, and
+that is all the callback does. Turning a count into a line of the log is the watcher thread's work,
+and the session's totals are written on the thread the DAW stopped the driver from. A block that a
+device asked for before the callback has ever produced one is not counted at all: the devices that
+follow are started first, on purpose, so their first few callbacks ask for blocks nobody was ever
+going to have made, and counting those would put a miss on the record of every clean session.
 
 ## Changing its mind while it is loaded
 

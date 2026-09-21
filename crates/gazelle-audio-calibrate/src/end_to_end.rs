@@ -146,6 +146,109 @@ fn measured(trims: [i32; 2], late: usize, plugged: [bool; 2]) -> Outcome {
     measure_against(host, config(trims), "a test".to_string(), &rig(), &settings(), &mut pump)
 }
 
+/// The same two interfaces, with B's **second** input carried along as a witness and cabled to a
+/// delay of its own.
+///
+/// This is the shape of the question the hardware asks: one interface, two of its inputs, one run.
+/// Both cables are a split of the same output of A, so both copies of the click still leave on the
+/// same sample and the only difference between them is the cable. `witness_late` of `None` is a
+/// witness with nothing plugged into it.
+fn measured_watching(late: usize, witness_late: Option<usize>) -> Outcome {
+    let pc = two_interfaces();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (a, b): (Arc<FakeDevice>, Arc<FakeDevice>) = (pc.device("Device A"), pc.device("Device B"));
+    let mut to_a = Cable::new(0);
+    let mut to_b = Cable::new(late);
+    let mut to_witness = Cable::new(witness_late.unwrap_or(0));
+
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        a.set_input(0, half, &to_a.carrying);
+        b.set_input(0, half, &to_b.carrying);
+        if witness_late.is_some() {
+            b.set_input(1, half, &to_witness.carrying);
+        }
+        b.fire(half);
+        a.fire(half);
+        to_a.carry(a.output(0, half));
+        // A's second output splits: one leg into B's first input, one into B's second.
+        let played = a.output(1, half);
+        to_b.carry(played.clone());
+        to_witness.carry(played);
+        true
+    };
+
+    // B's inputs are aggregate channels 2 and 3, and 2 is the one being measured.
+    let rig = rig().watching(vec![3]);
+    measure_against(host, config([0, 0]), "a test".to_string(), &rig, &settings(), &mut pump)
+}
+
+/// Two inputs of one interface, cabled to different delays, come back as two numbers.
+///
+/// **This is the test that stands behind the hardware question.** If an interface's inputs could
+/// only ever be reported as one number, watching its S/PDIF input beside its analogue input would
+/// prove nothing. Here the two are given delays of 28 and 9 samples in the same run, and each is
+/// reported as what it was, while the trims stay exactly what the measured channel alone says.
+#[test]
+fn two_inputs_of_one_interface_are_measured_in_one_run_and_reported_apart() {
+    const WITNESS_LATE: usize = 9;
+    let outcome = measured_watching(CABLED_LATE as usize, Some(WITNESS_LATE));
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+
+    assert_eq!(outcome.readings.len(), 2, "a witness is never an interface");
+    let cabled_late = &outcome.readings[1];
+    assert!((cabled_late.lag_samples - CABLED_LATE as f64).abs() < 0.5, "B's measured input: {cabled_late:?}");
+
+    assert_eq!(outcome.witnesses.len(), 1);
+    let witness = &outcome.witnesses[0];
+    assert_eq!(witness.channel, 3, "it carries the channel it was");
+    assert_eq!(witness.device, "B", "and which interface that channel is on");
+    assert!(
+        (witness.reading.lag_samples - WITNESS_LATE as f64).abs() < 0.5,
+        "the witness is its own cable, not its interface's: {:?}",
+        witness.reading
+    );
+    assert_eq!(witness.reading.clicks_found, 4);
+    assert!(witness.reading.spread_samples < 0.5);
+    assert!(witness.reading.note.contains("input channel 3 on B"), "{}", witness.reading.note);
+
+    // And nothing about the witness reached the trims.
+    let plain = measured([0, 0], CABLED_LATE as usize, [true, true]);
+    assert_eq!(outcome.trims, plain.trims, "the trims are what they would have been with no witness at all");
+    assert_eq!(outcome.trims[1].measured, CABLED_LATE);
+    assert!(outcome.is_measured() && outcome.was_clean());
+}
+
+#[test]
+fn a_witness_with_nothing_on_it_says_so_and_spoils_nothing() {
+    let outcome = measured_watching(CABLED_LATE as usize, None);
+    assert_eq!(outcome.refusal, None, "a silent witness is never a refusal");
+    let witness = &outcome.witnesses[0];
+    assert!(witness.reading.nothing_arrived, "{:?}", witness.reading);
+    assert_eq!(witness.reading.clicks_found, 0);
+    assert!(witness.reading.note.contains("cable"), "{}", witness.reading.note);
+    // The run itself is untouched: the interfaces were measured and the trim is offered.
+    assert!((outcome.readings[1].lag_samples - CABLED_LATE as f64).abs() < 0.5);
+    assert_eq!(outcome.trims[1].measured, CABLED_LATE);
+    assert!(outcome.trims[1].not_applied.is_none());
+    assert!(outcome.is_measured(), "nothing arrived on an observation, which is not a measurement going wrong");
+    assert!(outcome.was_clean());
+}
+
+#[test]
+fn a_witness_the_aggregate_has_no_channel_for_is_refused_and_nothing_is_played() {
+    let pc = two_interfaces();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let watching_nothing = rig().watching(vec![9]);
+    let mut pump = |_: usize| panic!("a refused rig never runs a block");
+    let outcome =
+        measure_against(host, config([0, 0]), "a test".to_string(), &watching_nothing, &settings(), &mut pump);
+    let refusal = outcome.refusal.expect("this aggregate has four input channels");
+    assert!(refusal.contains("9") && refusal.contains("listen in on"), "{refusal}");
+    assert!(!pc.device("Device A").is_started(), "nothing was started");
+    assert!(!pc.device("Device B").has_buffers(), "and no buffers were made");
+}
+
 #[test]
 fn an_interface_cabled_late_is_measured_and_the_trim_that_nulls_it_is_positive() {
     let outcome = measured([0, 0], CABLED_LATE as usize, [true, true]);
@@ -196,6 +299,49 @@ fn a_trim_of_the_wrong_sign_would_have_doubled_the_error_which_is_what_this_prov
     assert_eq!(outcome.refusal, None);
     let worse = outcome.readings[1].lag_samples;
     assert!(worse > 1.5 * CABLED_LATE as f64, "the wrong sign moves it further away, not nearer: {worse}");
+}
+
+/// A run whose audio went wrong underneath it. The interface that is not driving the callback
+/// hands its blocks over twice as fast as they can be taken, so its ring fills and throws them
+/// away, exactly as it does when a PC cannot keep up at the buffer size it was given.
+#[test]
+fn a_run_the_audio_went_wrong_under_says_so_and_offers_no_trim() {
+    let pc = two_interfaces();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (a, b): (Arc<FakeDevice>, Arc<FakeDevice>) = (pc.device("Device A"), pc.device("Device B"));
+    let mut to_a = Cable::new(0);
+    let mut to_b = Cable::new(CABLED_LATE as usize);
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        a.set_input(0, half, &to_a.carrying);
+        b.set_input(0, half, &to_b.carrying);
+        b.fire(half);
+        // The block nobody has room for.
+        b.fire(half);
+        a.fire(half);
+        to_a.carry(a.output(0, half));
+        to_b.carry(a.output(1, half));
+        true
+    };
+    let outcome = measure_against(host, config([0, 0]), "a test".to_string(), &rig(), &settings(), &mut pump);
+    assert_eq!(outcome.refusal, None, "the run itself finished: it is the audio under it that did not");
+
+    let lost = &outcome.readings[1];
+    assert!(lost.glitches.lost() > 0, "what the audio did reached the reading: {lost:?}");
+    assert!(!lost.is_usable(), "a measurement taken across a lost block is not one");
+    assert!(lost.note.contains("the audio was not clean"), "{}", lost.note);
+    assert!(outcome.trims[1].not_applied.is_some(), "and no trim is offered from it");
+    assert_eq!(outcome.trims[1].new, 0, "what was in the file stays in the file");
+    assert!(!outcome.was_clean(), "the run as a whole was not clean");
+    assert_eq!(outcome.blocks_lost(), lost.glitches.lost(), "and the reference lost nothing");
+    assert!(!outcome.is_measured());
+
+    // A run of the same rig with nobody running ahead is clean, which is what makes the difference
+    // above mean something.
+    let clean = measured([0, 0], CABLED_LATE as usize, [true, true]);
+    assert!(clean.was_clean(), "{:?}", clean.readings);
+    assert_eq!(clean.blocks_lost(), 0);
+    assert!(clean.readings.iter().all(|reading| reading.glitches.is_clean()));
 }
 
 #[test]

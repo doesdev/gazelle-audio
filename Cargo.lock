@@ -1047,6 +1047,7 @@ dependencies = [
  "gazelle-audio-aggregate-status",
  "gazelle-audio-stream-abi",
  "serde",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

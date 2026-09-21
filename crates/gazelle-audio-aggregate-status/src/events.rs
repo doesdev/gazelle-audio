@@ -9,8 +9,8 @@
 //! why a line is plain words in the order a person reads them and not a structure.
 
 /// What happened. These are the only things worth keeping after the fact: a refusal, a device
-/// going away and coming back, a session beginning and ending, and a change of plan being taken up
-/// or turned down.
+/// going away and coming back, the first block a session lost, a session beginning and ending, and
+/// a change of plan being taken up or turned down.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     /// The driver would not do something, and here is what it told the DAW.
@@ -19,9 +19,13 @@ pub enum Event {
     Stalled,
     /// It came back.
     Recovered,
+    /// The first block a device lost in this session, dropped or missing. Only the first: the
+    /// count of all of them belongs to [`Event::SessionEnded`], and a line per lost block would
+    /// bury everything else in the file at exactly the moment a person needs to read it.
+    Glitched,
     /// A DAW started the audio.
     SessionStarted,
-    /// It stopped.
+    /// It stopped. Its line carries how long it ran and what each interface lost.
     SessionEnded,
     /// A new configuration was taken up.
     Adopted,
@@ -37,6 +41,7 @@ impl Event {
             Event::Refused => "refused",
             Event::Stalled => "stalled",
             Event::Recovered => "recovered",
+            Event::Glitched => "glitched",
             Event::SessionStarted => "session-started",
             Event::SessionEnded => "session-ended",
             Event::Adopted => "adopted",
@@ -45,19 +50,22 @@ impl Event {
     }
 
     pub fn from_word(word: &str) -> Option<Event> {
-        [
-            Event::Refused,
-            Event::Stalled,
-            Event::Recovered,
-            Event::SessionStarted,
-            Event::SessionEnded,
-            Event::Adopted,
-            Event::ResetAsked,
-        ]
-        .into_iter()
-        .find(|event| event.word() == word)
+        ALL.into_iter().find(|event| event.word() == word)
     }
 }
+
+/// Every kind of line the log can hold. One list, so that a new event cannot be written by a
+/// driver and then read back as nothing by the same build.
+pub const ALL: [Event; 8] = [
+    Event::Refused,
+    Event::Stalled,
+    Event::Recovered,
+    Event::Glitched,
+    Event::SessionStarted,
+    Event::SessionEnded,
+    Event::Adopted,
+    Event::ResetAsked,
+];
 
 /// One line of the log, taken apart.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,19 +157,13 @@ mod tests {
 
     #[test]
     fn every_event_word_is_one_word_and_reads_back_as_itself() {
-        for event in [
-            Event::Refused,
-            Event::Stalled,
-            Event::Recovered,
-            Event::SessionStarted,
-            Event::SessionEnded,
-            Event::Adopted,
-            Event::ResetAsked,
-        ] {
+        for event in ALL {
             assert!(!event.word().contains(' '), "{}", event.word());
             assert_eq!(Event::from_word(event.word()), Some(event));
         }
         assert_eq!(Event::from_word("exploded"), None);
+        let words: std::collections::BTreeSet<&str> = ALL.iter().map(|event| event.word()).collect();
+        assert_eq!(words.len(), ALL.len(), "two events sharing a word would read back as one of them");
     }
 
     #[test]

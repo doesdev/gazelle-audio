@@ -157,7 +157,8 @@ reads them:
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
-2026-09-20 22:02:11 session-ended
+2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken
+2026-09-20 22:02:11 session-ended ran for 47 minutes 12 seconds. Quadro lost nothing; Studio+ dropped 3 blocks and missed 1 block
 2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
 2026-09-21 09:15:30 adopted C:\Users\someone\AppData\Roaming\gazelle\aggregate.json
 ```
@@ -165,8 +166,12 @@ reads them:
 - The time is `YYYY-MM-DD HH:MM:SS`, **local**, because the person reading it is the person it
   happened to.
 - The second piece is one word, never two, so a line splits the same way whatever is in its detail.
-  The words are `refused`, `stalled`, `recovered`, `session-started`, `session-ended`, `adopted`,
-  `reset-asked`.
+  The words are `refused`, `stalled`, `recovered`, `glitched`, `session-started`, `session-ended`,
+  `adopted`, `reset-asked`. `events::ALL` is the list, and it is the one both sides read.
+- **`glitched` is the first block a session loses, and only the first.** The rest are counted, and
+  the totals go in that session's `session-ended` line, along with how long it ran. The live record
+  above holds the counts while the driver is running; those two lines are what is left of them once
+  it has exited.
 - The rest of the line is the detail, with anything that would make it two lines flattened to
   spaces.
 - A line this version does not understand reads as nothing, rather than as something wrong.

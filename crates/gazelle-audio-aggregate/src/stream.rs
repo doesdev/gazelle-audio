@@ -24,7 +24,7 @@ use crate::config::Config;
 use crate::delay::Delay;
 use crate::plan::{ChannelRef, Plan};
 use crate::ring::Ring;
-use crate::status::Reporter;
+use crate::status::{Glitches, Reporter};
 use crate::sub::DeviceBuffers;
 
 /// One of the aggregate's own buffers, the ones the DAW is given pointers into. Two halves, as the
@@ -540,16 +540,16 @@ impl Stream {
         unsafe { (self.host.sample_rate_did_change)(hz) };
     }
 
-    /// How many blocks were dropped and how many were missing, per device, for a report.
-    pub fn glitches(&self) -> Vec<(String, u64, u64)> {
+    /// What each device has lost so far, in device order. Read off the audio path: the counters
+    /// are the rings' own, and reading them is what turns a session into a line of the event log
+    /// and a measurement into one that can be trusted or not.
+    pub fn glitches(&self) -> Vec<Glitches> {
         self.devices
             .iter()
-            .map(|device| {
-                let dropped = device.in_ring.as_ref().map(Ring::dropped).unwrap_or(0)
-                    + device.out_ring.as_ref().map(Ring::dropped).unwrap_or(0);
-                let starved = device.in_ring.as_ref().map(Ring::starved).unwrap_or(0)
-                    + device.out_ring.as_ref().map(Ring::starved).unwrap_or(0);
-                (device.name.clone(), dropped, starved)
+            .map(|device| Glitches {
+                device: device.name.clone(),
+                dropped: device.in_ring.as_ref().map_or(0, Ring::dropped) + device.out_ring.as_ref().map_or(0, Ring::dropped),
+                starved: device.in_ring.as_ref().map_or(0, Ring::starved) + device.out_ring.as_ref().map_or(0, Ring::starved),
             })
             .collect()
     }

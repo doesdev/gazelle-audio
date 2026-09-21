@@ -92,15 +92,17 @@ pub fn implied_for_all(readings: &[Reading], direction: Direction, old: &[i32], 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measure::Drift;
+    use crate::measure::{Drift, Glitches};
 
     fn reading(device: &str, lag: f64) -> Reading {
         Reading {
             device: device.to_string(),
             lag_samples: lag,
             spread_samples: 0.2,
+            spread_limit_samples: 7.0,
             clicks_found: 8,
             clicks_expected: 8,
+            glitches: Glitches::default(),
             drift: None,
             nothing_arrived: false,
             note: "measured".to_string(),
@@ -156,6 +158,24 @@ mod tests {
         let change = implied(&drifting, Direction::Inputs, 0, false);
         assert_eq!(change.new, 0, "a drift is not something a fixed trim can cancel");
         assert!(change.not_applied.is_some());
+
+        // A run the audio went wrong under measured something, but not what it thinks it did.
+        let mut across_a_dropout = reading("Studio+", 28.0);
+        across_a_dropout.glitches = Glitches { dropped: 1, starved: 0 };
+        across_a_dropout.note = "the audio was not clean while Studio+ was measured".to_string();
+        let change = implied(&across_a_dropout, Direction::Inputs, 12, false);
+        assert_eq!(change.new, 12, "a measurement taken across a lost block never rewrites a trim");
+        assert_eq!(change.measured, 0);
+        assert!(change.not_applied.as_deref().is_some_and(|why| why.contains("not clean")));
+
+        // And so did a run whose clicks did not agree with each other.
+        let mut scattered = reading("Studio+", 60.85);
+        scattered.spread_samples = 64.0;
+        scattered.spread_limit_samples = 15.21;
+        scattered.note = "Studio+'s clicks did not agree with each other".to_string();
+        let change = implied(&scattered, Direction::Inputs, 0, false);
+        assert_eq!(change.new, 0, "a spread the size of the answer is not an answer");
+        assert!(change.not_applied.as_deref().is_some_and(|why| why.contains("did not agree")));
     }
 
     #[test]

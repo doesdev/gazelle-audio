@@ -25,7 +25,7 @@ use gazelle_audio_stream_abi::raw::selector;
 
 use crate::aggregate::Aggregate;
 use crate::config::Config;
-use crate::status::{Reporter, StallWatch};
+use crate::status::{GlitchWatch, Reporter, StallWatch};
 
 /// How long a wait lasts when nobody signals. The watcher looks around on a timeout as well as on
 /// a signal, which is how a device that stalled gets its line in the event log.
@@ -133,11 +133,17 @@ pub struct DriverWatch {
     driver: Weak<Mutex<Aggregate>>,
     reporter: Arc<Reporter>,
     stalls: Mutex<StallWatch>,
+    glitches: Mutex<GlitchWatch>,
 }
 
 impl DriverWatch {
     pub fn new(driver: &Arc<Mutex<Aggregate>>, reporter: Arc<Reporter>) -> DriverWatch {
-        DriverWatch { driver: Arc::downgrade(driver), reporter, stalls: Mutex::new(StallWatch::new()) }
+        DriverWatch {
+            driver: Arc::downgrade(driver),
+            reporter,
+            stalls: Mutex::new(StallWatch::new()),
+            glitches: Mutex::new(GlitchWatch::new()),
+        }
     }
 
     /// Do something with the driver, if it is still there. The lock is never held across a call
@@ -198,6 +204,7 @@ impl Reload for DriverWatch {
         self.reporter.note(gazelle_audio_aggregate_status::events::Event::Adopted, source);
         self.reporter.update(|area| area.generation_in_force = generation);
         self.stalls.lock().expect("not poisoned").clear();
+        self.glitches.lock().expect("not poisoned").clear();
     }
 
     fn look_around(&self) {
@@ -207,6 +214,14 @@ impl Reload for DriverWatch {
         let changes = self.stalls.lock().expect("not poisoned").changes(&now);
         for (index, stalled) in changes {
             self.reporter.stall_changed(area.devices[index].name.get(), stalled);
+        }
+
+        // The audio path counted these; deciding whether one of them is worth a line is this
+        // thread's work, and only the first of a session ever is.
+        let lost: Vec<(u64, u64)> = area.devices[..count].iter().map(|device| (device.dropped, device.starved)).collect();
+        let first = self.glitches.lock().expect("not poisoned").first(&lost);
+        for (index, dropped, starved) in first {
+            self.reporter.first_glitch(area.devices[index].name.get(), dropped, starved);
         }
     }
 

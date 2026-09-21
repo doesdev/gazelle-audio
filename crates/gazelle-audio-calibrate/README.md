@@ -60,6 +60,58 @@ Now the inputs are what the two copies have in common, so what comes out is the 
 between the interfaces' **outputs**, and it goes in `output_trim`. It is one code path and one set
 of arithmetic: only the direction changes.
 
+## Witnesses: extra channels to listen in on
+
+A run may carry **witnesses**: extra aggregate input channels that are recorded and reported
+alongside everything else, and that **take no part in any trim**.
+
+A witness may be any input channel the aggregate has, *including a second input on an interface
+that is already being measured*, which is the whole reason it exists. One input per interface is
+what the trim arithmetic means: the difference between two interfaces' channels is the difference
+between the interfaces. A second input on the same interface is not a difference between
+interfaces, so it can never be a trim. It can be an observation, and that is what a witness is.
+
+Each witness is measured exactly as a reading is: its lag against the reference channel, the
+spread across the clicks, how many clicks were found, and what its interface's audio lost while it
+was going. It carries the channel number it was, because it has no interface of its own to be named
+by, and the name of the interface that channel belongs to. It is reported separately from the
+readings, so nothing downstream can mistake one for an interface.
+
+**A witness never changes anything.** It produces no trim, it never stops a trim being offered, and
+a witness with nothing on it is reported as an empty channel rather than refused. The only two
+things refused about one are a channel the aggregate has not got, and a channel this run is already
+measuring, and both are refused before anything is opened.
+
+### Comparing one interface's analogue and digital inputs in a single run
+
+The question this was built for: when an interface's stream starts, does its **whole** capture
+pipeline settle on one phase, so that its S/PDIF input and its analogue input shift together by the
+same amount? If they move independently, a phase measured over S/PDIF says nothing about what the
+analogue inputs did.
+
+Answering it needs one run that records two inputs of the same interface at once. Measure the
+inputs as usual, and carry the interface's other input along as a witness:
+
+```rust
+use gazelle_calibrate::{Direction, Rig, Settings};
+
+// The usual two cables: Quadro out 1 into Quadro in 1, Quadro out 2 into the Studio+'s analogue
+// in 1 (aggregate channel 16). A split of that second output also goes into the Studio+'s S/PDIF
+// input, which is aggregate channel 24, and that channel comes along as a witness.
+let rig = Rig::new(Direction::Inputs, vec![0, 1], vec![0, 16]).watching(vec![24]);
+let outcome = gazelle_calibrate::session::measure(&rig, &Settings::default());
+
+for witness in &outcome.witnesses {
+    println!("channel {} on {}: {}", witness.channel, witness.device, witness.reading.note);
+}
+```
+
+The trims that come out are the ones the two measured channels imply, exactly as they would be with
+no witness at all. What the witness adds is a second number for the same interface in the same run:
+run it several times, and if the analogue lag and the S/PDIF lag move together, run to run, by the
+same amount, the interface's capture pipeline has one phase and measuring it over S/PDIF is enough.
+If they move apart from each other, it has not, and they have to be measured separately.
+
 ## The sign rule
 
 **The interface whose copy of the click lands later is recording late, and it takes a positive
@@ -93,7 +145,37 @@ which of the three they are looking at.
   each other answers the actual question, and fitting a parabola through the correlation peak and
   its two neighbours answers it to a fraction of a sample.
 - **Reported per interface:** the median lag across the clicks, the spread between the widest and
-  narrowest of them, and how many clicks were found at all.
+  narrowest of them, how many clicks were found at all, and how many blocks the audio under the run
+  lost while they were playing. Any witness the run was carrying is reported the same way, and
+  separately.
+
+## When the clicks do not agree with each other
+
+A spread is not a decoration on the answer, it is what says whether there is an answer. **A run at
+the hardware measured a lag of 60.85 samples with a spread of 64.00**, a whole buffer, and offered
+a trim of 61 anyway. Those clicks were not measuring the same thing as each other: one of them
+landed a whole block away from the rest, so their middle was a number with nothing behind it.
+
+So a reading is only turned into a trim when the clicks agreed to within:
+
+- about a sample, which is the scatter a converter puts on a click by itself and is always allowed;
+- a quarter of the lag itself, because a spread that is a large fraction of the answer means the
+  clicks did not agree on the answer;
+- and a quarter of a buffer, because a spread near the buffer size is a block gone missing rather
+  than a measurement.
+
+Past that the reading says how far apart the clicks were, what it would have had to be, that a
+spread near the buffer size is usually one click a whole block out, and that nothing is offered as
+a trim until a run comes back with them agreeing.
+
+## Whether the audio underneath was clean
+
+The aggregate counts the blocks it loses, per interface, and this reads those counters before and
+after its own run. **Every reading carries what its interface lost while it was being measured**,
+and a reading with anything but zero there is not turned into a trim: a click measured across a
+lost block is a whole buffer out, and nothing in a correlation can tell that apart from a real
+offset. The sentence says how many blocks went, which way, and what to do about it, which is to
+raise the buffer size or take the PC off whatever else it is doing and measure again.
 
 ## When the lag grows: two clocks, not an offset
 
@@ -124,7 +206,12 @@ sample is played until all of them have passed**.
   channel the aggregate has not got.
 - **Fewer than two interfaces.** A lag is the difference between two of them.
 - **Nothing arrived on a channel.** That is a cable, not a measurement, and the trim in the file is
-  left exactly where it was.
+  left exactly where it was. A witness with nothing on it is not a refusal: it is an observation
+  that there was nothing to observe, and the rest of the run stands.
+- **A witness the aggregate has no channel for**, or one this run is already measuring. A witness
+  is an extra channel to listen in on, and a channel that is already a reading is not an extra one.
+- **The audio lost a block while the clicks were playing**, or **the clicks did not agree with each
+  other.** Both are reported in full and neither becomes a trim.
 - **Anything the aggregate itself refuses**, passed through in the aggregate's own words.
 
 ## Using it

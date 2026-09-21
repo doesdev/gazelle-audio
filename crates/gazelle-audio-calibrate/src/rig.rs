@@ -3,6 +3,12 @@
 //! A rig is the cabling written down: one output channel per device being measured, and one input
 //! channel per device. Which side has to be on one device depends on which side is being measured,
 //! and that is the whole difference between the two passes.
+//!
+//! On top of that a rig may carry **witnesses**: extra input channels that are recorded and
+//! reported and take no part in any trim. One input per interface is what the trim arithmetic
+//! means, so a second input on an interface cannot be a measurement; but it can be an observation,
+//! and an observation is how a question about one interface's own inputs gets answered in a single
+//! run.
 
 use serde::Serialize;
 
@@ -57,15 +63,28 @@ pub struct Rig {
     pub outputs: Vec<i32>,
     /// The aggregate input channel the click comes back on, per device.
     pub inputs: Vec<i32>,
+    /// Extra aggregate input channels to record and report, which take no part in any trim.
+    ///
+    /// A witness may be any input channel the aggregate has, **including a second one on an
+    /// interface that is already being measured**, which is the only way to see what an
+    /// interface's own inputs do against each other in one run. It may not be a channel this rig
+    /// is already measuring, because that channel is already a reading.
+    pub witnesses: Vec<i32>,
     /// Which device everything is measured against. Its lag is zero by definition and its trim is
     /// left alone, so this is the interface the others are moved to meet.
     pub reference: usize,
 }
 
 impl Rig {
-    /// The two cable rig of the README: device order, reference first.
+    /// The two cable rig of the README: device order, reference first, nothing carried along.
     pub fn new(direction: Direction, outputs: Vec<i32>, inputs: Vec<i32>) -> Rig {
-        Rig { direction, outputs, inputs, reference: 0 }
+        Rig { direction, outputs, inputs, witnesses: Vec::new(), reference: 0 }
+    }
+
+    /// The same rig, listening in on these input channels as well.
+    pub fn watching(mut self, witnesses: Vec<i32>) -> Rig {
+        self.witnesses = witnesses;
+        self
     }
 
     /// How many devices this rig describes.
@@ -127,6 +146,24 @@ impl Rig {
             return Some(format!(
                 "channel {repeated} is named for two interfaces at once, and each interface needs its own cable: \
                  check the channel numbers against the order the interfaces appear in aggregate.json"
+            ));
+        }
+        if let Some(&channel) = self.witnesses.iter().find(|&&channel| channel < 0) {
+            return Some(format!(
+                "{channel} is not a channel to listen in on: the aggregate's input channels are counted from zero, in \
+                 the order a DAW lists them"
+            ));
+        }
+        if let Some(repeated) = first_repeat(&self.witnesses) {
+            return Some(format!(
+                "input channel {repeated} is listened in on twice, and one channel is one recording: name it once and \
+                 it is carried along once"
+            ));
+        }
+        if let Some(&clash) = self.witnesses.iter().find(|channel| self.inputs.contains(channel)) {
+            return Some(format!(
+                "input channel {clash} is already one of the channels this run measures, so it cannot also be carried \
+                 along as a witness: a witness is an extra channel to listen in on, and this one is already a reading"
             ));
         }
         None
@@ -198,7 +235,24 @@ impl Rig {
                 ));
             }
         }
+
+        // A witness is under no rule about which interface it is on, because it is not part of any
+        // difference. It still has to be a channel that exists, or there is nothing to record.
+        for &channel in &self.witnesses {
+            if on_input(channel).is_none() {
+                return Some(format!(
+                    "there is no input channel {channel} on the aggregate, so there is nothing there to listen in on"
+                ));
+            }
+        }
         None
+    }
+
+    /// Which device each witness channel is on, in the order the witnesses were given. A channel
+    /// the aggregate has not got is left out, and [`Rig::refusal_against`] has already refused that
+    /// before this is ever asked.
+    pub fn witness_devices(&self, on_input: impl Fn(i32) -> Option<usize>) -> Vec<usize> {
+        self.witnesses.iter().filter_map(|&channel| on_input(channel)).collect()
     }
 }
 
@@ -403,6 +457,51 @@ mod tests {
         assert!(same_input.refusal().expect("one input for two interfaces").contains("two interfaces"));
         let negative = Rig::new(Direction::Inputs, vec![0, 1], vec![0, -3]);
         assert!(negative.refusal().is_some());
+    }
+
+    #[test]
+    fn a_witness_on_an_interface_that_is_already_being_measured_is_the_whole_point_of_one() {
+        // Studio+ input 1 is the measured channel, and Studio+ input 2 is carried along beside it.
+        // One run, two of the same interface's inputs, which is what answers whether they move
+        // together.
+        let rig = two_cables().watching(vec![17]);
+        assert_eq!(rig.refusal(), None);
+        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
+        assert_eq!(rig.witness_devices(on_device), vec![1]);
+    }
+
+    #[test]
+    fn a_witness_on_the_reference_interface_is_allowed_just_the_same() {
+        let rig = two_cables().watching(vec![4]);
+        assert_eq!(rig.refusal(), None);
+        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
+        assert_eq!(rig.witness_devices(on_device), vec![0], "it belongs to the Quadro, and it is only an observation");
+    }
+
+    #[test]
+    fn a_witness_that_is_not_a_channel_is_refused_before_anything_is_opened() {
+        let negative = two_cables().watching(vec![-1]);
+        let refusal = negative.refusal().expect("minus one is not a channel");
+        assert!(refusal.contains("listen in on"), "{refusal}");
+        // A number the aggregate has no channel for needs the aggregate to say so, and it says so
+        // before a buffer is made or a sample is played.
+        let missing = two_cables().watching(vec![99]);
+        assert_eq!(missing.refusal(), None, "nothing about the cabling itself is wrong");
+        let refusal = missing.refusal_against(on_device, on_device, &names()).expect("there is no channel 99");
+        assert!(refusal.contains("99") && refusal.contains("listen in on"), "{refusal}");
+    }
+
+    #[test]
+    fn a_witness_that_is_already_being_measured_is_refused_rather_than_recorded_twice() {
+        let clash = two_cables().watching(vec![16]);
+        let refusal = clash.refusal().expect("channel 16 is the Studio+'s measured input");
+        assert!(refusal.contains("16") && refusal.contains("already"), "{refusal}");
+        assert!(refusal.contains("witness"), "and it says what a witness is for: {refusal}");
+        // The reference's own input is a measured channel too.
+        assert!(two_cables().watching(vec![0]).refusal().is_some());
+        // And naming one twice is the same mistake said the other way round.
+        let twice = two_cables().watching(vec![17, 17]);
+        assert!(twice.refusal().expect("named twice").contains("twice"));
     }
 
     #[test]

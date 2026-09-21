@@ -6,10 +6,16 @@
 //!   path writes the cheap fields every block; everything else is written when it changes. Nothing
 //!   here allocates, locks or opens a file on a callback thread.
 //! - **Durable events** go into a small log file, and only when something happens: a refusal, a
-//!   device stalling and coming back, a session starting and ending. Never on a timer, so the file
-//!   stays small and every line in it means something. It is the half that survives the driver
-//!   exiting, which is exactly when a person wants to know why last night's session would not
-//!   start.
+//!   device stalling and coming back, the first block a session lost, a session starting and
+//!   ending. Never on a timer, so the file stays small and every line in it means something. It is
+//!   the half that survives the driver exiting, which is exactly when a person wants to know why
+//!   last night's session would not start.
+//!
+//! **Blocks lost are counted on the audio path and written here from somewhere else.** The rings
+//! count a dropped or missing block with one relaxed add; turning that count into a line of the log
+//! is the watcher thread's work ([`GlitchWatch`]), and the totals for a whole session are written
+//! when the session ends, on the thread the DAW stopped it from. Nothing below ever writes a line
+//! from a callback.
 //!
 //! **Reporting is never a reason to fail.** A [`Reporter`] with no section and no log is a
 //! [`Reporter::silent`], every call on it does nothing, and the driver behaves exactly as it does
@@ -23,6 +29,127 @@ use gazelle_audio_aggregate_status::Publisher;
 
 use crate::config::Alignment;
 use crate::plan::Plan;
+
+/// What one interface lost while a session ran.
+///
+/// Both numbers are read out of that device's rings, which the audio path counts into and nothing
+/// else writes. They are the difference between a clean night and a bad one, and until a session
+/// ends they are only in the shared record, where they go the moment the driver exits.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Glitches {
+    /// What the configuration file calls the interface.
+    pub device: String,
+    /// Blocks thrown away because this device's ring was full.
+    pub dropped: u64,
+    /// Blocks that were not there when they were wanted, which is what a person hears as a click.
+    pub starved: u64,
+}
+
+impl Glitches {
+    /// Blocks this interface lost, either way.
+    pub fn lost(&self) -> u64 {
+        self.dropped + self.starved
+    }
+
+    pub fn is_clean(&self) -> bool {
+        self.lost() == 0
+    }
+}
+
+/// What was lost between two readings of the counters, device by device.
+///
+/// The rings count from the moment the buffers were made, and a DAW may stop and start the audio
+/// several times without letting them go. What a session lost is the difference, so that the
+/// second session of an evening is not blamed for the first one's dropouts.
+pub fn lost_since(before: &[Glitches], now: &[Glitches]) -> Vec<Glitches> {
+    now.iter()
+        .enumerate()
+        .map(|(index, glitch)| {
+            let was = before.get(index);
+            Glitches {
+                device: glitch.device.clone(),
+                dropped: glitch.dropped.saturating_sub(was.map_or(0, |had| had.dropped)),
+                starved: glitch.starved.saturating_sub(was.map_or(0, |had| had.starved)),
+            }
+        })
+        .collect()
+}
+
+/// `n` blocks, said the way a person says it.
+fn blocks(count: u64) -> String {
+    match count {
+        0 => "no blocks".to_string(),
+        1 => "1 block".to_string(),
+        many => format!("{many} blocks"),
+    }
+}
+
+fn counted(count: u64, thing: &str) -> String {
+    if count == 1 {
+        format!("1 {thing}")
+    } else {
+        format!("{count} {thing}s")
+    }
+}
+
+/// How long something ran, in the words a person would use. The two largest units it has, because
+/// nobody reading a log at nine in the morning wants a session measured in seconds.
+pub fn spoken_length(seconds: f64) -> String {
+    if !(seconds.is_finite() && seconds >= 1.0) {
+        return "less than a second".to_string();
+    }
+    let whole = seconds as u64;
+    let (hours, minutes, rest) = (whole / 3600, (whole % 3600) / 60, whole % 60);
+    let mut said = Vec::new();
+    if hours > 0 {
+        said.push(counted(hours, "hour"));
+    }
+    if minutes > 0 {
+        said.push(counted(minutes, "minute"));
+    }
+    if rest > 0 && hours == 0 {
+        said.push(counted(rest, "second"));
+    }
+    said.join(" ")
+}
+
+/// The line a session leaves behind it: how long it ran, and what each interface lost.
+///
+/// This is the whole point of writing anything when a session ends. The counters are only in the
+/// shared record while the DAW has the driver open, so without this line a night of dropouts and a
+/// clean night look exactly the same the next morning.
+pub fn ended_detail(seconds: f64, glitches: &[Glitches]) -> String {
+    let ran = format!("ran for {}", spoken_length(seconds));
+    if glitches.is_empty() {
+        return ran;
+    }
+    if glitches.iter().all(Glitches::is_clean) {
+        return format!("{ran}, and no interface lost a block");
+    }
+    let each: Vec<String> = glitches
+        .iter()
+        .map(|glitch| {
+            if glitch.is_clean() {
+                format!("{} lost nothing", glitch.device)
+            } else {
+                format!("{} dropped {} and missed {}", glitch.device, blocks(glitch.dropped), blocks(glitch.starved))
+            }
+        })
+        .collect();
+    format!("{ran}. {}", each.join("; "))
+}
+
+/// The line the first lost block of a session leaves, which is the moment a person usually wants:
+/// what they were doing when the audio first went wrong.
+pub fn first_glitch_detail(device: &str, dropped: u64, starved: u64) -> String {
+    if dropped > 0 && starved > 0 {
+        format!("{device} dropped a block and missed another, the first this session has lost")
+    } else if dropped > 0 {
+        format!("{device} dropped a block, the first this session has lost: it was handing them over faster than they could be taken")
+    } else {
+        format!("{device} had no block ready, the first this session has missed, which is what a person hears as a click")
+    }
+}
 
 /// Somewhere to put a line of the event log. The real one is a file; a test's is a list.
 pub trait LogSink: Send {
@@ -226,6 +353,19 @@ impl Reporter {
         self.note(if running { Event::SessionStarted } else { Event::SessionEnded }, detail);
     }
 
+    /// Audio has stopped, and this is what the session came to: how long it ran, and what each
+    /// interface lost while it did. Called from the thread the DAW stopped the driver on.
+    pub fn session_ended(&self, seconds: f64, glitches: &[Glitches]) {
+        self.session(false, 0, &ended_detail(seconds, glitches));
+    }
+
+    /// The first block a device lost in this session. Called from the watcher thread, never the
+    /// audio one: the audio path only counts, and only the first is ever written, because a line
+    /// per lost block would bury the file at the moment somebody needs to read it.
+    pub fn first_glitch(&self, device: &str, dropped: u64, starved: u64) {
+        self.note(Event::Glitched, &first_glitch_detail(device, dropped, starved));
+    }
+
     /// The driver would not do something, and the DAW was told why. Worth keeping, because this is
     /// the line somebody reads the morning after.
     pub fn refused(&self, generation: u64, why: &str) {
@@ -285,6 +425,53 @@ impl StallWatch {
     /// Forget everything, which is what a new session is.
     pub fn clear(&mut self) {
         self.last.clear();
+    }
+}
+
+/// Which devices have just lost their first block of a session.
+///
+/// The same division of labour as [`StallWatch`]. The audio path counts a dropped or missing block
+/// with one add and knows nothing about logs; this reads those counts on the watcher's thread and
+/// decides whether a line is worth writing. Only the first is, per device per session: the totals
+/// belong to the session's own line, and a busy log is a useless one.
+#[derive(Default)]
+pub struct GlitchWatch {
+    /// What each device had lost at the last look. Zero means it has lost nothing yet, in this
+    /// session or the next one.
+    seen: Vec<u64>,
+}
+
+impl GlitchWatch {
+    pub fn new() -> GlitchWatch {
+        GlitchWatch::default()
+    }
+
+    /// The devices whose first lost block has just happened, with what they lost, from each
+    /// device's dropped and missing counts as they stand now.
+    pub fn first(&mut self, now: &[(u64, u64)]) -> Vec<(usize, u64, u64)> {
+        if self.seen.len() != now.len() {
+            self.seen = vec![0; now.len()];
+        }
+        let mut news = Vec::new();
+        for (index, &(dropped, starved)) in now.iter().enumerate() {
+            let lost = dropped + starved;
+            // Counts that have gone back to nothing are a new session, whose first lost block is
+            // news again.
+            if lost == 0 {
+                self.seen[index] = 0;
+                continue;
+            }
+            if self.seen[index] == 0 {
+                news.push((index, dropped, starved));
+            }
+            self.seen[index] = lost;
+        }
+        news
+    }
+
+    /// Forget everything, which is what a new plan is.
+    pub fn clear(&mut self) {
+        self.seen.clear();
     }
 }
 
@@ -439,6 +626,80 @@ mod tests {
             written.lines(),
             vec!["2026-09-20 21:14:07 stalled Studio+", "2026-09-20 21:14:07 recovered Studio+"]
         );
+    }
+
+    fn glitch(device: &str, dropped: u64, starved: u64) -> Glitches {
+        Glitches { device: device.to_string(), dropped, starved }
+    }
+
+    #[test]
+    fn a_session_that_lost_nothing_says_so_in_one_line() {
+        let (reporter, written, _reader) = reporter();
+        reporter.session_ended(2_832.0, &[glitch("Quadro", 0, 0), glitch("Studio+", 0, 0)]);
+        assert_eq!(
+            written.lines(),
+            vec!["2026-09-20 21:14:07 session-ended ran for 47 minutes 12 seconds, and no interface lost a block"]
+        );
+    }
+
+    #[test]
+    fn a_session_that_lost_blocks_names_the_interface_and_says_how_many() {
+        let (reporter, written, _reader) = reporter();
+        reporter.session_ended(2_832.0, &[glitch("Quadro", 0, 0), glitch("Studio+", 3, 1)]);
+        let line = &written.lines()[0];
+        assert!(line.contains("session-ended ran for 47 minutes 12 seconds."), "{line}");
+        assert!(line.contains("Quadro lost nothing"), "{line}");
+        assert!(line.contains("Studio+ dropped 3 blocks and missed 1 block"), "{line}");
+    }
+
+    #[test]
+    fn a_second_session_is_not_blamed_for_what_the_first_one_lost() {
+        // A DAW that stops and starts again keeps the same rings, and their counts with them.
+        let at_the_start = vec![glitch("Quadro", 0, 0), glitch("Studio+", 3, 1)];
+        let now = vec![glitch("Quadro", 0, 0), glitch("Studio+", 5, 1)];
+        assert_eq!(lost_since(&at_the_start, &now), vec![glitch("Quadro", 0, 0), glitch("Studio+", 2, 0)]);
+        // Counters that went backwards, which is a new set of buffers, read as nothing lost rather
+        // than as an enormous number.
+        assert_eq!(lost_since(&now, &at_the_start)[1], glitch("Studio+", 0, 0));
+        assert_eq!(lost_since(&[], &now), now, "and a session with nothing to compare with is its own whole count");
+    }
+
+    #[test]
+    fn how_long_a_session_ran_is_said_the_way_a_person_says_it() {
+        assert_eq!(spoken_length(0.4), "less than a second");
+        assert_eq!(spoken_length(1.0), "1 second");
+        assert_eq!(spoken_length(42.9), "42 seconds");
+        assert_eq!(spoken_length(60.0), "1 minute");
+        assert_eq!(spoken_length(3_600.0), "1 hour");
+        assert_eq!(spoken_length(7_512.0), "2 hours 5 minutes");
+        assert_eq!(spoken_length(f64::NAN), "less than a second");
+        assert_eq!(spoken_length(-5.0), "less than a second");
+    }
+
+    #[test]
+    fn the_first_block_a_session_loses_is_one_line_and_the_ones_after_it_are_none() {
+        let mut watch = GlitchWatch::new();
+        assert_eq!(watch.first(&[(0, 0), (0, 0)]), vec![], "a session that has lost nothing is not news");
+        assert_eq!(watch.first(&[(0, 0), (1, 0)]), vec![(1, 1, 0)]);
+        assert_eq!(watch.first(&[(0, 0), (9, 4)]), vec![], "losing more of them is the same news");
+        // The counters go back to nothing when a new plan is in force, and the next session's
+        // first lost block is worth saying again.
+        assert_eq!(watch.first(&[(0, 0), (0, 0)]), vec![]);
+        assert_eq!(watch.first(&[(0, 0), (0, 2)]), vec![(1, 0, 2)]);
+    }
+
+    #[test]
+    fn the_first_lost_block_says_which_of_the_two_things_happened() {
+        let (reporter, written, _reader) = reporter();
+        reporter.first_glitch("Studio+", 1, 0);
+        reporter.first_glitch("Studio+", 0, 1);
+        reporter.first_glitch("Studio+", 1, 1);
+        let lines = written.of("glitched");
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("Studio+ dropped a block, the first this session has lost"), "{}", lines[0]);
+        assert!(lines[1].contains("had no block ready"), "{}", lines[1]);
+        assert!(lines[1].contains("click"), "it says what a person hears: {}", lines[1]);
+        assert!(lines[2].contains("dropped a block and missed another"), "{}", lines[2]);
     }
 
     #[test]

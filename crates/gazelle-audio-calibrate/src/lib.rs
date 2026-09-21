@@ -23,8 +23,13 @@
 //! - [`click`] is what is played: a short shaped sweep, not a single sample.
 //! - [`measure`] is the arithmetic, and has no hardware anywhere in it: cross correlation between
 //!   the captured channels, a parabola through the peak for a fraction of a sample, a median and a
-//!   spread across the clicks, and a line through them that catches two interfaces drifting apart.
+//!   spread across the clicks, how far apart they are allowed to be before their middle means
+//!   nothing, and a line through them that catches two interfaces drifting apart.
 //! - [`trim`] turns a reading into what to write in the file, and owns the sign rule.
+//! - **Witnesses** are extra input channels a rig carries along: recorded and reported like
+//!   everything else, and part of no trim. One input per interface is what a trim means, so a
+//!   second input on an interface can only ever be an observation, and that is what answers a
+//!   question about one interface's own inputs in a single run.
 //! - [`session`] is the host: it drives the aggregate, plays the clicks and keeps what came back.
 //!
 //! # The sign rule
@@ -39,6 +44,13 @@
 //! interface the aggregate has not got, fewer than two interfaces, a driver that is already open,
 //! and anything the aggregate itself refuses, in the aggregate's own words. Nothing is opened and
 //! no sample is played until every one of them has passed.
+//!
+//! # What it will not turn into a trim
+//!
+//! A reading whose clicks did not agree with each other, one taken while the audio underneath lost
+//! a block, one that drifts, and one where nothing arrived at all. Each of them is reported in
+//! full, with what happened and what to do about it, and the trim in the file is left exactly
+//! where it was.
 
 pub mod click;
 pub mod measure;
@@ -51,7 +63,7 @@ mod end_to_end;
 
 pub use measure::{ClickLag, Drift, Reading};
 pub use rig::{Direction, Rig, Settings, LOUDEST_DBFS};
-pub use session::{Outcome, NO_HARDWARE};
+pub use session::{Outcome, Witness, NO_HARDWARE};
 pub use trim::TrimChange;
 
 #[cfg(windows)]

@@ -10,7 +10,7 @@ use gazelle_audio_stream_abi::{sample, Entry};
 
 use crate::config::{Config, DeviceConfig};
 use crate::plan::{self, Found, Plan};
-use crate::status::Reporter;
+use crate::status::{Glitches, Reporter};
 use crate::stream::Stream;
 use crate::sub::{Description, Host, SubDriver};
 
@@ -56,6 +56,14 @@ pub struct Aggregate {
     wanted: Vec<Wanted>,
     rate: f64,
     started: bool,
+    /// When the audio started, on the machine's own clock. Kept because how long a session ran is
+    /// half of what its line in the event log is for, and nothing else remembers it once the
+    /// record has been cleared.
+    session_nanos: i64,
+    /// What each device had lost when this session started. A DAW that stops and starts again
+    /// without letting the buffers go keeps the same rings, so what the session lost is the
+    /// difference from here, not the whole of the count.
+    session_lost: Vec<Glitches>,
     /// The last refusal, which is what `getErrorMessage` hands back.
     error: String,
     /// A configuration handed in rather than read from a file, which is how a test puts a PC made
@@ -91,6 +99,8 @@ impl Aggregate {
             wanted: Vec::new(),
             rate: 0.0,
             started: false,
+            session_nanos: 0,
+            session_lost: Vec::new(),
             error: String::new(),
             pending: None,
             reporter,
@@ -530,15 +540,24 @@ impl Aggregate {
             started.push(index);
         }
         self.started = true;
+        self.session_nanos = crate::now_nanos();
+        self.session_lost = stream.glitches();
         let reporter = Arc::clone(&self.reporter);
         let (inputs, outputs) = (stream.daw_inputs(), stream.daw_outputs());
-        reporter.session(true, crate::now_nanos(), &format!("{inputs} in, {outputs} out at {} Hz", self.rate));
+        reporter.session(true, self.session_nanos, &format!("{inputs} in, {outputs} out at {} Hz", self.rate));
         Ok(())
     }
 
     /// Stop every device, the one driving the callback first.
     pub fn stop(&mut self) {
         let was = self.started;
+        // What the session lost, read before anything is let go of, because the rings that hold
+        // the counts go with the buffers. Off the audio path: every device is about to be stopped.
+        let glitches = self
+            .stream
+            .as_ref()
+            .map(|stream| crate::status::lost_since(&self.session_lost, &stream.glitches()))
+            .unwrap_or_default();
         if let Some(stream) = &self.stream {
             stream.halt();
             let master = stream.master;
@@ -549,9 +568,14 @@ impl Aggregate {
         }
         self.started = false;
         if was {
+            // How long it ran and what it lost, in one line, because the counters themselves are
+            // gone the moment the DAW lets the driver go.
+            let seconds = (crate::now_nanos() - self.session_nanos).max(0) as f64 / 1_000_000_000.0;
             let reporter = Arc::clone(&self.reporter);
-            reporter.session(false, 0, "");
+            reporter.session_ended(seconds, &glitches);
         }
+        self.session_nanos = 0;
+        self.session_lost.clear();
     }
 
     /// Let go of every buffer. Nothing can be calling back by now: every device was stopped first.

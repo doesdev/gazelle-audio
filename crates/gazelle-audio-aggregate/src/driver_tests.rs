@@ -837,6 +837,82 @@ fn a_device_that_stops_is_stalled_in_the_record_and_one_line_in_the_log_when_the
 }
 
 #[test]
+fn a_session_that_lost_nothing_says_so_when_it_ends() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    for half in 0..6 {
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    aggregate.dispose_buffers();
+    let ended = written.of("session-ended");
+    assert_eq!(ended.len(), 1, "{:?}", written.lines());
+    assert!(ended[0].contains("ran for"), "{}", ended[0]);
+    assert!(ended[0].contains("no interface lost a block"), "{}", ended[0]);
+    assert!(written.of("glitched").is_empty(), "nothing was lost, so nothing was said about it");
+}
+
+#[test]
+fn a_session_that_dropped_blocks_says_which_interface_and_how_many_when_it_ends() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::Aligned));
+    go(&mut aggregate);
+    let b = pc.device("Device B");
+    // The follower runs away from the master: four slots carry three blocks, and the two after
+    // them have nowhere to go.
+    for _ in 0..5 {
+        b.fire(0);
+    }
+    aggregate.dispose_buffers();
+    let ended = written.of("session-ended");
+    assert_eq!(ended.len(), 1, "{:?}", written.lines());
+    assert!(ended[0].contains("A lost nothing"), "{}", ended[0]);
+    assert!(ended[0].contains("B dropped 2 blocks and missed no blocks"), "{}", ended[0]);
+    assert!(written.of("glitched").len() <= 1, "the first one only, and nobody was watching here");
+    // The counters themselves are gone with the buffers, and this line is what is left of them.
+    assert!(aggregate.stream().is_none());
+}
+
+#[test]
+fn the_first_block_a_session_loses_is_one_line_and_the_rest_of_them_are_none() {
+    let _order = daw::session();
+    let pc = two_devices();
+    let (reporter, _reader, written) = watched();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let driver = Arc::new(Mutex::new(Aggregate::reporting(host, Arc::clone(&reporter))));
+    driver.lock().unwrap().init(both(Alignment::Aligned), "a test".to_string()).expect("both open");
+    go(&mut driver.lock().unwrap());
+    let watcher = DriverWatch::new(&driver, Arc::clone(&reporter));
+
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    for half in 0..2 {
+        b.fire(half & 1);
+        a.fire(half & 1);
+    }
+    watcher.look_around();
+    assert!(written.of("glitched").is_empty(), "a session in step has lost nothing");
+
+    // The follower runs ahead until its ring has nowhere to put a block, and the master's next
+    // callback is what writes the count into the record for the watcher to find.
+    for _ in 0..6 {
+        b.fire(0);
+    }
+    a.fire(0);
+    watcher.look_around();
+    watcher.look_around();
+    let said = written.of("glitched");
+    assert_eq!(said.len(), 1, "once, not once per look and not once per block: {:?}", written.lines());
+    assert!(said[0].contains("B dropped a block"), "{}", said[0]);
+    assert!(said[0].contains("the first this session has lost"), "{}", said[0]);
+
+    driver.lock().unwrap().dispose_buffers();
+}
+
+#[test]
 fn a_refusal_reaches_the_daw_the_record_and_the_log_in_the_same_words() {
     let _order = daw::session();
     let pc = two_devices();

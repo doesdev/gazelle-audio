@@ -15,3 +15,6 @@ gazelle-audio-aggregate = { path = "../gazelle-audio-aggregate" }
 gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
 gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
 serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }

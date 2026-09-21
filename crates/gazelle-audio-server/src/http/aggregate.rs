@@ -19,7 +19,8 @@
 //!   One run at a time, on a thread of its own, followed while it goes and given up on when the
 //!   person says so. It makes a noise in the room and holds both audio drivers while it runs, so
 //!   everything that could stop it is refused before anything is opened
-//!   (`crate::aggregate::calibrate`).
+//!   (`crate::aggregate::calibrate`). The body may also name `witnesses`: extra input channels to
+//!   record and report, which take no part in any trim.
 //!
 //! **Loopback peers only**, like the update and window routes. Registering a driver and changing
 //! a DAW's buffer size are the machine's own business, not something a server reachable from a
@@ -453,6 +454,21 @@ mod tests {
         assert_eq!(body["error"]["code"], "not_started");
         assert!(body["error"]["message"].as_str().unwrap().contains("inputs or outputs"), "{body}");
         // And nothing was started by asking for something that is not a pass.
+        let (_, state) = get(&h.app, "/api/v1/aggregate/calibrate").await;
+        assert_eq!(state["state"], "idle");
+    }
+
+    /// A witness is an extra channel to listen in on, so one that is already being measured is not
+    /// one, and the route says so in the same breath as every other cabling mistake.
+    #[tokio::test]
+    async fn a_witness_that_is_already_being_measured_is_refused_by_the_route() {
+        let h = harness();
+        h.store.save(&workspace_with(pair())).unwrap();
+        let body = r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,16],"witnesses":[16]}"#;
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "not_started");
+        assert!(body["error"]["message"].as_str().unwrap().contains("already"), "{body}");
         let (_, state) = get(&h.app, "/api/v1/aggregate/calibrate").await;
         assert_eq!(state["state"], "idle");
     }

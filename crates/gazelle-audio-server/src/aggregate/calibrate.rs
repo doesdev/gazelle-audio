@@ -33,6 +33,11 @@ pub struct Ask {
     pub outputs: Vec<i32>,
     /// The aggregate input channel it comes back on, one per interface.
     pub inputs: Vec<i32>,
+    /// Extra input channels to record and report, which take no part in any trim. Any input
+    /// channel the aggregate has, including a second one on an interface that is already being
+    /// measured. Left out means none.
+    #[serde(default)]
+    pub witnesses: Option<Vec<i32>>,
     #[serde(default)]
     pub clicks: Option<u32>,
     #[serde(default)]
@@ -49,7 +54,8 @@ impl Ask {
             "outputs" => Direction::Outputs,
             other => return Err(format!("A pass is inputs or outputs, not {other:?}.")),
         };
-        let rig = Rig::new(direction, self.outputs.clone(), self.inputs.clone());
+        let rig = Rig::new(direction, self.outputs.clone(), self.inputs.clone())
+            .watching(self.witnesses.clone().unwrap_or_default());
         if let Some(why) = rig.refusal() {
             return Err(sentence(&why));
         }
@@ -107,7 +113,15 @@ pub struct Measured {
     /// The interface everything else was measured against.
     pub reference: String,
     pub readings: Vec<Reading>,
+    /// The extra channels the run listened in on, kept apart from the readings because a witness
+    /// is an observation and never an interface's measurement.
+    pub witnesses: Vec<Witness>,
     pub trims: Vec<Trim>,
+    /// True when no interface lost a block while the run was going. A measurement taken across a
+    /// dropout is not one, so this is the first thing to read.
+    pub clean: bool,
+    /// How many blocks the run lost altogether, across every interface.
+    pub blocks_lost: u64,
     /// Anything the person should read before believing the numbers.
     pub warnings: Vec<String>,
 }
@@ -120,9 +134,44 @@ pub struct Reading {
     pub lag_samples: f64,
     /// How much the clicks disagreed with each other. Under a sample is a measurement to trust.
     pub spread_samples: f64,
+    /// The widest they could have disagreed and still be one measurement, worked out from the lag
+    /// itself and the buffer size. A spread past this one is why a reading was thrown out.
+    pub spread_limit_samples: f64,
     pub clicks_found: usize,
     pub clicks_expected: usize,
+    /// Blocks this interface's audio lost while the run was going: thrown away because its ring
+    /// was full, and not there when they were wanted. Anything but zero means the clicks were
+    /// measured across a fault in the audio.
+    pub blocks_dropped: u64,
+    pub blocks_starved: u64,
     /// The sentence for this interface, whether it went well or not.
+    pub note: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drift: Option<Drift>,
+}
+
+/// One extra channel the run listened in on, in the same words a reading is written in.
+///
+/// It has no interface of its own to be named by, because one interface can have several of them,
+/// so it says which channel it was and which interface that channel belongs to. It changes no trim
+/// and it never stands in the way of one.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Witness {
+    /// The aggregate input channel this was.
+    pub channel: i32,
+    /// The interface that channel belongs to.
+    pub device: String,
+    /// How far behind the reference this channel recorded, in samples and fractions of one.
+    pub lag_samples: f64,
+    pub spread_samples: f64,
+    pub spread_limit_samples: f64,
+    pub clicks_found: usize,
+    pub clicks_expected: usize,
+    /// What the interface this channel is on lost while the run was going, which is the same count
+    /// its reading carries.
+    pub blocks_dropped: u64,
+    pub blocks_starved: u64,
+    /// The sentence for this channel, whether anything arrived on it or not.
     pub note: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drift: Option<Drift>,
@@ -301,10 +350,34 @@ pub fn measured(outcome: &Outcome, rig: &Rig) -> Measured {
             is_reference: index == rig.reference,
             lag_samples: reading.lag_samples,
             spread_samples: reading.spread_samples,
+            spread_limit_samples: reading.spread_limit_samples,
             clicks_found: reading.clicks_found,
             clicks_expected: reading.clicks_expected,
+            blocks_dropped: reading.glitches.dropped,
+            blocks_starved: reading.glitches.starved,
             note: reading.note.clone(),
             drift: reading.drift.as_ref().map(|drift| Drift {
+                samples_per_second: drift.samples_per_second,
+                ppm: drift.parts_per_million,
+                real: true,
+            }),
+        })
+        .collect();
+    let witnesses: Vec<Witness> = outcome
+        .witnesses
+        .iter()
+        .map(|witness| Witness {
+            channel: witness.channel,
+            device: witness.device.clone(),
+            lag_samples: witness.reading.lag_samples,
+            spread_samples: witness.reading.spread_samples,
+            spread_limit_samples: witness.reading.spread_limit_samples,
+            clicks_found: witness.reading.clicks_found,
+            clicks_expected: witness.reading.clicks_expected,
+            blocks_dropped: witness.reading.glitches.dropped,
+            blocks_starved: witness.reading.glitches.starved,
+            note: witness.reading.note.clone(),
+            drift: witness.reading.drift.as_ref().map(|drift| Drift {
                 samples_per_second: drift.samples_per_second,
                 ppm: drift.parts_per_million,
                 real: true,
@@ -344,7 +417,10 @@ pub fn measured(outcome: &Outcome, rig: &Rig) -> Measured {
         buffer_size: outcome.block,
         reference,
         readings,
+        witnesses,
         trims,
+        clean: outcome.was_clean(),
+        blocks_lost: outcome.blocks_lost(),
         warnings,
     }
 }
@@ -412,8 +488,10 @@ mod tests {
             device: device.to_string(),
             lag_samples: lag,
             spread_samples: 0.2,
+            spread_limit_samples: 7.0,
             clicks_found: 8,
             clicks_expected: 8,
+            glitches: gazelle_calibrate::measure::Glitches::default(),
             drift: None,
             nothing_arrived: false,
             note: format!("{device} recorded {lag} samples behind"),
@@ -427,6 +505,7 @@ mod tests {
             block: 512,
             clicks: 8,
             readings: vec![reading("Quadro", 0.0), reading("Studio+", 27.8)],
+            witnesses: Vec::new(),
             trims: vec![
                 TrimChange {
                     device: "Quadro".into(),
@@ -454,7 +533,14 @@ mod tests {
     }
 
     fn ask() -> Ask {
-        Ask { direction: "inputs".into(), outputs: vec![0, 1], inputs: vec![0, 16], clicks: Some(2), level_dbfs: None }
+        Ask {
+            direction: "inputs".into(),
+            outputs: vec![0, 1],
+            inputs: vec![0, 16],
+            witnesses: None,
+            clicks: Some(2),
+            level_dbfs: None,
+        }
     }
 
     fn settled(job: &Arc<Calibration>) -> Progress {
@@ -497,6 +583,66 @@ mod tests {
         assert_eq!(measured.trims[1].now, 28);
         assert_eq!(measured.trims[1].field, "input_trim");
         assert!(measured.warnings.is_empty(), "a clean run warns about nothing");
+        assert!(measured.clean, "and says the audio under it was clean");
+        assert_eq!(measured.blocks_lost, 0);
+        assert_eq!((measured.readings[1].blocks_dropped, measured.readings[1].blocks_starved), (0, 0));
+        assert_eq!(measured.readings[1].spread_limit_samples, 7.0);
+    }
+
+    #[test]
+    fn a_run_the_audio_went_wrong_under_carries_what_was_lost_and_offers_no_trim() {
+        let mut answer = outcome();
+        answer.readings[1].glitches = gazelle_calibrate::measure::Glitches { dropped: 3, starved: 1 };
+        answer.readings[1].note = "the audio was not clean while Studio+ was measured".into();
+        answer.trims[1].measured = 0;
+        answer.trims[1].new = 0;
+        answer.trims[1].not_applied = Some("the audio was not clean while Studio+ was measured".into());
+        let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
+        job.start(&ask()).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert!(!measured.clean, "a run that lost blocks is not a clean one");
+        assert_eq!(measured.blocks_lost, 4);
+        assert_eq!((measured.readings[1].blocks_dropped, measured.readings[1].blocks_starved), (3, 1));
+        assert_eq!(measured.trims[1].now, 0, "the setup is left exactly as it was");
+        assert_eq!(measured.warnings.len(), 2, "{:?}", measured.warnings);
+        assert!(measured.warnings.iter().all(|warning| warning.contains("not clean")), "{:?}", measured.warnings);
+    }
+
+    #[test]
+    fn an_ask_carries_the_extra_channels_to_listen_in_on_and_none_means_none() {
+        let watching = Ask { witnesses: Some(vec![17]), ..ask() };
+        let (rig, _) = watching.taken().expect("a second input on the Studio+ is an observation");
+        assert_eq!(rig.witnesses, vec![17]);
+        // Left out of the body altogether is a run with nothing carried along.
+        let plain: Ask = serde_json::from_str(r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,16]}"#).unwrap();
+        assert_eq!(plain.taken().expect("a rig").0.witnesses, Vec::<i32>::new());
+        // And one that is already being measured is refused in a sentence, before anything opens.
+        let clash = Ask { witnesses: Some(vec![16]), ..ask() };
+        let refusal = clash.taken().unwrap_err();
+        assert!(refusal.starts_with("Input channel 16 is already"), "{refusal}");
+        assert!(refusal.ends_with('.'), "{refusal}");
+    }
+
+    #[test]
+    fn what_was_listened_in_on_is_reported_apart_from_the_interfaces_and_moves_no_trim() {
+        let mut answer = outcome();
+        let mut heard = reading("input channel 17 on Studio+", 3.2);
+        heard.note = "input channel 17 on Studio+ recorded 3.20 samples behind the reference".into();
+        answer.witnesses = vec![gazelle_calibrate::Witness {
+            channel: 17,
+            device: "Studio+".into(),
+            reading: heard,
+        }];
+        let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
+        job.start(&Ask { witnesses: Some(vec![17]), ..ask() }).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert_eq!(measured.readings.len(), 2, "a witness is not an interface");
+        assert_eq!(measured.witnesses.len(), 1);
+        assert_eq!((measured.witnesses[0].channel, measured.witnesses[0].device.as_str()), (17, "Studio+"));
+        assert_eq!(measured.witnesses[0].lag_samples, 3.2);
+        assert!(measured.witnesses[0].note.contains("channel 17"));
+        assert_eq!(measured.trims[1].now, 28, "the trims are what the interfaces measured, and nothing else");
+        assert!(measured.warnings.is_empty());
     }
 
     #[test]

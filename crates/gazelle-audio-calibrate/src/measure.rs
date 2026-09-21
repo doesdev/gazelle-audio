@@ -35,6 +35,39 @@ pub struct Drift {
     pub parts_per_million: f64,
 }
 
+/// What the audio underneath a run was doing while one interface was being measured.
+///
+/// The aggregate counts these itself, per interface, in the rings its audio path carries blocks
+/// across. **A click measured across a lost block is not a measurement**: a dropped block moves
+/// that interface's audio by a whole buffer against the others, and nothing in the correlation can
+/// tell that apart from a real offset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Glitches {
+    /// Blocks thrown away because this interface's ring was full.
+    pub dropped: u64,
+    /// Blocks that were not there when they were wanted, which is what a person hears as a click.
+    pub starved: u64,
+}
+
+impl Glitches {
+    pub fn is_clean(&self) -> bool {
+        self.dropped == 0 && self.starved == 0
+    }
+
+    pub fn lost(&self) -> u64 {
+        self.dropped + self.starved
+    }
+}
+
+/// `n` blocks, said the way a person says it.
+fn blocks(count: u64) -> String {
+    if count == 1 {
+        "1 block".to_string()
+    } else {
+        format!("{count} blocks")
+    }
+}
+
 /// One device's whole result.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Reading {
@@ -45,8 +78,15 @@ pub struct Reading {
     pub lag_samples: f64,
     /// Widest and narrowest click of the run, apart. Small means every click agreed.
     pub spread_samples: f64,
+    /// The widest the clicks could have been spread and still be one measurement of one thing.
+    /// Worked out from the lag itself and the buffer size by [`spread_limit`], and reported so
+    /// that a reading which was thrown out says what it was measured against.
+    pub spread_limit_samples: f64,
     pub clicks_found: usize,
     pub clicks_expected: usize,
+    /// What the audio underneath this interface did while the run was going. Anything but zero
+    /// means the measurement was taken across a fault in the audio and cannot be trusted.
+    pub glitches: Glitches,
     /// Set when the lag grows steadily rather than staying put, which is a clocking fault and not
     /// something a trim can fix.
     pub drift: Option<Drift>,
@@ -57,16 +97,52 @@ pub struct Reading {
 }
 
 impl Reading {
-    /// Whether this reading is worth turning into a trim: something arrived, enough clicks agreed,
-    /// and the two interfaces are not running off each other's clocks.
+    /// Whether this reading is worth turning into a trim: something arrived, the clicks agreed
+    /// with each other, the audio underneath was clean, and the two interfaces are not running off
+    /// each other's clocks.
     pub fn is_usable(&self) -> bool {
-        !self.nothing_arrived && self.drift.is_none() && self.clicks_found >= 2
+        !self.nothing_arrived
+            && self.drift.is_none()
+            && self.clicks_found >= 2
+            && self.glitches.is_clean()
+            && self.spread_samples <= self.spread_limit_samples
     }
 }
 
 /// How well a correlation has to land before it counts as this click rather than something else on
 /// the channel.
+///
+/// This is deliberately generous, because a weak peak is not the thing that spoils a reading: a
+/// click whose peak landed somewhere else entirely still correlates, and what gives it away is the
+/// clicks disagreeing with each other, which is what [`spread_limit`] catches.
 pub const WEAKEST_PEAK: f64 = 0.2;
+
+/// The scatter a converter puts on a click all by itself. A spread of about a sample is what a
+/// good run looks like, and it is always allowed however small the lag is.
+pub const STEADY_SPREAD: f64 = 1.0;
+
+/// Past that, how much of the lag itself the clicks may disagree by. A spread that is a large
+/// fraction of the answer means the clicks did not agree on the answer, and their middle is a
+/// number with nothing behind it.
+pub const WIDEST_SPREAD_FRACTION: f64 = 0.25;
+
+/// And never more than this much of a buffer: a spread near the buffer size is one click that
+/// landed a whole block away from the others, which is a dropout and not a measurement.
+pub const WIDEST_SPREAD_BUFFERS: f64 = 0.25;
+
+/// The widest the clicks may disagree and still be one measurement of one thing.
+///
+/// **This is the rule that a real run at the hardware got past.** It measured a lag of 60.85
+/// samples with a spread of 64.00, which is the whole buffer, and offered a trim of 61 anyway. The
+/// clicks in that run were not measuring the same thing as each other, so their middle meant
+/// nothing, and a trim from it would have moved the interfaces by 61 samples for no reason.
+pub fn spread_limit(lag: f64, block: i32) -> f64 {
+    let by_lag = (lag.abs() * WIDEST_SPREAD_FRACTION).max(STEADY_SPREAD);
+    // A run whose buffer size is not known is held to the lag alone rather than to nothing.
+    let by_block =
+        if block > 0 { (f64::from(block) * WIDEST_SPREAD_BUFFERS).max(STEADY_SPREAD) } else { f64::INFINITY };
+    by_lag.min(by_block)
+}
 
 /// Where in `capture` the click is, searching from `from` for `horizon` samples.
 ///
@@ -248,22 +324,29 @@ pub fn fit_drift(lags: &[ClickLag], rate: f64) -> Option<Drift> {
 }
 
 /// One channel's whole result, written the way a person reads it.
-pub fn summarise(device: &str, lags: &[ClickLag], expected: usize, rate: f64) -> Reading {
+///
+/// `block` is the buffer size the run happened at and `glitches` is what the audio underneath this
+/// interface did while it ran. Both of them decide whether the numbers mean anything, so they are
+/// part of the reading rather than something a caller is trusted to check afterwards.
+pub fn summarise(device: &str, lags: &[ClickLag], expected: usize, rate: f64, block: i32, glitches: Glitches) -> Reading {
     let values: Vec<f64> = lags.iter().map(|lag| lag.lag_samples).collect();
     let lag = median(&values);
     let spread = match (values.iter().cloned().reduce(f64::min), values.iter().cloned().reduce(f64::max)) {
         (Some(low), Some(high)) => high - low,
         _ => 0.0,
     };
+    let limit = spread_limit(lag, block);
     let drift = fit_drift(lags, rate);
     let nothing_arrived = lags.is_empty();
-    let note = note_for(device, lag, spread, lags.len(), expected, drift, nothing_arrived);
+    let note = note_for(device, lag, spread, limit, lags.len(), expected, drift, nothing_arrived, glitches);
     Reading {
         device: device.to_string(),
         lag_samples: lag,
         spread_samples: spread,
+        spread_limit_samples: limit,
         clicks_found: lags.len(),
         clicks_expected: expected,
+        glitches,
         drift,
         nothing_arrived,
         note,
@@ -271,14 +354,17 @@ pub fn summarise(device: &str, lags: &[ClickLag], expected: usize, rate: f64) ->
 }
 
 /// The sentence that goes with a reading.
+#[allow(clippy::too_many_arguments)]
 fn note_for(
     device: &str,
     lag: f64,
     spread: f64,
+    limit: f64,
     found: usize,
     expected: usize,
     drift: Option<Drift>,
     nothing_arrived: bool,
+    glitches: Glitches,
 ) -> String {
     if nothing_arrived {
         return format!(
@@ -286,12 +372,38 @@ fn note_for(
              channel it is plugged into is the one this run was told about"
         );
     }
+    if !glitches.is_clean() {
+        // Said before anything else, because a number measured across a lost block is not a
+        // worse measurement, it is not a measurement.
+        return format!(
+            "the audio was not clean while {device} was measured: it lost {} of them ({} dropped, {} not ready in \
+             time) while the clicks were playing, and a click measured across a lost block is a whole buffer out. \
+             Nothing is offered as a trim. Raise the buffer size, or take the PC off whatever else it is doing, and \
+             measure again.",
+            blocks(glitches.lost()),
+            glitches.dropped,
+            glitches.starved
+        );
+    }
     if let Some(drift) = drift {
+        // Before the spread, because a run that drifts is spread out by the drifting itself, and
+        // two clocks is the more serious finding of the two and the one with its own cure.
         return format!(
             "{device} drifts {:.1} samples a second against the reference, which is {:.1} parts per million: these \
              two interfaces are not sharing a clock, and no trim can cancel something that keeps growing. Lock them \
              together with a word clock or a digital cable and measure again.",
             drift.samples_per_second, drift.parts_per_million
+        );
+    }
+    if spread > limit {
+        return format!(
+            "{device}'s clicks did not agree with each other: they are spread over {spread:.2} samples, and at a lag \
+             of {:.2} samples anything past {limit:.2} means they were not measuring the same thing. A spread near \
+             the buffer size is usually one click that landed a whole block away from the others. The middle of them \
+             is {:.2} samples, but that number has nothing behind it, so nothing is offered as a trim: measure again, \
+             and if it keeps happening raise the buffer size or look for what else is using the PC.",
+            lag.abs(),
+            lag.abs()
         );
     }
     let missing = if found < expected {
@@ -313,6 +425,8 @@ mod tests {
     use crate::click;
 
     const RATE: f64 = 48_000.0;
+    /// The buffer size these runs happen at, which is what a spread is judged against.
+    const BLOCK: i32 = 64;
 
     /// A capture made of data: a click at each of these places, and silence elsewhere.
     fn planted(length: usize, click: &[f64], at: &[f64]) -> Vec<f64> {
@@ -373,7 +487,7 @@ mod tests {
         let (reference, channel, click) = pair(28.0, 900.0);
         let lags = lags_of_channel(&reference, &channel, &click, &emits(), 1200, 512);
         assert_eq!(lags.len(), 8, "every click was found");
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         assert!((reading.lag_samples - 28.0).abs() < 0.05, "{:?}", reading);
         assert!(reading.spread_samples < 0.05);
         assert_eq!(reading.drift, None);
@@ -385,7 +499,7 @@ mod tests {
     fn a_lag_the_other_way_round_is_a_negative_number_and_says_so() {
         let (reference, channel, click) = pair(-17.0, 900.0);
         let lags = lags_of_channel(&reference, &channel, &click, &emits(), 1200, 512);
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         assert!((reading.lag_samples + 17.0).abs() < 0.05, "{:?}", reading);
         assert!(reading.note.contains("ahead of"), "{}", reading.note);
     }
@@ -394,7 +508,7 @@ mod tests {
     fn a_lag_that_is_not_a_whole_number_of_samples_comes_back_with_its_fraction() {
         let (reference, channel, click) = pair(12.5, 900.0);
         let lags = lags_of_channel(&reference, &channel, &click, &emits(), 1200, 512);
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         assert!((reading.lag_samples - 12.5).abs() < 0.2, "{:?}", reading);
         assert!(reading.lag_samples.fract().abs() > 0.0, "a whole number here would mean the fitting did nothing");
     }
@@ -412,7 +526,7 @@ mod tests {
         let reference = planted(length, &click, &reference);
         let channel = planted(length, &click, &drifting);
         let lags = lags_of_channel(&reference, &channel, &click, &emitted, 1200, 512);
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         let drift = reading.drift.expect("a lag that grows is a drift");
         assert!((drift.samples_per_second - 10.0).abs() < 0.5, "{drift:?}");
         assert!((drift.parts_per_million - 208.3).abs() < 15.0, "{drift:?}");
@@ -443,7 +557,7 @@ mod tests {
         let silence = vec![0.0; reference.len()];
         let lags = lags_of_channel(&reference, &silence, &click, &emits(), 1200, 512);
         assert!(lags.is_empty());
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         assert!(reading.nothing_arrived);
         assert!(!reading.is_usable());
         assert_eq!(reading.clicks_found, 0);
@@ -451,7 +565,7 @@ mod tests {
         // Hiss with no click in it is the same answer: there is nothing there to line up with.
         let hiss = noise(reference.len(), 0.01, 7);
         let lags = lags_of_channel(&reference, &hiss, &click, &emits(), 1200, 512);
-        assert!(summarise("Studio+", &lags, 8, RATE).lag_samples.abs() < 512.0);
+        assert!(summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default()).lag_samples.abs() < 512.0);
         assert!(lags.iter().all(|lag| lag.strength < 0.5), "hiss does not correlate with a click");
     }
 
@@ -462,7 +576,7 @@ mod tests {
         let reference = add(&reference, &noise(reference.len(), 0.01, 11));
         let channel = add(&channel, &noise(channel.len(), 0.01, 29));
         let lags = lags_of_channel(&reference, &channel, &click, &emits(), 1200, 512);
-        let reading = summarise("Studio+", &lags, 8, RATE);
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, Glitches::default());
         assert_eq!(reading.clicks_found, 8, "noise does not lose the clicks");
         assert!((reading.lag_samples - 28.0).abs() < 0.5, "{:?}", reading);
         assert!(reading.is_usable());
@@ -477,6 +591,68 @@ mod tests {
         // Three points with no curve at all cannot say where a top is, so it says nothing.
         assert_eq!(interpolate(1.0, 1.0, 1.0), 0.0);
         assert!(interpolate(0.0, 1.0, 0.99).abs() <= 0.5, "and it never lands outside the samples it was given");
+    }
+
+    /// Clicks whose lags are whatever a test says they are, half a second apart.
+    fn lags_of(values: &[f64]) -> Vec<ClickLag> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, &lag)| ClickLag { click: index, at: index * 24_000, lag_samples: lag, strength: 0.9 })
+            .collect()
+    }
+
+    #[test]
+    fn clicks_that_did_not_agree_with_each_other_are_not_turned_into_a_trim() {
+        // The run this is written from happened at the hardware: a lag of 60.85 samples with a
+        // spread of 64.00, a whole buffer, and it offered a trim of 61 anyway. The clicks in it
+        // were not measuring the same thing as each other, so their middle meant nothing.
+        let reading = summarise("Studio+", &lags_of(&[28.85, 92.85, 60.85, 60.85]), 4, RATE, BLOCK, Glitches::default());
+        assert!((reading.lag_samples - 60.85).abs() < 0.01, "{reading:?}");
+        assert!((reading.spread_samples - 64.00).abs() < 0.01, "{reading:?}");
+        assert_eq!(reading.drift, None, "it leans nowhere: this is scatter, not two clocks");
+        assert!(!reading.is_usable(), "a spread the size of the answer is not an answer");
+        assert!(reading.note.contains("did not agree"), "{}", reading.note);
+        assert!(reading.note.contains("nothing is offered as a trim"), "{}", reading.note);
+        assert!(reading.note.contains("64.00"), "it says how far apart they were: {}", reading.note);
+    }
+
+    #[test]
+    fn clicks_that_agreed_to_within_a_sample_are_a_measurement_however_small_the_lag_is() {
+        // The scatter a converter puts on a click by itself is always allowed, or a lag of nearly
+        // nothing could never be measured at all.
+        let settled = summarise("Studio+", &lags_of(&[0.1, -0.3, 0.2, 0.0]), 4, RATE, BLOCK, Glitches::default());
+        assert!(settled.is_usable(), "{settled:?}");
+        // And a wider one at the same tiny lag is not.
+        let scattered = summarise("Studio+", &lags_of(&[0.1, 9.0, 0.2, 0.0]), 4, RATE, BLOCK, Glitches::default());
+        assert!(!scattered.is_usable(), "{scattered:?}");
+    }
+
+    #[test]
+    fn how_far_apart_the_clicks_may_be_comes_from_the_lag_and_from_the_buffer_size() {
+        assert_eq!(spread_limit(0.0, 64), STEADY_SPREAD, "a converter's own scatter is always allowed");
+        assert_eq!(spread_limit(28.0, 256), 7.0, "a quarter of the lag");
+        assert_eq!(spread_limit(600.0, 64), 16.0, "and never more than a quarter of a buffer");
+        assert_eq!(spread_limit(60.85, 256), 60.85 * 0.25);
+        assert!(spread_limit(60.85, 256) < 64.0, "the run at the hardware was past it either way");
+        // A run that did not say what buffer size it happened at is still held to the lag.
+        assert_eq!(spread_limit(28.0, 0), 7.0);
+    }
+
+    #[test]
+    fn a_reading_measured_across_a_lost_block_says_so_and_offers_nothing() {
+        let (reference, channel, click) = pair(28.0, 900.0);
+        let lags = lags_of_channel(&reference, &channel, &click, &emits(), 1200, 512);
+        let lost = Glitches { dropped: 2, starved: 1 };
+        let reading = summarise("Studio+", &lags, 8, RATE, BLOCK, lost);
+        assert_eq!(reading.glitches, lost, "what the audio did is part of the reading");
+        assert!(!reading.is_usable(), "a click measured across a dropout is not a measurement");
+        assert!(reading.note.contains("the audio was not clean"), "{}", reading.note);
+        assert!(reading.note.contains("3 blocks"), "it says how many were lost: {}", reading.note);
+        assert!(reading.note.contains("measure again"), "and what to do about it: {}", reading.note);
+        // The clicks themselves were perfect, which is exactly why this has to be said out loud.
+        assert!(reading.spread_samples < 0.5);
+        assert!((reading.lag_samples - 28.0).abs() < 0.05);
     }
 
     #[test]
