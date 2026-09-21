@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use gazelle_audio_server::aggregate::bundled;
 use gazelle_audio_server::aggregate::export::ExportingStore;
 use gazelle_audio_server::aggregate::service::AggregateService;
 use gazelle_audio_server::config::{default_aggregate_path, default_log_dir, default_snapshots_dir, default_themes_dir, default_workspace_path};
@@ -216,6 +217,9 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     }
     // A binary an earlier update displaced is nothing but clutter now.
     update::clean_up_after_previous_update();
+    // The aggregate driver this build carries goes beside it, when it is not there already: the
+    // first start after an update is how a new driver arrives. Never fatal; the page says why.
+    let carried = bundled::at_this_start();
 
     let runtime = tokio::runtime::Runtime::new()?;
     // The port is taken before anything else is opened, so a second launch that is about to hand
@@ -240,7 +244,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     // Before the devices are attached, so the window is on screen while that happens rather than
     // after it; its first request waits in the listener's backlog until the server answers.
     let window = open_window(args, address);
-    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone()))?;
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone(), carried))?;
 
     // The tray's message loop needs the thread that created the icon, so it takes this one and
     // the server runs on the runtime's workers.
@@ -325,6 +329,7 @@ async fn prepare(
     address: SocketAddr,
     show_window: Option<gazelle_audio_server::ShowWindow>,
     restart: Option<Arc<update::Restart>>,
+    carried: bundled::Status,
 ) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -387,6 +392,7 @@ async fn prepare(
         aggregate_path.clone(),
         std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
         std::env::var("APPDATA").ok().map(std::path::PathBuf::from),
+        carried,
     );
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
         store

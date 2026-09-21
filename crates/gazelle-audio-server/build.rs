@@ -12,7 +12,13 @@
 //! binaries show the app's own icon in Explorer, the taskbar, the Start Menu shortcut, the
 //! Add/Remove Programs entry and the window, and the application manifest, which says both run
 //! as whoever started them rather than asking for elevation. See `build/resource.rs`.
+//!
+//! And it chooses the aggregate driver a release carries: the DLL `GAZELLE_AGGREGATE_DLL` names,
+//! or nothing when it is unset, which is every build but a release. A build asked to carry one
+//! that it cannot use stops here with the reason. See `build/driver.rs`.
 
+#[path = "build/driver.rs"]
+mod driver;
 #[path = "build/resource.rs"]
 mod resource;
 
@@ -43,6 +49,31 @@ fn main() {
     println!("cargo:rustc-env=GAZELLE_WEB_DIST={}", folder.display());
 
     embed_the_icon(&manifest);
+    embed_the_driver(&manifest);
+}
+
+/// Put the aggregate driver's bytes, or no bytes, where `aggregate::bundled` includes them.
+///
+/// A file is always written, so the library compiles the same way either way and an empty one
+/// means "this build carries no driver". Asked for a driver it cannot use, the build fails: the
+/// panic's message is the reason, and cargo prints it.
+fn embed_the_driver(manifest: &std::path::Path) {
+    println!("cargo:rerun-if-env-changed={}", driver::VAR);
+    let value = std::env::var_os(driver::VAR);
+    // The workspace root, two folders up from this package.
+    let root = manifest.ancestors().nth(2).unwrap_or(manifest).to_path_buf();
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join(driver::EMBEDDED_NAME);
+    let bytes = match driver::choose(value.as_deref(), &root, &os, &arch) {
+        Ok(Some((path, bytes))) => {
+            println!("cargo:rerun-if-changed={}", path.display());
+            bytes
+        }
+        Ok(None) => Vec::new(),
+        Err(why) => panic!("the aggregate driver cannot be carried: {why}"),
+    };
+    std::fs::write(&out, bytes).unwrap_or_else(|e| panic!("writing {}: {e}", out.display()));
 }
 
 /// Put the icon and the application manifest in every binary this package builds: both of them.

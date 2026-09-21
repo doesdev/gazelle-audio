@@ -23,6 +23,12 @@
 #[path = "../build/resource.rs"]
 mod build_resource;
 
+/// The build script's choice of the aggregate driver to carry, under test the same way.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../build/driver.rs"]
+mod build_driver;
+
 pub mod aggregate;
 pub mod config;
 pub mod device;

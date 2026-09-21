@@ -91,6 +91,10 @@ pub enum Choice {
     TryAgain,
     Cancel,
     Close,
+    /// Uninstalling: remove the aggregate driver's registration, with Windows' prompt.
+    Unregister,
+    /// Uninstalling: leave the aggregate driver registered, and its file with it.
+    KeepRegistered,
 }
 
 impl Choice {
@@ -105,6 +109,8 @@ impl Choice {
             Choice::TryAgain => "Try again",
             Choice::Cancel => "Cancel",
             Choice::Close => "Close",
+            Choice::Unregister => "Remove its registration",
+            Choice::KeepRegistered => "Keep it",
         }
     }
 }
@@ -244,7 +250,8 @@ pub fn run(host: &mut dyn Host, mode: Mode, this: &Version) -> Next {
             let _ = host.remember_run_here();
             Next::RunHere
         }
-        Choice::TryAgain | Choice::Cancel | Choice::Close => Next::Exit,
+        // Not buttons any setup dialog has.
+        Choice::TryAgain | Choice::Cancel | Choice::Close | Choice::Unregister | Choice::KeepRegistered => Next::Exit,
     }
 }
 
@@ -316,7 +323,18 @@ pub fn from_windowless() -> Option<Next> {
     let registry = registry::CurrentUser;
     let run_key = crate::tray::user_run_key();
     let in_use: &dyn Fn(&Path) -> bool = &image_in_use;
-    let ctx = Context { layout: &layout, registry: &registry, run_key: run_key.as_ref(), in_use, waiting: Waiting::none() };
+    let asio = crate::aggregate::registry::for_this_pc();
+    let elevator = crate::aggregate::elevate::for_this_pc();
+    let ctx = Context {
+        layout: &layout,
+        registry: &registry,
+        run_key: run_key.as_ref(),
+        in_use,
+        waiting: Waiting::none(),
+        driver: crate::aggregate::bundled::carried(),
+        asio: asio.as_ref(),
+        elevator: elevator.as_ref(),
+    };
 
     let dir = installed_dir(&ctx);
     let remembered = remembered_path(var);

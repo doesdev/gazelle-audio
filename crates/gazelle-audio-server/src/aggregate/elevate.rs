@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
+use crate::aggregate::bundled;
+
 /// The program that registers a driver DLL, and the switch that undoes it.
 pub const REGISTRAR: &str = "regsvr32.exe";
 
@@ -51,12 +53,13 @@ pub fn arguments_for(dll: &Path, unregister: bool) -> String {
     format!("{switch}\"{}\"", dll.display())
 }
 
-/// Where the driver's DLL is looked for, in the order it is looked for: beside the server, in the
-/// build output a developer would have just made, and in Gazelle's own folder.
+/// Where the driver's DLL is looked for, in the order it is looked for: beside the server, which
+/// is where a release puts the copy it carries (`bundled`), in Gazelle's own folder, and in the
+/// build output a developer would have just made.
 pub fn dll_candidates(exe_dir: Option<&Path>, appdata: Option<&Path>, repo: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(dir) = exe_dir {
-        candidates.push(dir.join(AGGREGATE_DLL));
+        candidates.push(bundled::path_in(dir));
     }
     if let Some(dir) = appdata {
         candidates.push(dir.join("gazelle").join(AGGREGATE_DLL));
@@ -77,13 +80,22 @@ pub enum DllSearch {
 }
 
 /// The first candidate that is a file, or a refusal naming every place that was tried.
-pub fn find_dll(candidates: &[PathBuf], is_file: &dyn Fn(&Path) -> bool) -> DllSearch {
+///
+/// Why none was found depends on whether this build carries the driver: a release that could not
+/// write its copy says so and why, and only a build that carries none is told to build one.
+pub fn find_dll(candidates: &[PathBuf], is_file: &dyn Fn(&Path) -> bool, carried: &bundled::Status) -> DllSearch {
     match candidates.iter().find(|path| is_file(path)) {
         Some(dll) => DllSearch::Found { dll: dll.display().to_string() },
         None => DllSearch::Missing {
-            message: format!(
-                "{AGGREGATE_DLL} was not found. Build it with `cargo build -p gazelle-audio-aggregate --release` and put it beside Gazelle, or copy it into Gazelle's own folder."
-            ),
+            message: match carried {
+                bundled::Status::NotCarried => format!(
+                    "{AGGREGATE_DLL} was not found, and this build of Gazelle does not carry it (a release does). Build it with `cargo build -p gazelle-audio-aggregate --release` and put it beside Gazelle, or copy it into Gazelle's own folder."
+                ),
+                bundled::Status::InPlace { dll } => format!(
+                    "{AGGREGATE_DLL} is not at {dll} any more. Gazelle carries it and puts it back the next time it starts."
+                ),
+                failed @ bundled::Status::Failed { .. } => failed.message(),
+            },
             looked_in: candidates.iter().map(|p| p.display().to_string()).collect(),
         },
     }
@@ -242,14 +254,47 @@ mod tests {
         assert_eq!(candidates[1], PathBuf::from(r"C:\appdata\gazelle\gazelle_aggregate.dll"));
         assert_eq!(candidates.len(), 4, "and the two build outputs");
 
-        let found = find_dll(&candidates, &|path| path.ends_with(r"gazelle\gazelle_aggregate.dll"));
+        let found = find_dll(&candidates, &|path| path.ends_with(r"gazelle\gazelle_aggregate.dll"), &bundled::Status::NotCarried);
         assert_eq!(found, DllSearch::Found { dll: r"C:\appdata\gazelle\gazelle_aggregate.dll".into() });
 
-        let DllSearch::Missing { message, looked_in } = find_dll(&candidates, &|_| false) else {
+        let DllSearch::Missing { message, looked_in } = find_dll(&candidates, &|_| false, &bundled::Status::NotCarried) else {
             panic!("nothing is a file, so nothing is found");
         };
+        assert!(message.contains("does not carry it"), "{message}");
         assert!(message.contains("cargo build -p gazelle-audio-aggregate"), "{message}");
         assert_eq!(looked_in.len(), 4, "every place that was tried is named: {looked_in:?}");
+    }
+
+    /// The copy an install or a start writes is the first place the page looks, so the page
+    /// offers to register exactly the file Gazelle put there.
+    #[test]
+    fn the_copy_gazelle_writes_beside_itself_is_the_one_it_would_register() {
+        let dir = std::env::temp_dir().join(format!("gazelle-elevate-beside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("gazelle-audio-serverw.exe");
+        let status = bundled::at_start(&exe, Some(b"the driver"));
+        // A copy in Gazelle's own folder too, which must not win over the one beside it.
+        let appdata = dir.join("roaming");
+        std::fs::create_dir_all(appdata.join("gazelle")).unwrap();
+        std::fs::write(appdata.join("gazelle").join(AGGREGATE_DLL), b"an older one").unwrap();
+
+        let found = find_dll(&dll_candidates(exe.parent(), Some(&appdata), None), &|p| p.is_file(), &status);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found, DllSearch::Found { dll: dir.join(AGGREGATE_DLL).display().to_string() });
+    }
+
+    #[test]
+    fn a_missing_driver_is_explained_by_whether_this_build_carries_one() {
+        let candidates = [PathBuf::from(r"C:\app\gazelle_aggregate.dll")];
+        let message = |status: bundled::Status| match find_dll(&candidates, &|_| false, &status) {
+            DllSearch::Missing { message, .. } => message,
+            found => panic!("nothing is a file: {found:?}"),
+        };
+        let gone = message(bundled::Status::InPlace { dll: r"C:\app\gazelle_aggregate.dll".into() });
+        assert!(gone.contains("puts it back the next time it starts") && !gone.contains("cargo"), "{gone}");
+        let failed = message(bundled::Status::Failed { dll: r"C:\app\gazelle_aggregate.dll".into(), message: "access is denied".into() });
+        assert!(failed.contains("access is denied") && failed.contains("tries again") && !failed.contains("cargo"), "{failed}");
     }
 
     #[test]

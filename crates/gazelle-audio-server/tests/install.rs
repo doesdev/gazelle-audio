@@ -11,8 +11,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use gazelle_audio_server::aggregate::bundled::{self, Placed};
+use gazelle_audio_server::aggregate::elevate::FakeElevator;
+use gazelle_audio_server::aggregate::registry::{FakeRegistry as FakeAsio, AGGREGATE_CLSID, AGGREGATE_NAME};
 use gazelle_audio_server::install::registry::Registry;
-use gazelle_audio_server::install::{self, Context, Layout, Waiting};
+use gazelle_audio_server::install::{self, Context, DriverRemoval, Layout, Unregistering, Waiting};
 use gazelle_audio_server::tray::boot::{RunKey, ENTRY_NAME};
 
 /// A fresh folder under the system temp directory, removed again when dropped.
@@ -101,6 +104,13 @@ struct World {
     layout: Layout,
     registry: FakeRegistry,
     run_key: FakeRunKey,
+    /// The aggregate driver the "running binary" carries: none, as in a developer build, unless
+    /// a test says otherwise.
+    driver: Option<Vec<u8>>,
+    /// Where audio drivers are registered: nothing, unless a test registers the aggregate.
+    asio: FakeAsio,
+    /// Windows' administrator prompt, which runs nothing and counts what it was asked.
+    elevator: FakeElevator,
 }
 
 /// The environment a Windows user has, with every root inside `root`.
@@ -116,7 +126,15 @@ impl World {
     fn new(name: &str) -> Self {
         let root = TempDir::new(name);
         let layout = Layout::from_env(fake_env(&root.0)).unwrap();
-        Self { root, layout, registry: FakeRegistry::default(), run_key: FakeRunKey::default() }
+        Self {
+            root,
+            layout,
+            registry: FakeRegistry::default(),
+            run_key: FakeRunKey::default(),
+            driver: None,
+            asio: FakeAsio::default(),
+            elevator: FakeElevator::default(),
+        }
     }
 
     /// A portable download: both binaries in a folder of their own, with known contents.
@@ -136,6 +154,19 @@ impl World {
             run_key: &self.run_key,
             in_use,
             waiting: Waiting::none(),
+            driver: self.driver.as_deref(),
+            asio: &self.asio,
+            elevator: &self.elevator,
+        }
+    }
+
+    /// The aggregate driver registered from `dll`, and whether that file is there, as Windows'
+    /// registry would say.
+    fn register_driver(&mut self, dll: &Path) {
+        let dll = dll.display().to_string();
+        self.asio.entries = vec![FakeAsio::entry(AGGREGATE_NAME, AGGREGATE_CLSID, &dll)];
+        if Path::new(&dll).is_file() {
+            self.asio.present.insert(dll);
         }
     }
 
@@ -568,6 +599,9 @@ fn the_command_line_installs_and_uninstalls_for_real() {
 
     let root = TempDir::new("cli");
     let key = format!(r"Software\gazelle-audio-test-cli-{}", std::process::id());
+    // The login entry too: an install re-points an existing one and an uninstall removes it, and
+    // the real one is the person's own Start on boot.
+    let run_key = format!(r"Software\gazelle-audio-test-cli-run-{}", std::process::id());
     let layout = Layout::from_env(|k| match k {
         "GAZELLE_UNINSTALL_KEY" => Some(key.clone()),
         other => fake_env(&root.0)(other),
@@ -581,6 +615,7 @@ fn the_command_line_installs_and_uninstalls_for_real() {
         }
     }
     let _scratch = Scratch(key.clone());
+    let _scratch_run = Scratch(run_key.clone());
 
     let gazelle = |args: &[&str]| {
         std::process::Command::new(env!("CARGO_BIN_EXE_gazelle-audio-server"))
@@ -588,12 +623,16 @@ fn the_command_line_installs_and_uninstalls_for_real() {
             .env("LOCALAPPDATA", root.0.join("Local"))
             .env("APPDATA", root.0.join("Roaming"))
             .env("GAZELLE_UNINSTALL_KEY", &key)
+            .env(install::RUN_KEY_VAR, &run_key)
             // An --install run never reaches the backend, but nothing that starts this binary
             // from a test is allowed to be one flag away from opening a device.
             .env(gazelle_audio_server::no_hardware::VAR, "1")
             .output()
             .unwrap()
     };
+
+    // A login entry for a copy somewhere else, which the install must re-point at itself.
+    CurrentUser.set_string(&run_key, ENTRY_NAME, r#""C:\elsewhere\gazelle-audio-serverw.exe" --bind 127.0.0.1:8420"#).unwrap();
 
     let out = gazelle(&["--install", "--no-start"]);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -609,6 +648,11 @@ fn the_command_line_installs_and_uninstalls_for_real() {
         Some(layout.programs.clone()),
         "the real registry write went through"
     );
+    assert_eq!(
+        CurrentUser.get_string(&run_key, ENTRY_NAME).unwrap(),
+        Some(format!("\"{}\" --bind 127.0.0.1:8420", layout.programs.join("gazelle-audio-serverw.exe").display())),
+        "the stand-in login entry was re-pointed, and so the real one was never read"
+    );
 
     // Run from the build directory rather than the installed copy, so this is the plain path and
     // not the relocating one; the installed copy removing itself is checked by hand.
@@ -618,6 +662,7 @@ fn the_command_line_installs_and_uninstalls_for_real() {
     assert!(!layout.programs.exists(), "{text}");
     assert!(!layout.start_menu.join(install::SHORTCUT_FILE).exists());
     assert_eq!(CurrentUser.get_string(&key, "DisplayName").unwrap(), None, "the entry is gone from the registry");
+    assert_eq!(CurrentUser.get_string(&run_key, ENTRY_NAME).unwrap(), None, "and the login entry that ran it");
 }
 
 /// Uninstalling where nothing is installed says so and fails, rather than reporting success.
@@ -710,13 +755,313 @@ fn a_running_binary_is_recognised_as_in_use() {
     assert!(!install::image_in_use(&dir.join("not-there.exe")), "a file that is not there is not in use");
 
     let mut child = std::process::Command::new(&exe)
-        .args(["--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray", "--no-update"])
+        .args(["--backend", "loopback", "--bind", "127.0.0.1:0", "--no-persist", "--no-web-ui", "--no-tray", "--no-update"])
+        .env(gazelle_audio_server::no_hardware::VAR, "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
     let running = install::image_in_use(&exe);
+    // Asked before it is stopped: a server that refused and exited at once would leave nothing
+    // running to recognise, and the test would be passing on the image's leftovers, not on this.
+    let exited = child.try_wait().unwrap();
     let _ = child.kill();
     let _ = child.wait();
     assert!(running, "a running image must be recognised, or an install would overwrite it");
+    assert_eq!(exited, None, "the server exited instead of running on the loopback backend");
+}
+
+// --- the aggregate driver a release carries -------------------------------------------------------
+
+#[test]
+fn install_writes_the_driver_the_binary_carries_into_the_install_folder() {
+    let mut w = World::new("driver-plant");
+    w.driver = Some(b"driver v1".to_vec());
+
+    let report = install::install(&w.context(&never), &w.portable("v1")).unwrap();
+
+    assert_eq!(report.driver, Some(Ok(Placed::Written)));
+    assert_eq!(std::fs::read(w.installed("gazelle_aggregate.dll")).unwrap(), b"driver v1");
+    assert!(!report.copied.contains(&w.installed("gazelle_aggregate.dll")), "the binaries are what is copied; the driver is written");
+}
+
+#[test]
+fn a_build_carrying_no_driver_writes_none() {
+    let w = World::new("driver-none");
+    let report = install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    assert_eq!(report.driver, None);
+    assert!(!w.installed("gazelle_aggregate.dll").exists());
+}
+
+#[test]
+fn an_upgrade_or_an_update_replaces_a_changed_driver_and_leaves_the_same_one_alone() {
+    let mut w = World::new("driver-upgrade");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+
+    w.driver = Some(b"driver v2".to_vec());
+    let report = install::install(&w.context(&never), &w.portable("v2")).unwrap();
+    assert_eq!(report.driver, Some(Ok(Placed::Replaced)));
+    assert_eq!(std::fs::read(w.installed("gazelle_aggregate.dll")).unwrap(), b"driver v2");
+
+    let report = install::install(&w.context(&never), &w.portable("v2")).unwrap();
+    assert_eq!(report.driver, Some(Ok(Placed::AlreadyThere)), "the same copy is not written again");
+
+    // An in-app update replaces only the executables; the updated Gazelle's first start is what
+    // brings its own driver, beside the installed executable, where the page looks first.
+    let status = bundled::at_start(&w.installed("gazelle-audio-serverw.exe"), Some(b"driver v3"));
+    assert_eq!(status, bundled::Status::InPlace { dll: w.installed("gazelle_aggregate.dll").display().to_string() });
+    assert_eq!(std::fs::read(w.installed("gazelle_aggregate.dll")).unwrap(), b"driver v3");
+}
+
+#[test]
+fn a_driver_that_cannot_be_written_does_not_fail_the_install() {
+    let mut w = World::new("driver-fails");
+    w.driver = Some(b"driver v1".to_vec());
+    // Something in the way of the download the driver is written through: a folder of that name.
+    std::fs::create_dir_all(w.installed("gazelle_aggregate.dll.download")).unwrap();
+
+    let report = install::install(&w.context(&never), &w.portable("v1")).unwrap();
+
+    let error = report.driver.clone().unwrap().unwrap_err();
+    assert!(error.contains("gazelle_aggregate.dll.download"), "{error}");
+    assert!(w.installed("gazelle-audio-server.exe").is_file() && w.installed("gazelle-audio-serverw.exe").is_file(), "the install itself is whole");
+    assert!(w.shortcut().exists());
+    assert!(!w.installed("gazelle_aggregate.dll").exists());
+
+    // And the next start, with the obstacle gone, puts it there.
+    std::fs::remove_dir(w.installed("gazelle_aggregate.dll.download")).unwrap();
+    let status = bundled::at_start(&w.installed("gazelle-audio-serverw.exe"), w.driver.as_deref());
+    assert!(matches!(status, bundled::Status::InPlace { .. }), "{status:?}");
+    assert_eq!(std::fs::read(w.installed("gazelle_aggregate.dll")).unwrap(), b"driver v1");
+}
+
+#[test]
+fn uninstall_removes_the_driver_and_older_copies_when_it_is_not_registered_from_there() {
+    let mut w = World::new("driver-remove");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    std::fs::write(w.installed("gazelle_aggregate.dll.1.old"), b"moved aside once").unwrap();
+    // Registered, but from a copy somebody built: not the uninstall's to touch.
+    w.register_driver(Path::new(r"C:\repo\target\release\gazelle_aggregate.dll"));
+
+    let removed = install::uninstall(&w.context(&never), &w.layout.programs, false).unwrap();
+
+    assert_eq!(removed.driver, DriverRemoval::Removed);
+    assert!(removed.files.contains(&w.installed("gazelle_aggregate.dll")));
+    assert!(removed.files.contains(&w.installed("gazelle_aggregate.dll.1.old")));
+    assert!(removed.dir_removed, "nothing of ours is left");
+}
+
+#[test]
+fn uninstall_keeps_the_driver_while_it_is_registered_from_the_install_folder() {
+    let mut w = World::new("driver-keep");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    w.register_driver(&dll);
+
+    let removed = install::uninstall(&w.context(&never), &w.layout.programs, false).unwrap();
+
+    assert_eq!(removed.driver, DriverRemoval::KeptRegistered { dll: dll.clone() });
+    assert!(dll.is_file(), "a registration must never be left pointing at nothing");
+    assert!(!w.installed("gazelle-audio-server.exe").exists(), "the rest of Gazelle goes");
+    assert!(!removed.dir_removed);
+    assert!(w.registry.is_empty());
+}
+
+// --- offering to unregister it --------------------------------------------------------------------
+
+/// An `ask` that fails the test if it is ever called.
+fn nobody_asks(question: &str) -> bool {
+    panic!("nothing should have been asked, and this was: {question}")
+}
+
+#[test]
+fn a_quiet_uninstall_never_prompts_and_says_how_to_remove_the_registration() {
+    let mut w = World::new("offer-quiet");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    w.register_driver(&dll);
+
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, true, &mut nobody_asks);
+
+    assert_eq!(answer, Unregistering::Left { dll: dll.clone() });
+    assert!(w.elevator.calls().is_empty(), "no administrator prompt for a quiet uninstall");
+    let report = answer.report().join(" ");
+    assert!(report.contains(&format!("regsvr32 /u \"{}\"", dll.display())), "{report}");
+    assert!(report.contains("administrator"), "{report}");
+    assert!(!answer.needs_telling(), "a quiet uninstall shows no dialog either");
+}
+
+#[test]
+fn uninstall_offers_to_unregister_only_a_driver_registered_from_the_install_folder() {
+    let mut w = World::new("offer-elsewhere");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+
+    // Not registered at all.
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut nobody_asks);
+    assert_eq!(answer, Unregistering::NothingToOffer);
+    assert!(answer.report().is_empty());
+
+    // Registered from somewhere else.
+    w.register_driver(Path::new(r"D:\builds\gazelle_aggregate.dll"));
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut nobody_asks);
+    assert_eq!(answer, Unregistering::NothingToOffer);
+    assert!(w.elevator.calls().is_empty());
+}
+
+#[test]
+fn saying_yes_runs_the_same_elevated_registrar_the_page_uses_and_the_file_then_goes() {
+    let mut w = World::new("offer-yes");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    w.register_driver(&dll);
+
+    let mut asked = Vec::new();
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut |question: &str| {
+        asked.push(question.to_string());
+        true
+    });
+
+    assert_eq!(answer, Unregistering::Unregistered { dll: dll.clone() });
+    assert_eq!(asked.len(), 1);
+    assert!(
+        asked[0].contains(AGGREGATE_NAME) && asked[0].contains(&dll.display().to_string()) && asked[0].contains("administrator"),
+        "{}",
+        asked[0]
+    );
+    assert_eq!(w.elevator.calls(), vec![("regsvr32.exe".to_string(), format!("/u /s \"{}\"", dll.display()))]);
+
+    // The registrar removed the registration, so the uninstall that follows removes the file.
+    w.asio.entries.clear();
+    let removed = install::uninstall(&w.context(&never), &w.layout.programs, false).unwrap();
+    assert_eq!(removed.driver, DriverRemoval::Removed);
+    assert!(removed.dir_removed);
+}
+
+#[test]
+fn saying_no_or_declining_the_prompt_leaves_it_registered_and_says_how_to_remove_it() {
+    let mut w = World::new("offer-no");
+    w.driver = Some(b"driver v1".to_vec());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    w.register_driver(&dll);
+
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut |_: &str| false);
+    assert_eq!(answer, Unregistering::Declined { dll: dll.clone() });
+    assert!(w.elevator.calls().is_empty(), "no means no prompt");
+    assert!(answer.needs_telling());
+    assert!(answer.report().join(" ").contains("regsvr32 /u"));
+
+    w.elevator = FakeElevator::declining();
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut |_: &str| true);
+    let Unregistering::DidNotWork { message, .. } = &answer else { panic!("{answer:?}") };
+    assert!(message.contains("declined"), "{message}");
+    assert!(answer.report().join(" ").contains("regsvr32 /u"));
+}
+
+#[test]
+fn a_registration_whose_file_is_gone_is_explained_rather_than_offered() {
+    let mut w = World::new("offer-gone");
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    w.register_driver(&dll);
+
+    let answer = install::offer_to_unregister(&w.context(&never), &w.layout.programs, false, &mut nobody_asks);
+
+    assert_eq!(answer, Unregistering::FileGone { dll });
+    assert!(w.elevator.calls().is_empty(), "the registrar needs the file, so it is not run without one");
+}
+
+#[test]
+fn every_word_about_the_driver_is_plain_with_no_dashes() {
+    let dll = Path::new(r"C:\Users\u\AppData\Local\Programs\Gazelle\gazelle_aggregate.dll");
+    let mut words = vec![install::unregister_question(dll)];
+    for answer in [
+        Unregistering::Left { dll: dll.into() },
+        Unregistering::Declined { dll: dll.into() },
+        Unregistering::Unregistered { dll: dll.into() },
+        Unregistering::DidNotWork {
+            dll: dll.into(),
+            message: "Windows asked for administrator rights and the prompt was declined, so nothing was changed.".into(),
+        },
+        Unregistering::FileGone { dll: dll.into() },
+    ] {
+        words.extend(answer.report());
+    }
+    for text in words {
+        // U+2013 and U+2014, by number, so this line does not hold what it forbids.
+        assert!(!text.chars().any(|c| (0x2013..=0x2014).contains(&(c as u32))), "{text}");
+        assert!(!text.contains("--"), "no command-line talk: {text}");
+    }
+}
+
+// --- a driver a DAW has open ---------------------------------------------------------------------
+
+/// A file mapped the way a DAW's loaded driver is: as an image, which Windows will not let
+/// anyone overwrite or delete, but will let be renamed. `LOAD_LIBRARY_AS_IMAGE_RESOURCE` maps it
+/// without running any of it. Released when dropped.
+#[cfg(windows)]
+struct Mapped(windows_sys::Win32::Foundation::HMODULE);
+
+#[cfg(windows)]
+impl Mapped {
+    fn new(path: &Path) -> Mapped {
+        use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_AS_IMAGE_RESOURCE};
+        let wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+        let module = unsafe { LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_AS_IMAGE_RESOURCE) };
+        assert!(!module.is_null(), "mapping {}: {}", path.display(), io::Error::last_os_error());
+        Mapped(module)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Mapped {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::Foundation::FreeLibrary(self.0) };
+    }
+}
+
+/// The real thing, not a fake: an installed driver held open as an image, an upgrade moving it
+/// aside and writing the new one in its place, the moved copy kept while it is held and cleared
+/// at the next start once it is not, and an uninstall meanwhile leaving it rather than failing.
+#[cfg(windows)]
+#[test]
+fn a_driver_in_use_is_moved_aside_replaced_and_cleared_away_later() {
+    let mut w = World::new("driver-in-use");
+    // A real image to hold open: any PE file maps as one, and this one is to hand.
+    let v1 = std::fs::read(env!("CARGO_BIN_EXE_gazelle-audio-server")).unwrap();
+    w.driver = Some(v1.clone());
+    install::install(&w.context(&never), &w.portable("v1")).unwrap();
+    let dll = w.installed("gazelle_aggregate.dll");
+    let held = Mapped::new(&dll);
+    assert!(std::fs::remove_file(&dll).is_err(), "Windows refuses to delete a mapped image, which is the point");
+
+    w.driver = Some(b"driver v2, different".to_vec());
+    let report = install::install(&w.context(&never), &w.portable("v2")).unwrap();
+
+    let Some(Ok(Placed::MovedAside { aside })) = report.driver.clone() else { panic!("{:?}", report.driver) };
+    assert_eq!(aside, w.installed("gazelle_aggregate.dll.1.old"));
+    assert_eq!(std::fs::read(&dll).unwrap(), b"driver v2, different", "the next DAW to open the driver gets the new one");
+    assert_eq!(std::fs::read(&aside).unwrap(), v1, "the DAW that has it open keeps running from the old one");
+
+    // A start while the DAW still has it: kept, and tried again.
+    let swept = bundled::sweep(&w.layout.programs);
+    assert_eq!(swept.kept, vec![aside.clone()]);
+    assert!(aside.exists());
+
+    // An uninstall now cannot delete it either, and must not fail over it.
+    let removed = install::uninstall(&w.context(&never), &w.layout.programs, false).unwrap();
+    assert_eq!(removed.left, vec![aside.clone()]);
+    assert!(!removed.dir_removed, "the folder stays while it holds the copy the DAW has open");
+
+    // Once the DAW lets go, the next sweep clears it away.
+    drop(held);
+    let swept = bundled::sweep(&w.layout.programs);
+    assert_eq!(swept.removed, vec![aside.clone()]);
+    assert!(!aside.exists());
 }

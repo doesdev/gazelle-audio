@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use gazelle_audio_protocol::payload::Value;
 
+use crate::aggregate::bundled;
 use crate::aggregate::config::{device_name, master_of};
 use crate::aggregate::elevate::{command_for, dll_candidates, DllSearch, Elevator};
 use crate::aggregate::readiness::{self, Reason};
@@ -38,11 +39,21 @@ pub struct AggregateService {
     pub export_path: PathBuf,
     /// Where the driver's DLL is looked for, in order.
     pub dll_candidates: Vec<PathBuf>,
+    /// What this start did with the driver the build carries, which is why a missing DLL is
+    /// missing.
+    pub bundled: bundled::Status,
 }
 
 impl AggregateService {
     /// The service for this PC: the real registry, device tree, link and prompt.
-    pub fn for_this_pc(devices: Arc<DeviceManager>, driver: Arc<DriverService>, export_path: PathBuf, exe_dir: Option<PathBuf>, appdata: Option<PathBuf>) -> Arc<Self> {
+    pub fn for_this_pc(
+        devices: Arc<DeviceManager>,
+        driver: Arc<DriverService>,
+        export_path: PathBuf,
+        exe_dir: Option<PathBuf>,
+        appdata: Option<PathBuf>,
+        bundled: bundled::Status,
+    ) -> Arc<Self> {
         Arc::new(AggregateService {
             devices,
             driver,
@@ -52,12 +63,13 @@ impl AggregateService {
             elevator: crate::aggregate::elevate::for_this_pc(),
             export_path,
             dll_candidates: dll_candidates(exe_dir.as_deref(), appdata.as_deref(), None),
+            bundled,
         })
     }
 
     /// Where the DLL is now, or every place that was looked in.
     pub fn find_dll(&self) -> DllSearch {
-        crate::aggregate::elevate::find_dll(&self.dll_candidates, &|path| path.is_file())
+        crate::aggregate::elevate::find_dll(&self.dll_candidates, &|path| path.is_file(), &self.bundled)
     }
 
     /// The whole answer. Blocking: it may load a driver's DLL and call into it.
@@ -115,7 +127,7 @@ impl AggregateService {
             }
             DllSearch::Missing { .. } => (None, None),
         };
-        let message = match (entry.is_some(), dll_present, &registered_dll) {
+        let mut message = match (entry.is_some(), dll_present, &registered_dll) {
             (false, _, _) => format!("{AGGREGATE_NAME} is not registered on this PC. A DAW will not list it until it is."),
             (true, true, Some(dll)) => format!("{AGGREGATE_NAME} is registered, pointing at {dll}."),
             (true, false, Some(dll)) => {
@@ -123,6 +135,10 @@ impl AggregateService {
             }
             (true, _, None) => format!("{AGGREGATE_NAME} is registered, and its registration names no DLL."),
         };
+        // An older copy may still be there to register, so the search alone would not say this.
+        if let bundled::Status::Failed { .. } = &self.bundled {
+            message = format!("{message} {}", self.bundled.message());
+        }
         Registration {
             registered: entry.is_some(),
             clsid: AGGREGATE_CLSID.to_string(),
@@ -133,6 +149,7 @@ impl AggregateService {
             register_command: commands.0,
             unregister_command: commands.1,
             dll_search: search,
+            bundled: self.bundled.clone(),
         }
     }
 

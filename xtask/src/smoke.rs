@@ -7,7 +7,9 @@
 //!   `"can_verify": true` (so a release signing key is baked in) and the target the assets are
 //!   named for;
 //! - `GET /` is the web app, not the "Web UI not built" notice a build before `pnpm build` embeds;
-//! - with `--pubkey`, the binary carries **that** key, not merely some key.
+//! - with `--pubkey`, the binary carries **that** key, not merely some key;
+//! - on Windows, the binary carries the aggregate driver cargo built beside it, byte for byte, so
+//!   a release can never ship a Gazelle whose Aggregate page has no driver to offer.
 //!
 //! Each server runs on the loopback backend with `GAZELLE_NO_HARDWARE=1`, `--no-tray` and
 //! `--no-persist`, on a spare port on 127.0.0.1, with its config directory pointed at a scratch
@@ -27,6 +29,9 @@ use gazelle_audio_server::update::BINARIES;
 
 const START_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The aggregate driver, as cargo builds it into the same directory as the binaries.
+pub const DRIVER: &str = "gazelle_aggregate.dll";
+
 /// The notice page `build.rs` embeds when the web UI was not built first.
 const NOT_BUILT: &str = "Web UI not built";
 
@@ -35,13 +40,14 @@ pub fn smoke(bin_dir: &Path, version: &str, pubkey: Option<&str>, target: &str) 
         Some(key) if from_hex(&key).is_none() => return Err(format!("--pubkey {key:?} is not 64 hex digits")),
         other => other,
     };
+    let carries_driver = target.contains("windows");
     for stem in BINARIES {
         let exe = bin_dir.join(crate::dist::built_name(stem, target));
         if !exe.is_file() {
             return Err(format!("{} is missing; build the release first", exe.display()));
         }
+        let bytes = std::fs::read(&exe).map_err(|e| format!("reading {}: {e}", exe.display()))?;
         if let Some(key) = &pubkey {
-            let bytes = std::fs::read(&exe).map_err(|e| format!("reading {}: {e}", exe.display()))?;
             if !carries(&bytes, key) {
                 return Err(format!(
                     "{} does not carry the public key {key}; build it with GAZELLE_UPDATE_PUBKEY set to that",
@@ -49,15 +55,19 @@ pub fn smoke(bin_dir: &Path, version: &str, pubkey: Option<&str>, target: &str) 
                 ));
             }
         }
+        if carries_driver {
+            check_driver(&exe, &bytes, &bin_dir.join(DRIVER))?;
+        }
         let answers = run_one(&exe)?;
         let problems = check(&answers, version, target);
         if !problems.is_empty() {
             return Err(format!("{}:\n  {}", exe.display(), problems.join("\n  ")));
         }
         println!(
-            "{}: version {version}, target {target}, can_verify{}, web UI served",
+            "{}: version {version}, target {target}, can_verify{}{}, web UI served",
             exe.display(),
-            if pubkey.is_some() { ", carries the expected key" } else { "" }
+            if pubkey.is_some() { ", carries the expected key" } else { "" },
+            if carries_driver { ", carries the aggregate driver" } else { "" }
         );
     }
     Ok(())
@@ -68,6 +78,28 @@ pub fn smoke(bin_dir: &Path, version: &str, pubkey: Option<&str>, target: &str) 
 fn carries(bytes: &[u8], key: &str) -> bool {
     let needle = key.as_bytes();
     bytes.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+}
+
+/// Refuse `exe` unless it holds the driver at `driver` byte for byte: a build that was never
+/// told to carry it, or one that carries a stale copy from an earlier build of the driver.
+fn check_driver(exe: &Path, exe_bytes: &[u8], driver: &Path) -> Result<(), String> {
+    let wanted = std::fs::read(driver).map_err(|e| {
+        format!("{} could not be read ({e}); build the driver first: cargo build --release -p gazelle-audio-aggregate", driver.display())
+    })?;
+    if !holds(exe_bytes, &wanted) {
+        return Err(format!(
+            "{} does not carry the aggregate driver {}; build it with GAZELLE_AGGREGATE_DLL set to that file",
+            exe.display(),
+            driver.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `needle` appears in `haystack` exactly. `include_bytes!` puts the driver in the
+/// binary as it is, in one piece.
+fn holds(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 /// A response: status and body.
@@ -301,6 +333,34 @@ mod tests {
     fn a_pubkey_that_is_not_a_key_is_refused_before_anything_starts() {
         let error = smoke(Path::new("nowhere"), "0.1.0", Some("abc"), TARGET).unwrap_err();
         assert!(error.contains("not 64 hex digits"), "{error}");
+    }
+
+    #[test]
+    fn the_driver_must_be_in_the_binary_whole() {
+        let driver = b"MZ the aggregate driver".to_vec();
+        let binary = [b"\0\0junk".as_slice(), &driver, b"more"].concat();
+        assert!(holds(&binary, &driver));
+        assert!(!holds(&binary, b"MZ a different driver"), "a stale copy is not the one built");
+        assert!(!holds(&binary[..10], &driver));
+        assert!(!holds(&binary, b""), "an empty driver is no driver");
+    }
+
+    /// A build that was not told to carry the driver, and one whose driver was never built, are
+    /// both refused before anything is started.
+    #[test]
+    fn a_windows_release_without_the_driver_is_refused() {
+        let dir = std::env::temp_dir().join(format!("gazelle-xtask-smoke-driver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for stem in BINARIES {
+            std::fs::write(dir.join(format!("{stem}.exe")), b"a build that carries nothing").unwrap();
+        }
+        let not_built = smoke(&dir, "0.1.0", None, TARGET).unwrap_err();
+        std::fs::write(dir.join(DRIVER), b"MZ the aggregate driver").unwrap();
+        let not_carried = smoke(&dir, "0.1.0", None, TARGET).unwrap_err();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(not_built.contains("cargo build --release -p gazelle-audio-aggregate"), "{not_built}");
+        assert!(not_carried.contains("does not carry the aggregate driver") && not_carried.contains("GAZELLE_AGGREGATE_DLL"), "{not_carried}");
     }
 
     #[test]

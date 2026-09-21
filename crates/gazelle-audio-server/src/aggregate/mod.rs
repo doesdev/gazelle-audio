@@ -10,9 +10,11 @@
 //!
 //! Everything a PC does sits behind a trait: the driver registry (`registry`), the device tree
 //! that says which USB host controller an interface is on (`usb`), the driver's own record
-//! (`status`) and the elevated helper that registers the DLL (`elevate`). No test reads a real
+//! (`status`) and the elevated helper that registers the DLL (`elevate`). The DLL itself comes
+//! with a release, inside the executable, and is written out beside it (`bundled`). No test reads a real
 //! registry, maps a section or elevates anything.
 
+pub mod bundled;
 pub mod calibrate;
 pub mod config;
 pub mod elevate;
@@ -175,6 +177,8 @@ pub struct Registration {
     pub unregister_command: Option<String>,
     /// Where the DLL was looked for, and whether one was found.
     pub dll_search: elevate::DllSearch,
+    /// Whether this build carries the driver, and whether it could put its copy beside Gazelle.
+    pub bundled: bundled::Status,
 }
 
 /// The whole answer `GET /api/v1/aggregate` gives.

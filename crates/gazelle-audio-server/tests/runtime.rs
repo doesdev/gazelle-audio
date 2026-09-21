@@ -5,6 +5,10 @@
 //! refuses to start the program at all ("VCRUNTIME140.dll was not found"). `.cargo/config.toml`
 //! builds it in (`+crt-static`); this reads each **built** executable's import table and fails if
 //! either still asks Windows for a runtime DLL.
+//!
+//! The aggregate driver is held to the same rule, since a DAW loading it on such a PC would fail
+//! the same way: the copy cargo builds beside the server whenever the workspace is built, and the
+//! copy a release build carries inside the server, which is the one that ships.
 
 #[cfg(windows)]
 fn u16_at(b: &[u8], at: usize) -> usize {
@@ -16,7 +20,7 @@ fn u32_at(b: &[u8], at: usize) -> usize {
     u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) as usize
 }
 
-/// The DLL names in a PE32+ executable's import directory, lower-cased.
+/// The DLL names in a PE32+ executable's or DLL's import directory, lower-cased.
 #[cfg(windows)]
 fn imported_dlls(b: &[u8]) -> Vec<String> {
     let pe = u32_at(b, 0x3c);
@@ -49,13 +53,40 @@ fn imported_dlls(b: &[u8]) -> Vec<String> {
     names
 }
 
+/// Fail if the PE file `bytes`, called `what`, asks Windows for a C runtime DLL.
+#[cfg(windows)]
+fn assert_no_runtime_dll(what: &str, bytes: &[u8]) {
+    let dlls = imported_dlls(bytes);
+    assert!(dlls.iter().any(|d| d == "kernel32.dll"), "the import table was read: {dlls:?}");
+    let runtime: Vec<_> = dlls.iter().filter(|d| d.starts_with("vcruntime") || d.starts_with("msvcp") || d.starts_with("api-ms-win-crt")).collect();
+    assert!(runtime.is_empty(), "{what} still needs {runtime:?} at run time; see .cargo/config.toml");
+}
+
 #[cfg(windows)]
 #[test]
 fn neither_program_needs_the_visual_c_runtime_installed() {
     for binary in [env!("CARGO_BIN_EXE_gazelle-audio-server"), env!("CARGO_BIN_EXE_gazelle-audio-serverw")] {
-        let dlls = imported_dlls(&std::fs::read(binary).unwrap());
-        assert!(dlls.iter().any(|d| d == "kernel32.dll"), "the import table was read: {dlls:?}");
-        let runtime: Vec<_> = dlls.iter().filter(|d| d.starts_with("vcruntime") || d.starts_with("msvcp") || d.starts_with("api-ms-win-crt")).collect();
-        assert!(runtime.is_empty(), "{binary} still needs {runtime:?} at run time; see .cargo/config.toml");
+        assert_no_runtime_dll(binary, &std::fs::read(binary).unwrap());
+    }
+}
+
+/// The driver cargo built beside the server, when it did (`cargo test --workspace` builds it; a
+/// test of this package alone may not), and the driver this build carries, when it carries one.
+/// The release runs this test on the build it ships, which always carries one.
+#[cfg(windows)]
+#[test]
+fn nor_does_the_aggregate_driver() {
+    let beside = std::path::Path::new(env!("CARGO_BIN_EXE_gazelle-audio-server")).with_file_name("gazelle_aggregate.dll");
+    let mut checked = 0;
+    if beside.is_file() {
+        assert_no_runtime_dll(&beside.display().to_string(), &std::fs::read(&beside).unwrap());
+        checked += 1;
+    }
+    if let Some(carried) = gazelle_audio_server::aggregate::bundled::carried() {
+        assert_no_runtime_dll("the aggregate driver this build carries", carried);
+        checked += 1;
+    }
+    if checked == 0 {
+        eprintln!("no aggregate driver to check: none beside {} and none carried", beside.display());
     }
 }

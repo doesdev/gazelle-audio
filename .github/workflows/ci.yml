@@ -48,6 +48,10 @@ jobs:
           rustup default stable
           rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # `cargo test` builds the driver only as a library for its own tests; this puts the DLL
+      # itself beside the server, where tests/runtime.rs reads its import table.
+      - name: The aggregate driver
+        run: cargo build --locked -p gazelle-audio-aggregate
       - name: cargo test
         run: cargo test --workspace --locked
       - name: cargo clippy

@@ -115,6 +115,12 @@ jobs:
         working-directory: web
         run: pnpm build
 
+      # 2b. The aggregate driver, which the release build carries inside both binaries and
+      #     writes out beside itself. Built first, with the same static C runtime as every other
+      #     shipped binary (.cargo/config.toml), and checked for it below.
+      - name: Build the aggregate driver
+        run: cargo build --release --locked -p gazelle-audio-aggregate
+
       # 3. The suites, all of them, green.
       - name: cargo test
         run: cargo test --workspace --locked
@@ -135,14 +141,26 @@ jobs:
         working-directory: web
         run: pnpm docs:check
 
-      # 4. The shipped build: release, with the window, with the public key.
+      # 4. The shipped build: release, with the window, with the public key, carrying the
+      #    driver. A path that is not there, or not a DLL for this machine, fails the build.
       - name: Release build
         env:
           GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+          GAZELLE_AGGREGATE_DLL: target/release/gazelle_aggregate.dll
         run: cargo build --release --locked -p gazelle-audio-server --features window
 
+      # The import tables of what ships: both binaries, the driver beside them and the copy they
+      # carry, none of which may need the Visual C++ runtime installed. The same features and
+      # variables as the release build, so this checks those very files rather than rebuilding.
+      - name: No C runtime DLL in what ships
+        env:
+          GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}
+          GAZELLE_AGGREGATE_DLL: target/release/gazelle_aggregate.dll
+        run: cargo test --release --locked -p gazelle-audio-server --features window --test runtime -- --nocapture
+
       # Both binaries, started on the loopback backend on a spare port: the version, a key that
-      # is the expected one, can_verify, the target the assets are named for, the web app at /.
+      # is the expected one, can_verify, the target the assets are named for, the web app at /,
+      # and the aggregate driver carried byte for byte.
       - name: Smoke test the built binaries
         env:
           GAZELLE_UPDATE_PUBKEY: ${{ vars.GAZELLE_UPDATE_PUBKEY }}

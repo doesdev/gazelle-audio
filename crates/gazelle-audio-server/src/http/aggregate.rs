@@ -366,6 +366,7 @@ mod tests {
             elevator: elevator.clone(),
             export_path: PathBuf::from(r"C:\appdata\gazelle\aggregate.json"),
             dll_candidates: vec![PathBuf::from(r"C:\nowhere\gazelle_aggregate.dll")],
+            bundled: crate::aggregate::bundled::Status::NotCarried,
         });
         let store = Arc::new(MemoryStore::default());
         Harness { app: routes(service, store.clone(), false), store, elevator, link, quadro, studio }
@@ -666,6 +667,7 @@ mod tests {
             elevator: Arc::new(FakeElevator::default()),
             export_path: PathBuf::from("aggregate.json"),
             dll_candidates: Vec::new(),
+            bundled: crate::aggregate::bundled::Status::NotCarried,
         });
         let store = Arc::new(MemoryStore::default());
         store.save(&workspace_with(pair())).unwrap();
@@ -801,6 +803,7 @@ mod tests {
             elevator: h.elevator.clone(),
             export_path: PathBuf::from("aggregate.json"),
             dll_candidates: vec![dll.clone()],
+            bundled: crate::aggregate::bundled::Status::NotCarried,
         });
         h.app = routes(service, h.store.clone(), false);
 

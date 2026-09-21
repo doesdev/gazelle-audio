@@ -60,7 +60,8 @@ gazelle release helper
                                      missing or empty
     xtask smoke [--bin-dir <dir>] [--version <v>] [--pubkey <hex>] [--target <triple>]
                                      start both built binaries on the loopback backend and check
-                                     what they answer: version, can_verify, the web UI
+                                     what they answer: version, can_verify, the web UI; on
+                                     Windows, that both carry the aggregate driver beside them
     xtask dist --out <dir> [--bin-dir <dir>] [--docs <dir>] [--target <triple>]
                                      collect the release directory under the names the updater
                                      asks for, with the setup file, the zip and the PDFs

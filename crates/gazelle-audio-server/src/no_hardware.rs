@@ -29,7 +29,8 @@ pub fn refusal(backend: &str, value: Option<&str>) -> Option<String> {
         format!(
             "{VAR} is set, so this server will not open real devices, but --backend is usb, \
              which is now the default. Pass --backend loopback to run against the \
-             emulator, or unset {VAR} to drive the hardware deliberately."
+             emulator, or set {VAR}=0 to drive the hardware deliberately: cargo sets it \
+             to 1 for everything it starts in this repository, so unsetting it is not enough."
         )
     })
 }

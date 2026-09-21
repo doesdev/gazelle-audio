@@ -19,6 +19,14 @@
 //! The release's `Gazelle-Setup.exe` is the same install without a terminal: the windowless
 //! build, which on a double-click asks in a small dialog and calls [`install_windowless`]
 //! (`setup`).
+//!
+//! **The aggregate driver** a release carries inside the executable is written into the install
+//! folder too (`aggregate::bundled`), and a failure to write it never fails the install: every
+//! start tries again. Registering it is the Aggregate page's, with Windows' administrator prompt.
+//! An uninstall that finds the driver registered from the install folder says so and offers that
+//! same prompt to remove the registration ([`offer_to_unregister`]); a quiet one never prompts.
+//! While the driver is still registered its file is kept, so the registration never points at
+//! nothing and the command that removes it still works.
 
 #[cfg(windows)]
 mod dialog;
@@ -30,6 +38,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::aggregate::bundled;
+use crate::aggregate::elevate::{arguments_for, command_for, Elevator, REGISTRAR};
+use crate::aggregate::registry::{same_clsid, AsioRegistry, AGGREGATE_CLSID, AGGREGATE_NAME};
 use crate::tray::boot::{self, RunKey, ENTRY_NAME};
 use crate::update;
 
@@ -47,6 +58,11 @@ pub const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Unin
 /// registry code, without going anywhere near the list of the user's installed programs. Unset,
 /// which it is for anybody not running the tests, the entry is [`UNINSTALL_KEY`].
 pub const UNINSTALL_KEY_VAR: &str = "GAZELLE_UNINSTALL_KEY";
+/// Points the login entry an install re-points and an uninstall removes somewhere else under
+/// `HKCU`, for the same reason as [`UNINSTALL_KEY_VAR`]: a test driving the real `--install` and
+/// `--uninstall` must never re-point, and then remove, the person's own Start on boot entry. Unset,
+/// it is the real login entry, which the tray's Start on boot writes.
+pub const RUN_KEY_VAR: &str = "GAZELLE_RUN_KEY";
 /// The Start Menu file name.
 pub const SHORTCUT_FILE: &str = "Gazelle.lnk";
 /// The console build: the one Add/Remove Programs uninstalls with, when it is installed.
@@ -123,6 +139,15 @@ pub struct Context<'a> {
     /// image. [`image_in_use`] is the real one.
     pub in_use: &'a dyn Fn(&Path) -> bool,
     pub waiting: Waiting,
+    /// The aggregate driver to write into the install folder: the one the running binary
+    /// carries ([`bundled::carried`]), or `None` for a build that carries none.
+    pub driver: Option<&'a [u8]>,
+    /// Where audio drivers are registered, read to see whether the aggregate driver is
+    /// registered from the install folder. Never written.
+    pub asio: &'a dyn AsioRegistry,
+    /// Windows' administrator prompt, the one the Aggregate page registers the driver with,
+    /// for an uninstall that offers to remove the registration.
+    pub elevator: &'a dyn Elevator,
 }
 
 impl Context<'_> {
@@ -156,6 +181,9 @@ pub struct Installed {
     /// The login entry as it now reads, when there was one and it had to be re-pointed.
     pub boot: Option<String>,
     pub size_kb: u32,
+    /// What writing the aggregate driver did, or why it could not; `None` when this build
+    /// carries no driver. An error here is not a failed install.
+    pub driver: Option<Result<bundled::Placed, String>>,
 }
 
 /// What an uninstall removed, and what it left.
@@ -170,6 +198,25 @@ pub struct Removed {
     pub purged: Vec<PathBuf>,
     /// Data directories deliberately left behind.
     pub kept: Vec<PathBuf>,
+    /// What happened to the aggregate driver's file.
+    pub driver: DriverRemoval,
+    /// Older copies of the driver that could not be deleted, because a DAW still has one open.
+    pub left: Vec<PathBuf>,
+}
+
+/// What an uninstall did with the aggregate driver's file in the install folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DriverRemoval {
+    /// There was none.
+    NotThere,
+    Removed,
+    /// Kept, because the driver is still registered from it: deleting it would leave DAWs a
+    /// driver they list and cannot open, and the command that removes the registration needs it.
+    KeptRegistered { dll: PathBuf },
+    /// Kept, because whether it is registered could not be read.
+    KeptUnknown { dll: PathBuf, why: String },
+    /// It could not be deleted, most likely because a DAW has it open.
+    InUse { dll: PathBuf, error: String },
 }
 
 /// Copy this binary into place, write the shortcut and register the Add/Remove Programs entry.
@@ -254,13 +301,23 @@ fn plant(ctx: &Context, source: &Path, sources: Vec<(PathBuf, std::ffi::OsString
     // we have just rewritten; the updater's own sweep is the same call.
     let swept = update::clean_up_after(&console);
 
+    // After the binaries, and never a reason to fail: the install is whole without it, the next
+    // start writes it again, and a DAW holding the old copy cannot be allowed to block an upgrade.
+    let driver = ctx.driver.map(|carried| {
+        bundled::sweep(dir);
+        bundled::put_in_place(dir, carried)
+    });
+    if matches!(driver, Some(Ok(_))) {
+        bytes += ctx.driver.map_or(0, |carried| carried.len() as u64);
+    }
+
     let launch = boot::boot_program(&console, |p| p.is_file());
     let size_kb = (bytes / 1024).max(1) as u32;
     let shortcut = write_shortcut(ctx, &launch, dir)?;
     write_uninstall_entry(ctx, dir, &console, &launch, size_kb)?;
     let boot = repoint_boot(ctx.run_key, &launch).map_err(|e| format!("re-pointing Start on boot: {e}"))?;
 
-    Ok(Installed { dir: dir.clone(), copied, launch, shortcut, upgraded, swept, boot, size_kb })
+    Ok(Installed { dir: dir.clone(), copied, launch, shortcut, upgraded, swept, boot, size_kb, driver })
 }
 
 fn write_shortcut(ctx: &Context, launch: &Path, dir: &Path) -> Result<PathBuf, String> {
@@ -374,6 +431,7 @@ pub fn uninstall(ctx: &Context, dir: &Path, purge: bool) -> Result<Removed, Stri
     }
     // `remove_dir`, never `remove_dir_all`: a folder still holding something the person put
     // there stays, with what they put there still in it.
+    let (driver, left) = remove_driver(ctx, dir, &mut files);
     let dir_removed = std::fs::remove_dir(dir).is_ok();
 
     let data: Vec<PathBuf> = [ctx.layout.config.clone(), ctx.layout.logs.clone()].into_iter().flatten().collect();
@@ -390,7 +448,144 @@ pub fn uninstall(ctx: &Context, dir: &Path, purge: bool) -> Result<Removed, Stri
         }
     }
 
-    Ok(Removed { dir: dir.to_path_buf(), files, shortcut, boot, dir_removed, purged, kept })
+    Ok(Removed { dir: dir.to_path_buf(), files, shortcut, boot, dir_removed, purged, kept, driver, left })
+}
+
+/// Remove the aggregate driver from `dir`, unless it is still registered from there, and every
+/// older copy that nothing holds. Nothing here fails the uninstall: a file a DAW has open is
+/// left and named, since the rest of Gazelle is gone either way.
+fn remove_driver(ctx: &Context, dir: &Path, files: &mut Vec<PathBuf>) -> (DriverRemoval, Vec<PathBuf>) {
+    let swept = bundled::sweep(dir);
+    files.extend(swept.removed);
+    let dll = bundled::path_in(dir);
+    if !dll.exists() {
+        return (DriverRemoval::NotThere, swept.kept);
+    }
+    let removal = match driver_registered_in(ctx.asio, dir) {
+        Ok(Some(_)) => DriverRemoval::KeptRegistered { dll },
+        Err(why) => DriverRemoval::KeptUnknown { dll, why },
+        Ok(None) => match std::fs::remove_file(&dll) {
+            Ok(()) => {
+                files.push(dll);
+                DriverRemoval::Removed
+            }
+            Err(e) => DriverRemoval::InUse { dll, error: e.to_string() },
+        },
+    };
+    (removal, swept.kept)
+}
+
+// --- the aggregate driver's registration ---------------------------------------------------------
+
+/// The DLL the aggregate driver's registration names, when that is inside `dir`. `None` when it
+/// is not registered, or is registered from somewhere else: a copy somebody built or put there
+/// themselves is not the uninstall's to touch.
+pub fn driver_registered_in(asio: &dyn AsioRegistry, dir: &Path) -> Result<Option<PathBuf>, String> {
+    let entries = asio.entries()?;
+    Ok(entries
+        .into_iter()
+        .find(|entry| same_clsid(&entry.clsid, AGGREGATE_CLSID))
+        .and_then(|entry| entry.dll.ok())
+        .map(PathBuf::from)
+        .filter(|dll| is_inside(dll, dir)))
+}
+
+/// What an uninstall did about the aggregate driver's registration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unregistering {
+    /// It is not registered from the install folder, so there was nothing to offer.
+    NothingToOffer,
+    /// A quiet uninstall: it was left registered, and nobody was asked.
+    Left { dll: PathBuf },
+    /// The person chose to keep it registered.
+    Declined { dll: PathBuf },
+    /// The elevated registrar removed the registration.
+    Unregistered { dll: PathBuf },
+    /// The person said yes and it did not happen: the prompt was declined, or the registrar
+    /// reported a failure. `message` says which.
+    DidNotWork { dll: PathBuf, message: String },
+    /// It is registered from the install folder and the file is not there, so the registrar could
+    /// not unregister it and nothing was offered.
+    FileGone { dll: PathBuf },
+}
+
+/// The question an uninstall asks when the aggregate driver is registered from its folder.
+pub fn unregister_question(dll: &Path) -> String {
+    format!(
+        "{AGGREGATE_NAME}, the audio driver your DAWs open, is registered from Gazelle's folder ({}). \
+         Remove its registration too? Windows will ask for administrator rights. If you keep it, DAWs can still \
+         open the driver, and its file stays in that folder.",
+        dll.display()
+    )
+}
+
+/// How to remove the registration later, by hand, from an administrator terminal.
+fn how_to_unregister(dll: &Path) -> String {
+    let dir = dll.parent().map(|d| d.display().to_string()).unwrap_or_default();
+    format!("To remove it later, open a terminal as administrator and run {}, then delete {dir}.", command_for(dll, true))
+}
+
+impl Unregistering {
+    /// What to tell the person, a sentence or two a line. Empty when there is nothing to say.
+    pub fn report(&self) -> Vec<String> {
+        match self {
+            Unregistering::NothingToOffer => Vec::new(),
+            Unregistering::Left { dll } => vec![
+                format!("{AGGREGATE_NAME} is still registered, from {}, so that file was kept.", dll.display()),
+                how_to_unregister(dll),
+            ],
+            Unregistering::Declined { dll } => vec![
+                format!("{AGGREGATE_NAME} is still registered, as you chose, from {}, so that file was kept.", dll.display()),
+                how_to_unregister(dll),
+            ],
+            Unregistering::Unregistered { .. } => vec![format!("Removed the registration of {AGGREGATE_NAME}.")],
+            Unregistering::DidNotWork { dll, message } => vec![
+                format!("{AGGREGATE_NAME} is still registered: {message} Its file, {}, was kept.", dll.display()),
+                how_to_unregister(dll),
+            ],
+            Unregistering::FileGone { dll } => vec![format!(
+                "{AGGREGATE_NAME} is still registered, pointing at {}, which is not there any more, so a DAW that lists it \
+                 cannot open it. To remove the registration, put a copy of the driver back at that path and run {} in a \
+                 terminal opened as administrator.",
+                dll.display(),
+                command_for(dll, true)
+            )],
+        }
+    }
+
+    /// Whether the person should be told about this even without a terminal: it left something
+    /// behind that only they can remove.
+    pub fn needs_telling(&self) -> bool {
+        matches!(self, Unregistering::Declined { .. } | Unregistering::DidNotWork { .. } | Unregistering::FileGone { .. })
+    }
+}
+
+/// When the aggregate driver is registered from `dir`, offer to remove the registration with
+/// Windows' administrator prompt, before anything is deleted: the registrar needs the file.
+///
+/// `quiet` (`--yes`) never asks and never prompts: the registration is left, and the answer says
+/// how to remove it. `ask` puts the question to the person and says whether they agreed. Only a
+/// yes reaches the elevator.
+pub fn offer_to_unregister(ctx: &Context, dir: &Path, quiet: bool, ask: &mut dyn FnMut(&str) -> bool) -> Unregistering {
+    let dll = match driver_registered_in(ctx.asio, dir) {
+        Ok(Some(dll)) => dll,
+        // Unreadable is not a reason to prompt; the uninstall keeps the file and says so.
+        Ok(None) | Err(_) => return Unregistering::NothingToOffer,
+    };
+    if !ctx.asio.dll_present(&dll.display().to_string()) {
+        return Unregistering::FileGone { dll };
+    }
+    if quiet {
+        return Unregistering::Left { dll };
+    }
+    if !ask(&unregister_question(&dll)) {
+        return Unregistering::Declined { dll };
+    }
+    match ctx.elevator.run(REGISTRAR, &arguments_for(&dll, true)) {
+        Ok(run) if run.started && run.exit_code == Some(0) => Unregistering::Unregistered { dll },
+        Ok(run) => Unregistering::DidNotWork { dll, message: run.message },
+        Err(message) => Unregistering::DidNotWork { dll, message: format!("{message}.") },
+    }
 }
 
 /// Where an install is, according to the Add/Remove Programs entry it wrote, falling back to
@@ -458,16 +653,54 @@ pub struct Options {
 pub fn run(options: &Options) -> Result<(), String> {
     let layout = Layout::from_env(|k| std::env::var(k).ok())?;
     let registry = real_registry()?;
-    let run_key = crate::tray::user_run_key();
+    let run_key = run_key_for(std::env::var(RUN_KEY_VAR).ok().filter(|k| !k.is_empty()));
     let in_use: &dyn Fn(&Path) -> bool = &image_in_use;
     let waiting = if options.target.is_some() { Waiting::for_the_parent_to_exit() } else { Waiting::none() };
-    let ctx = Context { layout: &layout, registry: registry.as_ref(), run_key: run_key.as_ref(), in_use, waiting };
+    let asio = crate::aggregate::registry::for_this_pc();
+    let elevator = crate::aggregate::elevate::for_this_pc();
+    let ctx = Context {
+        layout: &layout,
+        registry: registry.as_ref(),
+        run_key: run_key.as_ref(),
+        in_use,
+        waiting,
+        driver: bundled::carried(),
+        asio: asio.as_ref(),
+        elevator: elevator.as_ref(),
+    };
 
     if options.install {
         let source = std::env::current_exe().map_err(|e| format!("finding this binary: {e}"))?;
         return do_install(&ctx, &source, options);
     }
     do_uninstall(&ctx, options)
+}
+
+/// The login entry, or a stand-in for it under another `HKCU` key when [`RUN_KEY_VAR`] names one.
+fn run_key_for(scratch: Option<String>) -> Box<dyn RunKey> {
+    match scratch {
+        #[cfg(windows)]
+        Some(key) => Box::new(ScratchRunKey(key)),
+        _ => crate::tray::user_run_key(),
+    }
+}
+
+/// A login entry kept as a value under a key of its own, for a test. Removing the entry removes
+/// that key, which holds nothing else.
+#[cfg(windows)]
+struct ScratchRunKey(String);
+
+#[cfg(windows)]
+impl RunKey for ScratchRunKey {
+    fn read(&self, name: &str) -> io::Result<Option<String>> {
+        registry::Registry::get_string(&registry::CurrentUser, &self.0, name)
+    }
+    fn write(&self, name: &str, command: &str) -> io::Result<()> {
+        registry::Registry::set_string(&registry::CurrentUser, &self.0, name, command)
+    }
+    fn remove(&self, _name: &str) -> io::Result<()> {
+        registry::Registry::delete_tree(&registry::CurrentUser, &self.0)
+    }
 }
 
 #[cfg(windows)]
@@ -494,6 +727,17 @@ fn do_install(ctx: &Context, source: &Path, options: &Options) -> Result<(), Str
     match &done.boot {
         Some(command) => println!("  Start on boot now runs {command}"),
         None => println!("  Start on boot: unchanged"),
+    }
+    let dll = bundled::path_in(&done.dir);
+    match &done.driver {
+        None => {}
+        Some(Ok(bundled::Placed::MovedAside { aside })) => println!(
+            "  {} (the old copy is in use, so it was moved to {} and is removed at a later start)",
+            dll.display(),
+            aside.display()
+        ),
+        Some(Ok(_)) => println!("  {}", dll.display()),
+        Some(Err(why)) => println!("  The aggregate driver was not put in place: {why}. Gazelle tries again each time it starts."),
     }
     println!("To remove it: \"{}\" --uninstall", done.dir.join(console_name()).display());
 
@@ -526,6 +770,20 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
         }
     };
 
+    // Asked here too, before the copy below, which has nobody to ask: the registrar needs the
+    // driver's file, and the relocated copy deletes it only once it is no longer registered.
+    if options.target.is_none() {
+        let terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
+        let unregistering = offer_to_unregister(ctx, &dir, options.yes, &mut |question| ask_to_unregister(question, terminal));
+        let report = unregistering.report();
+        for line in &report {
+            println!("{line}");
+        }
+        if !terminal && !options.yes && unregistering.needs_telling() {
+            tell_without_a_terminal(&report.join("\n\n"));
+        }
+    }
+
     // A binary cannot delete itself. When this one is inside the folder being removed it copies
     // itself out, hands the whole job to the copy and exits so its image is released.
     if options.target.is_none() {
@@ -553,8 +811,27 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
     if removed.boot {
         println!("  the Start on boot login entry");
     }
+    match &removed.driver {
+        DriverRemoval::NotThere | DriverRemoval::Removed => {}
+        DriverRemoval::KeptRegistered { dll } => println!("Kept {}: {AGGREGATE_NAME} is still registered from it.", dll.display()),
+        DriverRemoval::KeptUnknown { dll, why } => {
+            println!("Kept {}: whether {AGGREGATE_NAME} is registered from it could not be read ({why}).", dll.display())
+        }
+        DriverRemoval::InUse { dll, error } => println!(
+            "Kept {}: it could not be deleted ({error}), most likely because a DAW has it open. Delete it once the DAW is closed.",
+            dll.display()
+        ),
+    }
+    for path in &removed.left {
+        println!("Kept {}: an older copy of the driver that a DAW still has open. Delete it once the DAW is closed.", path.display());
+    }
+    let driver_stays = !matches!(removed.driver, DriverRemoval::NotThere | DriverRemoval::Removed) || !removed.left.is_empty();
     if !removed.dir_removed {
-        println!("  {} was left: it still holds files this did not put there", removed.dir.display());
+        if driver_stays {
+            println!("  {} was left, with the driver in it", removed.dir.display());
+        } else {
+            println!("  {} was left: it still holds files this did not put there", removed.dir.display());
+        }
     }
     for path in &removed.purged {
         println!("  {} (--purge)", path.display());
@@ -587,6 +864,39 @@ pub(crate) fn start_installed(launch: &Path) -> Result<(), String> {
         .map_err(|e| format!("starting {}: {e}", launch.display()))?;
     println!("Started {} as process {}.", launch.display(), child.id());
     Ok(())
+}
+
+/// The question about the aggregate driver's registration: in the terminal when there is one,
+/// and otherwise in a dialog, since an uninstall from Settings, Apps of an install made with the
+/// setup file runs the windowless build, which has no terminal, and whose person is right there.
+/// `--yes` never gets this far.
+fn ask_to_unregister(question: &str, terminal: bool) -> bool {
+    if terminal {
+        return ask(question, true);
+    }
+    #[cfg(windows)]
+    {
+        use setup::{Choice, Question, Tone};
+        let question = Question { text: question.to_string(), choices: vec![Choice::Unregister, Choice::KeepRegistered], tone: Tone::Question };
+        dialog::ask(&question) == Choice::Unregister
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Say something that matters to a person with no terminal to read it in.
+fn tell_without_a_terminal(text: &str) {
+    #[cfg(windows)]
+    {
+        use setup::{Choice, Question, Tone};
+        dialog::ask(&Question { text: text.to_string(), choices: vec![Choice::Close], tone: Tone::Warning });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = text;
+    }
 }
 
 /// A yes/no question, when there is someone at a terminal to answer it. Started from Add/Remove
