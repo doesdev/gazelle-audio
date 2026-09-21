@@ -56,6 +56,15 @@ version that has not been published yet.
   work at all, how to set it up, what each reason means, what the gap is, and what to do when
   something is wrong.
 
+### Fixed
+
+- **A mixer strip fed by something the interface does not meter on its own now shows a level.**
+  The test oscillator, an emulated mic and a loopback return used to leave a strip's meter dead
+  while the same signal showed on the output meters, because the interface reports no meter for
+  those inputs. The strip is now metered at the mixer's own input instead. On the Zen Studio+ that
+  works in any mix; the Zen Quadro meters its mixer channels for Mix 1 alone, and a strip that
+  still cannot be metered says so when you hover it.
+
 ## [1.2.0] - 2026-09-20
 
 A Mixer that shows one mix at a time, updates that tell you what they are doing, and a set of

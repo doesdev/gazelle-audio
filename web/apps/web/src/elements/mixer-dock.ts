@@ -94,8 +94,10 @@ export class GaMixerDock extends GaElement {
           if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
         }),
       );
-      // Strips meter their inputs from the status report, followed while the dock shows the mix.
+      // Strips meter their inputs from the status report, followed while the dock shows the mix,
+      // with the interface's own mixer channel meters filling in the inputs it does not meter by type.
       own.push(effect(() => store.mixer(deviceId, channels.meteredMix.value).activate()));
+      own.push(effect(() => store.pointMeterBank(deviceId, channels.meteredMix.value)));
       own.push(
         effect(() => {
           const entry = store.devices.value.find((d) => d.id === deviceId);

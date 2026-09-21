@@ -98,6 +98,13 @@ test("each device keeps its selected mix: the address names it, and a page witho
 test("a page that is not shown is gone and sends nothing; choosing a mix or coming back re-reads no mix", async ({ page }) => {
   // View state is kept in the store rather than by keeping pages alive, so leaving a page must
   // dispose of it: no element left to follow reports or point the device's meters.
+  // Both channels sit on preamps, which the report meters by type, so no mix here wants the
+  // interface's mixer meter bank and nothing asks for it.
+  await putWorkspace(server, {
+    mixers: {
+      "loopback-1": { mixes: [], groups: [], channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [2] }, { id: "b", name: "", slot: 1, source: { group: 0, channel: 1 }, main_mix: 0, sends: [2] }] },
+    },
+  });
   const sent: string[] = [];
   page.on("websocket", (socket) =>
     socket.on("framesent", (event) => {
@@ -115,7 +122,7 @@ test("a page that is not shown is gone and sends nothing; choosing a mix or comi
 
   await page.getByTestId("mix-2").click();
   await page.waitForTimeout(500);
-  expect(count("set_peak_source"), "strips meter their inputs, so no meter bank is pointed").toBe(0);
+  expect(count("set_peak_source"), "every strip here is metered by its input's own field, so no meter bank is asked for").toBe(0);
   expect(count("get_mixer"), "a new mix does not rebuild the page and read every mix again").toBe(4);
 
   await open(page, "workspace");

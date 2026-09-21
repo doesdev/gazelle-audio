@@ -8,7 +8,7 @@ import { ECHO_HOLD_MS } from "../src/store/inputs.ts";
 import { effect } from "../src/core/signal.ts";
 import { LEVEL_MAX } from "../src/store/mixer.ts";
 import { parseShowAllChannels } from "../src/store/preferences.ts";
-import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, type EffectMeter, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
+import { CLIP_AUTO_CLEAR_CHOICES, CLIP_HOLD_MS, displayName, type EffectMeter, meterBankMix, meteredByType, mixNeedsMeterBank, OSCILLATOR_FREQUENCIES, OSCILLATOR_LEVELS, PANNING_LAWS, PRESET_SLOTS, SAVE_DEBOUNCE_MS, sameValue, Store, THEME_STORAGE_KEY, type KeyValueStorage } from "../src/store/store.ts";
 import { builtInThemes as builtIns, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 function setup(client = new FakeClient(device("loopback-1", "studio", "Zen Studio+"), device("loopback-0", "quadro", "Zen Quadro"))) {
@@ -592,6 +592,138 @@ test("input meters come from each input's own peak field, per model; an input wi
   assert.equal(line3?.level.value, 12);
   assert.equal(store.inputMeter("loopback-1", { group: 3, channel: 0 }), undefined);
   for (const stop of listen) stop();
+});
+
+test("which mix the mixer meter bank carries: the Quadro's is Mix 1 whatever it says, the Studio+'s is what pm_bank_src names", () => {
+  // The Quadro ignored every set_peak_source tried on it and left pm_bank_src all zero
+  // (hardware, 2026-09-16 and 2026-09-20), so its own bytes are no answer at all.
+  assert.equal(meterBankMix("quadro", undefined), 0);
+  assert.equal(meterBankMix("quadro", Uint8Array.of(0, 3, 0, 0)), 0, "the Quadro's bank is Mix 1 whatever its report says");
+  // As the Studio+ was found: bank 1 on mixer 3 (0-based 2).
+  assert.equal(meterBankMix("studio", Uint8Array.of(0, 2, 0, 0)), 2);
+  assert.equal(meterBankMix("studio", undefined), undefined, "nothing reported, nothing to say");
+  assert.equal(meterBankMix("studio", Uint8Array.of(0)), undefined, "too short to carry the bank");
+
+  // A strip is metered without the bank when its input has a field of its own, or when it carries
+  // an effect chain, which the device meters effect by effect.
+  assert.equal(meteredByType("quadro", { group: 0, channel: 0 }), true, "PREAMP");
+  assert.equal(meteredByType("quadro", { group: 5, channel: 0 }), true, "AFX OUT, metered by its chain");
+  assert.equal(meteredByType("quadro", { group: 11, channel: 0 }), false, "the test oscillator");
+  assert.equal(meteredByType("quadro", { group: 12, channel: 0 }), false, "an emulated mic");
+  assert.equal(meteredByType("quadro", { group: 6, channel: 0 }), false, "a mixer loopback return");
+  assert.equal(meteredByType("studio", { group: 3, channel: 0 }), false, "the Studio+'s USB playback");
+
+  assert.equal(mixNeedsMeterBank("quadro", [{ group: 0, channel: 0 }, undefined]), false, "every strip is metered already");
+  assert.equal(mixNeedsMeterBank("quadro", [{ group: 0, channel: 0 }, { group: 11, channel: 1 }]), true, "one strip is not");
+});
+
+test("a mixer strip falls back to the interface's own mixer channel meters, and only for the mix that bank carries", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const listen = [store.watchReport("loopback-0", "0x73"), store.watchReport("loopback-1", "0x73")];
+  const report = (id: string, fields: Record<string, unknown>) => {
+    client.cyclic.get(`${id}|0x73`)?.(fields);
+    for (const frame of frames.splice(0)) frame();
+  };
+  const quiet = (n: number, at: Record<number, number>) => Uint8Array.from({ length: n }, (_, i) => at[i] ?? 96);
+  const oscillator = { group: 11, channel: 0 };
+
+  // A strip on an input the report meters by type keeps that meter, whatever mix it is in.
+  const preamp = store.stripMeter("loopback-0", 2, 4, { group: 0, channel: 1 });
+  assert.equal(preamp, store.inputMeter("loopback-0", { group: 0, channel: 1 }), "the input's own meter, shared with every strip on it");
+
+  // The oscillator has no peak field, so strip 3 of Mix 1 is metered at the mixer's own input:
+  // peaks_mixer byte 3, which is pre fader and pre mute (hardware, 2026-09-20).
+  const osc = store.stripMeter("loopback-0", 0, 3, oscillator);
+  assert.ok(osc);
+  report("loopback-0", { peaks_mixer: quiet(32, { 3: 29 }) });
+  assert.equal(osc.level.value, 29);
+  assert.equal(osc.note.value, "The level arriving at this mixer channel, before the fader");
+
+  // The Quadro's bank cannot be moved off Mix 1, so the same input in Mix 3 is honestly empty.
+  const other = store.stripMeter("loopback-0", 2, 3, oscillator);
+  assert.ok(other);
+  assert.equal(other.level.value, undefined);
+  assert.match(other.note.value, /meters its mixer channels for Mix 1 alone/);
+
+  // The Studio+ follows its report: with bank 1 on mixer 1, Mix 1's strips meter and Mix 3's do not.
+  const usbHere = store.stripMeter("loopback-1", 0, 5, { group: 3, channel: 0 });
+  const usbThere = store.stripMeter("loopback-1", 2, 5, { group: 3, channel: 0 });
+  assert.ok(usbHere && usbThere);
+  report("loopback-1", { pm_bank_src: Uint8Array.of(0, 0, 0, 0), peaks_mixer: quiet(32, { 5: 18 }) });
+  assert.equal(usbHere.level.value, 18);
+  assert.equal(usbThere.level.value, undefined, "the bank names another mix, so it says nothing here");
+  assert.match(usbThere.note.value, /showing another mix/);
+
+  // As it was found at the hardware: bank 1 already pointed at mixer 3.
+  report("loopback-1", { pm_bank_src: Uint8Array.of(0, 2, 0, 0), peaks_mixer: quiet(32, { 5: 12 }) });
+  assert.equal(usbHere.level.value, undefined, "the bank moved away, so Mix 1's strip stops metering");
+  assert.equal(usbThere.level.value, 12);
+
+  // A byte of 0 is full scale here too: the clip light latches until it is cleared.
+  report("loopback-1", { peaks_mixer: quiet(32, { 5: 0 }) });
+  report("loopback-1", { peaks_mixer: quiet(32, { 5: 30 }) });
+  assert.equal(usbThere.clipped.value, true);
+  usbThere.clearClip();
+  assert.equal(usbThere.clipped.value, false);
+
+  assert.equal(store.stripMeter("loopback-0", 0, 3, undefined), undefined, "a strip with no input has nothing to meter");
+  for (const stop of listen) stop();
+});
+
+test("only the Studio+ is asked to carry a mix in its meter bank, once, and only where a strip needs it", async () => {
+  const client = new FakeClient(device("loopback-0", "quadro", "Zen Quadro"), device("loopback-1", "studio", "Zen Studio+"));
+  client.stored = {
+    version: 1,
+    groups: [],
+    links: [],
+    aliases: {},
+    mixers: {
+      // Studio+: a preamp, which meters itself, and USB PLAY 1, which does not.
+      "loopback-1": { mixes: [], groups: [], channels: [mixerChannel("a", 0, 0, 0), mixerChannel("b", 1, 3, 0)] },
+      // Quadro: the test oscillator, which no field meters either.
+      "loopback-0": { mixes: [], groups: [], channels: [mixerChannel("c", 0, 11, 0)] },
+    },
+  };
+  const frames: (() => void)[] = [];
+  const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (cb) => frames.push(cb), themeSources: builtIns });
+  await store.start();
+  const stop = store.watchReport("loopback-1", "0x73");
+  const asked = () => client.invocations.filter((call) => call.command === "set_peak_source").map((call) => call.args);
+
+  // The Quadro ignores set_peak_source, so it is never sent one.
+  store.pointMeterBank("loopback-0", 0);
+  store.pointMeterBank("loopback-0", 2);
+  await flush();
+  assert.deepEqual(asked(), []);
+
+  // Mix 3 of the Studio+ holds no channel, so nothing needs the bank there.
+  store.pointMeterBank("loopback-1", 2);
+  await flush();
+  assert.deepEqual(asked(), []);
+
+  // Mix 1 holds a strip with no meter of its own, so the bank is asked for, once.
+  store.pointMeterBank("loopback-1", 0);
+  store.pointMeterBank("loopback-1", 0);
+  await flush();
+  assert.deepEqual(asked(), [{ bank_id: 1, source_id: 0 }], "asked once, not on a timer");
+
+  // Once the report says the bank is here, nothing more is sent.
+  client.cyclic.get("loopback-1|0x73")?.({ pm_bank_src: Uint8Array.of(0, 0, 0, 0) });
+  for (const frame of frames.splice(0)) frame();
+  store.pointMeterBank("loopback-1", 0);
+  await flush();
+  assert.deepEqual(asked().length, 1);
+
+  // Moved away by something else, it is pointed back.
+  client.cyclic.get("loopback-1|0x73")?.({ pm_bank_src: Uint8Array.of(0, 3, 0, 0) });
+  for (const frame of frames.splice(0)) frame();
+  store.pointMeterBank("loopback-1", 0);
+  await flush();
+  assert.deepEqual(asked(), [{ bank_id: 1, source_id: 0 }, { bank_id: 1, source_id: 0 }]);
+  stop();
 });
 
 test("output meters: the Quadro reports Monitor, HP1, HP2 and Line Out; the Studio+ has no fixed output meters", async () => {

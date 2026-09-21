@@ -624,11 +624,14 @@ test("a strip meters its channel's input; an input with no meter of its own show
   const markAt = async () => Number.parseFloat(await peakMark.evaluate((el) => (el as HTMLElement).style.bottom));
   await expect.poll(async () => (await markAt()) >= (await barTop()) - 0.001).toBe(true);
   const usbMeter = page.locator('ga-channel[data-channel-slot="1"] ga-strip');
+  // USB PLAY has no peak field, so the strip asks the Studio+ to carry this mix in its mixer meter
+  // bank. The loopback's report never names a mix there, so the meter stays honestly empty.
+  await expect.poll(() => frames.filter((f) => f.command === "set_peak_source").map((f) => f.args)).toEqual([{ bank_id: 1, source_id: 0 }]);
   await expect(usbMeter.locator(".mask")).toHaveAttribute("style", /height: 100%/);
-  await expect(usbMeter.locator('[data-testid="meter-1"]')).toHaveAttribute("title", /no meter/);
-  // Nothing points the device's meter bank: the Quadro ignores it, and nothing here reads it.
+  await expect(usbMeter.locator('[data-testid="meter-1"]')).toHaveAttribute("title", /showing another mix/);
+  // It is asked once, not on a timer.
   await page.waitForTimeout(500);
-  expect(frames.filter((f) => f.command === "set_peak_source")).toEqual([]);
+  expect(frames.filter((f) => f.command === "set_peak_source").length).toBe(1);
 
   // A channel not in the selected mix shows no meter either; in its mix it meters again.
   await pickMix(page, 1);
@@ -645,6 +648,25 @@ test("a strip meters its channel's input; an input with no meter of its own show
   await page.getByTestId("mixer-link-0").click();
   await page.getByTestId("link-unlink").click();
   await expect(page.getByTestId("mixer-link-0")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("a strip fed by the test oscillator, which no peak field meters, is metered at the mixer's own input", async ({ page }) => {
+  const frames = recordFrames(page);
+  // Quadro: slot 2 on OSCILLATOR (group 11), which has no peak field of its own. Its mixer meters
+  // carry Mix 1 and cannot be moved off it, so this is where the level comes from.
+  await layout({ "loopback-0": { channels: [{ id: "a", name: "", slot: 2, source: { group: 11, channel: 0 }, main_mix: 0, sends: [2] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const meter = page.locator('ga-channel[data-channel-slot="2"] ga-strip .mask');
+  const first = await meter.evaluate((el) => (el as HTMLElement).style.height);
+  await expect.poll(() => meter.evaluate((el) => (el as HTMLElement).style.height)).not.toBe(first);
+  await expect(page.getByTestId("meter-2")).toHaveAttribute("title", "The level arriving at this mixer channel, before the fader");
+  // The Quadro ignores set_peak_source, so it is never asked (hardware, 2026-09-20).
+  await page.waitForTimeout(300);
+  expect(frames.filter((f) => f.command === "set_peak_source")).toEqual([]);
+
+  // In another mix the same channel has nothing to meter, and says why.
+  await pickMix(page, 2);
+  await expect(page.getByTestId("meter-2")).toHaveAttribute("title", /meters its mixer channels for Mix 1 alone/);
 });
 
 test("removing takes a second click and mutes the channel; a new order is saved", async ({ page }) => {

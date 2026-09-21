@@ -368,8 +368,11 @@ export class GaMixer extends GaElement {
       void channels.importFromDevice();
     });
 
-    // Point the device's meters at the chosen mix.
+    // Follow the device's report while the chosen mix is shown, and, where a strip is fed by
+    // something the interface does not meter by type, ask it to carry this mix in its mixer meter
+    // bank so that strip has a level too.
     this.watch(() => store.mixer(deviceId, channels.meteredMix.value).activate());
+    this.watch(() => store.pointMeterBank(deviceId, channels.meteredMix.value));
     // A strip fed by AFX OUT is metered by its chain's last effect, which needs the chains read and
     // the effect-meter report followed while the page is open.
     this.watch(() => store.effects(deviceId).activate());

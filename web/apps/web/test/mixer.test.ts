@@ -134,12 +134,12 @@ test("a mixer channel link sends level, mute and solo to every member in the sam
   ], "relative: the Studio+ strip moves by the same step, in the same mix");
 });
 
-test("activating a mixer follows the device's report and points no meter bank: strips meter their inputs (hardware, 2026-09-16)", async () => {
+test("activating a mixer follows the device's report and points no meter bank of its own", async () => {
   const { client, store } = setup();
   const stopStudio = store.mixer("loopback-1", 3).activate();
   const stopQuadro = store.mixer("loopback-0", 0).activate();
   await flush();
-  // The Quadro ignored every set_peak_source tried on it and kept metering Mix 1's inputs.
+  // Asking for the bank is the page's own call, made only where a strip needs it (pointMeterBank).
   assert.deepEqual(sent(client, "set_peak_source"), []);
   assert.equal(client.cyclic.size, 2, "each active mixer follows its device's report");
   stopStudio();

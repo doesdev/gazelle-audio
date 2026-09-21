@@ -5,7 +5,8 @@
 // panels' own scales). `label` names the strip; `inactive` disables its controls (a channel with no
 // input or main mix); `meter="off"` blanks its meter (a channel not in the selected mix). The meter
 // shows the channel's input, named by `input-group` and `input-channel`: the signal arriving, before
-// the fader, since the Quadro's mixer meters cannot be moved off Mix 1 (hardware, 2026-09-16).
+// the fader, from the field that meters that kind of input or, for an input the interface does not
+// meter by type, from its own mixer channel meters (the store's `stripMeter`).
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
 // name and the doubled badge, without pan, send, link or the peak readout.
 // Attributes are read when the strip renders: change them by replacing the strip.
@@ -164,8 +165,8 @@ export class GaStrip extends GaElement {
     const compact = this.hasAttribute("compact");
     const metered = this.getAttribute("meter") !== "off";
     const inputGroup = this.getAttribute("input-group");
-    const inputMeter =
-      inputGroup === null ? undefined : store.inputMeter(deviceId, { group: Number(inputGroup), channel: Number(this.getAttribute("input-channel") ?? "0") });
+    const source = inputGroup === null ? undefined : { group: Number(inputGroup), channel: Number(this.getAttribute("input-channel") ?? "0") };
+    const inputMeter = id === "master" ? undefined : store.stripMeter(deviceId, Number(this.getAttribute("mixer") ?? "0"), id, source);
     const enabled = () => store.connected.peek() && !inactive;
     const state = mixer.strip(id);
 
@@ -260,8 +261,9 @@ export class GaStrip extends GaElement {
         peakReadout.textContent = "\u00a0";
       }
       if (!metered) meter.title = "This channel is not in the selected mix";
-      else if (inputMeter === undefined) meter.title = "This input reports no meter";
-      // A meter that reads nothing says why: an effect chain may be empty or simply unread.
+      else if (inputMeter === undefined) meter.title = "This channel has no input, so there is nothing to meter";
+      // A meter that reads nothing says why: an effect chain may be empty or simply unread, or the
+      // interface may not meter this input anywhere the strip's mix can see.
       else {
         this.watch(() => {
           meter.title = inputMeter.note.value;

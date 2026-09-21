@@ -249,8 +249,8 @@ export class MixerModel {
 
   /**
    * Follows the device's report while a page shows this mixer. Returns a disposer. It points no
-   * meter bank: strips meter their inputs (the store's `inputMeter`), because the Quadro keeps its
-   * mixer meters on Mix 1's inputs whatever `set_peak_source` asks (hardware, 2026-09-16).
+   * meter bank itself: strips meter themselves from the report (the store's `stripMeter`), and the
+   * page asks for the bank separately, only where a strip needs it (the store's `pointMeterBank`).
    */
   activate(): () => void {
     return this.#context.watch();

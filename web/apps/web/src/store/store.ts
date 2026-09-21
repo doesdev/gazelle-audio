@@ -138,16 +138,52 @@ const INPUT_PEAKS: Readonly<Record<"quadro" | "studio", readonly string[]>> = {
 };
 
 /**
- * The status report field that meters each kind of input, by the topology's input type. The Quadro's
- * mixer meters stay on Mix 1's inputs whatever `set_peak_source` asks (hardware, 2026-09-16), so a
- * channel is metered at its input: the signal arriving, before any fader. An input type missing
- * here reports no meter of its own (the Studio+'s USB and Thunderbolt playback and effect returns
- * only reach its selectable meter bank).
+ * The status report field that meters each kind of input, by the topology's input type. A channel
+ * is metered at its input: the signal arriving, before any fader. An input type missing here
+ * reports no meter of its own (the test oscillator, emulated mics, the mixer's own loopback
+ * returns, and on the Studio+ its USB and Thunderbolt playback too), and a strip on one of those
+ * is metered from the mixer meter bank instead, where that bank is carrying its mix.
+ *
+ * Both models also report `peaks_mixer`, 32 bytes, one per mixer strip at the strip's own index:
+ * the level arriving at that strip, before its fader and before its mute (hardware, 2026-09-20,
+ * with a known tone: a strip faded to -90 dB still metered the tone, and the bank agreed byte for
+ * byte with `peaks_preamp` for the same signal). Which mix it carries differs by model, which is
+ * why the code below is shaped the way it is:
+ *
+ * - The **Quadro ignores `set_peak_source` completely** (hardware, 2026-09-16 and again
+ *   2026-09-20: `pm_bank_src` stayed all zero through every call and `peaks_mixer` never moved).
+ *   Its bank is always Mix 1's channels.
+ * - The **Studio+ follows it**: `set_peak_source(1, m)` sets `pm_bank_src[1]` to `m` and the bank
+ *   then carries mix `m`'s channels. Its vendor panel sends exactly that when a mix is selected.
  */
 const INPUT_METER_FIELDS: Readonly<Record<"quadro" | "studio", Readonly<Record<string, string>>>> = {
   quadro: { PREAMP: "peaks_preamp", COM_PLAY: "peaks_usb_play", USB_PLAY: "peaks_usb_play2", ADAT_IN: "peaks_adat", SPDIF_IN: "peaks_spdif" },
   studio: { PREAMP: "peaks_preamp", LINE_IN: "peaks_line", ADAT_IN: "peaks_adat", SPDIF_IN: "peaks_spdif" },
 };
+
+/** The status report field carrying the mixer's own per channel input meters, one byte per strip. */
+const MIXER_PEAK_FIELD = "peaks_mixer";
+
+/** The status report field naming, per meter bank, which mix that bank is carrying. */
+const PEAK_BANK_FIELD = "pm_bank_src";
+
+/** The meter bank `peaks_mixer` is, as `set_peak_source`'s `bank_id` and as `pm_bank_src`'s index. */
+const PEAK_BANK = 1;
+
+/** The mix the Quadro's meter bank always carries, whatever it is asked. */
+const QUADRO_BANK_MIX = 0;
+
+/**
+ * Which mix the mixer meter bank is carrying, from the report's `pm_bank_src`, or undefined when
+ * nothing can be said yet. The Quadro's answer is Mix 1 whether or not it has reported, because its
+ * `pm_bank_src` means nothing on that model; the Studio+'s is whatever the report says now, so a
+ * stale selection or another program's never shows one mix's channels against another's strips.
+ */
+export function meterBankMix(family: "quadro" | "studio", bankSrc: unknown): number | undefined {
+  if (family === "quadro") return QUADRO_BANK_MIX;
+  const banks = bankSrc instanceof Uint8Array || Array.isArray(bankSrc) ? (bankSrc as ArrayLike<number>) : undefined;
+  return banks === undefined || PEAK_BANK >= banks.length ? undefined : Number(banks[PEAK_BANK]);
+}
 
 /**
  * How long a clip light stays lit after the signal stops clipping, in ms, or null to hold it until
@@ -193,6 +229,46 @@ const AFX_IN = "AFX_IN";
 
 /** What a strip's meter shows, by default: the input's level before the fader. */
 const INPUT_METER_NOTE = "The input's level, before the fader";
+
+/** What a strip metered from the mixer meter bank shows: its own input, before fader and mute. */
+const MIXER_BANK_NOTE = "The level arriving at this mixer channel, before the fader";
+
+/**
+ * Why a strip fed by something the interface does not meter by type shows nothing, in words its
+ * owner can do something about. The Quadro meters its mixer channels for one mix and cannot be
+ * moved off it, so the answer there is which mix the channel is in; the Studio+ can be pointed at
+ * any mix, so the only reason left is that its meters are still showing another one.
+ */
+export function noStripMeterNote(family: "quadro" | "studio"): string {
+  return family === "quadro"
+    ? `Nothing reports this input's level. This interface meters its mixer channels for Mix ${QUADRO_BANK_MIX + 1} alone, so a channel fed by this input shows a level only in Mix ${QUADRO_BANK_MIX + 1}.`
+    : "Nothing reports this input's level while the interface's mixer meters are showing another mix.";
+}
+
+/**
+ * The report field metering the input a source sits on, or undefined when the report has none for
+ * it. Effect chain outputs are left out: they are metered by the chain, not by a field.
+ */
+function inputMeterField(family: "quadro" | "studio", source: RouteSource): string | undefined {
+  const type = topologies[family].inputs[source.group]?.type;
+  return type === undefined ? undefined : INPUT_METER_FIELDS[family][type];
+}
+
+/**
+ * Whether a strip fed by `source` is metered without the mixer meter bank: by the field for its
+ * input's type, or, for an effect chain's output, by the chain itself.
+ */
+export function meteredByType(family: "quadro" | "studio", source: RouteSource): boolean {
+  return topologies[family].inputs[source.group]?.type === AFX_OUT || inputMeterField(family, source) !== undefined;
+}
+
+/**
+ * Whether pointing the mixer meter bank at a mix would fill a meter that is otherwise empty: true
+ * when some channel in it is fed by an input the status report does not meter by type.
+ */
+export function mixNeedsMeterBank(family: "quadro" | "studio", sources: readonly (RouteSource | undefined)[]): boolean {
+  return sources.some((source) => source !== undefined && !meteredByType(family, source));
+}
 
 /**
  * What to say about one source reaching a mix `times` over: the x2 badge's text, and the same
@@ -1252,7 +1328,7 @@ export class Store {
     // An effect chain's output is metered by the chain, not by a field of the status report: the
     // device meters each effect, and the last one in the chain is as far as it goes.
     if (type === AFX_OUT) return this.#chainMeter(deviceId, family, source.channel);
-    const fieldName = type === undefined ? undefined : INPUT_METER_FIELDS[family][type];
+    const fieldName = inputMeterField(family, source);
     if (fieldName === undefined) return undefined;
     const key = `${deviceId}|${fieldName}|${source.channel}`;
     const existing = this.#inputMeters.get(key);
@@ -1269,6 +1345,85 @@ export class Store {
   }
 
   readonly #inputMeters = new Map<string, InputMeter>();
+
+  /**
+   * The meter of one mixer strip: what that channel is carrying, before its fader.
+   *
+   * Where the status report meters the strip's input by type, that is the meter, unchanged: it is
+   * the same signal, and at the hardware the two agreed byte for byte. Where it does not (the test
+   * oscillator, an emulated mic, a loopback return), the strip is metered from the mixer meter
+   * bank instead, which meters every strip of one mix at the strip's own index. The bank is only
+   * read while the report says it is carrying this mix, so another mix's channels can never be
+   * shown against these strips; while it is not, the meter reads nothing and says why.
+   *
+   * Strips on the Surface page are not in a mix and use `inputMeter` instead.
+   */
+  stripMeter(deviceId: string, mix: number, strip: number, source: RouteSource | undefined): InputMeter | undefined {
+    if (source === undefined) return undefined;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family === undefined || family === null) return undefined;
+    if (meteredByType(family, source)) return this.inputMeter(deviceId, source);
+    const key = `${deviceId}|bank|${mix}|${strip}`;
+    const existing = this.#bankMeters.get(key);
+    if (existing !== undefined) return existing;
+    const bank = this.field(deviceId, "0x73", MIXER_PEAK_FIELD);
+    const carrying = this.meterBank(deviceId);
+    const level = computed(() => {
+      if (carrying.value !== mix) return undefined;
+      const bytes = bank.value;
+      return (bytes instanceof Uint8Array || Array.isArray(bytes)) && strip < bytes.length ? Number((bytes as ArrayLike<number>)[strip]) : undefined;
+    });
+    const light = this.#clipLight(computed(() => level.value === 0));
+    const meter: InputMeter = {
+      level,
+      clipped: light.lit,
+      clearClip: () => this.#clearClip(light),
+      note: computed(() => (carrying.value === mix ? MIXER_BANK_NOTE : noStripMeterNote(family))),
+    };
+    this.#bankMeters.set(key, meter);
+    return meter;
+  }
+
+  readonly #bankMeters = new Map<string, InputMeter>();
+
+  /**
+   * Which mix this device's mixer meter bank is carrying, or undefined while nothing is known.
+   * One per device; reading it is reactive, and it only changes when the answer does, not on
+   * every report.
+   */
+  meterBank(deviceId: string): ReadonlySignal<number | undefined> {
+    const existing = this.#meterBanks.get(deviceId);
+    if (existing !== undefined) return existing;
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    const bankSrc = this.field(deviceId, "0x73", PEAK_BANK_FIELD);
+    const carrying = computed(() => (family === undefined || family === null ? undefined : meterBankMix(family, bankSrc.value)));
+    this.#meterBanks.set(deviceId, carrying);
+    return carrying;
+  }
+
+  readonly #meterBanks = new Map<string, ReadonlySignal<number | undefined>>();
+
+  /**
+   * Asks the interface to carry `mix` in its mixer meter bank, when that is what would fill a
+   * strip whose input it does not meter by type. Nothing is sent when every strip in the mix is
+   * already metered, when the report says the bank is on this mix, or on the Quadro, which ignores
+   * `set_peak_source` (hardware, 2026-09-20). It changes what the device reports, not what it
+   * plays. Reading it is reactive; it sends once, and again only if the bank is moved away after.
+   */
+  pointMeterBank(deviceId: string, mix: number): void {
+    const family = this.#devices.peek().find((d) => d.id === deviceId)?.family;
+    if (family !== "studio") return;
+    if (!mixNeedsMeterBank(family, this.channels(deviceId).inMix(mix).map((channel) => channel.source))) return;
+    if (this.meterBank(deviceId).value === mix) {
+      this.#bankAsked.delete(deviceId);
+      return;
+    }
+    if (this.#bankAsked.get(deviceId) === mix) return;
+    this.#bankAsked.set(deviceId, mix);
+    untracked(() => void this.#invokeCommand(deviceId, "set_peak_source", { bank_id: PEAK_BANK, source_id: mix }, {}));
+  }
+
+  readonly #bankAsked = new Map<string, number>();
 
   /**
    * The meter of one effect in a chain, from the effect-meter report (0x83), or undefined when that
