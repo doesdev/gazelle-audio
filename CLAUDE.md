@@ -18,7 +18,10 @@ their own. Public developer docs are in `docs/`: `docs/protocol.md`,
   either. `xtask/tests/no_dashes.rs` and `pnpm -C web docs:check` enforce it.
 - **Tests never touch hardware.** Every server a test or script starts runs with
   `--backend loopback` and `GAZELLE_NO_HARDWARE=1`; the default backend is `usb`, which opens the
-  real devices. Stop a server you started by its own PID, never by name.
+  real devices. Stop a server you started by its own PID, never by name. `.cargo/config.toml`
+  also sets `GAZELLE_NO_HARDWARE=1` for everything cargo starts, as a backstop after two harnesses
+  forgot the flag in one week; do not remove it. Driving hardware from source takes an explicit
+  `GAZELLE_NO_HARDWARE=0`, and only with the owner's go-ahead.
 - **Never commit credentials**: no keys, tokens or `.env` files. The release signing key lives
   outside the repository (`xtask keygen` refuses to write one inside it) and in the `release`
   environment's secret on GitHub. `.githooks/pre-commit` scans for secrets; do not bypass it.

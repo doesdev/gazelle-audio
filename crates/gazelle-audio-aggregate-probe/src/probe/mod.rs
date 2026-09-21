@@ -475,8 +475,9 @@ pub fn refusal(no_hardware: Option<&str>) -> Option<String> {
     match no_hardware {
         Some("1") => Some(format!(
             "{NO_HARDWARE}=1 is set. This probe opens the real audio drivers and starts the real \
-             converters, so it will not run here. Unset it and run the probe by hand, with your \
-             monitors down."
+             converters, so it will not run here. Run it by hand with {NO_HARDWARE}=0, which is \
+             needed even from a plain `cargo run` because cargo sets it to 1 for everything it \
+             starts in this repository, and with your monitors down."
         )),
         _ => None,
     }

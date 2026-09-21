@@ -206,7 +206,8 @@ pub fn no_hardware_refusal(value: Option<&str>) -> Option<String> {
     forbidden.then(|| {
         format!(
             "{NO_HARDWARE} is set, and this measurement drives real converters: it plays a click out of an \
-             interface and records it back. Unset {NO_HARDWARE} to run it deliberately."
+             interface and records it back. Set {NO_HARDWARE}=0 to run it deliberately (cargo \
+             sets it to 1 for everything it starts in this repository)."
         )
     })
 }

@@ -6,3 +6,13 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# Everything cargo starts in this repository, every test and every process a test spawns
+# included, runs with the variable that makes a server, the calibration and the probe refuse to
+# open real devices. Tests never touching hardware is a hard rule, and it was broken twice in one
+# week by a harness that forgot to pass `--backend loopback`: this makes the safe choice the one
+# nobody has to remember. It never overrides a value already set, so driving the hardware from
+# source is one deliberate step: `GAZELLE_NO_HARDWARE=0 cargo run ...`. The installed app is not
+# started by cargo and is not affected.
+[env]
+GAZELLE_NO_HARDWARE = "1"
