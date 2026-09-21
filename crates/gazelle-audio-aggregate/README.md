@@ -4,17 +4,23 @@ One audio driver that a DAW opens, and several Antelope drivers underneath it.
 
 A DAW opens one low latency audio driver at a time, so recording and playing through more than one
 interface in a single session needs a driver that presents itself as one device and opens the
-vendor drivers itself. That is this. Phase 0 of this work settled the questions it depended on, at
-the real hardware: two Antelope drivers do live in one process, they agree on buffer size and
+vendor drivers itself. That is this.
+[Phase 0](../gazelle-audio-aggregate-probe/README.md) of this work settled the questions it
+depended on, at the real hardware: two Antelope drivers do live in one process, they agree on buffer size and
 sample format, and a pair locked by a digital cable holds identical sample counts.
 
 **Nothing here is written for two devices, or for these two models.** Which drivers to open, what
 to call their channels, which one drives the callback and how the streams line up all come from a
 configuration file. Another Antelope interface is a line in that file, not a change to the code.
 
-**Unreleased, and never run against hardware.** Everything below has been tested against devices
-made of data. Nothing in this crate has been registered on a PC or opened by a DAW. It ships with
-nothing: it is not installed, not registered and not mentioned in the release notes.
+**Unreleased, and run at the real hardware a great deal.** It has been registered on a PC and has
+recorded and played through a Quadro and a Studio+ in one DAW session, and the measurements quoted
+below were taken there, on 2026-09-20 and 2026-09-21. Its tests still run against devices made of
+data and never touch hardware. Gazelle's Aggregate page sets it up, watches it and registers it
+([the manual's chapter](../../docs/manual/13-aggregate-page.md) is the person's guide), and the
+release notes under Unreleased describe that page. From the next release the DLL travels inside
+Gazelle's own executables and is written out beside them on install and update; no published
+release carries it yet.
 
 Windows and 64 bit only.
 
@@ -28,8 +34,9 @@ Windows and 64 bit only.
 - Reports one input and one output latency figure for the whole aggregate, and holds the nearer
   devices back so that every channel lines up.
 - Measures, at the start of every session, where each interface's capture actually started, over the
-  digital cable that already locks them together, and lines the streams up by what it measured
-  rather than by what the drivers reported. See "The phase" below.
+  digital cable that already locks them together, and puts the session back in the state its trims
+  were measured in, so the trims hold in every session rather than only in that one. See "The
+  phase" below.
 - Runs every device at the same rate and the same buffer size, and refuses as a whole if any one of
   them will not.
 - Keeps going when a device stops calling back: its inputs read as silence, its outputs are muted,
@@ -63,14 +70,20 @@ the devices up.
 
 **Trimming a device.** A driver's reported latency is not always the whole truth, and two devices
 can then record a few samples apart even though the aggregate lined them up by the figures they
-gave. To measure it: record one source into both devices at once, then compare the two recordings
-and see how far apart the same moment lands. Swap the sources between the devices and record again:
-an offset that follows the source is the source, and one that stays with the device is the device.
-Put that number in `input_trim`, **positive** for the device that records late, and record again to
-check it is gone. The sign is worth getting right: a device that records late has a longer path than
-its driver admits, so its latency figure goes up, and the aggregate holds the others back to meet
-it. Trimming the wrong way doubles the error, which is how this was found (2026-09-21): the measured
-difference was about 28 samples at 96 kHz, a trim of -28 made it 53, and +28 is what nulls it.
+gave. `input_trim` and `output_trim` correct for it, **positive** for the device that records late.
+The sign is worth getting right: a device that records late has a longer path than its driver
+admits, so its latency figure goes up, and the aggregate holds the others back to meet it. Trimming
+the wrong way doubles the error, which is how this was found (2026-09-21): the measured difference
+was about 28 samples at 96 kHz, a trim of -28 made it 53, and +28 is what nulls it.
+
+The way to arrive at a trim is to measure it: the Aggregate page's **Measure** plays a click out of
+one interface into every interface and reads the difference out of the aggregate's own buffers,
+which is [`gazelle-audio-calibrate`](../gazelle-audio-calibrate/README.md). The trims it offers
+are written with one button, and for an interface with a `phase` each one carries the reference
+that goes with it. A trim can still be found by hand,
+by recording one source into both devices and comparing, but a trim written by hand has no
+reference beside it, so it holds only in sessions that happen to start in the state it was
+measured in. See "The phase" below for why that matters.
 
 **Naming the channels.** A channel is called "Quadro 1" unless you say otherwise, which tells you
 which interface and which socket but nothing about what is plugged into it. `input_names` and
@@ -85,8 +98,8 @@ zero, the same numbering `inputs` and `outputs` use:
 
 That channel then appears in the DAW as "Vocal mic (Quadro 1)": your name first, and the interface
 and socket still there in brackets, so a patch you have forgotten is one glance away. The interface
-carries 31 characters, and when your name and the reference together will not fit, your name alone
-is what is kept, because half a bracket reads as a name that was cut off. A name for a channel the
+carries 31 characters, and when your name and the bracketed automatic name together will not fit,
+your name alone is what is kept, because half a bracket reads as a name that was cut off. A name for a channel the
 device does not expose is simply unused, and a name that is empty or only spaces is the same as not
 giving one.
 
@@ -265,9 +278,9 @@ the reference stays comparable with every session after it.
 **A calibration run supplies it.** A run measures the click lag and the phase in the same session,
 so it is exactly the thing that can pair a trim with its reference.
 
-- **During a run the phase is measured and not applied.** The lag a run hears becomes the trim, and
-  the phase heard beside it becomes the trim's reference, so both have to be the raw figures of one
-  session. A run that lined itself up first would measure a trim on top of a correction made from
+- **During a measuring run the phase is measured and not applied.** The lag a run hears becomes the
+  trim, and the phase heard beside it becomes the trim's reference, so both have to be the raw
+  figures of one session. A run that lined itself up first would measure a trim on top of a correction made from
   the old reference, and the pair it wrote down would describe a state no session is ever in.
 - **The trims a run offers carry the reference beside them**: the new trim, and the phase that was
   measured while it was measured. Writing the trims writes both, and a trim offered with no phase
@@ -275,6 +288,20 @@ so it is exactly the thing that can pair a trim with its reference.
   belong to.
 - **Only input trims have one.** The phase is the capture pipeline's; nothing lines the outputs up
   by it.
+
+What a run hands back for this, field by field, is in
+[the calibrate crate's README](../gazelle-audio-calibrate/README.md#watching-a-run-and-what-it-leaves-behind).
+
+### Checking it
+
+A **check** is the other kind of run: the same clicks, but the session is lined up exactly as a
+DAW's would be, the phase applied from its reference and the trims in force, so the click lag it
+hears is what a recording would get. It offers no trim, because a lag heard on top of a correction
+is a verdict on the trim, not a new one. It is **Check**, beside Measure, on the Aggregate page.
+
+It is also how this was shown to work. At the devices on 2026-09-21, with a reference set, eight
+checks in a row read a click lag of 0.02 samples, although the sessions they ran in had started in
+three different states.
 
 ### With no reference
 
@@ -300,11 +327,13 @@ into the event log where somebody will find it in the morning.
 
 ### What it does with it
 
-The reference minus what was measured is applied to that interface's input path and the padding is
-worked out again, which is exactly what this driver already does with a reported latency and a
-trim. An interface that turns out to be **early** against its reference is **delayed**; one that is
-**late** means the others are held back to meet it, and the aggregate's own input latency grows by
-as much.
+What was measured minus the reference is added to that interface's input path (its reported input
+latency plus its trim) and the padding is worked out again, which is exactly what this driver
+already does with a reported latency and a trim. The effect is to hold the interface back by the
+reference minus what was measured: an interface that turns out to be **early** against its
+reference is **delayed**; one that is **late** means the others are held back to meet it, and the
+aggregate's own input latency grows by as much. The live record's `phase_applied` is that added
+figure, so in the example below it reads -64 for an interface held back by 64 samples.
 
 The driver does not interrupt the DAW to tell it that. It answers the figure in force whenever it is
 asked for it again, and it publishes it in the live record, but a DAW that read the latency before
@@ -323,7 +352,8 @@ pipeline's, and the outputs are left where the reported figures put them.
 
 The live record carries, per interface, what the measurement came to, what was applied and which of
 the states above it is in, beside the gap: `applied`, `no_reference`, `measured_only` for a
-calibration run, or one of the refusals. That goes the moment the DAW closes, so a line goes in the
+calibration run that is measuring a trim, or one of the refusals (`not_heard`, `off_the_grid`,
+`too_far`). That goes the moment the DAW closes, so a line goes in the
 event log as well, and that line is the only thing that survives the session:
 
 ```
@@ -336,17 +366,16 @@ event log as well, and that line is the only thing that survives the session:
 
 The driver has to work with Gazelle closed: **its configuration file is its only requirement**.
 When Gazelle is running, the two find each other through the shared format in
-`crates/gazelle-audio-aggregate-status`, whose README is the exact record, the names and the rules
-for who writes what. Not being able to publish is never a reason to fail: with no section the
+[`gazelle-audio-aggregate-status`](../gazelle-audio-aggregate-status/README.md), whose README is the
+exact record, the names and the rules for who writes what. Not being able to publish is never a reason to fail: with no section the
 driver simply runs, exactly as it does with nothing else on the PC.
 
 ### Live state, in shared memory
 
-A fixed size record in a named shared section, `Local\gazelle-aggregate-status-1`. Once it is
-mapped, writing it is a handful of atomic stores, with no allocation, no lock and no system call,
-which is what makes it safe from the audio path. A file written on a timer from an audio process
-would be at the mercy of antivirus and of the filesystem's own metadata churn, and would cap how
-often anything could be reported.
+A fixed size record in a named shared section. Its name, its layout, and why it is shared memory
+rather than a file are in
+[the status crate's README](../gazelle-audio-aggregate-status/README.md#the-names); the short of it is that writing it is a
+handful of atomic stores, which is what makes it safe from the audio path.
 
 It holds, at any moment:
 
@@ -382,11 +411,9 @@ timer**, so every line in the file means something:
 2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
 ```
 
-The words are `refused`, `stalled`, `recovered`, `glitched`, `phase`, `session-started`,
-`session-ended`, `adopted` and `reset-asked`. The time is local, because the person reading it is the person it
-happened to. This is the half that survives the driver exiting, which is exactly when somebody
-wants to know why last night's session would not start. The file is trimmed to its last 400 lines
-when the driver opens it, and that is the only time it is ever rewritten.
+This is the half that survives the driver exiting, which is exactly when somebody wants to know why
+last night's session would not start. The line format, the full list of words and the trimming rule
+are in [the status crate's README](../gazelle-audio-aggregate-status/README.md#the-event-log).
 
 ### Blocks lost, and where they are written down
 
@@ -451,7 +478,18 @@ Registration writes to `HKEY_LOCAL_MACHINE`, so it needs administrator rights. I
 optional step, and it touches nothing that Gazelle itself installs: Gazelle's own install is per
 user and goes nowhere near these keys.
 
-Build it:
+The Aggregate page in Gazelle offers to do it, behind Windows' own prompt, and shows the same
+command for anyone who would rather type it. It looks for the DLL beside Gazelle, in the build
+output a developer has just made, and in Gazelle's own folder, and says which copy a registration
+points at.
+
+**In a release there is nothing to build.** A release's executables carry the DLL inside them
+and write it out beside themselves on install and on the first start after an update, so the
+copy the page offers to register is already in Gazelle's folder. Uninstalling offers to remove
+the registration. How it is embedded, and why a driver a DAW has open is renamed aside rather
+than overwritten, is in [`docs/releasing.md`](../../docs/releasing.md).
+
+For a copy of your own, build it:
 
 ```
 cargo build -p gazelle-audio-aggregate --release
@@ -482,9 +520,12 @@ finds it again.
 
 ## Licence
 
-MIT, like the rest of this workspace. The interface this driver implements is declared by hand in
-`gazelle-audio-stream-abi` from its public shape; no SDK is used, included or needed, and this
-crate builds with none present.
+MIT, like the rest of this workspace. **No Steinberg code, and no SDK.** The interface this driver
+implements is declared by hand in
+[`gazelle-audio-stream-abi`](../gazelle-audio-stream-abi/README.md) from its public shape. Nothing
+from the SDK is included, copied or compiled, it is not needed to build this crate, and it must
+never be committed. That is why this driver can be MIT at all; the stream-abi README tells the
+whole of it.
 
 The driver's name is "Gazelle Aggregate". Steinberg's trademark rules forbid their technology's
 name in a product's name, so neither the driver nor either crate is named after it.

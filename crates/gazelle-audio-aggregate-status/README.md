@@ -4,8 +4,9 @@ The wire format between the **Gazelle Aggregate driver** and **Gazelle**, writte
 both sides agree and neither has to depend on the other. The driver runs inside whatever process
 opened it, which is a DAW; Gazelle is a separate program that may not be running at all.
 
-Windows only. MIT, like the rest of this workspace. Unreleased: nothing here is installed,
-registered or mentioned in the release notes.
+Windows only. MIT, like the rest of this workspace. Unreleased: both the driver and Gazelle's server
+are built against it, and the Aggregate page that reads it is in the release notes under
+Unreleased, but no published release carries it yet.
 
 There are three things in it, and they are deliberately different shapes.
 
@@ -120,7 +121,8 @@ is now expected to reach.
 | `pad_in`, `pad_out` | `i32` | Samples it is held back by so that every device lines up. |
 | `phase_state` | `u32` | What became of this interface's phase measurement this session: 0 nothing set up, 1 measuring, 2 lined up to the phase its trim was measured at, 3 nothing heard, 4 its change from that phase not near a whole number of 32 sample steps, 5 a correction past the room the driver keeps for one, 6 measured with no such phase to line it up to yet, 7 measured and deliberately not applied, which is a calibration run. An unknown number reads as nothing set up. |
 | `phase_measured` | `i32` | What the measurement came to, in samples, exactly. Positive means this interface's capture arrived later than the reported figures said it would. |
-| `phase_applied` | `i32` | What was added to its input path because of it: what was measured minus the phase its trim was measured at. Zero unless `phase_state` is 2: a measurement that is not used is never a correction of zero. |
+| `phase_applied` | `i32` | What was added to its input path because of it: what was measured minus the reference, which is the phase its trim was measured at, so the interface is held back by the reference minus what was measured. Zero unless `phase_state` is 2: a measurement that is not used is never a correction of zero. It is not folded into `latency_in`; it shows in `pad_in`. |
+| `reserved` | `u32` | Zero. |
 
 A string field is bytes plus a length. Read it through `Text::get`, which clamps the length to the
 array and answers nothing at all for bytes that are not text: a reader of a record it cannot trust
@@ -199,14 +201,9 @@ time it is ever rewritten.
 5. Gazelle watches `driver.generation_in_force` catch up, or `driver.refusal` and
    `driver.refused_generation` say why it did not.
 
-The driver's side of step 4 is in the driver's own crate, and its rules are:
-
-- A configuration that does not parse, or that names a device this PC does not have, is **refused**.
-  What is in force stays in force and the DAW is left alone.
-- If nothing is streaming, the new plan is **adopted** there and then, quietly.
-- If a DAW is streaming, the host is **asked to reset**, which is the message a vendor driver sends
-  when its own settings change, and the new plan is taken up when the DAW comes back for buffers.
-  Audio drops for a moment exactly as a buffer size change does.
+The driver's side of step 4 is in the driver's own crate, and its rules (refused, adopted, or the
+host asked to reset) are in
+[the driver's README](../gazelle-audio-aggregate/README.md#changing-its-mind-while-it-is-loaded).
 
 The watcher also looks around on a timeout, every 250 ms, which is how a device that stalled gets
 its line in the event log.

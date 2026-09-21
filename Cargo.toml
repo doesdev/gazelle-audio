@@ -9,13 +9,15 @@ members = [
     "crates/gazelle-audio-stream-abi",
     # Phase 0 of the aggregate driver: a hardware probe, never shipped.
     "crates/gazelle-audio-aggregate-probe",
-    # Phase 1 of the aggregate driver: the driver itself, unregistered and never shipped.
+    # Phase 1 of the aggregate driver: the driver itself. It ships inside the server's
+    # executables, embedded at release build time; see `docs/releasing.md`.
     "crates/gazelle-audio-aggregate",
     # Phase 2: the record the driver publishes its state in and Gazelle reads. Shared by both, so
     # that neither has to depend on the other.
     "crates/gazelle-audio-aggregate-status",
     # Measuring what the aggregate has left over: drives the aggregate at real converters and
-    # works out the trim that lines the interfaces up. Never shipped.
+    # works out the trim that lines the interfaces up. Linked into the server for the Aggregate
+    # page's Measure and Check.
     "crates/gazelle-audio-calibrate",
     # Release chores (SHA256SUMS and its signature). Never shipped.
     "xtask",

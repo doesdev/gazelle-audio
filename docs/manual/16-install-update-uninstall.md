@@ -63,6 +63,8 @@ Gazelle looks for a newer release half a minute after it starts and every six ho
 3. The checked programs take the installed ones' place straight away, while the old one keeps running (it is renamed to `.exe.old`, which the next start deletes). The header then shows **X ready, restart** and the tray offers **Restart to update to X**.
 4. Press **X ready, restart** and it asks once more, reading **Confirm**; press it again and Gazelle stops cleanly, lets go of the devices and starts the new version. The page says **Reconnecting...** for a few seconds and comes back on the new version. The tray item does the same thing without the second press.
 
+**Gazelle Aggregate travels inside Gazelle.** Installing puts the driver file in Gazelle's folder, but does not register it; registering is done on the [Aggregate page](13-aggregate-page.md#registering), which is where Windows asks for administrator rights. An update brings a new driver with it, and the updated Gazelle puts it in place the first time it starts. A DAW that already has the driver open carries on with the old one until you restart the DAW, because Windows will not replace a driver in use; the old file is set aside and cleared at a later start. If the new driver cannot be put in place at all, the Aggregate page says so and Gazelle tries again at every start.
+
 Some things to know:
 
 - The header says nothing at all while you are up to date, and nothing while a check is running: it speaks up only when there is something to do or something is happening. On a phone the version readout is dropped but the update prompt is not.
@@ -110,6 +112,18 @@ Your settings (`%APPDATA%\gazelle`: workspace, layouts, themes, snapshots, windo
 | `--yes` | Kept, without asking anything (what Settings, Apps runs for a quiet uninstall) |
 
 An uninstall started from the install folder itself copies itself to your temporary folder and finishes from there, since Windows cannot delete a running program. That copy is the one file left behind, for Windows to clean up.
+
+### Gazelle Aggregate, on uninstall
+
+If Gazelle Aggregate is registered from Gazelle's own folder, uninstalling says so and offers to remove the registration, with Windows' own administrator prompt, since that registration lives in the part of Windows every program shares. Say yes and it goes, along with the driver file.
+
+Keep it, or decline the prompt, and uninstall leaves the driver file and its folder where they are, so the registration never points at nothing and a DAW can still open the driver. To remove it later, in a terminal started as an administrator:
+
+```
+regsvr32 /u "%LOCALAPPDATA%\Programs\Gazelle\gazelle_aggregate.dll"
+```
+
+then delete the folder. A quiet uninstall (`--yes`) never asks: it leaves the registration and prints that command. A driver file a DAW still has open is left behind and named; delete it once the DAW is closed.
 
 ## Files Gazelle keeps
 

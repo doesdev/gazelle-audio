@@ -32,6 +32,8 @@ Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent so
 | No window | WebView2 missing: tray **Open Gazelle** opens the browser |
 | DAW does not list Gazelle Aggregate | Not registered: Aggregate page, **Register the driver** (the one admin prompt) |
 | Aggregate gap grows, or clicks | Two clocks: check the cable and every clock source while the DAW plays |
+| Interfaces land a different distance apart each session | Set up the phase on the follower's card, measure once, then **Check** |
+| Measure says nothing arrived | The interfaces' own routing does not carry the click: playback channel to the socket, socket to a record channel |
 | SmartScreen warning | Unsigned: **More info**, **Run anyway**, only for the official download |
 
 ## Install and start
@@ -75,7 +77,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | Mixer | One mix at a time as named channels: the fader is the level in that mix. **Show all channels** for the rest; Mono, outputs per mix |
 | Routing | Source for every destination; Read from device |
 | Effects | Chains, effect settings, reverb |
-| Aggregate | Both interfaces as one driver a DAW opens: ready or not and why, registering, order, trims, the live gap |
+| Aggregate | Both interfaces as one driver a DAW opens: ready or not and why, registering, order, channel names, measuring the trims and the phase, **Check**, the live gap |
 
 **Sidebar:** Devices (click a card to switch device), Meter (**Clear** for clip lights), Control Room (volume, Mute, Dim, Mono per output; Studio+ talkback). **Dock:** a mix's faders at the bottom of every page. **Header:** USB or LOOPBACK, Dry run, connection, **?** explain mode (with it on, the version reads out left of the backend badge; not on a phone).
 
@@ -97,7 +99,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 
 **Double-click resets:** fader -20 dB; output, CR and talkback volume -30 dB; Studio+ Send and reverb sends off; reverb level -18 dB; Quadro reverb return 20 steps down; gain 0 dB; pan centre; brightness 50%; effect settings to the panel default. Header **Double-click: unity** makes a level's double-click unity (kept in this browser).
 
-**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, matching the aggregate's buffer sizes, unregistering the aggregate driver, putting one input into a mix twice, remove a channel, strip, surface, cable, snapshot or aggregate interface. Off is one click.
+**Two clicks (Confirm):** 48V on, tone on, DC coupling on, preset recall and save, clock source and rate, driver buffer size and Safe Mode, Standby, matching the aggregate's buffer sizes, unregistering the aggregate driver, **Measure** and **Check** (both play a click), clearing a phase setup, putting one input into a mix twice, remove a channel, strip, surface, cable, snapshot or aggregate interface. Off is one click.
 
 **Wheel ignored:** the Mixer's Mix buttons, clock source, sample rate, driver buffer size, Add effect, a channel's Input and Main mix, + Output, Route, mix pin, every menu on the Aggregate page.
 

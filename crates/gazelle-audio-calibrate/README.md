@@ -14,15 +14,20 @@ configuration the person is actually using, at their rate and buffer size, drive
 DAW does, plays a click and reads the aggregate's own input buffers. Everything the aggregate does
 to line the interfaces up has already happened by then, so whatever offset is left in that buffer
 **is** the error, in the same coordinates a trim is written in. Adding it to the trim cancels it.
-Nothing new has to touch the interfaces: the aggregate already opens them.
+Nothing new has to touch the interfaces: the aggregate already opens them. The one thing a
+measuring run leaves out on purpose is the per session phase correction, because the phase it hears
+becomes the new trim's reference; see "Watching a run" below.
 
 **This one really does drive the hardware.** It plays audio out of a real interface into whatever
 is plugged into it. The click is quiet by default (about -20 dBFS) and can never be louder than
 -6 dBFS whatever it is asked for, but turn the monitors down before the first run all the same.
 
-**Unreleased.** It is not registered, not installed and not in the release. Its tests never touch
-hardware: the arithmetic is tested against signals made of data, and the whole session is tested by
-driving the real aggregate against sub-devices made of data with a delay built into one of them.
+**Unreleased.** Gazelle's server is built with it: it is what the Aggregate page's **Measure** and
+**Check** run, and the release notes under Unreleased describe them. No published release carries
+it yet. Its tests never touch hardware: the arithmetic is tested against signals made of data, and
+the whole session is tested by driving the real aggregate against sub-devices made of data with a
+delay built into one of them. It has been run at the real interfaces a great deal, and the findings
+below that carry a date were measured there.
 
 Windows only.
 
@@ -44,8 +49,10 @@ One interface plays, every interface records:
 | Quadro out L | Quadro in 1 |
 | Quadro out R | Studio+ in 1 |
 
-The Quadro is the reference here, because it is first in the file. What comes out is the residual
-error between the two interfaces' **inputs**, and it goes in `input_trim`.
+The Quadro is what the others are measured against here, because it is first in the file, and its
+own trim never moves. (That is not the phase reference, which is another thing entirely; see
+"Watching a run" below.) What comes out is the residual error between the two interfaces'
+**inputs**, and it goes in `input_trim`.
 
 ### Measuring the outputs
 
@@ -71,7 +78,7 @@ what the trim arithmetic means: the difference between two interfaces' channels 
 between the interfaces. A second input on the same interface is not a difference between
 interfaces, so it can never be a trim. It can be an observation, and that is what a witness is.
 
-Each witness is measured exactly as a reading is: its lag against the reference channel, the
+Each witness is measured exactly as a reading is: its lag against the channel everything is measured against, the
 spread across the clicks, how many clicks were found, and what its interface's audio lost while it
 was going. It carries the channel number it was, because it has no interface of its own to be named
 by, and the name of the interface that channel belongs to. It is reported separately from the
@@ -111,6 +118,12 @@ no witness at all. What the witness adds is a second number for the same interfa
 run it several times, and if the analogue lag and the S/PDIF lag move together, run to run, by the
 same amount, the interface's capture pipeline has one phase and measuring it over S/PDIF is enough.
 If they move apart from each other, it has not, and they have to be measured separately.
+
+**It has been answered.** At the devices on 2026-09-21, in six runs, an interface's analogue and
+S/PDIF inputs moved together every time, their difference constant to two decimals while the
+absolute figures jumped by whole steps of 32 samples. That is why the aggregate measures each
+interface's phase once, over the digital cable, and corrects every input by it; the figures are in
+[the aggregate's README](../gazelle-audio-aggregate/README.md#the-phase).
 
 ## The sign rule
 
@@ -235,9 +248,10 @@ through the same machinery and into the same places.
 `GET /api/v1/aggregate` reads it: `status.state` is `read` rather than `silent`, with the plan in
 force, the rate and buffer size, both interfaces, `open` and `streaming`, the callbacks going by, the
 blocks each interface drops or misses, and in each of `status.devices` the phase measurement's
-`phase` (`not_configured`, `measuring`, `measured_only` or `not_heard` in a run),
-`phase_measured` and `phase_applied`. The Aggregate page shows a run the way it shows a DAW's
-session. When the run ends, the record says nothing is open, and once the run has let go of it there
+`phase` (`not_configured`, `measuring`, `measured_only` or `not_heard` in a measuring run; a
+check can also show `applied`, `no_reference`, `off_the_grid` or `too_far`, exactly as a DAW's
+session can), `phase_measured` and `phase_applied`. The Aggregate page shows a run the way it shows
+a DAW's session. When the run ends, the record says nothing is open, and once the run has let go of it there
 is no record at all, exactly as when a DAW closes the driver.
 
 **Afterwards**, the driver's event log (`%APPDATA%\gazelle\aggregate-events.log`, which
@@ -261,16 +275,20 @@ a run writes that could forget it.
 read out of the record at the end of the run, in the driver's own terms: the state, what was
 measured and what was applied, in samples, and the driver's own sentence about it.
 `Outcome::phases_refused` picks out the interfaces whose measurement was asked for and turned down,
-which is what a person reading a result has to be told: nothing came back on their measurement
-cable, so the trim offered for them has no phase to be paired with.
+which is what a person reading a result has to be told. In a measuring run that means nothing came
+back on their measurement cable, so the trim offered for them has no phase to be paired with; in a
+check it can also mean the driver would not line the session up, which is exactly what a check is
+there to find.
 
-**A run measures the phase and applies none of it**, and that is what makes it the place a trim's
-phase reference comes from. The driver lines every session up to the phase that was measured when
-the trim was, so the trim and that phase have to be the raw figures of one session: the lag a run
-hears is on the drivers' own figures with nothing moved underneath it, and the phase it hears beside
-that lag is exactly the reference the new trim needs. Each input trim for an interface whose phase is
-measured comes back with a `phase_reference` beside it, in the same voice as the trim: what the file
-had (`old`) and what to write (`new`). Writing the trim writes both. A trim offered with no phase
+**A measuring run measures the phase and applies none of it**, and that is what makes it the place
+a trim's phase reference comes from. The driver lines every session up to the phase that was
+measured when the trim was, so the trim and that phase have to be the raw figures of one session:
+the lag a run hears is on the drivers' own figures with nothing moved underneath it, and the phase
+it hears beside that lag is exactly the reference the new trim needs. (Why the driver needs it, and
+what it does with it, is in
+[the aggregate's README](../gazelle-audio-aggregate/README.md#where-the-reference-comes-from).)
+Each input trim for an interface whose phase is measured comes back with a `phase_reference`
+beside it, in the same voice as the trim: what the file had (`old`) and what to write (`new`). Writing the trim writes both. A trim offered with no phase
 heard beside it carries a `new` of nothing, which takes the old reference out rather than leaving it
 next to a trim it does not belong to; a trim that is not offered keeps its old reference. Output
 trims, the interface everything was measured against, and interfaces with no phase setting have none.
@@ -282,6 +300,22 @@ empty, because the phase is only ever reported through the record: empty means t
 read, which is not the same as every interface going unmeasured. The same happens when the section
 already exists, which means the driver is loaded in a DAW somewhere: that record belongs to that
 driver, and a run never writes into it.
+
+## Checking rather than measuring
+
+A **check** is a run with `Settings::checking` set. It plays the same clicks through the same rig,
+but the session is lined up exactly as a DAW's session would be: each interface's phase is applied
+from its reference, and the trims in the file are in force. The click lag it hears is therefore what
+a recording made now would get, which makes it the verdict on the trims and references already
+written: a lag near zero on every interface means they hold.
+
+It offers nothing to write. `Outcome::trims` comes back empty and `Outcome::checking` is true,
+because a lag heard on top of a correction is a verdict on the trim, not a new one. Everything else,
+the readings, the spread, the lost blocks, the drift and the phases, is reported as for any run.
+It is **Check**, beside Measure, on the Aggregate page.
+
+At the devices on 2026-09-21, with a reference set, eight checks in a row read a click lag of 0.02
+samples, although the sessions they ran in had started in three different states.
 
 ## Using it
 
@@ -306,8 +340,9 @@ match outcome.refusal {
 }
 ```
 
-`Settings` carries how many clicks, how far apart, how loud, the rate and buffer size to ask for,
-how long to let the interfaces settle first, and how far either side of each click to search.
+`Settings` carries how many clicks, how far apart, how long each one is, how loud, the rate and
+buffer size to ask for, how long to let the interfaces settle first, how far either side of each
+click to search, and whether this is a check rather than a measurement.
 Everything a server would send on is `serde::Serialize`.
 
 ## Running its tests

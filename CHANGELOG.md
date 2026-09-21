@@ -62,6 +62,10 @@ version that has not been published yet.
   the trim, and every later session is put back in step. **Check**, beside Measure, plays the
   clicks with everything lined up and tells you how far apart a recording would land now. The page
   shows each session's phase live, and the log records what it measured.
+- **Gazelle Aggregate comes with Gazelle.** Installing or updating puts the driver in Gazelle's
+  folder, ready to register from the Aggregate page, and an update while your DAW has the driver
+  open finishes the next time the DAW starts rather than failing. Uninstalling offers to remove
+  the driver's registration, so a DAW is never left listing a driver that is no longer there.
 - **The aggregate writes down what a session lost.** Blocks that go missing are what you hear as a
   click, and until now the count died with the session. The driver's log now says, when a session
   ends, how long it ran and what each interface lost, and says so the first time anything goes

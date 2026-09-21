@@ -39,6 +39,7 @@ const TREES: &[&str] = &["web/apps/web/src", "web/apps/web/themes", "web/themes"
 const FILES: &[&str] = &[
     "web/apps/web/index.html",
     "xtask/Cargo.toml",
+    "xtask/README.md",
     "CHANGELOG.md",
     "CLAUDE.md",
     ".github/workflows/ci.yml",
@@ -62,7 +63,9 @@ fn roots(root: &Path) -> Vec<PathBuf> {
     let crates = std::fs::read_dir(root.join("crates")).expect("the crates directory is readable");
     for entry in crates {
         let dir = entry.expect("a crate directory entry").path();
-        for part in ["src", "build", "build.rs", "Cargo.toml"] {
+        // A crate's README is how a developer first meets it, and `docs:check` reads only `docs/`
+        // and the root README, so without this a crate's README could say anything.
+        for part in ["src", "build", "build.rs", "Cargo.toml", "README.md"] {
             let path = dir.join(part);
             if path.exists() {
                 out.push(path);

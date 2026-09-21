@@ -7,9 +7,10 @@
 //! of the workspace, and so is the aggregate driver that followed it: that driver implements the
 //! same interface from the same hand written declaration, and needs no SDK either.
 //!
-//! What it does to the hardware: it reads. It never sets a sample rate, a clock source or a
-//! buffer size, never opens a vendor control panel, and writes nothing but zeroes, to the output
-//! buffers it was handed. Input is never read and never copied anywhere.
+//! What it does to the hardware: it reads. It sets a sample rate only when `--set-rate` asks it
+//! to, which is its one write and the same thing a DAW does when it opens a driver; it never sets
+//! a clock source or a buffer size, never opens a vendor control panel, and writes nothing but
+//! zeroes, to the output buffers it was handed. Input is never read and never copied anywhere.
 //!
 //! A bare run lists every ASIO driver on the PC and stops. `--yes` is what opens anything, and
 //! `GAZELLE_NO_HARDWARE=1` refuses outright.

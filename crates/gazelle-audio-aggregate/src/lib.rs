@@ -36,6 +36,9 @@
 //!   list, its buffer size, its latencies and the padding each device needs.
 //! - [`stream`] is the audio path, and the only code that runs on a callback thread. It allocates
 //!   nothing, locks nothing, logs nothing and never calls back into a vendor driver.
+//! - [`phase`] measures where each follower's capture pipeline settled when its stream started,
+//!   over the digital cable between the interfaces, so every session can be put back into the
+//!   state its trims were measured in. The deciding is pure; the listening runs in [`stream`].
 //! - [`aggregate`] is everything a DAW asks for outside the audio path.
 //! - [`status`] is what the driver tells the outside world: the live record in shared memory, and
 //!   the small event log that keeps what happened after the driver has exited.
