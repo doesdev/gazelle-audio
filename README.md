@@ -79,12 +79,19 @@ To run without installing, double-click `gazelle-audio-serverw.exe` from the zip
 Stop-Service -Name Antelope-Manager-Service
 ```
 
-**From source**, with Rust 1.88 or newer and Node.js 24 or newer:
+**From source**, with Rust 1.88 or newer and Node.js 24 or newer, to build and install on this PC exactly as a release is built:
+
+```
+cargo run -p xtask -- install-local
+```
+
+That builds the web app, then the aggregate driver, then the server carrying the driver and the update key, stops a Gazelle already running from the install folder, and installs and starts the new one. `--skip-web` leaves the web app alone for a change that is Rust only, and `--dry-run` says what it would do. The same by hand, where the driver has to be its own build before the server's, because the server reads it while it compiles:
 
 ```
 corepack pnpm -C web install --frozen-lockfile
 corepack pnpm -C web build
-cargo build --release -p gazelle-audio-server --features window
+cargo build --release -p gazelle-audio-aggregate
+GAZELLE_AGGREGATE_DLL=target/release/gazelle_aggregate.dll cargo build --release -p gazelle-audio-server --features window
 ```
 
 **Without hardware**, to look around: `gazelle-audio-server --backend loopback`.

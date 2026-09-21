@@ -22,6 +22,7 @@ cargo run -p xtask -- help
 | `pubkey` | Prints the public half of the signing key, and fails when it is not the one expected. |
 | `sign --dir <dir>` | Hashes every file into `SHA256SUMS` and signs it. |
 | `verify --dir <dir> --pubkey <hex>` | Checks a signed directory the way an installed copy will, and is strict about what is in it. |
+| `install-local [--skip-web] [--dry-run] [--pubkey <hex>]` | Builds this checkout as a release is built (web app, aggregate driver, then the server carrying the driver and the update key, fetched with `gh variable get` when not given) and installs it on this PC, stopping a Gazelle running from the install folder by process id. The one command here that starts the real app on purpose, so it takes the `GAZELLE_NO_HARDWARE` backstop away for that launch alone. |
 
 ## Where it sits
 

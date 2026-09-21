@@ -9,6 +9,7 @@
 //! cargo run -p xtask -- pubkey --key <file> --expect <64 hex digits>
 //! cargo run -p xtask -- sign --dir dist [--key <file>]
 //! cargo run -p xtask -- verify --dir dist --pubkey <64 hex digits>
+//! cargo run -p xtask -- install-local [--skip-web] [--dry-run] [--pubkey <64 hex digits>]
 //! ```
 //!
 //! `keygen` makes an ed25519 pair, writes the **private** half to a file outside the repository
@@ -36,6 +37,7 @@
 //! A binary built without it will not download an update, because it could not check one.
 
 mod dist;
+mod local;
 mod notes;
 mod smoke;
 mod verify;
@@ -72,6 +74,11 @@ gazelle release helper
                                      write SHA256SUMS over <dir>, sign it, say what to upload
     xtask verify --dir <dir> --pubkey <hex> [--target <triple>]
                                      check <dir> as the updater will; prints the files to upload
+    xtask install-local [--skip-web] [--dry-run] [--pubkey <hex>]
+                                     build this checkout as a release is built (the web app, the
+                                     aggregate driver, then the server carrying it and the update
+                                     key), stop the installed Gazelle by process id, and install
+                                     and start the build; --dry-run says what it would do
 
 The private key is read from --key, or from the file named by GAZELLE_RELEASE_KEY.
 Defaults: --bin-dir target/release, --docs docs/dist, --changelog CHANGELOG.md (all relative to
@@ -144,6 +151,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
             let bin_dir = flag(&args, "--bin-dir").unwrap_or_else(|| PathBuf::from("target/release"));
             let version = value(&args, "--version").unwrap_or_else(|| gazelle_audio_server::VERSION.to_string());
             smoke::smoke(&bin_dir, &version, value(&args, "--pubkey").as_deref(), &target())
+        }
+        Some("install-local") => {
+            only(&args, &["--skip-web", "--dry-run", "--pubkey"])?;
+            local::install_local(&local::Options {
+                skip_web: args.iter().any(|a| a == "--skip-web"),
+                dry_run: args.iter().any(|a| a == "--dry-run"),
+                pubkey: value(&args, "--pubkey"),
+            })
         }
         // A typo in a workflow must fail the step, not print the usage and pass.
         Some(other) => Err(format!("unknown command {other:?}; run xtask help for the list")),
