@@ -19,7 +19,7 @@ export type {
   UserTheme,
 } from "./client.ts";
 export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
-export type { AggregateAnswer, AggregateChannelNames, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePlan, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
+export type { AggregateAnswer, AggregateCalibrateDirection, AggregateCalibrateOutcome, AggregateCalibrateReading, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibrateTrim, AggregateCalibration, AggregateChannelNames, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateDrift, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePlan, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
 export type { UpdateRestart, UpdateState, UpdateStatus } from "./update.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";

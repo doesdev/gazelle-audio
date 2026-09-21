@@ -5,7 +5,7 @@
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
-import type { AggregateAnswer, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
+import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
@@ -168,6 +168,19 @@ export interface Client {
      */
     register(): Promise<AggregateRegistrationRun>;
     unregister(): Promise<AggregateRegistrationRun>;
+    /**
+     * The one measurement at a time that lines the interfaces up: idle, running with a step and how
+     * far along it is, done with what it measured, or failed with the refusal that says why.
+     */
+    calibration(): Promise<AggregateCalibration>;
+    /**
+     * Starts a measurement. It plays a click out of a real output and takes the audio drivers for
+     * itself, so it rejects, having played nothing, while a DAW has them open, and when the
+     * channels named do not make sense for the pass being run.
+     */
+    calibrate(request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted>;
+    /** Stops the run that is going. Stopping one that is not is answered, not refused. */
+    stopCalibrate(): Promise<AggregateCalibrateStopped>;
   };
   /**
    * The in-app updater. Served only on a loopback bind, so every call rejects with `http_404` on
@@ -350,6 +363,10 @@ class Connection implements Client {
       (await this.#http("POST", "aggregate/match-buffers", { buffer_size, ...(options.force === true ? { force: true } : {}) })) as AggregateMatchBuffers,
     register: async (): Promise<AggregateRegistrationRun> => (await this.#http("POST", "aggregate/register", {})) as AggregateRegistrationRun,
     unregister: async (): Promise<AggregateRegistrationRun> => (await this.#http("POST", "aggregate/unregister", {})) as AggregateRegistrationRun,
+    calibration: async (): Promise<AggregateCalibration> => (await this.#http("GET", "aggregate/calibrate")) as AggregateCalibration,
+    calibrate: async (request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted> =>
+      (await this.#http("POST", "aggregate/calibrate", request)) as AggregateCalibrateStarted,
+    stopCalibrate: async (): Promise<AggregateCalibrateStopped> => (await this.#http("POST", "aggregate/calibrate/stop", {})) as AggregateCalibrateStopped,
   };
 
   readonly update = {

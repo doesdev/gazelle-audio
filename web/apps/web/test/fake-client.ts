@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -222,7 +222,26 @@ export class FakeClient implements Client {
     },
     register: async (): Promise<AggregateRegistrationRun> => this.#registration("register"),
     unregister: async (): Promise<AggregateRegistrationRun> => this.#registration("unregister"),
+    calibration: async (): Promise<AggregateCalibration> => {
+      this.aggregateCalls.push("calibration");
+      if (this.calibration === undefined) throw new GazelleError("http_404", "GET /api/v1/aggregate/calibrate returned HTTP 404");
+      return this.calibration;
+    },
+    calibrate: async (request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted> => {
+      this.aggregateCalls.push(`calibrate:${request.direction}:${request.outputs.join("/")}:${request.inputs.join("/")}`);
+      this.calibration = { state: "running", step: "Playing the clicks", progress: 0 };
+      return { started: true };
+    },
+    stopCalibrate: async (): Promise<AggregateCalibrateStopped> => {
+      this.aggregateCalls.push("stop-calibrate");
+      const wasRunning = this.calibration?.state === "running";
+      if (this.calibration !== undefined) this.calibration = { state: "idle" };
+      return { stopped: wasRunning };
+    },
   };
+
+  /** What `GET /aggregate/calibrate` answers, or undefined for a server that does not serve it. */
+  calibration: AggregateCalibration | undefined;
 
   #registration(call: string): AggregateRegistrationRun {
     this.aggregateCalls.push(call);

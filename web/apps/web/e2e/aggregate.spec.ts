@@ -89,6 +89,16 @@ interface Captured {
   commands: { device_id: string; command: string; args?: unknown }[];
   /** How many times the page read the whole answer. */
   reads: number;
+  /** How many times it asked about the measurement, which it does only while one is running. */
+  calibrationReads: number;
+  /**
+   * What `GET /aggregate/calibrate` answers next. The server has no such route in these tests, so
+   * a test sets this to whatever state it wants the page to show; a list is read in turn, so a run
+   * can be seen to start, get on with it and finish.
+   */
+  calibration: Record<string, unknown>[];
+  /** When set, starting a run is refused with this message rather than started. */
+  refuseCalibrate?: string;
 }
 
 /**
@@ -97,7 +107,7 @@ interface Captured {
  * reach the server.
  */
 async function fakeAggregate(page: Page, ...readings: Record<string, unknown>[]): Promise<Captured> {
-  const captured: Captured = { posts: [], commands: [], reads: 0 };
+  const captured: Captured = { posts: [], commands: [], reads: 0, calibrationReads: 0, calibration: [{ state: "idle" }] };
   // A device command is a frame on the event socket. It still reaches this loopback server, which
   // is in dry run, so nothing is written anywhere; what is checked is the frame the page sent.
   page.on("websocket", (socket) =>
@@ -113,10 +123,28 @@ async function fakeAggregate(page: Page, ...readings: Record<string, unknown>[])
   await page.route("**/api/v1/aggregate**", async (route: Route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    const calibration = () => captured.calibration[Math.min(captured.calibrationReads, captured.calibration.length - 1)];
     if (request.method() === "POST") {
       captured.posts.push({ route: path, body: request.postDataJSON() });
       if (path.endsWith("match-buffers")) return route.fulfill({ json: { buffer_size: (request.postDataJSON() as { buffer_size: number }).buffer_size, changed: 2, refused: 0, devices: [] } });
+      if (path.endsWith("calibrate/stop")) {
+        const wasRunning = captured.calibration[Math.min(captured.calibrationReads, captured.calibration.length - 1)]?.["state"] === "running";
+        captured.calibration = [{ state: "idle" }];
+        captured.calibrationReads = 0;
+        return route.fulfill({ json: { stopped: wasRunning } });
+      }
+      // A run the server will not start refuses, in the codebase's usual refusal shape.
+      if (path.endsWith("calibrate")) {
+        const refusal = captured.refuseCalibrate;
+        if (refusal !== undefined) return route.fulfill({ status: 409, json: { error: { code: "asio_in_use", message: refusal } } });
+        return route.fulfill({ json: { started: true } });
+      }
       return route.fulfill({ json: { dll: DLL, command: "regsvr32", run: { started: true, exit_code: 0, message: "The driver was registered." } } });
+    }
+    if (path.endsWith("aggregate/calibrate")) {
+      const state = calibration();
+      captured.calibrationReads += 1;
+      return route.fulfill({ json: state });
     }
     const at = Math.min(captured.reads, readings.length - 1);
     captured.reads += 1;
@@ -695,6 +723,217 @@ test("the answer is read again while a DAW is streaming, and not once the page h
 });
 
 // ---------------------------------------------------------------------------------------------
+// Lining the interfaces up
+// ---------------------------------------------------------------------------------------------
+
+/** Two interfaces with channels the page can list: four each way on the Quadro, two on the Studio+. */
+const withBoth = () => [
+  deviceReport("Quadro", { is_master: true, channels: { inputs: ["Mic 1", "Mic 2", "Mic 3", "Mic 4"], outputs: ["Main L", "Main R", "Cue L", "Cue R"], source: "gazelle" } }),
+  deviceReport("Studio+", { device_id: "loopback-1", channels: { inputs: ["Line 1", "Line 2"], outputs: ["Out 1", "Out 2"], source: "gazelle" } }),
+];
+
+const bothConfigured = () =>
+  putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }, { key: "Studio+", name: "Studio+", device_id: "loopback-1" }], callback_master: "Quadro" } });
+
+/** A finished run: the Studio+ records 28 samples late, and that is the trim it implies. */
+const done = (parts: Record<string, unknown> = {}, readings: Record<string, unknown>[] = []) => ({
+  state: "done",
+  outcome: {
+    direction: "inputs",
+    rate: 96000,
+    buffer_size: 512,
+    reference: "Quadro",
+    readings:
+      readings.length > 0
+        ? readings
+        : [
+            { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8, note: "Quadro is what the others were measured against." },
+            { device: "Studio+", is_reference: false, lag_samples: 27.8, spread_samples: 0.3, clicks_found: 8, clicks_expected: 8, note: "Studio+ recorded 27.8 samples after the Quadro." },
+          ],
+    trims: [
+      { device: "Quadro", direction: "inputs", field: "input_trim", was: 0, measured: 0, now: 0, is_reference: true, not_applied: "The reference has nothing to correct against itself." },
+      { device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, is_reference: false },
+    ],
+    warnings: [],
+    ...parts,
+  },
+});
+
+test("the cabling is named channel by channel, and follows the pickers", async ({ page }) => {
+  await bothConfigured();
+  await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+
+  // The input pass by default: both clicks leave the Quadro, and each interface records its own.
+  await expect(page.getByTestId("calibrate-direction")).toHaveValue("inputs");
+  await expect(page.getByTestId("calibrate-reference")).toHaveValue("Quadro");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 2 into Studio+ 1");
+  await expect(page.getByTestId("calibrate-problem")).toBeHidden();
+
+  // Choosing another output moves the cable that goes with it, and nothing else.
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "Quadro 4" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 4 into Studio+ 1");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
+
+  // And the other pass is the same thing the other way round: one output on each interface.
+  await page.getByTestId("calibrate-direction").selectOption("outputs");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Studio+ 1 into Quadro 2");
+});
+
+test("a channel with a name of its own is named in the cabling with its own number after it", async ({ page }) => {
+  await putWorkspace(server, {
+    aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0", output_names: { "0": "Monitor L" } }, { key: "Studio+", name: "Studio+", device_id: "loopback-1" }] },
+  });
+  await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Monitor L (Quadro 1) into Quadro 1");
+});
+
+test("measuring asks twice, then sends exactly the channels the pickers name", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+  await expect(page.getByTestId("calibrate-warning")).toContainText("plays a click out of a real output");
+  await expect(page.getByTestId("calibrate-warning")).toContainText("close any DAW");
+
+  const measure = page.getByTestId("calibrate-measure");
+  await measure.click();
+  await expect(measure).toHaveText("Confirm");
+  await page.waitForTimeout(300);
+  expect(captured.posts, "one click plays nothing").toEqual([]);
+
+  captured.calibration = [{ state: "running", step: "Playing the clicks", progress: 0.42 }, done()];
+  await measure.click();
+  await expect.poll(() => captured.posts).toEqual([
+    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [0, 1], inputs: [0, 4], clicks: 8, level_dbfs: -20 } },
+  ]);
+});
+
+test("a run shows its step and how far along it is, and can be stopped", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [{ state: "running", step: "Playing the clicks", progress: 0.42 }];
+  await open(page);
+  await expect(page.getByTestId("calibrate-step")).toHaveText("Playing the clicks (42%)");
+  await expect(page.getByTestId("calibrate-measure")).toBeHidden();
+  // While it runs the pickers are left alone, so nothing can be changed under it.
+  await expect(page.getByTestId("calibrate-direction")).toBeDisabled();
+
+  // It is asked about again while it goes, which is the only time it is asked about at all.
+  await expect.poll(() => captured.calibrationReads, { timeout: 5000 }).toBeGreaterThan(2);
+
+  await page.getByTestId("calibrate-stop").click();
+  await expect.poll(() => captured.posts.map((post) => post.route)).toEqual(["aggregate/calibrate/stop"]);
+  await expect(page.getByTestId("calibrate-measure")).toBeVisible();
+  const settled = captured.calibrationReads;
+  await page.waitForTimeout(2000);
+  expect(captured.calibrationReads, "nothing running is nothing to ask about").toBeLessThanOrEqual(settled + 1);
+});
+
+test("a finished run says how far out each interface is, how steady it was, and what it found", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [done()];
+  await open(page);
+
+  await expect(page.getByTestId("calibrate-summary")).toContainText("96 kHz, 512 samples, against Quadro");
+  await expect(page.getByTestId("calibrate-lag-Quadro")).toContainText("measured against");
+  await expect(page.getByTestId("calibrate-lag-Studio+")).toHaveText("27.8 samples late");
+  await expect(page.getByTestId("calibrate-lag-Studio+")).toHaveAttribute("data-tone", "off");
+  await expect(page.getByTestId("calibrate-spread-Studio+")).toHaveText("Clicks agreed to 0.3 samples");
+  await expect(page.getByTestId("calibrate-clicks-Studio+")).toHaveText("8 of 8 clicks found");
+  await expect(page.getByTestId("calibrate-note-Studio+")).toContainText("27.8 samples after the Quadro");
+  // The reference's own trim is shown with the reason it is not one the button writes.
+  await expect(page.getByTestId("calibrate-trim-0-not-applied")).toContainText("nothing to correct against itself");
+  await expect(page.getByTestId("calibrate-drift")).toBeHidden();
+
+  // The trim it implies: what it is now, what was measured, and what it would become.
+  await expect(page.getByTestId("calibrate-trim-1")).toContainText("Studio+, input trim");
+  await expect(page.getByTestId("calibrate-trim-1-was")).toHaveText("0");
+  await expect(page.getByTestId("calibrate-trim-1-measured")).toHaveText("28");
+  await expect(page.getByTestId("calibrate-trim-1-now")).toHaveText("28");
+});
+
+test("the measured trims are written into the setup by one button, and show up in the card", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [done()];
+  await open(page);
+
+  await expect(page.getByTestId("device-1-in-trim")).toHaveValue("0");
+  await page.getByTestId("calibrate-apply").click();
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[1]?.input_trim).toBe(28);
+  await expect(page.getByTestId("device-1-in-trim")).toHaveValue("28");
+  await expect(page.getByTestId("calibrate-applied")).toContainText("Studio+ in 28");
+});
+
+test("a run the server will not start says why, in the server's own words", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.refuseCalibrate = "A DAW has the audio drivers open. Close it and measure again.";
+  await open(page);
+  await page.getByTestId("calibrate-measure").click();
+  await page.getByTestId("calibrate-measure").click();
+  await expect(page.getByTestId("calibrate-refusal")).toContainText("A DAW has the audio drivers open");
+});
+
+test("a run that failed shows the refusal the server gave, naming the cable to check", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [{ state: "failed", refusal: "Nothing arrived on Studio+ 1. Check the cable from Quadro 2 into it." }];
+  await open(page);
+  await expect(page.getByTestId("calibrate-refusal")).toContainText("Check the cable from Quadro 2 into it");
+  await expect(page.getByTestId("calibrate-trims")).toBeEmpty();
+});
+
+test("a drift finding is said as the serious one it is, and no trim is offered as the answer", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [
+    done({ trims: [] }, [
+      { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8 },
+      { device: "Studio+", is_reference: false, lag_samples: 31, spread_samples: 12.4, clicks_found: 8, drift: { samples_per_second: 0.6, ppm: 6.25, real: true } },
+    ]),
+  ];
+  await open(page);
+  await expect(page.getByTestId("calibrate-drift")).toContainText("not sharing one clock");
+  await expect(page.getByTestId("calibrate-drift-Studio+")).toContainText("no trim can put that right");
+  await expect(page.getByTestId("calibrate-lag-Studio+")).toHaveAttribute("data-tone", "drift");
+  await expect(page.getByTestId("calibrate-apply")).toBeHidden();
+});
+
+test("with one interface there is nothing to line up, and the page says so instead of measuring", async ({ page }) => {
+  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await fakeAggregate(page, answer({ devices: [withBoth()[0] as Record<string, unknown>] }));
+  await open(page);
+  await expect(page.getByTestId("calibrate-problem")).toContainText("at least two interfaces");
+  await expect(page.getByTestId("calibrate-measure")).toBeDisabled();
+});
+
+test("a poll landing leaves a picker where it was put", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "Quadro 4" });
+  const before = captured.reads;
+  await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before + 1);
+  await expect(page.getByTestId("calibrate-plays-1")).toHaveValue("3");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 4 into Studio+ 1");
+});
+
+test("a server too old to measure says so rather than failing", async ({ page }) => {
+  await bothConfigured();
+  await fakeAggregate(page, answer({ devices: withBoth() }));
+  // Added after the fake, so it is the one that answers: the later route wins.
+  await page.route("**/api/v1/aggregate/calibrate**", (route) => route.fulfill({ status: 404, body: "" }));
+  await open(page);
+  await expect(page.getByTestId("calibrate-unavailable")).toBeVisible();
+  await expect(page.getByTestId("calibrate-measure")).toBeDisabled();
+});
+
+// ---------------------------------------------------------------------------------------------
 // Phone width
 // ---------------------------------------------------------------------------------------------
 
@@ -725,6 +964,9 @@ test("at phone width the page fits, with nothing running off the side", async ({
   // Every channel row is on screen too, which is the widest thing this page has.
   await page.getByTestId("device-0-channels-open").click();
   await expect(page.getByTestId("device-0-in-0-label")).toBeVisible();
+  // And the measurement's pickers and its cabling, which are the other things that sit side by side.
+  await expect(page.getByTestId("calibrate-plays-0")).toBeVisible();
+  await expect(page.getByTestId("calibrate-cable-0")).toBeVisible();
   // The window itself does not scroll sideways, which is the phone rule the other pages keep.
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   const main = page.locator("ga-app main");

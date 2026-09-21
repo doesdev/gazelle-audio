@@ -95,7 +95,23 @@ The setup is kept in the workspace, so it travels with a [workspace backup](15-s
 
 ### Trims
 
-An interface's driver reports how many samples of latency it has, and that figure is not always right. A trim is your correction to it, in samples: an interface that records late takes a positive input trim. Record the same click on both interfaces, look at where the two recordings sit against each other, and trim by the difference. It moves recordings against each other and does nothing else.
+An interface's driver reports how many samples of latency it has, and that figure is not always right. A trim is your correction to it, in samples: an interface that records late takes a positive input trim. It moves recordings against each other and does nothing else.
+
+You can type a trim in, but the difference is usually tens of samples, which is well under a millisecond and smaller than you can judge from two waveforms. **Line the interfaces up** measures it instead.
+
+## Lining the interfaces up
+
+This plays a click out of one interface and records it on every interface at once, then reads how far apart the copies landed. It is measured through the aggregate itself, so everything the aggregate already does to line the interfaces up has happened before anything is measured, and what is left over is exactly what a trim cancels.
+
+**Before you press it.** It makes a noise: a click at a modest level, out of a real output, into whatever is plugged in. Turn amplifiers down the first time. It also takes both audio drivers for itself while it runs, so close your DAW first. Measure takes a confirming click, the way matching buffer sizes does.
+
+**The cabling.** The page writes out exactly what to patch for the channels you have picked, and it is worth reading rather than guessing, because the whole measurement rests on it. For the input pass, one interface plays and every interface records: one output of that interface into its own input, and the next output of **the same** interface into the other interface's input. Both copies leave on the same sample, so any difference in where they land is the difference between the interfaces and nothing else. For the output pass it is the other way round: one output on each interface, all of them into inputs of one interface.
+
+**What comes back.** Per interface: how far behind the reference it landed, in samples; the spread, which is how much the clicks disagreed with each other, and under a sample means a measurement to trust; and how many of the clicks were found at all. Then the trims it implies, showing what the setup says now, what was measured, and what it would become. **Use these trims** writes them into the setup.
+
+**A drift finding is the serious one.** If the lag grows steadily through the run, the interfaces are not holding a single clock, and no trim fixes that. Check the digital cable and each interface's clock source, and remember that an interface left on Internal quietly becomes USB clocked the moment a DAW opens it.
+
+If nothing arrives on an input, that is a cable, not a measurement, and the page says which one.
 
 ## While a DAW has it open
 

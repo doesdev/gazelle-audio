@@ -180,6 +180,29 @@ const AGGREGATE_ANSWER = {
   events: [{ at: "2026-09-21 09:14:02", kind: "session-started", message: "40 in, 40 out at 96000 Hz" }],
 };
 
+/**
+ * A finished measurement, so the section that lines the interfaces up is walked with its readings,
+ * a drift finding and the trims it implies on screen as well as its pickers.
+ */
+const CALIBRATION = {
+  state: "done",
+  outcome: {
+    direction: "inputs",
+    rate: 96000,
+    buffer_size: 512,
+    reference: "Quadro",
+    readings: [
+      { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8, note: "Quadro is what the others were measured against." },
+      { device: "Studio+", is_reference: false, lag_samples: 27.8, spread_samples: 0.3, clicks_found: 8, clicks_expected: 8, note: "Studio+ recorded 27.8 samples after the Quadro.", drift: { samples_per_second: 0.6, ppm: 6.25, real: true } },
+    ],
+    trims: [
+      { device: "Quadro", direction: "inputs", field: "input_trim", was: 0, measured: 0, now: 0, is_reference: true, not_applied: "The reference has nothing to correct against itself." },
+      { device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, is_reference: false },
+    ],
+    warnings: ["The Studio+ was 3 dB quieter than the Quadro, which does not change the measurement."],
+  },
+};
+
 test("every control, readout, badge and heading on every page carries a key the catalogue explains", async ({ page }) => {
   test.setTimeout(240_000);
   await workspace();
@@ -288,7 +311,11 @@ test("every control, readout, badge and heading on every page carries a key the 
 
   // The Aggregate page, with a reason to fix, a registration to put right, both interfaces'
   // controls, a Confirm showing, and a DAW streaming with a gap and a stall.
-  await page.route("**/api/v1/aggregate**", (route) => (route.request().method() === "POST" ? route.fulfill({ json: { buffer_size: 256, changed: 2, refused: 0, devices: [] } }) : route.fulfill({ json: AGGREGATE_ANSWER })));
+  await page.route("**/api/v1/aggregate**", (route) => {
+    const calibrate = new URL(route.request().url()).pathname.includes("/aggregate/calibrate");
+    if (route.request().method() === "POST") return route.fulfill({ json: calibrate ? { started: true } : { buffer_size: 256, changed: 2, refused: 0, devices: [] } });
+    return route.fulfill({ json: calibrate ? CALIBRATION : AGGREGATE_ANSWER });
+  });
   await visit("aggregate", "ga-aggregate");
   await page.getByTestId("device-0-buffer").selectOption("512");
   await expect(page.getByTestId("device-0-buffer-confirm")).toBeVisible();

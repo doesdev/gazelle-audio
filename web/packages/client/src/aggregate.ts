@@ -251,6 +251,113 @@ export interface AggregateAnswer {
   events_error?: string;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Lining the interfaces up: the measurement, and what it measured
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Which way round a run is measuring.
+ *
+ * `inputs` plays one click out of one interface, into an input of every interface at once, so what
+ * it measures is how far apart the interfaces record. `outputs` is the same thing the other way
+ * round: one output on each interface, all cabled into inputs of one interface.
+ */
+export type AggregateCalibrateDirection = "inputs" | "outputs";
+
+/**
+ * A clock that is not the same clock, found by the click positions moving across a run rather than
+ * sitting still. `real` is the server's own judgement of whether it is more than the measurement's
+ * own noise; no trim can fix a real one.
+ */
+export interface AggregateDrift {
+  samples_per_second: number;
+  ppm: number;
+  real: boolean;
+}
+
+/** One interface's reading: how far out it is, how steady that was, and how much it had to go on. */
+export interface AggregateCalibrateReading {
+  /** The interface, by the name the setup gives it. */
+  device: string;
+  /** Whether this is the interface everything else was measured against, which is zero by definition. */
+  is_reference: boolean;
+  /** How far this interface is from the reference, in samples. Positive is late. */
+  lag_samples: number;
+  /** How far the clicks disagreed with each other, in samples. Small is a measurement to trust. */
+  spread_samples: number;
+  clicks_found: number;
+  /** How many were played, when the server says. */
+  clicks_expected?: number;
+  /** The server's own sentence for this interface, whether it went well or not. */
+  note?: string;
+  drift?: AggregateDrift;
+}
+
+/** One trim the measurement implies: what it is now, what was measured, and what it would become. */
+export interface AggregateCalibrateTrim {
+  device: string;
+  direction: AggregateCalibrateDirection;
+  /** The field in the setup this changes: `input_trim` or `output_trim`. */
+  field?: string;
+  was: number;
+  measured: number;
+  now: number;
+  is_reference?: boolean;
+  /** Why this one is not offered, when it is not. */
+  not_applied?: string;
+}
+
+/** What a finished run came to. */
+export interface AggregateCalibrateOutcome {
+  direction: AggregateCalibrateDirection;
+  /** The rate it ran at, in Hz, and the buffer size, in samples: a trim is only true for these. */
+  rate: number;
+  buffer_size: number;
+  /** The interface everything was measured against, by the name the setup gives it. */
+  reference: string;
+  readings: AggregateCalibrateReading[];
+  trims: AggregateCalibrateTrim[];
+  warnings: string[];
+}
+
+/**
+ * The one run at a time, as `GET /aggregate/calibrate` answers it. `step` and `progress` are there
+ * only while it runs, `outcome` only when it is done, and `refusal` only when it failed.
+ */
+export interface AggregateCalibration {
+  state: "idle" | "running" | "done" | "failed";
+  started_at_ms?: number;
+  step?: string;
+  /** How far along, from 0 to 1. */
+  progress?: number;
+  refusal?: string;
+  outcome?: AggregateCalibrateOutcome;
+}
+
+/**
+ * What starting a run takes. `outputs` and `inputs` are channel numbers in the aggregate's own
+ * list, counted from zero over the channels it exposes, in the order the interfaces are in: one
+ * output and one input per interface, so `outputs[n]` is cabled into `inputs[n]`.
+ */
+export interface AggregateCalibrateRequest {
+  direction: AggregateCalibrateDirection;
+  outputs: number[];
+  inputs: number[];
+  clicks: number;
+  /** How loud the click is, in dBFS. Modest: it comes out of a real output. */
+  level_dbfs: number;
+}
+
+/** What starting a run answers. A run it will not start is a refusal rather than this. */
+export interface AggregateCalibrateStarted {
+  started: boolean;
+}
+
+/** What stopping answers: whether anything was going. Stopping nothing is not an error. */
+export interface AggregateCalibrateStopped {
+  stopped: boolean;
+}
+
 /** What one device's buffer change came to. A refusal keeps the driver route's own codes. */
 export interface AggregateDeviceOutcome {
   device: string;

@@ -834,6 +834,9 @@ export class Store {
     matchBuffers: (size, options) => this.#client.aggregate.matchBuffers(size, options),
     register: () => this.#client.aggregate.register(),
     unregister: () => this.#client.aggregate.unregister(),
+    calibration: () => this.#client.aggregate.calibration(),
+    calibrate: (request) => this.#client.aggregate.calibrate(request),
+    stopCalibrate: () => this.#client.aggregate.stopCalibrate(),
     command: (deviceId, command, args) => this.#invokeCommand(deviceId, command, args, {}),
     // Through `this`, not `this.#timers` itself: a field's value is worked out before the
     // constructor's body has put the timers in place.

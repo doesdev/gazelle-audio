@@ -25,31 +25,55 @@
 import { h } from "../core/dom.ts";
 import { effect } from "../core/signal.ts";
 import {
+  aggregateChannels,
+  appliedTrimsText,
   autoChannelName,
   buffersMatch,
+  cablingSteps,
+  calibrateDevices,
+  calibrateProblem,
+  calibrateProgress,
+  calibrateRequest,
+  calibrateRunning,
+  calibrateStepText,
   channelCounts,
   channelLabel,
+  channelsOf,
   channelSummary,
   CHANNEL_LABEL_MAX,
+  CLICKS,
+  deviceName,
   deviceViews,
+  driftFound,
   fixNeedsConfirming,
   gapView,
   isExposed,
+  LEVELS_DBFS,
   matchedBy,
   matchNote,
   matchTarget,
+  outcomeSummary,
+  readingView,
+  reconcilePicks,
   resolvedDeviceId,
+  slotDevice,
   statusLine,
   suggestedChannelName,
+  trimRows,
+  trimsToApply,
+  viewFor,
   withChannelExposed,
   withChannelName,
+  withMeasuredTrims,
   type Aggregate,
   type AggregateAnswer,
+  type AggregateCalibrateDirection,
   type AggregateChannelNames,
   type AggregateDevice,
   type AggregateDeviceView,
   type AggregateFix,
   type AggregateReason,
+  type CalibratePicks,
 } from "../store/aggregate.ts";
 import { driverControls } from "../store/driver.ts";
 import { SAMPLE_RATES, type Store } from "../store/store.ts";
@@ -124,6 +148,26 @@ export class GaAggregate extends GaElement {
       .events li { display: flex; gap: 8px; }
       .events .at { color: var(--ga-text-muted); white-space: nowrap; }
       .events .kind { min-width: 110px; color: var(--ga-text-secondary); }
+      /* Lining the interfaces up: the pickers, what to patch, the run, and what it measured. */
+      .calibrate-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 1.2fr)); align-items: center; gap: 8px; padding: 3px 0; }
+      .calibrate-row > * { min-width: 0; }
+      .calibrate-row .who { font-weight: 700; }
+      .cables { display: grid; gap: 2px; margin: 0; padding: 4px 0 0; list-style: none; }
+      .cables li { display: flex; gap: 8px; align-items: baseline; }
+      .cables .at { min-width: 18px; color: var(--ga-text-muted); }
+      .cables .cable { font-weight: 700; overflow-wrap: anywhere; }
+      .track { flex: 1; min-width: 80px; height: 6px; border-radius: 3px; background: var(--ga-surface-inset); overflow: hidden; }
+      .track .fill { height: 100%; background: var(--ga-accent); transition: width 120ms linear; }
+      .running { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+      .reading { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, auto)); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .reading + .reading, .trim-row + .trim-row { margin-top: 4px; }
+      .reading > * { min-width: 0; }
+      .lag[data-tone="good"] { color: var(--ga-accent); }
+      .lag[data-tone="off"] { color: var(--ga-state-solo); font-weight: 700; }
+      .lag[data-tone="drift"] { color: var(--ga-state-mute); font-weight: 700; }
+      .drift { margin: 2px 0 6px; font-size: 11px; color: var(--ga-state-mute); font-weight: 700; }
+      .trim-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, auto)); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-inset); }
+      .trim-row > * { min-width: 0; }
       .confirm, button[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .live { display: grid; gap: 6px; }
       .live-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, minmax(0, auto)); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
@@ -136,6 +180,7 @@ export class GaAggregate extends GaElement {
         .device-head .name { width: 100%; }
         .setup { grid-template-columns: minmax(0, 1fr); }
         .live-row { grid-template-columns: minmax(0, 1fr) auto; }
+        .calibrate-row, .reading, .trim-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
         .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
         .channel-row .field, .channel-row .hint { grid-column: 1 / -1; }
       }
@@ -226,6 +271,8 @@ export class GaAggregate extends GaElement {
       h("p", { class: "note" }, "Saved in the workspace, and written out for the driver at ", exportPath, ". The driver picks up a change at once when nothing is streaming, and at the next buffer change when a DAW is running."),
     );
 
+    const calibrateSection = this.#buildCalibrate(store);
+
     const plan = h("dl", { class: "fields", "data-testid": "aggregate-plan" });
     const live = h("div", { class: "live", "data-testid": "aggregate-live" });
     const liveNote = h("p", { class: "note", "data-testid": "aggregate-live-note" });
@@ -240,7 +287,7 @@ export class GaAggregate extends GaElement {
       { class: "placeholder", "data-testid": "aggregate-unavailable", hidden: true },
       "This server does not offer the aggregate driver. It is answered only to a program on the same PC, so a Gazelle reached over the network shows nothing here.",
     );
-    const sections = h("div", { "data-testid": "aggregate-sections" }, readySection, registrationSection, devicesSection, setupSection, liveSection, eventsSection);
+    const sections = h("div", { "data-testid": "aggregate-sections" }, readySection, registrationSection, devicesSection, setupSection, calibrateSection, liveSection, eventsSection);
 
     this.root.replaceChildren(h("div", { class: "bar" }, verdict, state, h("span", { class: "spacer" }), readAt, again), problem, unavailable, sections);
 
@@ -760,6 +807,273 @@ export class GaAggregate extends GaElement {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Lining the interfaces up: measuring the trims rather than guessing at them
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * The section that measures the trims. It plays one click through the aggregate itself and hears
+   * where each interface puts it, so what is measured is exactly what the aggregate produces.
+   *
+   * Nothing here works out what it means: the store turns the pickers into the cabling to patch,
+   * the request to send, the reason a run cannot be made, and what the readings and trims read as.
+   * What is left here is the controls, and keeping them still while the page polls: the rows are
+   * rebuilt only when the interfaces or the channels they offer change, and what has been chosen
+   * lives in this tab's view state, so an answer landing never moves a menu.
+   */
+  #buildCalibrate(store: Store): HTMLElement {
+    const model = store.aggregate;
+    const chosen = store.view<CalibratePicks | undefined>("aggregate:calibrate", undefined);
+    const picksNow = (): CalibratePicks => reconcilePicks(chosen.peek(), store.workspace.peek()?.aggregate, model.answer.peek());
+    const change = (next: CalibratePicks) => {
+      chosen.value = next;
+    };
+    const menu = (label: string, testid: string, explain: string) =>
+      h("select", { "aria-label": label, "data-testid": testid, "data-no-wheel": true, "data-explain": explain });
+
+    const direction = menu("Which way round to measure", "calibrate-direction", "aggregate.calibrate-direction");
+    direction.replaceChildren(
+      h("option", { value: "inputs" }, "Inputs: line up what the interfaces record"),
+      h("option", { value: "outputs" }, "Outputs: line up what the interfaces play"),
+    );
+    direction.addEventListener("change", () => change({ ...picksNow(), direction: direction.value === "outputs" ? "outputs" : "inputs" }));
+
+    const reference = menu("Which interface every cable has an end on", "calibrate-reference", "aggregate.calibrate-reference");
+    reference.addEventListener("change", () => change({ ...picksNow(), reference: reference.value }));
+
+    const clicks = menu("How many clicks to play", "calibrate-clicks", "aggregate.calibrate-clicks");
+    clicks.replaceChildren(...CLICKS.map((count) => h("option", { value: String(count) }, `${count} clicks`)));
+    clicks.addEventListener("change", () => change({ ...picksNow(), clicks: Number(clicks.value) }));
+
+    const level = menu("How loud the click is", "calibrate-level", "aggregate.calibrate-level");
+    level.replaceChildren(...LEVELS_DBFS.map((dbfs) => h("option", { value: String(dbfs) }, `${dbfs} dBFS`)));
+    level.addEventListener("change", () => change({ ...picksNow(), level_dbfs: Number(level.value) }));
+
+    const rows = h("div", { "data-testid": "calibrate-rows" });
+    const cables = h("ul", { class: "cables", "data-testid": "calibrate-cables" });
+    const problem = h("p", { class: "note warning", "data-testid": "calibrate-problem", hidden: true });
+
+    const measure = h("button", { type: "button", "data-testid": "calibrate-measure", "data-explain": "aggregate.calibrate-measure" }, "Measure");
+    this.onDisconnect(
+      bindConfirm(measure, "Measure", () => {
+        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, model.answer.peek());
+        if (request !== undefined) void model.startCalibration(request);
+      }),
+    );
+    const stop = h("button", { type: "button", "data-testid": "calibrate-stop", "data-explain": "aggregate.calibrate-stop", hidden: true, "on:click": () => void model.stopCalibration() }, "Stop");
+    const step = h("span", { class: "readout", "data-testid": "calibrate-step", "data-explain": "aggregate.calibrate-step" });
+    const fill = h("span", { class: "fill" });
+    const track = h("span", { class: "track" }, fill);
+    const running = h("div", { class: "running", "data-testid": "calibrate-running", hidden: true }, step, track);
+
+    const summary = h("p", { class: "note", "data-testid": "calibrate-summary", hidden: true });
+    const drift = h("p", { class: "drift", role: "alert", "data-testid": "calibrate-drift", hidden: true });
+    const readings = h("div", { "data-testid": "calibrate-readings" });
+    const trims = h("div", { "data-testid": "calibrate-trims" });
+    const apply = h("button", { type: "button", "data-testid": "calibrate-apply", "data-explain": "aggregate.calibrate-apply", hidden: true }, "Write these trims into the setup");
+    apply.addEventListener("click", () => this.#applyTrims(store));
+    const applied = h("p", { class: "note", role: "status", "data-testid": "calibrate-applied", hidden: true });
+    const warnings = h("p", { class: "note warning", "data-testid": "calibrate-warnings", hidden: true });
+    const refusal = h("p", { class: "note warning", role: "alert", "data-testid": "calibrate-refusal", hidden: true });
+
+    const unavailable = h("p", { class: "note", "data-testid": "calibrate-unavailable", hidden: true }, "This server does not measure. It is a newer part of Gazelle than the server this page is talking to.");
+
+    const section = h(
+      "ga-section",
+      { heading: "Line the interfaces up", explain: "aggregate.calibrate" },
+      h(
+        "p",
+        { class: "note" },
+        "The aggregate lines its interfaces up from the latency figures their own drivers report, and those figures are a little out, so two interfaces can still record a few tens of samples apart. This plays one click through the aggregate itself and hears where each interface puts it, which is the difference to put in the trims.",
+      ),
+      h("div", { class: "setup", "data-testid": "calibrate-setup" }, h("span", { class: "label" }, "Pass"), direction, h("span", { class: "label" }, "Reference"), reference, h("span", { class: "label" }, "Clicks"), clicks, h("span", { class: "label" }, "Level"), level),
+      rows,
+      h("p", { class: "note", "data-testid": "calibrate-patch-note" }, "Patch it like this, one cable a line, then press Measure twice:"),
+      cables,
+      h(
+        "p",
+        { class: "note warning", "data-testid": "calibrate-warning" },
+        "It plays a click out of a real output at the level above, so turn monitors down first, and it takes both audio drivers for itself while it runs, so close any DAW that has them open. Measure asks for a confirming click.",
+      ),
+      problem,
+      h("div", { class: "add" }, measure, stop),
+      running,
+      refusal,
+      summary,
+      drift,
+      readings,
+      trims,
+      h("div", { class: "add" }, apply),
+      applied,
+      warnings,
+      unavailable,
+    );
+
+    /** The row controls, rebuilt with the rows, so the watch can put the chosen channels back. */
+    let controls: { row: HTMLElement; output: HTMLSelectElement; input: HTMLSelectElement }[] = [];
+    let built: string | undefined;
+    let shownOutcome: string | undefined;
+
+    this.watch(() => {
+      const config = store.workspace.value?.aggregate;
+      const answer = model.answer.value;
+      const picks = reconcilePicks(chosen.value, config, answer);
+      const devices = calibrateDevices(config);
+      const outputs = aggregateChannels(config, answer, false);
+      const inputs = aggregateChannels(config, answer, true);
+
+      // The interfaces menu, and one row per interface. Rebuilt only when what they offer changes.
+      const shape = JSON.stringify([devices, picks.direction, picks.reference, outputs.map((one) => one.text), inputs.map((one) => one.text)]);
+      if (shape !== built) {
+        built = shape;
+        reference.replaceChildren(...devices.map((device) => h("option", { value: device }, device)));
+        controls = devices.map((device, at) => this.#calibrateRow(picks, device, at, devices, outputs, inputs));
+        rows.replaceChildren(...controls.map(({ row }) => row));
+        for (const [at, control] of controls.entries()) {
+          control.output.addEventListener("change", () => change({ ...picksNow(), outputs: replaceAt(picksNow().outputs, at, Number(control.output.value)) }));
+          control.input.addEventListener("change", () => change({ ...picksNow(), inputs: replaceAt(picksNow().inputs, at, Number(control.input.value)) }));
+        }
+      }
+      direction.value = picks.direction;
+      reference.value = picks.reference;
+      clicks.value = String(picks.clicks);
+      level.value = String(picks.level_dbfs);
+      for (const [at, control] of controls.entries()) {
+        control.output.value = picks.outputs[at] === undefined ? "" : String(picks.outputs[at]);
+        control.input.value = picks.inputs[at] === undefined ? "" : String(picks.inputs[at]);
+      }
+
+      // What to plug in, named channel by channel.
+      cables.replaceChildren(
+        ...cablingSteps(picks, config, answer).map((cable, at) =>
+          h("li", { "data-testid": `calibrate-cable-${at}` }, h("span", { class: "at" }, `${at + 1}.`), h("span", { class: "cable readout", "data-explain": "aggregate.calibrate-cable" }, cable.text)),
+        ),
+      );
+
+      const why = calibrateProblem(picks, config, answer);
+      problem.hidden = why === undefined;
+      problem.textContent = why ?? "";
+
+      const state = model.calibration.value;
+      const offered = model.calibrationOffered.value;
+      const isRunning = calibrateRunning(state);
+      unavailable.hidden = offered !== false;
+      running.hidden = !isRunning;
+      step.textContent = calibrateStepText(state);
+      fill.style.width = `${Math.round(calibrateProgress(state) * 100)}%`;
+      stop.hidden = !isRunning;
+      measure.hidden = isRunning;
+      measure.disabled = why !== undefined || offered === false || !store.connected.value || model.busy.value !== undefined;
+      for (const control of [direction, reference, clicks, level, ...controls.flatMap(({ output, input }) => [output, input])]) control.disabled = isRunning || !store.connected.value;
+
+      const said = model.calibrationProblem.value ?? (state?.state === "failed" ? state.refusal : undefined);
+      refusal.hidden = said === undefined;
+      refusal.textContent = said ?? "";
+
+      // What it measured, rebuilt only when the outcome itself changes.
+      const outcome = state?.state === "done" ? state.outcome : undefined;
+      const shown = JSON.stringify(outcome ?? null);
+      if (shown !== shownOutcome) {
+        shownOutcome = shown;
+        summary.hidden = outcome === undefined;
+        summary.textContent = outcome === undefined ? "" : outcomeSummary(outcome);
+        drift.hidden = !driftFound(outcome);
+        drift.textContent = driftFound(outcome) ? "The interfaces are not sharing one clock. A trim cannot answer that: it would be right now and wrong in a minute. Put every interface on the clock that comes down the digital cable, then measure again." : "";
+        readings.replaceChildren(...(outcome?.readings ?? []).map((reading) => this.#readingRow(reading)));
+        trims.replaceChildren(...trimRows(outcome).map((trim, at) => this.#trimRow(trim, at)));
+        apply.hidden = trimsToApply(outcome).length === 0;
+        warnings.hidden = (outcome?.warnings ?? []).length === 0;
+        warnings.textContent = (outcome?.warnings ?? []).join(" ");
+      }
+      apply.disabled = !store.connected.value;
+      const wrote = store.view<string | undefined>("aggregate:calibrate:applied", undefined).value;
+      applied.hidden = wrote === undefined;
+      applied.textContent = wrote ?? "";
+    });
+
+    return section;
+  }
+
+  /** One interface's row: the output that carries its click, and the input that records it. */
+  #calibrateRow(
+    picks: CalibratePicks,
+    device: string,
+    at: number,
+    devices: string[],
+    outputs: ReturnType<typeof aggregateChannels>,
+    inputs: ReturnType<typeof aggregateChannels>,
+  ): { row: HTMLElement; output: HTMLSelectElement; input: HTMLSelectElement } {
+    const pick = (side: "outputs" | "inputs", list: ReturnType<typeof aggregateChannels>, label: string, explain: string) => {
+      const on = slotDevice(picks.direction, picks.reference, side, at, devices);
+      const offered = channelsOf(list, on);
+      const select = h("select", {
+        "aria-label": `${label} for ${device}`,
+        "data-testid": `calibrate-${side === "outputs" ? "plays" : "records"}-${at}`,
+        "data-no-wheel": true,
+        "data-explain": explain,
+      });
+      select.replaceChildren(
+        ...(offered.length === 0
+          ? [h("option", { value: "" }, `No channel of ${on} is known yet`)]
+          : offered.map((channel) => h("option", { value: String(channel.number) }, channel.text))),
+      );
+      return select;
+    };
+    const output = pick("outputs", outputs, "Plays the click", "aggregate.calibrate-plays");
+    const input = pick("inputs", inputs, "Records the click", "aggregate.calibrate-records");
+    const row = h(
+      "div",
+      { class: "calibrate-row", "data-testid": `calibrate-row-${at}` },
+      h("span", { class: "who" }, device),
+      h("span", { class: "cell" }, h("span", { class: "label" }, "Plays"), output),
+      h("span", { class: "cell" }, h("span", { class: "label" }, "Records"), input),
+    );
+    return { row, output, input };
+  }
+
+  /** One interface's reading: how far out, how steady, and how much it had to go on. */
+  #readingRow(reading: Parameters<typeof readingView>[0]): HTMLElement {
+    const view = readingView(reading);
+    const row = h(
+      "div",
+      { class: "reading", "data-testid": `calibrate-reading-${view.device}` },
+      h("span", {}, view.device, reading.is_reference ? " (reference)" : ""),
+      h("span", { class: "readout lag", "data-tone": view.tone, "data-testid": `calibrate-lag-${view.device}`, "data-explain": "aggregate.calibrate-lag" }, view.lag),
+      h("span", { class: "readout", "data-testid": `calibrate-spread-${view.device}`, "data-explain": "aggregate.calibrate-spread" }, view.spread),
+      h("span", { class: "readout", "data-testid": `calibrate-clicks-${view.device}`, "data-explain": "aggregate.calibrate-found" }, view.clicks),
+    );
+    const after: Node[] = [];
+    // The server's own sentence for this interface, and the drift finding, which is the serious one.
+    if (view.note !== undefined) after.push(h("p", { class: "note", "data-testid": `calibrate-note-${view.device}` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-note" }, view.note)));
+    if (view.drift !== undefined) after.push(h("p", { class: "drift", "data-testid": `calibrate-drift-${view.device}`, "data-explain": "aggregate.calibrate-drift" }, view.drift));
+    return after.length === 0 ? row : h("div", {}, row, ...after);
+  }
+
+  /** One trim the measurement implies: what it is now, what was measured, and what it would become. */
+  #trimRow(trim: ReturnType<typeof trimRows>[number], at: number): HTMLElement {
+    const cell = (label: string, value: string, testid: string, explain: string) =>
+      h("span", { class: "cell" }, h("span", { class: "label" }, label), h("span", { class: "readout", "data-testid": testid, "data-explain": explain }, value));
+    const row = h(
+      "div",
+      { class: "trim-row", "data-testid": `calibrate-trim-${at}` },
+      h("span", {}, `${trim.device}, ${trim.what.toLowerCase()}`),
+      cell("Now", trim.was, `calibrate-trim-${at}-was`, "aggregate.calibrate-trim-was"),
+      cell("Measured", trim.measured, `calibrate-trim-${at}-measured`, "aggregate.calibrate-trim-measured"),
+      cell("Would be", trim.now, `calibrate-trim-${at}-now`, "aggregate.calibrate-trim-now"),
+    );
+    if (trim.notApplied === undefined) return row;
+    // One the server is not offering: it is shown, with its reason, and the button passes it over.
+    return h("div", {}, row, h("p", { class: "note", "data-testid": `calibrate-trim-${at}-not-applied` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-not-applied" }, trim.notApplied)));
+  }
+
+  /** Writes the measured trims into the setup, the same way every other field on this page does. */
+  #applyTrims(store: Store): void {
+    const outcome = store.aggregate.calibration.peek()?.outcome;
+    const changing = trimsToApply(outcome);
+    store.editAggregate((current) => withMeasuredTrims(current, outcome));
+    store.view<string | undefined>("aggregate:calibrate:applied", undefined).value = appliedTrimsText(changing);
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Live, while a DAW has it open
   // -------------------------------------------------------------------------------------------
 
@@ -839,19 +1153,19 @@ function withField<T extends object, K extends keyof T>(base: T, field: K, value
   return next;
 }
 
-const nameOf = (device: AggregateDevice, index: number): string => device.name ?? device.key ?? device.clsid ?? `Interface ${index + 1}`;
+const nameOf = deviceName;
+
+/** One entry of a list changed, for the per-interface channel a picker names. */
+function replaceAt<T>(list: T[], at: number, value: T): T[] {
+  const next = [...list];
+  next[at] = value;
+  return next;
+}
 
 /** A trim as the file takes it: a whole number of samples, and nothing at all for zero. */
 function trimOf(value: string): number | undefined {
   const samples = Math.trunc(Number(value));
   return Number.isFinite(samples) && samples !== 0 ? samples : undefined;
-}
-
-/** This configured device's place in the answer, by name first and then by position. */
-function viewFor(answer: AggregateAnswer | undefined, device: AggregateDevice, index: number): AggregateDeviceView | undefined {
-  const views = deviceViews(answer);
-  const name = device.name ?? device.key;
-  return views.find((view) => view.name === name) ?? views[index];
 }
 
 /** The gap line for a card: the driver's figure, or why there is not one. */

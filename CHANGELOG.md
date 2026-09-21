@@ -36,6 +36,12 @@ version that has not been published yet.
   is plugged in, so its clock, its rate and its driver settings can be read and changed without
   choosing anything. Two of one model, or a driver that does not say what model it is, is the one
   case it asks: the card says so, and choosing an interface there settles it for good.
+- **Line the interfaces up by measuring, not by eye.** The Aggregate page plays a click out of
+  one interface and records it on every interface at once, then says how far apart they really
+  are, how much the measurement varied, and what trim each one needs, with a button that writes
+  them into the setup. It also says when the interfaces are not holding a single clock, which is
+  the one thing no trim can put right. It makes a noise and takes the audio drivers while it runs,
+  so it says so first and asks for a confirming click.
 - **Name the channels.** Each interface's card opens on its whole channel list, and any channel
   can be given your own name and be kept out of the aggregate altogether. A named channel reaches
   a DAW as your name with the automatic one in brackets, "Vocal mic (Quadro 1)", so a track says
