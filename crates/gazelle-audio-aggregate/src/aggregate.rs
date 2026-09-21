@@ -77,6 +77,9 @@ pub struct Aggregate {
     /// A configuration that arrived while a DAW was streaming, waiting for it to come back
     /// through `createBuffers`.
     queued: Option<(Config, String, u64)>,
+    /// Whether this is a calibration run's session rather than a DAW's: every phase is measured,
+    /// and none of them is used.
+    measuring_trims: bool,
 }
 
 impl Aggregate {
@@ -106,7 +109,16 @@ impl Aggregate {
             reporter,
             generation: 0,
             queued: None,
+            measuring_trims: false,
         }
+    }
+
+    /// Make this a calibration run's session: each phase is measured and reported, and nothing is
+    /// moved for it. The click lag a run measures becomes a trim, and the phase measured beside it
+    /// becomes that trim's reference, so both have to be the raw figures of one session. Set
+    /// before the buffers are made, which is when the audio path is built.
+    pub fn measure_trims(&mut self) {
+        self.measuring_trims = true;
     }
 
     /// Remember a refusal that happened before the aggregate itself was asked anything, so that
@@ -472,6 +484,7 @@ impl Aggregate {
             host,
             time_info,
             Arc::clone(&self.reporter),
+            self.measuring_trims,
         ));
         for (index, sub) in self.subs.iter_mut().enumerate() {
             sub.attach(Arc::clone(&stream), index);

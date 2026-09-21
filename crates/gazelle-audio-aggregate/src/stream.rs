@@ -22,7 +22,7 @@ use gazelle_audio_stream_abi::sample;
 
 use crate::config::{Alignment, Config};
 use crate::delay::Delay;
-use crate::phase::{self, Detector};
+use crate::phase::{self, Detector, Use};
 use crate::plan::{self, ChannelRef, Plan};
 use crate::ring::Ring;
 use crate::status::{Glitches, Reporter};
@@ -92,16 +92,19 @@ pub struct DeviceStream {
     path_in: i32,
     /// What the plan held this device's inputs back by, before anything was measured.
     planned_pad_in: i32,
+    /// What its outputs are held back by, which nothing measured ever moves. The measurement
+    /// signal passes through the master's, so it is part of when the signal leaves.
+    planned_pad_out: i32,
     /// What it is actually held back by now, which a measurement can move.
     pub pad_in: AtomicI32,
     /// One of [`gazelle_audio_aggregate_status::record::phase`]: what became of this device's
     /// measurement. Written by the audio path, read by the watcher thread and by anything
     /// watching the record.
     pub phase_state: AtomicU32,
-    /// What the measurement came to, before it was rounded to what the hardware does.
+    /// What the measurement came to, exactly as measured.
     pub phase_measured: AtomicI32,
-    /// What was added to this device's input path because of it, which is nothing at all unless
-    /// the measurement was believed.
+    /// What was added to this device's input path because of it: what was measured minus the
+    /// reference. Nothing at all unless the measurement was used.
     pub phase_applied: AtomicI32,
 }
 
@@ -262,6 +265,8 @@ unsafe impl Send for Stream {}
 impl Stream {
     /// Build the audio path. `buffers` is one entry per device in plan order; `in_map` and
     /// `out_map` are the aggregate channels the DAW actually asked for, in its own order.
+    /// `measuring_trims` is a calibration run's session, which measures every phase and moves
+    /// nothing for it.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         plan: &Plan,
@@ -273,6 +278,7 @@ impl Stream {
         host: CallbacksRaw,
         time_info: bool,
         reporter: Arc<Reporter>,
+        measuring_trims: bool,
     ) -> Stream {
         let block = plan.block.max(0) as usize;
         let mut devices = Vec::new();
@@ -300,9 +306,15 @@ impl Stream {
             delay_out.push(Delay::new(outs, device.pad_out.max(0) as usize));
             // What the drivers' own figures say the signal takes to come back: out of the master's
             // converter, into this device's, and across the ring the aggregate's own path costs.
-            let expected = plan.devices[plan.master].latency_out + device.latency_in + plan.block;
+            // The figures as reported, without the trims: a trim is written after its reference is
+            // measured, and it must not move what every later session measures.
+            let expected = device.phase.map_or(0, |phase| phase.reported).saturating_add(plan.block);
+            // An ordinary session is lined up to the phase its trim was measured at. A calibration
+            // run measures the phase and moves nothing, because the lag it measures becomes a trim
+            // and that trim has to be paired with the raw state it was measured in.
             detectors.push(device.phase.filter(|_| measuring).map(|phase| {
-                Detector::new(phase.master_slot, phase.input_slot, block, expected, window)
+                let how = if measuring_trims { Use::MeasureOnly } else { Use::LineUpTo(phase.reference) };
+                Detector::new(phase.master_slot, phase.input_slot, block, expected, window, how)
             }));
             devices.push(DeviceStream {
                 name: device.name.clone(),
@@ -318,6 +330,7 @@ impl Stream {
                 mute_out: AtomicBool::new(false),
                 path_in: device.latency_in + if buffered { plan.block } else { 0 },
                 planned_pad_in: device.pad_in,
+                planned_pad_out: device.pad_out,
                 pad_in: AtomicI32::new(device.pad_in),
                 phase_state: AtomicU32::new(starting_state(device.phase.is_some(), measuring)),
                 phase_measured: AtomicI32::new(0),
@@ -515,10 +528,12 @@ impl Stream {
         }
         // The measurement signal is the driver's own, on a channel the DAW was never given, so
         // nothing it plays is disturbed and nothing here can be heard on a channel anyone uses.
+        // It goes through the master's output delay like everything else the master plays, so it
+        // leaves that much later than the block it is written into.
         for index in 0..self.devices.len() {
             let Some(detector) = &mut scratch.phase[index] else { continue };
             let slot = detector.master_slot;
-            if detector.emits_on(now, self.devices[self.master].planned_pad_in) {
+            if detector.emits_on(now, self.devices[self.master].planned_pad_out) {
                 let stage = &mut scratch.stage_out[self.master];
                 Detector::write_burst(&mut stage[slot * block..(slot + 1) * block]);
             }

@@ -25,7 +25,7 @@ use gazelle_audio_stream_abi::raw::selector;
 
 use crate::aggregate::Aggregate;
 use crate::config::Config;
-use crate::status::{GlitchWatch, PhaseWatch, Reporter, StallWatch};
+use crate::status::{Noticing, Reporter};
 
 /// How long a wait lasts when nobody signals. The watcher looks around on a timeout as well as on
 /// a signal, which is how a device that stalled gets its line in the event log.
@@ -132,20 +132,14 @@ pub fn watch(waiter: &dyn Waiter, target: &dyn Reload, stop: &AtomicBool) {
 pub struct DriverWatch {
     driver: Weak<Mutex<Aggregate>>,
     reporter: Arc<Reporter>,
-    stalls: Mutex<StallWatch>,
-    glitches: Mutex<GlitchWatch>,
-    phases: Mutex<PhaseWatch>,
+    /// What has changed since the last look, which is the same set of rules a measurement of our
+    /// own uses between its blocks.
+    noticing: Mutex<Noticing>,
 }
 
 impl DriverWatch {
     pub fn new(driver: &Arc<Mutex<Aggregate>>, reporter: Arc<Reporter>) -> DriverWatch {
-        DriverWatch {
-            driver: Arc::downgrade(driver),
-            reporter,
-            stalls: Mutex::new(StallWatch::new()),
-            glitches: Mutex::new(GlitchWatch::new()),
-            phases: Mutex::new(PhaseWatch::new()),
-        }
+        DriverWatch { driver: Arc::downgrade(driver), reporter, noticing: Mutex::new(Noticing::new()) }
     }
 
     /// Do something with the driver, if it is still there. The lock is never held across a call
@@ -205,37 +199,11 @@ impl Reload for DriverWatch {
     fn adopted(&self, generation: u64, source: &str) {
         self.reporter.note(gazelle_audio_aggregate_status::events::Event::Adopted, source);
         self.reporter.update(|area| area.generation_in_force = generation);
-        self.stalls.lock().expect("not poisoned").clear();
-        self.glitches.lock().expect("not poisoned").clear();
-        self.phases.lock().expect("not poisoned").clear();
+        self.noticing.lock().expect("not poisoned").clear();
     }
 
     fn look_around(&self) {
-        let Some(area) = self.reporter.snapshot() else { return };
-        let count = (area.device_count as usize).min(area.devices.len());
-        let now: Vec<bool> = area.devices[..count].iter().map(|device| device.stalled != 0).collect();
-        let changes = self.stalls.lock().expect("not poisoned").changes(&now);
-        for (index, stalled) in changes {
-            self.reporter.stall_changed(area.devices[index].name.get(), stalled);
-        }
-
-        // The audio path counted these; deciding whether one of them is worth a line is this
-        // thread's work, and only the first of a session ever is.
-        let lost: Vec<(u64, u64)> = area.devices[..count].iter().map(|device| (device.dropped, device.starved)).collect();
-        let first = self.glitches.lock().expect("not poisoned").first(&lost);
-        for (index, dropped, starved) in first {
-            self.reporter.first_glitch(area.devices[index].name.get(), dropped, starved);
-        }
-
-        // And the same again for a phase measurement that has just come to something. The audio
-        // path measured it and wrote three numbers; this is where they become the line that
-        // survives the session.
-        let states: Vec<u32> = area.devices[..count].iter().map(|device| device.phase_state).collect();
-        let settled = self.phases.lock().expect("not poisoned").settled(&states);
-        for index in settled {
-            let device = &area.devices[index];
-            self.reporter.phase_settled(device.name.get(), device.phase_state, device.phase_measured, device.phase_applied);
-        }
+        self.noticing.lock().expect("not poisoned").look(&self.reporter);
     }
 
     fn is_alive(&self) -> bool {

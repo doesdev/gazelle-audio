@@ -225,6 +225,64 @@ sample is played until all of them have passed**.
   other.** Both are reported in full and neither becomes a trim.
 - **Anything the aggregate itself refuses**, passed through in the aggregate's own words.
 
+## Watching a run, and what it leaves behind
+
+**A run is a session, and it publishes what a session publishes.** The aggregate it opens is given
+the driver's own reporter, so everything the driver says about a DAW's session it says about a run,
+through the same machinery and into the same places.
+
+**While it runs**, the driver's shared status record is written exactly as it is for a DAW, and
+`GET /api/v1/aggregate` reads it: `status.state` is `read` rather than `silent`, with the plan in
+force, the rate and buffer size, both interfaces, `open` and `streaming`, the callbacks going by, the
+blocks each interface drops or misses, and in each of `status.devices` the phase measurement's
+`phase` (`not_configured`, `measuring`, `measured_only` or `not_heard` in a run),
+`phase_measured` and `phase_applied`. The Aggregate page shows a run the way it shows a DAW's
+session. When the run ends, the record says nothing is open, and once the run has let go of it there
+is no record at all, exactly as when a DAW closes the driver.
+
+**Afterwards**, the driver's event log (`%APPDATA%\gazelle\aggregate-events.log`, which
+`GET /api/v1/aggregate` returns as `events`) keeps the run's lines: the session starting and
+ending with what each interface lost, the first block lost if one was, an interface stalling or
+coming back, anything refused, and one `phase` line per interface that was set up to be measured,
+saying what it was measured at, or why nothing was. **Every line
+a run writes starts its detail with `Gazelle's own measurement:`**, so a person reading the log the
+next morning can tell Gazelle measuring from a DAW recording:
+
+```text
+2026-09-21 23:40:12 session-started Gazelle's own measurement: 2 in, 2 out at 48000 Hz
+2026-09-21 23:40:12 phase Gazelle's own measurement: Studio+ was measured at -148 samples from where its driver's figures put it, and was left there on purpose: this session was measuring the trim, and a trim is measured on the drivers' own figures
+2026-09-21 23:40:17 session-ended Gazelle's own measurement: ran for 5 seconds, and no interface lost a block
+```
+
+The marking is done at the one place every line passes on its way to the file, so there is no line
+a run writes that could forget it.
+
+**The phase comes back in the answer too.** `Outcome::phases` carries one entry per interface,
+read out of the record at the end of the run, in the driver's own terms: the state, what was
+measured and what was applied, in samples, and the driver's own sentence about it.
+`Outcome::phases_refused` picks out the interfaces whose measurement was asked for and turned down,
+which is what a person reading a result has to be told: nothing came back on their measurement
+cable, so the trim offered for them has no phase to be paired with.
+
+**A run measures the phase and applies none of it**, and that is what makes it the place a trim's
+phase reference comes from. The driver lines every session up to the phase that was measured when
+the trim was, so the trim and that phase have to be the raw figures of one session: the lag a run
+hears is on the drivers' own figures with nothing moved underneath it, and the phase it hears beside
+that lag is exactly the reference the new trim needs. Each input trim for an interface whose phase is
+measured comes back with a `phase_reference` beside it, in the same voice as the trim: what the file
+had (`old`) and what to write (`new`). Writing the trim writes both. A trim offered with no phase
+heard beside it carries a `new` of nothing, which takes the old reference out rather than leaving it
+next to a trim it does not belong to; a trim that is not offered keeps its old reference. Output
+trims, the interface everything was measured against, and interfaces with no phase setting have none.
+The pairing is read from the audio path itself, so it is there whether or not the run could publish.
+
+**Not being able to publish never fails a run.** If the shared section cannot be made the run
+measures exactly what it would have, and writes its lines to the log if it has one. `phases` is then
+empty, because the phase is only ever reported through the record: empty means there was nothing to
+read, which is not the same as every interface going unmeasured. The same happens when the section
+already exists, which means the driver is loaded in a DAW somewhere: that record belongs to that
+driver, and a run never writes into it.
+
 ## Using it
 
 ```rust

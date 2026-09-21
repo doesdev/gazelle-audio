@@ -15,6 +15,16 @@
 //! measured is what is **left over** after it, not the whole of the error. The new trim is
 //! therefore the old one plus the measured lag, and all three are reported so that nobody has to
 //! work that out or remember which of them they are looking at.
+//!
+//! # A trim and the phase it was measured at
+//!
+//! **A trim is only true of the state its session was in.** Each interface's capture pipeline
+//! settles on a different phase every session, and the driver lines every session up to the phase
+//! that was measured while the trim was: the trim's phase reference. A run measures the phase and
+//! moves nothing for it, so the lag it hears is the raw one, and the phase it measured beside that
+//! lag is exactly the reference the new trim needs. The two are offered together and written
+//! together: a new trim beside an old reference would line every session up to a state the trim
+//! was never measured in.
 
 use serde::Serialize;
 
@@ -39,6 +49,36 @@ pub struct TrimChange {
     pub is_reference: bool,
     /// Set when the reading was not one a trim can be made from, and why.
     pub not_applied: Option<String>,
+    /// The phase reference that goes with this trim, for an input trim on an interface whose phase
+    /// the driver measures. None for everything else: an output trim, because the phase is the
+    /// capture pipeline's, the interface everything was measured against, and an interface with no
+    /// phase setting.
+    pub phase_reference: Option<PhaseReference>,
+}
+
+/// The phase a trim was measured at, in the same voice as the trim: what the file had, and what to
+/// write beside the new trim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct PhaseReference {
+    /// What the file had. None when it had none, which is an interface whose sessions have been
+    /// running on the drivers' own figures.
+    pub old: Option<i32>,
+    /// What to write. The phase this run measured while it measured the trim, or None when the
+    /// driver heard nothing on the measurement cable, in which case writing the trim takes the old
+    /// reference out rather than leaving it beside a trim it does not belong to. Always the old one
+    /// when the trim itself is not offered.
+    pub new: Option<i32>,
+}
+
+/// What a run found out about one interface's phase, for pairing with its trim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseAtRun {
+    /// Nothing asked the driver to measure it.
+    NotMeasured,
+    /// It was measured at this many samples, and nothing was moved for it.
+    Heard(i32),
+    /// It was asked for and did not come to a number.
+    NotHeard,
 }
 
 /// The trim a reading implies, given what the file already said.
@@ -68,6 +108,28 @@ pub fn implied(reading: &Reading, direction: Direction, old: i32, is_reference: 
         new: if applies { old + measured } else { old },
         is_reference,
         not_applied,
+        phase_reference: None,
+    }
+}
+
+/// Put each input trim beside the phase it was measured at.
+///
+/// `old` is the reference the file already had for each interface, in device order, and `at_run`
+/// what this run measured of each one's phase. Output trims are left alone, because the phase is
+/// the capture pipeline's and nothing lines the outputs up by it.
+pub fn pair_with_phases(trims: &mut [TrimChange], old: &[Option<i32>], at_run: &[PhaseAtRun]) {
+    for (index, trim) in trims.iter_mut().enumerate() {
+        if trim.direction != Direction::Inputs || trim.is_reference {
+            continue;
+        }
+        let was = old.get(index).copied().flatten();
+        let new = match at_run.get(index).copied().unwrap_or(PhaseAtRun::NotMeasured) {
+            PhaseAtRun::NotMeasured => continue,
+            _ if trim.not_applied.is_some() => was,
+            PhaseAtRun::Heard(phase) => Some(phase),
+            PhaseAtRun::NotHeard => None,
+        };
+        trim.phase_reference = Some(PhaseReference { old: was, new });
     }
 }
 
@@ -176,6 +238,60 @@ mod tests {
         let change = implied(&scattered, Direction::Inputs, 0, false);
         assert_eq!(change.new, 0, "a spread the size of the answer is not an answer");
         assert!(change.not_applied.as_deref().is_some_and(|why| why.contains("did not agree")));
+    }
+
+    /// The trim a run offers and the phase it was measured at go together, so that writing the one
+    /// always writes the other.
+    #[test]
+    fn an_input_trim_is_offered_beside_the_phase_it_was_measured_at() {
+        let readings = vec![reading("Quadro", 0.0), reading("Studio+", 60.4)];
+        let mut trims = implied_for_all(&readings, Direction::Inputs, &[0, 0], 0);
+        pair_with_phases(&mut trims, &[None, None], &[PhaseAtRun::NotMeasured, PhaseAtRun::Heard(-84)]);
+        assert_eq!(trims[0].phase_reference, None, "the interface everything was measured against has none");
+        assert_eq!(trims[1].new, 60);
+        assert_eq!(trims[1].phase_reference, Some(PhaseReference { old: None, new: Some(-84) }));
+
+        // A run in a different state measures a different lag and a different phase, and it is the
+        // pair that is offered: a new trim beside the phase it was measured at, replacing the old
+        // pair whole.
+        let readings = vec![reading("Quadro", 0.0), reading("Studio+", -64.0)];
+        let mut trims = implied_for_all(&readings, Direction::Inputs, &[0, 60], 0);
+        pair_with_phases(&mut trims, &[None, Some(-84)], &[PhaseAtRun::NotMeasured, PhaseAtRun::Heard(-148)]);
+        assert_eq!((trims[1].old, trims[1].new), (60, -4));
+        assert_eq!(trims[1].phase_reference, Some(PhaseReference { old: Some(-84), new: Some(-148) }));
+    }
+
+    #[test]
+    fn a_trim_with_no_phase_heard_beside_it_takes_the_old_reference_out() {
+        let readings = vec![reading("Quadro", 0.0), reading("Studio+", 28.0)];
+        let mut trims = implied_for_all(&readings, Direction::Inputs, &[0, 0], 0);
+        pair_with_phases(&mut trims, &[None, Some(-84)], &[PhaseAtRun::NotMeasured, PhaseAtRun::NotHeard]);
+        assert_eq!(trims[1].phase_reference, Some(PhaseReference { old: Some(-84), new: None }), "the old one belongs to the old trim");
+    }
+
+    #[test]
+    fn a_trim_that_is_not_offered_leaves_its_reference_where_it_was() {
+        let mut nothing = reading("Studio+", 0.0);
+        nothing.nothing_arrived = true;
+        let readings = vec![reading("Quadro", 0.0), nothing];
+        let mut trims = implied_for_all(&readings, Direction::Inputs, &[0, 60], 0);
+        pair_with_phases(&mut trims, &[None, Some(-84)], &[PhaseAtRun::NotMeasured, PhaseAtRun::Heard(-148)]);
+        assert!(trims[1].not_applied.is_some());
+        assert_eq!(trims[1].phase_reference, Some(PhaseReference { old: Some(-84), new: Some(-84) }));
+    }
+
+    #[test]
+    fn output_trims_and_interfaces_with_no_phase_setting_carry_no_reference() {
+        let readings = vec![reading("Quadro", 0.0), reading("Studio+", 28.0)];
+        let mut outputs = implied_for_all(&readings, Direction::Outputs, &[0, 0], 0);
+        pair_with_phases(&mut outputs, &[None, Some(-84)], &[PhaseAtRun::NotMeasured, PhaseAtRun::Heard(-148)]);
+        assert!(outputs.iter().all(|trim| trim.phase_reference.is_none()), "the phase is the capture pipeline's");
+        let mut unphased = implied_for_all(&readings, Direction::Inputs, &[0, 0], 0);
+        pair_with_phases(&mut unphased, &[None, None], &[PhaseAtRun::NotMeasured, PhaseAtRun::NotMeasured]);
+        assert!(unphased.iter().all(|trim| trim.phase_reference.is_none()));
+        // And a run that could not say anything about the phases leaves every trim without one.
+        pair_with_phases(&mut unphased, &[], &[]);
+        assert!(unphased.iter().all(|trim| trim.phase_reference.is_none()));
     }
 
     #[test]

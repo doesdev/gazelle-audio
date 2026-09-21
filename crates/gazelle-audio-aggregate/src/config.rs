@@ -116,17 +116,18 @@ impl<'de> Deserialize<'de> for Labels {
 }
 
 /// The digital path the driver measures a follower's phase over: which output of the device that
-/// drives the callback feeds it, and which of its own inputs the cable arrives on.
+/// drives the callback feeds it, and which of its own inputs the cable arrives on, and the phase
+/// that was measured over it while this device's trim was measured.
 ///
-/// Both are the **devices' own** channel numbers from zero, the numbering `inputs` and `outputs`
-/// use, so the setting survives a change to which channels are exposed. Leaving the whole thing
-/// out means this interface is not phase measured, which is what every session did before this
-/// existed.
+/// Both channels are the **devices' own** channel numbers from zero, the numbering `inputs` and
+/// `outputs` use, so the setting survives a change to which channels are exposed. Leaving the whole
+/// thing out means this interface is not phase measured, which is what every session did before
+/// this existed.
 ///
-/// **This is not a trim.** A trim is the constant a person measured once with a cable and a click,
-/// and it stays the same for ever. A phase is what an interface's capture pipeline settles on when
-/// its stream starts, which is a different number every session. Both apply, and they are set up
-/// separately on purpose.
+/// **Three numbers, not one.** The trim is the constant a person measured once with a click. The
+/// reference is the phase measured in the same session as that trim. The phase is what each
+/// session measures. Every session is lined up by the reference minus the phase, which puts it
+/// back in the state the trim was measured in, and then the trim applies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct PhaseConfig {
     /// The callback master's output channel the cable leaves from.
@@ -135,6 +136,12 @@ pub struct PhaseConfig {
     /// This device's input channel the cable arrives on.
     #[serde(default)]
     pub input: Option<i32>,
+    /// The phase measured in the session this device's trim was measured in, in samples. Left out
+    /// means there is nothing to line a session up to yet: each session is measured and left on
+    /// the drivers' figures, and the log says the interfaces need measuring once. A calibration
+    /// run writes it beside the trim it measured.
+    #[serde(default)]
+    pub reference: Option<i32>,
 }
 
 impl PhaseConfig {
@@ -474,8 +481,26 @@ mod tests {
         assert_eq!(config.devices[0].phase, None, "the device that drives the callback is not measured");
         let phase = config.devices[1].phase.expect("the follower is");
         assert_eq!(phase.channels(), Some((8, 16)));
+        assert_eq!(phase.reference, None, "and nothing has been measured to line it up to yet");
         // A trim and a phase are different things, and a device can have both.
         assert_eq!(config.devices[1].input_trim, Some(28));
+    }
+
+    /// The reference is written by a calibration run beside the trim it measured, and read back as
+    /// exactly what was written: a phase carries a large constant of its own, so a big negative
+    /// number is an ordinary one.
+    #[test]
+    fn a_phase_setting_carries_the_reference_its_trim_was_measured_at() {
+        let config = Config::parse(
+            r#"{"devices": [{"key": "Zen Quadro"},
+                            {"key": "ZenStudioTB", "name": "Studio+", "input_trim": 144,
+                             "phase": {"master_output": 8, "input": 16, "reference": -84}}]}"#,
+        )
+        .expect("a reference is part of a phase setting");
+        let phase = config.devices[1].phase.expect("the follower is measured");
+        assert_eq!(phase.reference, Some(-84));
+        assert_eq!(phase.channels(), Some((8, 16)), "and the cable is where it always was");
+        assert_eq!(config.devices[1].input_trim, Some(144), "beside the trim it belongs to");
     }
 
     #[test]

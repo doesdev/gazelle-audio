@@ -1243,19 +1243,29 @@ fn quiet_pc() -> Arc<FakePc> {
 }
 
 /// The same configuration as `both`, with a cable declared from the master's output to the
-/// follower's input, which is what its phase is measured over.
+/// follower's input, which is what its phase is measured over. Its reference is zero: its trim was
+/// measured in a session that landed exactly where the drivers' figures put it, so what a session
+/// measures is also what it is lined up by, and the arithmetic below is easy to follow.
 fn cabled(master_output: i32, input: i32) -> Config {
     let mut config = both(Alignment::Aligned);
-    config.devices[1].phase = Some(PhaseConfig { master_output: Some(master_output), input: Some(input) });
+    config.devices[1].phase = Some(PhaseConfig { master_output: Some(master_output), input: Some(input), reference: Some(0) });
+    config
+}
+
+/// The same cable from the master's third output into the follower's third input, with the
+/// reference given, or none.
+fn cabled_to(reference: Option<i32>) -> Config {
+    let mut config = cabled(2, 2);
+    config.devices[1].phase = Some(PhaseConfig { master_output: Some(2), input: Some(2), reference });
     config
 }
 
 /// Where the burst has to arrive for the measurement to come to `residual` samples.
 ///
 /// The signal leaves on the block the driver settles on, held back by whatever the master's own
-/// outputs are held back by; what the drivers' figures expect of it is the master's reported output
-/// latency, the follower's reported input latency and the one block the ring costs. Every one of
-/// those is nothing here except the block, which is what `quiet` is for.
+/// outputs are held back by, which is one block here; what the drivers' figures expect of it is the
+/// master's reported output latency, the follower's reported input latency and the one block the
+/// ring costs.
 fn arrives_at(residual: i64) -> (u64, usize) {
     let sent_at = phase::SETTLE_BLOCKS as i64 * BLOCK as i64 + BLOCK as i64;
     let expected = QUIET_LATENCY as i64 * 2 + BLOCK as i64;
@@ -1370,7 +1380,7 @@ fn a_follower_cabled_with_a_known_phase_is_lined_up_by_what_was_measured() {
     let said = written.of("phase");
     assert_eq!(said.len(), 1, "once, not once per look: {:?}", written.lines());
     assert!(said[0].contains("B was measured at 32 samples"), "{}", said[0]);
-    assert!(said[0].contains("lined up by 32"), "{}", said[0]);
+    assert!(said[0].contains("brought 32 samples earlier"), "{}", said[0]);
     aggregate.dispose_buffers();
 }
 
@@ -1401,7 +1411,7 @@ fn a_follower_whose_cable_is_out_is_left_exactly_where_the_drivers_figures_put_i
 }
 
 #[test]
-fn a_measurement_that_is_not_near_a_multiple_of_32_moves_nothing_and_says_why() {
+fn a_change_from_the_reference_that_is_not_near_a_whole_number_of_steps_moves_nothing_and_says_why() {
     let _order = daw::session();
     let pc = quiet_pc();
     let (mut aggregate, reader, written) = reporting(&pc, cabled(2, 2));
@@ -1409,8 +1419,8 @@ fn a_measurement_that_is_not_near_a_multiple_of_32_moves_nothing_and_says_why() 
     go(&mut aggregate);
     let was = reader.read().unwrap().driver.input_latency;
 
-    // Something arrives, and it is nowhere near what the hardware does, so it is a measurement of
-    // something else.
+    // Something arrives 20 samples from the reference, which is nowhere near a whole number of 32
+    // sample steps, so it is a measurement of something else.
     run_measuring(&pc, Some(20), 80);
     let seen = reader.read().unwrap();
     assert_eq!(seen.devices()[1].phase_state, phase_state::OFF_THE_GRID);
@@ -1422,7 +1432,7 @@ fn a_measurement_that_is_not_near_a_multiple_of_32_moves_nothing_and_says_why() 
     watcher.look_around();
     let said = written.of("phase");
     assert!(said[0].contains("20 samples"), "{}", said[0]);
-    assert!(said[0].contains("whole multiple of 32"), "{}", said[0]);
+    assert!(said[0].contains("32 sample steps"), "{}", said[0]);
     aggregate.dispose_buffers();
 }
 
@@ -1459,7 +1469,7 @@ fn three_interfaces_are_each_measured_against_the_master_on_their_own_cable() {
     config.devices.push(DeviceConfig {
         key: Some("Device C".into()),
         name: Some("C".into()),
-        phase: Some(PhaseConfig { master_output: Some(1), input: Some(2) }),
+        phase: Some(PhaseConfig { master_output: Some(1), input: Some(2), reference: Some(0) }),
         ..DeviceConfig::default()
     });
     let (mut aggregate, reader, _written) = reporting(&pc, config);
@@ -1525,4 +1535,227 @@ fn a_session_started_again_is_measured_again_rather_than_keeping_the_last_ones_a
     assert_eq!(seen.devices()[0].pad_in, 0, "and the master is not held back for it at all");
     assert_eq!(seen.driver.input_latency, QUIET_LATENCY, "the master's own path, which nothing measured");
     aggregate.dispose_buffers();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Lining every session up to the one its trim was measured in.
+// ---------------------------------------------------------------------------------------------
+
+/// A session with a reference of its own, or none, and the phase it lands in.
+fn run_against(reference: Option<i32>, residual: Option<i64>) -> (Aggregate, Reader, Written) {
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, cabled_to(reference));
+    go(&mut aggregate);
+    run_measuring(&pc, residual, 140);
+    (aggregate, reader, written)
+}
+
+/// The log's line about the phase, read by a watcher the way the driver's own thread reads it.
+fn phase_line(aggregate: &Aggregate, written: &Written) -> String {
+    let pc = quiet_pc();
+    let watcher = watching(&pc, Arc::clone(&aggregate.reporter));
+    watcher.look_around();
+    let said = written.of("phase");
+    assert_eq!(said.len(), 1, "{:?}", written.lines());
+    said[0].clone()
+}
+
+/// **Sessions that land in different states are all lined up to the reference**, by exactly the
+/// reference minus what each measured, including the one sample of wobble the hardware showed.
+#[test]
+fn sessions_that_land_in_different_states_are_all_lined_up_to_the_reference() {
+    let _order = daw::session();
+    // The reference is 40: the state the trim was measured in. The sessions below land 64, 63 and
+    // 160 samples earlier than that, and one 32 later, which is what the hardware did.
+    for (measured, pad_follower, pad_master) in [(40, 0, 0), (-24, 64, 0), (-23, 63, 0), (-120, 160, 0), (72, 0, 32)] {
+        let (mut aggregate, reader, written) = run_against(Some(40), Some(measured));
+        let seen = reader.read().unwrap();
+        let follower = seen.devices()[1];
+        assert_eq!(follower.phase_state, phase_state::APPLIED, "{measured}");
+        assert_eq!(follower.phase_measured, measured as i32);
+        assert_eq!(follower.phase_applied, measured as i32 - 40, "what was measured, less the reference, exactly");
+        // The follower crosses a ring, which costs a block and is already in the plan; what the
+        // measurement adds is the reference minus what it measured, on whichever side it falls.
+        assert_eq!(follower.pad_in, (pad_follower - BLOCK).max(0), "{measured}");
+        assert_eq!(seen.devices()[0].pad_in, (BLOCK - pad_follower).max(0) + pad_master, "{measured}");
+        let said = phase_line(&aggregate, &written);
+        assert!(said.contains(&format!("B was measured at {measured} samples")), "{said}");
+        if measured != 40 {
+            assert!(said.contains("against 40 when its trim was measured"), "{said}");
+        } else {
+            assert!(said.contains("nothing was moved"), "{said}");
+        }
+        aggregate.dispose_buffers();
+    }
+}
+
+/// The change of 63 samples the hardware showed, which a rule that rounded to 32 would have made
+/// 64 and a rule that asked for a multiple of 32 would have refused.
+#[test]
+fn a_change_of_63_samples_is_lined_up_by_63_and_not_by_64() {
+    let _order = daw::session();
+    let (mut aggregate, reader, written) = run_against(Some(0), Some(-63));
+    let follower = reader.read().unwrap().devices()[1];
+    assert_eq!(follower.phase_state, phase_state::APPLIED);
+    assert_eq!(follower.phase_applied, -63);
+    assert_eq!(follower.pad_in, 63 - BLOCK, "held back by 63, less the block its ring already costs");
+    assert!(phase_line(&aggregate, &written).contains("held back by 63 samples"));
+    aggregate.dispose_buffers();
+}
+
+/// **No reference, nothing applied**, and the log says the interface needs measuring once.
+#[test]
+fn with_no_reference_a_session_is_measured_and_left_where_the_drivers_figures_put_it() {
+    let _order = daw::session();
+    let (mut aggregate, reader, written) = run_against(None, Some(-148));
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::NO_REFERENCE);
+    assert_eq!(seen.devices()[1].phase_measured, -148, "what it measured is still said");
+    assert_eq!(seen.devices()[1].phase_applied, 0);
+    assert_eq!(seen.devices()[0].pad_in, BLOCK, "held back by exactly what the drivers' figures say");
+    assert_eq!(seen.driver.input_latency, QUIET_LATENCY + BLOCK);
+    let said = phase_line(&aggregate, &written);
+    assert!(said.contains("B was measured at -148 samples"), "{said}");
+    assert!(said.contains("there is no phase from the session its trim was measured in"), "{said}");
+    assert!(said.contains("Measure the interfaces once"), "{said}");
+    assert!(said.contains("the figures the drivers reported"), "{said}");
+    aggregate.dispose_buffers();
+}
+
+/// A correction bigger than the room the delays keep for one is refused, and nothing moves.
+#[test]
+fn a_correction_past_the_room_the_delays_have_is_refused_and_moves_nothing() {
+    let _order = daw::session();
+    let (mut aggregate, reader, written) = run_against(Some(-(phase::LIMIT + 88)), Some(0));
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::TOO_FAR);
+    assert_eq!(seen.devices()[1].phase_applied, 0);
+    assert_eq!(seen.devices()[0].pad_in, BLOCK);
+    assert_eq!(seen.driver.input_latency, QUIET_LATENCY + BLOCK);
+    let said = phase_line(&aggregate, &written);
+    assert!(said.contains("further from the phase its trim was measured at"), "{said}");
+    aggregate.dispose_buffers();
+}
+
+/// **A calibration run measures the phase and moves nothing**, so the click lag it measures is
+/// the raw one, and the phase is there to be paired with the trim that lag becomes.
+#[test]
+fn a_session_measuring_trims_measures_the_phase_and_moves_nothing_for_it() {
+    let _order = daw::session();
+    let pc = quiet_pc();
+    // A reference is there to be used, and it is not: this session is where the next one comes from.
+    let (mut aggregate, reader, written) = reporting(&pc, cabled_to(Some(0)));
+    aggregate.measure_trims();
+    go(&mut aggregate);
+    let was = reader.read().unwrap().driver.input_latency;
+    run_measuring(&pc, Some(-148), 140);
+    let seen = reader.read().unwrap();
+    assert_eq!(seen.devices()[1].phase_state, phase_state::MEASURED_ONLY);
+    assert_eq!(seen.devices()[1].phase_measured, -148);
+    assert_eq!(seen.devices()[1].phase_applied, 0);
+    assert_eq!(seen.devices()[0].pad_in, BLOCK, "nothing was moved");
+    assert_eq!(seen.driver.input_latency, was);
+    let said = phase_line(&aggregate, &written);
+    assert!(said.contains("B was measured at -148 samples") && said.contains("on purpose"), "{said}");
+    aggregate.dispose_buffers();
+}
+
+/// What the interfaces report for the table below: enough that the earliest session the hardware
+/// showed still hears its signal after it was sent, and little enough that the latest one still
+/// hears it inside the window.
+const TABLE_LATENCY: i32 = 200;
+
+/// The part of the click lag that is not the phase, in whole samples: the hardware's was 144.4
+/// in every run, and a fake that works in whole samples drops the fraction.
+const NOT_THE_PHASE: i64 = 144;
+
+/// **The hardware's own sessions, reproduced.** A follower whose capture phase moves between
+/// sessions exactly as the real one's did, measured in every session against the reference from
+/// the run whose trim was measured, ends every session with the same click lag. With no reference
+/// the same sessions scatter exactly as the hardware's did.
+///
+/// The fake's click lag is the phase plus 144, as the hardware's was. The trim is what the first
+/// run's click lag came to with nothing moved and no trim in force, which is what a calibration run
+/// in that session offers, and the reference is the phase measured beside it, -84.
+#[test]
+fn the_hardwares_sessions_all_end_with_the_same_click_lag_once_lined_up_to_the_reference() {
+    let _order = daw::session();
+    const REFERENCE: i32 = -84;
+    // Runs 1 to 6 of the table, and the three before them.
+    let phases: [i64; 9] = [-84, -148, -148, -147, -307, -307, -244, -307, -307];
+
+    let session = |phase: i64, reference: Option<i32>, trim: i32| -> (i64, u32, i32) {
+        let spec = || {
+            Spec { min: 2, max: 64, preferred: BLOCK, rate: QUIET_RATE, rates: vec![QUIET_RATE], ..Spec::default() }
+                .with_channels(3, 3)
+                .with_latency(TABLE_LATENCY, TABLE_LATENCY)
+        };
+        let pc = Arc::new(
+            FakePc::new()
+                .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec())
+                .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec()),
+        );
+        let mut config = cabled_to(reference);
+        config.devices[1].input_trim = Some(trim);
+        let (mut aggregate, reader, _written) = reporting(&pc, config);
+        daw::with(|daw| daw.heard.clear());
+        go(&mut aggregate);
+
+        // The signal leaves on the block the driver settles on, after the master's output delay,
+        // which is one block; what the drivers' figures expect of it is both reported latencies and
+        // the block the ring costs, and the trim is no part of it.
+        let sent_at = (phase::SETTLE_BLOCKS as i64 + 1) * BLOCK as i64;
+        let burst = sent_at + 2 * TABLE_LATENCY as i64 + BLOCK as i64 + phase;
+        // One click, well after the measurement has settled, into both interfaces: the follower's
+        // copy lands by the part of the lag that is not the phase, and then by the phase.
+        let click_a = 800i64;
+        let click_b = click_a + NOT_THE_PHASE + phase;
+        let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+        let at = |position: i64, block: i64| -> Vec<i32> {
+            let mut run = vec![0i32; BLOCK as usize];
+            if position >= block * BLOCK as i64 && position < (block + 1) * BLOCK as i64 {
+                run[(position - block * BLOCK as i64) as usize] = phase::AMPLITUDE;
+            }
+            run
+        };
+        for block in 0..400i64 {
+            let half = (block as usize) & 1;
+            a.set_input(0, half, &at(click_a, block));
+            b.set_input(0, half, &at(click_b, block));
+            b.set_input(2, half, &at(burst, block));
+            b.fire(half);
+            a.fire(half);
+        }
+        let heard = daw::with(|daw| daw.heard.clone());
+        let arrived = |channel: usize| -> i64 {
+            let flat: Vec<i32> = heard.iter().flat_map(|block| block[channel].iter().copied()).collect();
+            flat.iter().position(|&sample| sample != 0).expect("the click reached the DAW") as i64
+        };
+        // The DAW's channels are A's three inputs and then B's first two: the third is the driver's.
+        let lag = arrived(3) - arrived(0);
+        let follower = reader.read().unwrap().devices()[1];
+        aggregate.dispose_buffers();
+        (lag, follower.phase_state, follower.phase_measured)
+    };
+
+    // The first run, measuring its trim: nothing is lined up and no trim is in force, so the lag
+    // it hears is the whole of it, and the phase beside it is the reference.
+    let (trim, state, measured) = session(REFERENCE as i64, None, 0);
+    assert_eq!((state, measured), (phase_state::NO_REFERENCE, REFERENCE));
+    let trim = trim as i32;
+
+    for phase in phases {
+        let (lag, state, measured) = session(phase, Some(REFERENCE), trim);
+        assert_eq!(state, phase_state::APPLIED, "a phase of {phase}");
+        assert_eq!(measured as i64, phase, "the measurement tracks the phase to the sample");
+        assert_eq!(lag, 0, "a phase of {phase}: every session ends where the trim was measured, and the trim then cancels it");
+    }
+
+    // The same sessions with nothing to line them up to scatter exactly as the table did, by how
+    // far each phase moved from the reference: the trim only holds in the state it was measured in.
+    for phase in phases {
+        let (lag, state, _) = session(phase, None, trim);
+        assert_eq!(state, phase_state::NO_REFERENCE);
+        assert_eq!(lag, phase - REFERENCE as i64, "a phase of {phase}");
+    }
 }

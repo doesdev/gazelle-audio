@@ -293,6 +293,11 @@ pub struct Settings {
     /// How far either side of the reference's click the other channels are searched, in samples.
     /// Tens of samples is the error being looked for; this is room around it, not a target.
     pub search_samples: usize,
+    /// A check rather than a measurement: the session is lined up exactly as a DAW's session is,
+    /// phase applied from its reference and trims in force, and the click lag heard is then what
+    /// a recording would get. Nothing is offered to write, because a lag heard on top of a
+    /// correction is a verdict on the trim, not a new one.
+    pub checking: bool,
 }
 
 impl Default for Settings {
@@ -306,6 +311,7 @@ impl Default for Settings {
             buffer_size: None,
             settle_seconds: 0.5,
             search_samples: 512,
+            checking: false,
         }
     }
 }

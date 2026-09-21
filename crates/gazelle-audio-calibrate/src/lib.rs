@@ -32,6 +32,22 @@
 //!   question about one interface's own inputs in a single run.
 //! - [`session`] is the host: it drives the aggregate, plays the clicks and keeps what came back.
 //!
+//! # What a run publishes
+//!
+//! A run **is** a session, so it publishes what a session publishes: the driver's own shared record
+//! while it goes, and the driver's own event log afterwards, both through the driver's own
+//! machinery. Every line it writes is marked [`session::MARK`], so a person reading the log
+//! tomorrow can tell Gazelle measuring from a DAW recording. A run also brings back what the
+//! driver's phase measurement came to on each interface ([`session::PhaseHeard`]), which is the
+//! only way to tell a phase that was measured from one that was refused and from an interface that
+//! was never set up to be measured. A run measures the phase and applies none of it, and each
+//! input trim it offers carries the phase it was measured at ([`trim::PhaseReference`]), because
+//! the driver lines every later session up to exactly that phase.
+//!
+//! **Being unable to publish never fails a run.** With no shared section and no log file the
+//! measurement is exactly the same measurement; there is simply nothing to watch it with, and the
+//! phase it cannot read is reported as nothing rather than as nothing measured.
+//!
 //! # The sign rule
 //!
 //! **The interface whose copy of the click lands later is recording late, and it takes a positive
@@ -60,11 +76,13 @@ pub mod trim;
 
 #[cfg(test)]
 mod end_to_end;
+#[cfg(test)]
+mod published;
 
 pub use measure::{ClickLag, Drift, Reading};
 pub use rig::{Direction, Rig, Settings, LOUDEST_DBFS};
-pub use session::{Outcome, Witness, NO_HARDWARE};
-pub use trim::TrimChange;
+pub use session::{Outcome, PhaseHeard, Witness, NO_HARDWARE};
+pub use trim::{PhaseReference, TrimChange};
 
 #[cfg(windows)]
 pub use session::measure as measure_here;

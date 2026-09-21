@@ -162,9 +162,9 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
 /// Two interfaces record a fixed number of samples apart within a session, and that number jumps
 /// by a whole multiple of 32 samples between sessions: each interface's capture pipeline settles on
 /// a different phase when its stream starts. The driver can measure that over the digital cable
-/// that already locks them together, and line the streams up by what it measured. It needs to be
-/// told which channels the cable is on, and until it is, every session lines up by the figures the
-/// drivers report.
+/// that already locks them together, and line every session up to the phase that was measured when
+/// the interfaces were last measured. It needs to be told which channels the cable is on, and until
+/// it is, every session lines up by the figures the drivers report.
 ///
 /// **This is not the trim.** The trim is the constant somebody measured once with a cable and a
 /// click, and setting one does not answer this.
@@ -186,7 +186,7 @@ fn phases(devices: &[DeviceReport], cables: &[Cable]) -> Vec<Reason> {
                 ReasonCode::PhaseNotMeasured,
                 Severity::Warning,
                 format!(
-                    "{} has a {} cable from {} and has not been set up for phase measurement, so every session lines it up by the figures its driver reports. Each interface's capture starts a whole multiple of 32 samples away from the last session's, so the two land a different distance apart each time. Say which channels that cable is on and the driver measures it at the start of every session and lines the streams up by what it measured.",
+                    "{} has a {} cable from {} and has not been set up for phase measurement, so every session lines it up by the figures its driver reports. Each interface's capture starts a whole multiple of 32 samples away from the last session's, so the two land a different distance apart each time. Say which channels that cable is on and measure the interfaces once, and the driver measures it at the start of every session and lines each session up to where it was when they were measured.",
                     device.name,
                     port_words(&cable.to.port),
                     from

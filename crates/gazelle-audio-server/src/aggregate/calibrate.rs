@@ -42,6 +42,10 @@ pub struct Ask {
     pub clicks: Option<u32>,
     #[serde(default)]
     pub level_dbfs: Option<f64>,
+    /// A check rather than a measurement: the session is lined up as a DAW's session is, and what
+    /// it hears says whether the trims hold. It offers no trims of its own.
+    #[serde(default)]
+    pub check: bool,
 }
 
 impl Ask {
@@ -69,6 +73,7 @@ impl Ask {
         if let Some(level) = self.level_dbfs {
             settings.level_dbfs = level;
         }
+        settings.checking = self.check;
         if let Some(why) = settings.refusal() {
             return Err(sentence(&why));
         }
@@ -117,6 +122,10 @@ pub struct Measured {
     /// is an observation and never an interface's measurement.
     pub witnesses: Vec<Witness>,
     pub trims: Vec<Trim>,
+    /// One per interface: what the driver's own phase measurement came to at the start of this
+    /// run, which a run measures and never applies. Empty when the run had nowhere to publish,
+    /// which is a run with nothing to read rather than a set of interfaces that were not measured.
+    pub phases: Vec<Phase>,
     /// True when no interface lost a block while the run was going. A measurement taken across a
     /// dropout is not one, so this is the first thing to read.
     pub clean: bool,
@@ -124,6 +133,9 @@ pub struct Measured {
     pub blocks_lost: u64,
     /// Anything the person should read before believing the numbers.
     pub warnings: Vec<String>,
+    /// True when this was a check: lined up as a DAW's session is, so its lags are what a recording
+    /// would get and there are no trims to write.
+    pub checking: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -177,6 +189,28 @@ pub struct Witness {
     pub drift: Option<Drift>,
 }
 
+/// **What the driver made of one interface's capture phase at the start of this run.**
+///
+/// The driver measures where each interface's capture actually started, every session, and lines
+/// each session up to the phase its trim was measured at. A run is where that phase comes from, so
+/// it measures and moves nothing: the lag it hears is the raw one, and the phase it measured here
+/// is what goes beside the trim it offers.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Phase {
+    pub device: String,
+    /// `not_configured` when the setup asks for no measurement on this interface, `measuring` when
+    /// the run ended before one settled, `measured_only` once it has, and `not_heard` when nothing
+    /// came back on the measurement cable.
+    pub state: String,
+    /// What the measurement came to, in samples, exactly.
+    pub measured_samples: i32,
+    /// What was added to this interface's input path because of it, in samples, which in a run is
+    /// always zero.
+    pub applied_samples: i32,
+    /// The sentence for this interface, in the same words the driver's own log keeps.
+    pub note: String,
+}
+
 /// A lag that grows through the run, which is two clocks rather than one. No trim fixes it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Drift {
@@ -202,6 +236,24 @@ pub struct Trim {
     /// Why this one is not offered, when it is not.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_applied: Option<String>,
+    /// The phase this trim was measured at, which is written with it. Present on an input trim for
+    /// an interface whose phase the driver measures, and left out on everything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_reference: Option<TrimReference>,
+}
+
+/// The phase a trim was measured at, in the same voice as the trim beside it.
+///
+/// **Writing the trim writes this too**, into that interface's `phase.reference`, and `now` of
+/// null means taking the old one out. A new trim beside an old reference would line every session
+/// up to a state the new trim was never measured in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct TrimReference {
+    /// What the setup says now, or null when it has none.
+    pub was: Option<i32>,
+    /// What it becomes: the phase this run measured while it measured the trim, or null when
+    /// nothing came back on the measurement cable. The same as `was` when the trim is not offered.
+    pub now: Option<i32>,
 }
 
 /// One measurement. Behind a trait because the real one opens both audio drivers and plays into
@@ -396,15 +448,31 @@ pub fn measured(outcome: &Outcome, rig: &Rig) -> Measured {
             now: trim.new,
             is_reference: trim.is_reference,
             not_applied: trim.not_applied.clone(),
+            phase_reference: trim.phase_reference.map(|reference| TrimReference { was: reference.old, now: reference.new }),
+        })
+        .collect();
+    let phases: Vec<Phase> = outcome
+        .phases
+        .iter()
+        .map(|phase| Phase {
+            device: phase.device.clone(),
+            state: phase.state.to_string(),
+            measured_samples: phase.measured_samples,
+            applied_samples: phase.applied_samples,
+            note: sentence(&phase.note),
         })
         .collect();
     // What to read before believing any of it: an interface that heard little or nothing, two
-    // clocks rather than one, and any trim the measurement will not stand behind.
+    // clocks rather than one, an interface that was lined up from its driver's figures rather than
+    // from a measurement, and any trim the measurement will not stand behind.
     let mut warnings: Vec<String> = Vec::new();
     for reading in &outcome.readings {
         if !reading.is_usable() || reading.drift.is_some() {
             warnings.push(reading.note.clone());
         }
+    }
+    for phase in outcome.phases_refused() {
+        warnings.push(sentence(&phase.note));
     }
     for trim in &outcome.trims {
         if let Some(why) = &trim.not_applied {
@@ -419,9 +487,11 @@ pub fn measured(outcome: &Outcome, rig: &Rig) -> Measured {
         readings,
         witnesses,
         trims,
+        phases,
         clean: outcome.was_clean(),
         blocks_lost: outcome.blocks_lost(),
         warnings,
+        checking: outcome.checking,
     }
 }
 
@@ -516,6 +586,7 @@ mod tests {
                     new: 0,
                     is_reference: true,
                     not_applied: None,
+                    phase_reference: None,
                 },
                 TrimChange {
                     device: "Studio+".into(),
@@ -526,10 +597,18 @@ mod tests {
                     new: 28,
                     is_reference: false,
                     not_applied: None,
+                    phase_reference: None,
                 },
             ],
+            phases: Vec::new(),
+            checking: false,
             refusal: None,
         }
+    }
+
+    /// One interface's phase, as the driver wrote it into the record it publishes.
+    fn phase(device: &str, code: u32, measured: i32, applied: i32) -> gazelle_calibrate::PhaseHeard {
+        gazelle_calibrate::PhaseHeard::from_record(device, code, measured, applied)
     }
 
     fn ask() -> Ask {
@@ -540,7 +619,16 @@ mod tests {
             witnesses: None,
             clicks: Some(2),
             level_dbfs: None,
+            check: false,
         }
+    }
+
+    #[test]
+    fn a_check_is_asked_for_by_name_and_a_measurement_is_what_you_get_otherwise() {
+        let (_, measuring) = ask().taken().expect("a measurement");
+        assert!(!measuring.checking, "absent means a measurement, which is what offers trims");
+        let (_, checking) = Ask { check: true, ..ask() }.taken().expect("a check");
+        assert!(checking.checking);
     }
 
     fn settled(job: &Arc<Calibration>) -> Progress {
@@ -697,6 +785,101 @@ mod tests {
         assert_eq!(measured.warnings.len(), 2);
         assert!(measured.warnings[0].contains("drifted away"));
         assert!(measured.warnings[1].starts_with("Studio+: The two are not holding one clock"));
+    }
+
+    /// What the phase measurement made of each interface, in the shape the page reads: the one
+    /// that was measured and, because this is a run, left where it was, and the one the setup
+    /// never asked to measure. Neither is worth a warning.
+    #[test]
+    fn what_the_phase_measurement_made_of_each_interface_reaches_the_page() {
+        use gazelle_audio_aggregate_status::record::phase as codes;
+        let mut answer = outcome();
+        answer.phases = vec![
+            phase("Quadro", codes::NOT_CONFIGURED, 0, 0),
+            phase("Studio+", codes::MEASURED_ONLY, -148, 0),
+        ];
+        let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
+        job.start(&ask()).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert_eq!(measured.phases.len(), 2);
+        assert_eq!(measured.phases[0].state, "not_configured");
+        assert_eq!((measured.phases[0].measured_samples, measured.phases[0].applied_samples), (0, 0));
+        assert_eq!(measured.phases[1].state, "measured_only");
+        assert_eq!((measured.phases[1].measured_samples, measured.phases[1].applied_samples), (-148, 0));
+        assert!(measured.phases[1].note.contains("on purpose"), "{}", measured.phases[1].note);
+        assert!(measured.phases[1].note.ends_with('.'), "{}", measured.phases[1].note);
+        assert!(measured.warnings.is_empty(), "a phase that was measured is not a warning: {:?}", measured.warnings);
+    }
+
+    /// **The trim is offered beside the phase it was measured at**, in the same voice, so that the
+    /// page writes both or neither.
+    #[test]
+    fn a_trim_reaches_the_page_beside_the_phase_it_was_measured_at() {
+        let mut answer = outcome();
+        answer.trims[1].phase_reference = Some(gazelle_calibrate::PhaseReference { old: Some(-84), new: Some(-148) });
+        let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
+        job.start(&ask()).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert_eq!(measured.trims[0].phase_reference, None, "the interface everything was measured against has none");
+        assert_eq!(measured.trims[1].phase_reference, Some(TrimReference { was: Some(-84), now: Some(-148) }));
+
+        // Exactly what the page is sent: the reference beside the trim's own was and now, and left
+        // out entirely where there is none.
+        let page = serde_json::to_value(&measured.trims).expect("it goes out as JSON");
+        assert_eq!(
+            page[1],
+            serde_json::json!({
+                "device": "Studio+",
+                "direction": "inputs",
+                "field": "input_trim",
+                "was": 0,
+                "measured": 28,
+                "now": 28,
+                "is_reference": false,
+                "phase_reference": { "was": -84, "now": -148 }
+            })
+        );
+        assert!(page[0].get("phase_reference").is_none());
+
+        // A first run has nothing to replace, and says so with a null rather than a zero.
+        let mut first = outcome();
+        first.trims[1].phase_reference = Some(gazelle_calibrate::PhaseReference { old: None, new: Some(-84) });
+        let job = Arc::new(Calibration::new(Fake::new(first, 2)));
+        job.start(&ask()).expect("it starts");
+        let page = serde_json::to_value(&settled(&job).outcome.expect("an outcome").trims).unwrap();
+        assert_eq!(page[1]["phase_reference"], serde_json::json!({ "was": null, "now": -84 }));
+    }
+
+    #[test]
+    fn an_interface_whose_phase_was_refused_is_said_in_a_sentence_of_its_own() {
+        use gazelle_audio_aggregate_status::record::phase as codes;
+        let mut answer = outcome();
+        answer.phases = vec![
+            phase("Quadro", codes::NOT_CONFIGURED, 0, 0),
+            phase("Studio+", codes::NOT_HEARD, 0, 0),
+        ];
+        let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
+        job.start(&ask()).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert_eq!(measured.phases[1].state, "not_heard");
+        assert_eq!(measured.warnings.len(), 1, "{:?}", measured.warnings);
+        let said = &measured.warnings[0];
+        assert!(said.contains("Studio+ was not lined up"), "{said}");
+        assert!(said.contains("the figures the drivers reported"), "it says what the run ran on instead: {said}");
+        assert!(!said.to_ascii_lowercase().contains("trim"), "a phase is not a trim: {said}");
+        // And the trims themselves are untouched by any of it.
+        assert_eq!(measured.trims[1].now, 28);
+    }
+
+    #[test]
+    fn a_run_with_nowhere_to_publish_reports_no_phase_rather_than_none_measured() {
+        // Nothing to read is not the same as nothing measured, so it is reported as nothing at all
+        // and nobody is told the interfaces ran unmeasured when that is not known.
+        let job = Arc::new(Calibration::new(Fake::new(outcome(), 2)));
+        job.start(&ask()).expect("it starts");
+        let measured = settled(&job).outcome.expect("an outcome");
+        assert!(measured.phases.is_empty());
+        assert!(measured.warnings.is_empty());
     }
 
     #[test]

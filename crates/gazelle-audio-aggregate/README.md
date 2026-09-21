@@ -124,7 +124,7 @@ clocks it:
 | `devices[].name` | What to call this device's channels. | its registry key |
 | `devices[].input_trim` | Samples to add to what this device's driver says its input latency is. A device that records late takes a positive trim, and the others are held back to match it. | 0 |
 | `devices[].output_trim` | The same for its outputs. | 0 |
-| `devices[].phase` | How this interface's capture phase is measured at the start of a session, as `{"master_output": n, "input": n}`: the output of the interface that drives the callback the cable leaves from, and this interface's own input it arrives on, both by the devices' own channel numbering from zero. Not for the interface that drives the callback. See "The phase" below. | not measured |
+| `devices[].phase` | How this interface's capture phase is measured at the start of a session, as `{"master_output": n, "input": n, "reference": n}`: the output of the interface that drives the callback the cable leaves from, and this interface's own input it arrives on, both by the devices' own channel numbering from zero, and the phase measured when its input trim was measured, which a calibration run writes. Not for the interface that drives the callback. See "The phase" below. | not measured |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |
 | `devices[].outputs` | Which of its outputs to expose. | all of them |
 | `devices[].input_names` | What to call its inputs, keyed by the device's own channel number from zero: `{"0": "Vocal mic"}`. The channel is then "Vocal mic (Quadro 1)". | the automatic name |
@@ -160,8 +160,8 @@ time.** Measured at the devices on 2026-09-21:
 
 - Within one session the two record a fixed number of samples apart. The spread of a measurement is
   0.00 samples, and the same fractional part comes back every time.
-- Between sessions that number jumps by a whole multiple of 32 samples. Seen at 64, 128 and 256
-  sample buffers, with the vendor drivers' Safe Mode on and off.
+- Between sessions that number moves in steps of 32 samples. Seen at 64, 128 and 256 sample
+  buffers, with the vendor drivers' Safe Mode on and off.
 - The drivers report identical latency figures on every open, so the aggregate's own padding is the
   same every run and is not the cause.
 - The aggregate moves a follower's audio only in whole blocks, so an offset smaller than a block was
@@ -176,35 +176,69 @@ That last one is what makes this worth doing: a phase measured on the digital in
 analogue inputs too, so one measurement over the cable that already locks the interfaces together
 lines up everything they record.
 
-### A phase is not a trim
+### Three numbers
 
-They are different things and both apply. Getting them mixed up is how somebody would correct the
-same thing twice.
+They are different things, and all three apply. Getting them mixed up is how somebody would correct
+the same thing twice, or line a session up to the wrong state.
 
-| | The trim | The phase |
-| --- | --- | --- |
-| What it is | The constant difference between what an interface's driver reports and what its converters really do | Where that interface's capture pipeline happened to start this time |
-| How it is found | Measured once, by hand, with a cable and a click | Measured by the driver, over the digital cable, at the start of every session |
-| How often it changes | Never | Every session, by whole multiples of 32 samples |
-| Where it lives | `input_trim` in this file | Nowhere: it is measured again each time, and written to the event log afterwards |
+| | The trim | The reference | The phase |
+| --- | --- | --- | --- |
+| What it is | The constant difference between what an interface's driver reports and what its converters really do | The phase this driver measured in the session the trim was measured in | Where the interface's capture pipeline happened to start this time |
+| How it is found | Measured by a calibration run, with a click | Measured by the same calibration run, in the same session, over the digital cable | Measured by the driver, over the digital cable, at the start of every session |
+| How often it changes | When the interfaces are measured again | With the trim, and only with it | Every session, in steps of 32 samples |
+| Where it lives | `input_trim` in this file | `phase.reference` in this file, beside the cable | Nowhere: it is measured again each time, and written to the event log afterwards |
 
-Setting a trim does not answer the phase, and being phase measured does not make a trim
-unnecessary.
+**A trim is only true of the state its session was in.** So every session is first put back into
+that state, by **the reference minus the phase**, exactly, and then the trim applies as it always
+has. The interface is held back by that much when it is positive, and the others are held back to
+meet it when it is negative.
+
+### What the hardware said, and the rule it overturned
+
+The first version of this measured the phase and then asked whether **the measured value itself**
+was near a whole multiple of 32 samples, refusing it if not and rounding it to one if so. It ran
+against the two real interfaces for the first time on 2026-09-21. It heard its signal every time,
+and refused every measurement as off the grid. Beside the click lag the calibration measured in the
+same runs:
+
+| run | click lag (samples) | phase measured | lag minus phase |
+| --- | --- | --- | --- |
+| 1 | +60.4 | -84 | 144.4 |
+| 2 | -3.6 | -148 | 144.4 |
+| 3 | -3.6 | -148 | 144.4 |
+| 4 | -2.6 | -147 | 144.4 |
+| 5 | -162.6 | -307 | 144.4 |
+| 6 | -162.6 | -307 | 144.4 |
+
+Three earlier runs, -99.6 against -244 and -162.6 against -307 twice, came to 144.4 as well.
+
+So **the measurement tracks the real offset between the interfaces exactly**, to the sample, in
+every state the hardware settled into, including a one sample wobble (-3.6 and -148 in one run,
+-2.6 and -147 in the next).
+
+**The rule was wrong, for two reasons.** The measured value carries a large constant of its own (the
+digital cable's own path, the difference between the interfaces' converters, where the detector
+takes its reading), so it is never near a multiple of 32 and asking whether it is means nothing;
+only the **change** between sessions moves in steps. And those steps are not exactly 32 either:
+changes of 63, 64, 159 and 160 were all seen, which is steps of 32 plus the wobble. Rounding to the
+grid would have thrown away the sample of wobble the measurement had in fact caught. That rule is
+gone, and nothing is rounded.
 
 ### How it is measured
 
 Give the interface a `phase` and the driver measures it:
 
 ```json
-{ "key": "ZenStudioTB ASIO Driver", "name": "Studio+",
-  "phase": { "master_output": 8, "input": 16 } }
+{ "key": "ZenStudioTB ASIO Driver", "name": "Studio+", "input_trim": 60,
+  "phase": { "master_output": 8, "input": 16, "reference": -84 } }
 ```
 
 `master_output` is the output of the interface that drives the callback that the cable leaves from,
 and `input` is this interface's own input that it arrives on. Both are the **devices' own** channel
 numbers from zero, the same numbering `inputs` and `outputs` use, so the setting survives a change
 to which channels are exposed. It is the cable the aggregate already needs for clocking: nothing new
-has to be plugged in.
+has to be plugged in. `reference` is written by a calibration run beside the trim it measured; it
+is not something to type in.
 
 - **The path is configured, never guessed.** An interface with no `phase` is not measured, and its
   session runs exactly as it did before this existed.
@@ -222,34 +256,61 @@ has to be plugged in.
 
 What is measured is not the absolute distance but how far the capture landed from where the drivers'
 own figures put it: the master's reported output latency, this interface's reported input latency,
-and the one block the aggregate's own ring costs. That difference is what changes between sessions.
+and the one block the aggregate's own ring costs. Those are the figures **as the drivers report
+them, without the trims**, so that writing a new trim never moves the phase a session measures and
+the reference stays comparable with every session after it.
+
+### Where the reference comes from
+
+**A calibration run supplies it.** A run measures the click lag and the phase in the same session,
+so it is exactly the thing that can pair a trim with its reference.
+
+- **During a run the phase is measured and not applied.** The lag a run hears becomes the trim, and
+  the phase heard beside it becomes the trim's reference, so both have to be the raw figures of one
+  session. A run that lined itself up first would measure a trim on top of a correction made from
+  the old reference, and the pair it wrote down would describe a state no session is ever in.
+- **The trims a run offers carry the reference beside them**: the new trim, and the phase that was
+  measured while it was measured. Writing the trims writes both, and a trim offered with no phase
+  heard beside it takes the old reference out rather than leaving it next to a trim it does not
+  belong to.
+- **Only input trims have one.** The phase is the capture pipeline's; nothing lines the outputs up
+  by it.
+
+### With no reference
+
+An interface with a `phase` and no `reference` is measured at the start of every session and then
+**left exactly where the drivers' figures put it**. Without a reference there is nothing to line it
+up to, so nothing is applied, and the event log says that the interfaces need measuring once. After
+one calibration run every session is lined up.
 
 ### What it refuses
 
-A measurement the driver will not believe is **a refusal to correct, not a correction of zero**. The
+A measurement the driver will not use is **a refusal to correct, not a correction of zero**. The
 session then runs exactly as it does today, on the figures the drivers reported, and the reason goes
 into the event log where somebody will find it in the morning.
 
 - **Nothing arrived** on the measurement channel inside the window. The cable is out, or the
   channels in the file are not the ones it is on.
-- **It was not near a whole multiple of 32 samples.** That is the only thing the hardware does, so a
-  figure that is not one is a measurement of something else. Up to 8 samples either side of a
-  multiple of 32 is taken as that multiple, which is what takes the digital path's own small
-  constant back out again.
-- **It was further out than a phase goes**, which is more than 512 samples either way.
+- **The change from the reference was nowhere near a whole number of 32 sample steps.** That is the
+  only way the hardware moves, so a change that is not is a measurement of something else. Up to 4
+  samples either side of a whole number of steps is allowed, which covers the one sample of wobble
+  the hardware showed; the correction itself is still the exact difference.
+- **The correction was further than the room the delays keep for it**, which is 512 samples either
+  way.
 
 ### What it does with it
 
-What was measured is added to that interface's input path and the padding is worked out again,
-which is exactly what this driver already does with a reported latency and a trim. An interface that
-turns out to be **early is delayed**; one that is **late** means the others are held back to meet it,
-and the aggregate's own input latency grows by as much.
+The reference minus what was measured is applied to that interface's input path and the padding is
+worked out again, which is exactly what this driver already does with a reported latency and a
+trim. An interface that turns out to be **early** against its reference is **delayed**; one that is
+**late** means the others are held back to meet it, and the aggregate's own input latency grows by
+as much.
 
 The driver does not interrupt the DAW to tell it that. It answers the figure in force whenever it is
 asked for it again, and it publishes it in the live record, but a DAW that read the latency before
 the audio started is still holding the figure it was given. Until it asks again the tracks line up
-with each other and sit up to the measured amount later than that DAW thinks they do, which for a
-measurement of one or two steps of 32 samples is well under a millisecond.
+with each other and sit up to the corrected amount later than that DAW thinks they do, which for a
+correction of a few steps of 32 samples is a few milliseconds at most.
 
 **Changing the alignment after the DAW has had a block is a discontinuity**, and this is not free:
 the delays that were holding audio back drop what they were holding, so there is a click on the
@@ -261,11 +322,13 @@ pipeline's, and the outputs are left where the reported figures put them.
 ### What it says afterwards
 
 The live record carries, per interface, what the measurement came to, what was applied and which of
-the states above it is in, beside the gap. That goes the moment the DAW closes, so a line goes in the
+the states above it is in, beside the gap: `applied`, `no_reference`, `measured_only` for a
+calibration run, or one of the refusals. That goes the moment the DAW closes, so a line goes in the
 event log as well, and that line is the only thing that survives the session:
 
 ```
-2026-09-21 21:14:09 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
+2026-09-21 21:14:09 phase Studio+ was measured at -148 samples from where its driver's figures put it, against -84 when its trim was measured, so it was held back by 64 samples to put it back where its trim holds
+2026-09-21 22:40:31 phase Studio+ was measured at -148 samples from where its driver's figures put it, and was not lined up: there is no phase from the session its trim was measured in to line it up to. Measure the interfaces once on the Aggregate page and every session after that is lined up. The session ran on the figures the drivers reported.
 2026-09-22 09:02:41 phase Studio+ was not lined up: nothing arrived on its measurement channel. Check the cable and the channels the file names, or take the phase setting out. The session ran on the figures the drivers reported.
 ```
 
@@ -311,7 +374,7 @@ timer**, so every line in the file means something:
 
 ```
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
-2026-09-20 21:14:07 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
+2026-09-20 21:14:07 phase Studio+ was measured at -148 samples from where its driver's figures put it, against -84 when its trim was measured, so it was held back by 64 samples to put it back where its trim holds
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
 2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken

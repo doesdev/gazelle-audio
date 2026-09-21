@@ -110,26 +110,36 @@ pub mod alignment {
 /// What became of one interface's phase measurement.
 ///
 /// **A phase is not a trim.** The trim is the constant a person measured once with a cable and a
-/// click, and it lives in the configuration file. The phase is what the interface's capture
-/// pipeline settles on when its stream starts, which is a different number every session, and it
-/// is measured at the start of each one. Both apply.
+/// click, and it lives in the configuration file beside the reference: the phase that was measured
+/// in the session the trim was measured in. The phase is what the interface's capture pipeline
+/// settles on when its stream starts, which is a different number every session, and it is
+/// measured at the start of each one. Each session is lined up by the reference minus the phase,
+/// and then the trim applies.
 pub mod phase {
     /// Nothing in the configuration file says how to measure this interface, so nothing was.
     pub const NOT_CONFIGURED: u32 = 0;
     /// The measurement is in flight: the signal has gone out and nothing has come back yet.
     pub const MEASURING: u32 = 1;
-    /// It was measured and the interface was lined up by what was measured.
+    /// It was measured and the interface was lined up to the phase its trim was measured at.
     pub const APPLIED: u32 = 2;
     /// Nothing arrived on the measurement channel, which is a refusal to correct rather than a
     /// correction of zero.
     pub const NOT_HEARD: u32 = 3;
-    /// Something arrived, and it was not near a whole multiple of 32 samples, which is the only
-    /// thing the hardware does. A figure that is not is a measurement of something else.
+    /// Something arrived, and how far it had moved from the reference was not near a whole
+    /// number of 32 sample steps, which is the only way the hardware moves. A change that is not
+    /// is a measurement of something else.
     pub const OFF_THE_GRID: u32 = 4;
-    /// It was further out than any phase this driver will believe.
+    /// Lining it up would have taken more room than the driver keeps for it.
     pub const TOO_FAR: u32 = 5;
+    /// It was measured, and there is nothing to line it up to: no phase was measured in the
+    /// session its trim was measured in. Nothing is moved, and measuring the interfaces once
+    /// supplies one. Not a refusal: the measurement was fine.
+    pub const NO_REFERENCE: u32 = 6;
+    /// It was measured and deliberately not applied, because this session was measuring the trim,
+    /// and a trim is measured on the drivers' own figures with nothing moved underneath it.
+    pub const MEASURED_ONLY: u32 = 7;
 
-    /// Whether a code means the interface was lined up by what was measured.
+    /// Whether a code means the interface was lined up by a measurement.
     pub fn is_applied(code: u32) -> bool {
         code == APPLIED
     }
@@ -137,6 +147,12 @@ pub mod phase {
     /// Whether a code means a measurement was asked for and turned down.
     pub fn is_refused(code: u32) -> bool {
         matches!(code, NOT_HEARD | OFF_THE_GRID | TOO_FAR)
+    }
+
+    /// Whether a code means the measurement has come to something, whatever it came to: the
+    /// moment a session has a line of the log to write about it.
+    pub fn is_settled(code: u32) -> bool {
+        is_applied(code) || is_refused(code) || matches!(code, NO_REFERENCE | MEASURED_ONLY)
     }
 
     /// The one word this state goes by. A code this version does not know reads as nothing having
@@ -148,6 +164,8 @@ pub mod phase {
             NOT_HEARD => "not_heard",
             OFF_THE_GRID => "off_the_grid",
             TOO_FAR => "too_far",
+            NO_REFERENCE => "no_reference",
+            MEASURED_ONLY => "measured_only",
             _ => "not_configured",
         }
     }
@@ -188,13 +206,14 @@ pub struct DeviceStatus {
     pub pad_out: i32,
     /// One of [`phase`]: what became of this interface's phase measurement this session.
     pub phase_state: u32,
-    /// What the measurement came to, in samples, before it was rounded to what the hardware does.
+    /// What the measurement came to, in samples, exactly as measured.
     /// Positive means this interface's capture arrived later than the reported figures said it
     /// would. Only worth reading when [`DeviceStatus::phase_state`] says something was measured.
     pub phase_measured: i32,
-    /// What was actually added to this interface's input path because of it, in samples. Zero
-    /// unless the state is [`phase::APPLIED`], because a measurement that is not trusted is a
-    /// refusal to correct and never a correction of zero.
+    /// What was actually added to this interface's input path because of it, in samples: what was
+    /// measured minus the reference, so the interface is held back by the reference minus what was
+    /// measured. Zero unless the state is [`phase::APPLIED`], because a measurement that is not
+    /// used is never a correction of zero.
     pub phase_applied: i32,
     pub reserved: u32,
 }
@@ -356,6 +375,15 @@ mod tests {
         assert!(!phase::is_refused(phase::MEASURING));
         assert!(!phase::is_refused(phase::NOT_CONFIGURED));
         assert_eq!(phase::name(phase::OFF_THE_GRID), "off_the_grid");
+        // Measured with nothing to line up to, and measured while a trim was: neither is a
+        // refusal and neither moved anything, and both have come to something.
+        for code in [phase::NO_REFERENCE, phase::MEASURED_ONLY] {
+            assert!(!phase::is_refused(code) && !phase::is_applied(code), "{code}");
+            assert!(phase::is_settled(code), "{code}");
+        }
+        assert_eq!(phase::name(phase::NO_REFERENCE), "no_reference");
+        assert_eq!(phase::name(phase::MEASURED_ONLY), "measured_only");
+        assert!(!phase::is_settled(phase::MEASURING) && !phase::is_settled(phase::NOT_CONFIGURED));
         assert_eq!(phase::name(88), "not_configured", "a code from a later driver is not guessed at");
     }
 

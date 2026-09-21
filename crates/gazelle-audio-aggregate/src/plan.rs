@@ -28,6 +28,14 @@ pub struct PhasePlan {
     pub master_slot: usize,
     /// Where that input sits among this device's opened inputs.
     pub input_slot: usize,
+    /// The phase measured while this device's trim was measured, which every session is lined up
+    /// to. None until a calibration run has supplied one.
+    pub reference: Option<i32>,
+    /// What the drivers' own figures say the signal takes, before any trim: the master's reported
+    /// output latency and this device's reported input latency. A measurement is taken against
+    /// this rather than against the trimmed figures, so that writing a new trim never moves the
+    /// phase a session measures and a reference stays comparable with every session after it.
+    pub reported: i32,
 }
 
 /// One device, as the aggregate will use it.
@@ -242,6 +250,7 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
     // measurement needs them, and they never reach the channel list the DAW is given.
     for (index, device) in found.iter().enumerate() {
         let Some((master_output, input)) = device.phase.as_ref().and_then(PhaseConfig::channels) else { continue };
+        let reference = device.phase.and_then(|phase| phase.reference);
         if index == master {
             return Err(format!(
                 "{} drives the callback, and a phase is measured against the device that drives the callback, so it cannot be measured against itself",
@@ -269,7 +278,8 @@ pub fn plan(found: &[Found], config: &Config, block: Option<i32>) -> Result<Plan
         if !devices[index].reserved_inputs.contains(&input_slot) {
             devices[index].reserved_inputs.push(input_slot);
         }
-        devices[index].phase = Some(PhasePlan { master_output, input, master_slot, input_slot });
+        let reported = found[master].description.latency_out.saturating_add(device.description.latency_in);
+        devices[index].phase = Some(PhasePlan { master_output, input, master_slot, input_slot, reference, reported });
     }
 
     // A device that is not the master hands its audio over a buffer, which costs one block each
@@ -432,7 +442,7 @@ mod tests {
 
     /// A cable from the master's output to this device's input, as the file declares one.
     fn phase_over(master_output: i32, input: i32) -> PhaseConfig {
-        PhaseConfig { master_output: Some(master_output), input: Some(input) }
+        PhaseConfig { master_output: Some(master_output), input: Some(input), reference: None }
     }
 
     /// Labels as the file gives them: the device's own channel number, and what to call it.

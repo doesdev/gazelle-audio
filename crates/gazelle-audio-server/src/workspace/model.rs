@@ -172,17 +172,20 @@ pub struct AggregateDevice {
 }
 
 /// The digital path the driver measures one interface's capture phase over: which output of the
-/// interface that drives the callback feeds it, and which of its own inputs the cable arrives on.
+/// interface that drives the callback feeds it, and which of its own inputs the cable arrives on,
+/// and the phase measured over it while this interface's input trim was measured.
 ///
-/// Both are the interfaces' **own** channel numbers from zero, the numbering
+/// Both channels are the interfaces' **own** channel numbers from zero, the numbering
 /// [`AggregateDevice::inputs`] and [`AggregateDevice::outputs`] use, so the setting survives a
 /// change to which channels are exposed. The driver keeps both of them out of the channel list a
 /// DAW sees, so nothing a DAW plays can land on the measurement channel.
 ///
-/// **This is not a trim.** A trim ([`AggregateDevice::input_trim`]) is the constant somebody
-/// measured once with a cable and a click, and it is the same every session. A phase is what an
-/// interface's capture pipeline settles on when its stream starts, which is a different number
-/// every session and is measured rather than typed in. Both apply.
+/// **Three numbers, not one.** The trim ([`AggregateDevice::input_trim`]) is the constant somebody
+/// measured once with a click. The reference ([`AggregatePhase::reference`]) is the phase the
+/// driver measured in that same session. The phase is what an interface's capture pipeline settles
+/// on each time its stream starts, which the driver measures at the start of every session. Each
+/// session is lined up by the reference minus the phase, which puts it back in the state the trim
+/// was measured in, and then the trim applies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregatePhase {
     /// The callback master's output channel the cable leaves from.
@@ -191,6 +194,12 @@ pub struct AggregatePhase {
     /// This interface's own input channel the cable arrives on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<u32>,
+    /// The phase measured in the session this interface's input trim was measured in, in samples,
+    /// and written with it by a calibration run. Left out means there is nothing to line a session
+    /// up to yet, so each session runs on the drivers' own figures until the interfaces have been
+    /// measured once. It belongs to the trim beside it: a trim typed in by hand has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<i32>,
 }
 
 /// How the aggregate lines its devices up.
@@ -199,6 +208,11 @@ pub const ALIGNMENTS: &[&str] = &["aligned", "lowest_latency"];
 /// The largest trim a device may take, either way: one second at the highest rate these
 /// interfaces run. Real trims are tens of samples; this only catches a number typed by mistake.
 pub const TRIM_MAX: i32 = 192_000;
+
+/// The furthest a phase reference may be from zero, either way. What the hardware measures carries
+/// a constant of a few hundred samples; this only catches a number that could never be one, and
+/// it is the same bound a trim has.
+pub const PHASE_REFERENCE_MAX: i32 = TRIM_MAX;
 
 /// The highest channel index a device may expose. No interface has anything like this many; it
 /// only catches a number that is not a channel.

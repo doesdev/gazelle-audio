@@ -118,9 +118,9 @@ is now expected to reach.
 | `is_master` | `u32` | It drives the DAW's callback. |
 | `latency_in`, `latency_out` | `i32` | What its own driver reports, plus the trim from the configuration file. |
 | `pad_in`, `pad_out` | `i32` | Samples it is held back by so that every device lines up. |
-| `phase_state` | `u32` | What became of this interface's phase measurement this session: 0 nothing set up, 1 measuring, 2 applied, 3 nothing heard, 4 not near a multiple of 32 samples, 5 further out than the driver will believe. An unknown number reads as nothing set up. |
-| `phase_measured` | `i32` | What the measurement came to, in samples, before it was rounded to what the hardware does. Positive means this interface's capture arrived later than the reported figures said it would. |
-| `phase_applied` | `i32` | What was added to its input path because of it. Zero unless `phase_state` is 2: a measurement that is not trusted is a refusal to correct, never a correction of zero. |
+| `phase_state` | `u32` | What became of this interface's phase measurement this session: 0 nothing set up, 1 measuring, 2 lined up to the phase its trim was measured at, 3 nothing heard, 4 its change from that phase not near a whole number of 32 sample steps, 5 a correction past the room the driver keeps for one, 6 measured with no such phase to line it up to yet, 7 measured and deliberately not applied, which is a calibration run. An unknown number reads as nothing set up. |
+| `phase_measured` | `i32` | What the measurement came to, in samples, exactly. Positive means this interface's capture arrived later than the reported figures said it would. |
+| `phase_applied` | `i32` | What was added to its input path because of it: what was measured minus the phase its trim was measured at. Zero unless `phase_state` is 2: a measurement that is not used is never a correction of zero. |
 
 A string field is bytes plus a length. Read it through `Text::get`, which clamps the length to the
 array and answers nothing at all for bytes that are not text: a reader of a record it cannot trust
@@ -158,7 +158,7 @@ reads them:
 
 ```
 2026-09-20 21:14:07 session-started 40 in, 40 out at 96000 Hz
-2026-09-20 21:14:07 phase Studio+ was measured at 96 samples from where its driver's figures put it, and was lined up by 96
+2026-09-20 21:14:07 phase Studio+ was measured at -148 samples from where its driver's figures put it, against -84 when its trim was measured, so it was held back by 64 samples to put it back where its trim holds
 2026-09-20 21:31:44 stalled Studio+
 2026-09-20 21:31:46 recovered Studio+
 2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken

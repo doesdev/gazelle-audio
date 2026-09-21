@@ -523,7 +523,7 @@ impl PhaseWatch {
         for (index, &state) in now.iter().enumerate() {
             let changed = self.seen[index] != state;
             self.seen[index] = state;
-            if changed && (phase_codes::is_applied(state) || phase_codes::is_refused(state)) {
+            if changed && phase_codes::is_settled(state) {
                 news.push(index);
             }
         }
@@ -533,6 +533,61 @@ impl PhaseWatch {
     /// Forget everything, which is what a new plan is.
     pub fn clear(&mut self) {
         self.seen.clear();
+    }
+}
+
+/// **Everything that is noticed rather than announced**, in one place: a device that has stalled
+/// or come back, the first block a session lost, and a phase measurement that has just settled.
+///
+/// The audio path writes numbers into the record and knows nothing about logs. Turning those
+/// numbers into the lines somebody reads tomorrow is this, and it is never the audio thread: the
+/// driver's watcher thread does it on a timer, and a measurement of its own does it between blocks
+/// on the thread it is running on. Both want the same rules, so both use this rather than each
+/// keeping its own idea of what counts as news.
+#[derive(Default)]
+pub struct Noticing {
+    stalls: StallWatch,
+    glitches: GlitchWatch,
+    phases: PhaseWatch,
+}
+
+impl Noticing {
+    pub fn new() -> Noticing {
+        Noticing::default()
+    }
+
+    /// Read the record once and write whatever has just become news. Nothing at all when there is
+    /// no record to read, which is a driver with nowhere to publish.
+    pub fn look(&mut self, reporter: &Reporter) {
+        let Some(area) = reporter.snapshot() else { return };
+        let count = (area.device_count as usize).min(area.devices.len());
+        let now: Vec<bool> = area.devices[..count].iter().map(|device| device.stalled != 0).collect();
+        for (index, stalled) in self.stalls.changes(&now) {
+            reporter.stall_changed(area.devices[index].name.get(), stalled);
+        }
+
+        // The audio path counted these; deciding whether one of them is worth a line is this
+        // thread's work, and only the first of a session ever is.
+        let lost: Vec<(u64, u64)> = area.devices[..count].iter().map(|device| (device.dropped, device.starved)).collect();
+        for (index, dropped, starved) in self.glitches.first(&lost) {
+            reporter.first_glitch(area.devices[index].name.get(), dropped, starved);
+        }
+
+        // And the same again for a phase measurement that has just come to something. The audio
+        // path measured it and wrote three numbers; this is where they become the line that
+        // survives the session.
+        let states: Vec<u32> = area.devices[..count].iter().map(|device| device.phase_state).collect();
+        for index in self.phases.settled(&states) {
+            let device = &area.devices[index];
+            reporter.phase_settled(device.name.get(), device.phase_state, device.phase_measured, device.phase_applied);
+        }
+    }
+
+    /// Forget everything, which is what a new plan is.
+    pub fn clear(&mut self) {
+        self.stalls.clear();
+        self.glitches.clear();
+        self.phases.clear();
     }
 }
 

@@ -67,19 +67,22 @@ pub struct DeviceStatus {
     pub starved: u64,
     /// What this session made of where this interface's capture actually started: `not_configured`
     /// when nothing was set up to measure it, `measuring` while the measurement is in flight,
-    /// `applied` when the interface was lined up by what was measured, and `not_heard`,
-    /// `off_the_grid` or `too_far` when the measurement was not one the driver would believe.
+    /// `applied` when the interface was lined up to the phase its trim was measured at,
+    /// `no_reference` when it was measured and there is no such phase to line it up to yet,
+    /// `measured_only` in a calibration run, which measures and moves nothing, and `not_heard`,
+    /// `off_the_grid` or `too_far` when the measurement was not one the driver would use.
     ///
-    /// **Not the trim.** The trim is the constant somebody measured once and wrote in the setup;
-    /// this is what changes every session and is measured at the start of each one.
+    /// **Not the trim.** The trim is the constant somebody measured once and wrote in the setup,
+    /// beside the phase it was measured at; this is what changes every session and is measured at
+    /// the start of each one.
     pub phase: String,
-    /// What the measurement came to, in samples, before it was rounded to the whole multiple of 32
-    /// samples the hardware moves by. Positive means the interface's capture arrived later than
-    /// the figures its driver reports said it would. Only worth reading once `phase` says
-    /// something was measured.
+    /// What the measurement came to, in samples, exactly. Positive means the interface's capture
+    /// arrived later than the figures its driver reports said it would. Only worth reading once
+    /// `phase` says something was measured.
     pub phase_measured: i32,
-    /// What was added to its input path because of it. Zero unless `phase` is `applied`, because a
-    /// measurement that is not believed is a refusal to correct, never a correction of zero.
+    /// What was added to its input path because of it: what was measured minus the reference, so
+    /// the interface was held back by the reference minus what was measured. Zero unless `phase`
+    /// is `applied`.
     pub phase_applied: i32,
 }
 

@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::aggregate::{rate_index, RATES};
-use crate::workspace::model::{Aggregate, AggregateDevice, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, TRIM_MAX};
+use crate::workspace::model::{Aggregate, AggregateDevice, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, PHASE_REFERENCE_MAX, TRIM_MAX};
 
 /// The buffer sizes a configuration may ask for: powers of two the drivers offer.
 pub const BUFFER_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192];
@@ -122,6 +122,11 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
                     }
                 }
             }
+            if let Some(reference) = phase.reference.filter(|r| r.saturating_abs() > PHASE_REFERENCE_MAX) {
+                return bad(format!(
+                    "phase has a reference of {reference} samples, which is outside -{PHASE_REFERENCE_MAX}..{PHASE_REFERENCE_MAX}. It is the phase measured beside the input trim, so measure the interfaces again rather than typing one in."
+                ));
+            }
             if master_of(config).is_some_and(|master| device_name(master) == named) {
                 return bad(
                     "it drives the callback, and a phase is measured against the interface that drives the callback, so it cannot be measured against itself".into(),
@@ -221,9 +226,16 @@ fn export_device(device: &AggregateDevice) -> Value {
             out.insert(name.into(), value);
         }
     }
-    // Both ends of the measurement cable or neither, which is what the check above settled.
-    if let Some((output, input)) = device.phase.and_then(|phase| phase.master_output.zip(phase.input)) {
-        out.insert("phase".into(), serde_json::json!({ "master_output": output, "input": input }));
+    // Both ends of the measurement cable or neither, which is what the check above settled, and the
+    // reference beside them when a calibration run has written one.
+    if let Some(phase) = device.phase {
+        if let Some((output, input)) = phase.master_output.zip(phase.input) {
+            let mut cable = serde_json::json!({ "master_output": output, "input": input });
+            if let Some(reference) = phase.reference {
+                cable["reference"] = Value::from(reference);
+            }
+            out.insert("phase".into(), cable);
+        }
     }
     // A channel the person has not named is not in the map, and a map with nothing in it is left
     // out entirely rather than written as an empty object.
@@ -353,24 +365,53 @@ mod tests {
     #[test]
     fn a_phase_needs_both_ends_of_its_cable_and_an_interface_that_is_not_the_master() {
         let mut config = pair();
-        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
         check(&config).expect("a follower with a cable declared into it");
 
-        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None });
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None, reference: None });
         assert_eq!(
             check(&config).unwrap_err(),
             "device 'Studio+': phase needs input, which is this interface's own input channel the cable arrives on"
         );
-        config.devices[1].phase = Some(AggregatePhase { master_output: None, input: Some(16) });
+        config.devices[1].phase = Some(AggregatePhase { master_output: None, input: Some(16), reference: None });
         assert!(check(&config).unwrap_err().contains("phase needs master_output"));
 
-        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(AGGREGATE_CHANNEL_MAX + 1) });
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(AGGREGATE_CHANNEL_MAX + 1), reference: None });
         assert!(check(&config).unwrap_err().contains("phase names input 1024"));
 
         // The interface that drives the callback is what everything else is measured against.
         let mut master = pair();
-        master.devices[0].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        master.devices[0].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
         assert!(check(&master).unwrap_err().contains("cannot be measured against itself"), "{:?}", check(&master));
+    }
+
+    /// The reference a calibration run writes beside the trim: any phase the hardware could
+    /// measure, which is a few hundred samples either way, and nothing that could never be one.
+    #[test]
+    fn a_phase_reference_is_any_phase_the_hardware_could_measure() {
+        let mut config = pair();
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-307) });
+        check(&config).expect("what the hardware measured in one of its sessions");
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(PHASE_REFERENCE_MAX + 1) });
+        let why = check(&config).unwrap_err();
+        assert!(why.starts_with("device 'Studio+': phase has a reference of 192001 samples"), "{why}");
+        assert!(why.contains("measure the interfaces again"), "{why}");
+        // A reference with no cable is still no cable: the half that is missing is what is said.
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None, reference: Some(-84) });
+        assert!(check(&config).unwrap_err().contains("phase needs input"));
+    }
+
+    /// The workspace keeps the reference as it came, and gives it back.
+    #[test]
+    fn a_phase_reference_is_kept_in_the_workspace_and_given_back() {
+        let text = r#"{"key": "ZenStudioTB", "name": "Studio+", "input_trim": 60, "phase": {"master_output": 8, "input": 16, "reference": -84}}"#;
+        let device: AggregateDevice = serde_json::from_str(text).expect("a device with a reference");
+        assert_eq!(device.phase, Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-84) }));
+        let back = serde_json::to_value(&device).expect("it goes back out");
+        assert_eq!(back["phase"], serde_json::json!({ "master_output": 8, "input": 16, "reference": -84 }));
+        let without: AggregateDevice = serde_json::from_str(r#"{"key": "ZenStudioTB", "phase": {"master_output": 8, "input": 16}}"#).unwrap();
+        assert_eq!(without.phase.and_then(|phase| phase.reference), None);
+        assert!(serde_json::to_value(&without).unwrap()["phase"].get("reference").is_none(), "none is not written as null");
     }
 
     /// A trim and a phase are different things, and an interface may have both.
@@ -378,11 +419,18 @@ mod tests {
     fn a_phase_is_exported_to_the_driver_beside_the_trim_and_neither_stands_for_the_other() {
         let mut config = pair();
         config.devices[1].input_trim = Some(28);
-        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16) });
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
         let document = export_document(&config);
         assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16 }));
         assert_eq!(document["devices"][1]["input_trim"], 28);
         assert!(document["devices"][0].get("phase").is_none(), "an interface with no cable declared says nothing");
+
+        // And the reference goes beside the cable, which is where the driver reads it from.
+        config.devices[1].input_trim = Some(60);
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-84) });
+        let document = export_document(&config);
+        assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16, "reference": -84 }));
+        assert_eq!(document["devices"][1]["input_trim"], 60);
     }
 
     #[test]
