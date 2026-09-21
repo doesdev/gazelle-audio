@@ -14,6 +14,12 @@
 //! - `POST /api/v1/aggregate/register` and `/unregister`: run the registrar as an administrator,
 //!   which is the one thing Gazelle does that asks for that. The answer always carries the
 //!   command a person could run instead.
+//! - `GET` and `POST /api/v1/aggregate/calibrate`, and `POST /api/v1/aggregate/calibrate/stop`:
+//!   measure how far apart the interfaces really record, by playing a click and reading it back.
+//!   One run at a time, on a thread of its own, followed while it goes and given up on when the
+//!   person says so. It makes a noise in the room and holds both audio drivers while it runs, so
+//!   everything that could stop it is refused before anything is opened
+//!   (`crate::aggregate::calibrate`).
 //!
 //! **Loopback peers only**, like the update and window routes. Registering a driver and changing
 //! a DAW's buffer size are the machine's own business, not something a server reachable from a
@@ -36,6 +42,7 @@ use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::aggregate::calibrate::{Ask, Calibration};
 use crate::aggregate::config::device_name;
 use crate::aggregate::elevate::{arguments_for, command_for, DllSearch, REGISTRAR};
 use crate::aggregate::service::{match_device, serial_of, AggregateService};
@@ -54,8 +61,11 @@ pub fn routes(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, fo
         .route("/api/v1/aggregate/match-buffers", post(match_buffers))
         .route("/api/v1/aggregate/register", post(register))
         .route("/api/v1/aggregate/unregister", post(unregister))
+        .route("/api/v1/aggregate/calibrate", get(calibration).post(calibrate))
+        .route("/api/v1/aggregate/calibrate/stop", post(calibrate_stop))
         .layer(Extension(service))
         .layer(Extension(store))
+        .layer(Extension(Arc::new(Calibration::this_pc())))
         .layer(Extension(ForceDryRun(force_dry_run)))
 }
 
@@ -181,6 +191,52 @@ async fn match_buffers(
         "devices": outcomes,
     }))
     .into_response())
+}
+
+/// How far the one measurement at a time has got. Idle is the ordinary answer.
+async fn calibration(Extension(job): Extension<Arc<Calibration>>, request: Request) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    Ok(Json(job.state()).into_response())
+}
+
+/// Start one. It plays a click out of a real output and holds both audio drivers while it goes,
+/// so everything that could stop it is refused here or by the measuring itself, and nothing is
+/// opened until all of it has passed.
+async fn calibrate(
+    Extension(job): Extension<Arc<Calibration>>,
+    Extension(store): Extension<Arc<dyn WorkspaceStore>>,
+    request: Request,
+) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    let body: Result<Json<Ask>, JsonRejection> = <Json<Ask> as axum::extract::FromRequest<()>>::from_request(request, &()).await;
+    let Json(ask) = body.map_err(|e| ServerError::BadValue(e.body_text()))?;
+    let workspace = store.load()?;
+    if workspace.aggregate.is_none_or(|config| config.devices.len() < 2) {
+        return Ok(error(
+            StatusCode::CONFLICT,
+            "not_configured",
+            "Lining the interfaces up needs at least two of them in the aggregate, and there are not.".into(),
+        ));
+    }
+    match job.start(&ask) {
+        Ok(()) => Ok(Json(json!({ "started": true })).into_response()),
+        Err(refusal) => Ok(error(StatusCode::CONFLICT, "not_started", refusal)),
+    }
+}
+
+/// Give up on the run that is going. The click is in the room, so this is not something to make
+/// somebody wait for: it is answered whether or not anything was running.
+async fn calibrate_stop(Extension(job): Extension<Arc<Calibration>>, request: Request) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    let running = job.is_running();
+    job.stop();
+    Ok(Json(json!({ "stopped": running })).into_response())
 }
 
 async fn register(Extension(service): Extension<Arc<AggregateService>>, request: Request) -> Result<Response, ServerError> {
@@ -366,6 +422,49 @@ mod tests {
 
     async fn post(app: &Router, uri: &str, body: &str) -> (StatusCode, Value) {
         send(app, from_here("POST", uri, Some(body))).await
+    }
+
+    #[tokio::test]
+    async fn nothing_has_been_measured_until_something_is_measured() {
+        let h = harness();
+        let (status, body) = get(&h.app, "/api/v1/aggregate/calibrate").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["state"], "idle");
+        assert!(body.get("outcome").is_none() && body.get("refusal").is_none(), "{body}");
+    }
+
+    #[tokio::test]
+    async fn one_interface_is_nothing_to_line_up_against_anything() {
+        let h = harness();
+        let mut alone = pair();
+        alone.devices.truncate(1);
+        h.store.save(&workspace_with(alone)).unwrap();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"inputs","outputs":[0],"inputs":[0]}"#).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "not_configured");
+    }
+
+    #[tokio::test]
+    async fn a_pass_that_is_not_one_is_refused_before_anything_is_opened() {
+        let h = harness();
+        h.store.save(&workspace_with(pair())).unwrap();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"sideways","outputs":[0,1],"inputs":[0,16]}"#).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "not_started");
+        assert!(body["error"]["message"].as_str().unwrap().contains("inputs or outputs"), "{body}");
+        // And nothing was started by asking for something that is not a pass.
+        let (_, state) = get(&h.app, "/api/v1/aggregate/calibrate").await;
+        assert_eq!(state["state"], "idle");
+    }
+
+    /// Stopping is answered whether or not anything was going, because the point of it is the
+    /// noise in the room, not the bookkeeping.
+    #[tokio::test]
+    async fn stopping_nothing_is_answered_and_changes_nothing() {
+        let h = harness();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate/stop", "{}").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["stopped"], false);
     }
 
     #[tokio::test]

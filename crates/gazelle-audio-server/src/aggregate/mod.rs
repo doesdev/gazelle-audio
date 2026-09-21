@@ -13,6 +13,7 @@
 //! (`status`) and the elevated helper that registers the DLL (`elevate`). No test reads a real
 //! registry, maps a section or elevates anything.
 
+pub mod calibrate;
 pub mod config;
 pub mod elevate;
 pub mod export;

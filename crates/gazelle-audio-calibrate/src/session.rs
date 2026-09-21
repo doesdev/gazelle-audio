@@ -1,0 +1,558 @@
+//! Driving the aggregate, as a DAW does, and keeping what came back.
+//!
+//! **Why through the aggregate and not around it.** Opening the vendor drivers separately and
+//! comparing their sample counters compares two things that were never meant to be compared, and
+//! it measures the wrong quantity: what a person wants corrected is what is left after the
+//! aggregate has done all of its lining up. So this opens the aggregate itself, with the
+//! configuration the person is actually using, and reads the aggregate's own input buffers.
+//! Whatever offset is in there **is** the error, in the coordinates a trim is written in.
+//!
+//! **The audio path here obeys the same rules as the driver's.** The callback allocates nothing,
+//! locks nothing, logs nothing and makes no system call: it copies into an arena that was
+//! allocated before the stream started, and stops when the arena is full.
+//!
+//! **One run at a time.** The interface gives a host's callbacks nothing to say which driver called
+//! them, so they have to be plain functions over something global, exactly as they are in a DAW.
+
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+
+use gazelle_aggregate::aggregate::{Aggregate, Wanted};
+use gazelle_aggregate::config::Config;
+use gazelle_aggregate::sub::Host;
+use gazelle_audio_stream_abi::raw::{selector, CallbacksRaw, Time, ENGINE_VERSION_2};
+use serde::Serialize;
+use std::cell::UnsafeCell;
+
+use crate::click;
+use crate::measure::{self, Reading};
+use crate::rig::{Direction, Rig, Settings};
+use crate::trim::{self, TrimChange};
+
+/// Everything one run found, or the one sentence saying why there was no run.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Outcome {
+    pub direction: Direction,
+    /// The rate the run actually happened at.
+    pub rate: f64,
+    /// The buffer size the run actually happened at.
+    pub block: i32,
+    /// How many clicks the run was told to play.
+    pub clicks: u32,
+    /// One per interface, in the order they appear in `aggregate.json`.
+    pub readings: Vec<Reading>,
+    /// One per interface: what the file said, what was measured, and what to write.
+    pub trims: Vec<TrimChange>,
+    /// Why nothing was measured. `None` means the run happened.
+    pub refusal: Option<String>,
+}
+
+impl Outcome {
+    /// A run that never started, and the sentence that says why.
+    pub fn refused(direction: Direction, why: impl Into<String>) -> Outcome {
+        Outcome {
+            direction,
+            rate: 0.0,
+            block: 0,
+            clicks: 0,
+            readings: Vec::new(),
+            trims: Vec::new(),
+            refusal: Some(why.into()),
+        }
+    }
+
+    /// Whether this run produced trims worth writing into the file.
+    pub fn is_measured(&self) -> bool {
+        self.refusal.is_none() && self.trims.iter().any(|trim| trim.not_applied.is_none())
+    }
+}
+
+/// The environment variable every test and script sets. This crate plays audio out of real
+/// converters, so it refuses outright when it is set rather than looking for a safe subset.
+pub const NO_HARDWARE: &str = "GAZELLE_NO_HARDWARE";
+
+/// What to say, and stop for, when this run is forbidden hardware. `None` means carry on.
+pub fn no_hardware_refusal(value: Option<&str>) -> Option<String> {
+    let forbidden = !matches!(value.map(str::trim), None | Some("") | Some("0") | Some("false"));
+    forbidden.then(|| {
+        format!(
+            "{NO_HARDWARE} is set, and this measurement drives real converters: it plays a click out of an \
+             interface and records it back. Unset {NO_HARDWARE} to run it deliberately."
+        )
+    })
+}
+
+/// What to say when the aggregate driver is already open in another process.
+pub fn in_use_refusal(open: bool, streaming: bool) -> Option<String> {
+    (open || streaming).then(|| {
+        "the Gazelle Aggregate driver is already open somewhere else, and these interfaces can only be opened once: \
+         close the DAW or whatever else is using them, and start this again"
+            .to_string()
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
+// The arena, and the callbacks that fill it.
+// ---------------------------------------------------------------------------------------------
+
+/// Where the run's audio lives: allocated before the stream starts, written only by the callback,
+/// and read only after the stream has stopped.
+pub struct Arena {
+    block: usize,
+    /// The DAW buffer pointers for the channels being recorded, in device order.
+    inputs: Vec<[*mut c_void; 2]>,
+    /// The DAW buffer pointers for the channels the click leaves on, in device order.
+    outputs: Vec<[*mut c_void; 2]>,
+    /// The click, already at the level asked for and in the samples the driver carries.
+    click: Vec<i32>,
+    /// Where each click starts, in samples from the first block of the run.
+    emits: Vec<usize>,
+    /// How many samples one channel holds.
+    samples: usize,
+    /// `inputs.len()` runs of `samples`, one after another.
+    captured: UnsafeCell<Box<[i32]>>,
+    /// How many samples have been captured. The callback's only shared state.
+    written: AtomicUsize,
+}
+
+/// The arena is touched by one callback thread at a time, and by the thread that made it only
+/// before that thread starts the stream and after it has stopped it.
+unsafe impl Sync for Arena {}
+unsafe impl Send for Arena {}
+
+impl Arena {
+    /// Room for a whole run, allocated at once.
+    pub fn new(block: usize, channels: usize, samples: usize, click: Vec<i32>, emits: Vec<usize>) -> Arena {
+        Arena {
+            block,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            click,
+            emits,
+            samples,
+            captured: UnsafeCell::new(vec![0i32; channels * samples].into_boxed_slice()),
+            written: AtomicUsize::new(0),
+        }
+    }
+
+    /// Where the aggregate's buffers are, once it has made them. Before the stream starts.
+    pub fn buffers(&mut self, inputs: Vec<[*mut c_void; 2]>, outputs: Vec<[*mut c_void; 2]>) {
+        self.inputs = inputs;
+        self.outputs = outputs;
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.written.load(Ordering::Acquire) + self.block > self.samples
+    }
+
+    /// How many samples of the run were captured.
+    pub fn captured_samples(&self) -> usize {
+        self.written.load(Ordering::Acquire)
+    }
+
+    /// One channel's capture, as the arithmetic wants it. Only after the stream has stopped.
+    pub fn channel(&self, index: usize) -> Vec<f64> {
+        let captured = unsafe { &*self.captured.get() };
+        let at = index * self.samples;
+        let scale = 1.0 / i32::MAX as f64;
+        captured[at..at + self.captured_samples().min(self.samples)].iter().map(|&v| v as f64 * scale).collect()
+    }
+
+    /// Where each click was played, which is where the search for it begins.
+    pub fn emits(&self) -> &[usize] {
+        &self.emits
+    }
+
+    /// One block: record every input, and play whatever part of a click belongs in this block.
+    ///
+    /// Nothing here allocates, locks or logs.
+    fn block_happened(&self, half: usize) {
+        let at = self.written.load(Ordering::Relaxed);
+        if at + self.block > self.samples {
+            // Full. The aggregate clears every output buffer before this is called, so writing
+            // nothing from here plays silence.
+            return;
+        }
+        // Safety: the callback thread is the only one that touches the capture while the stream is
+        // running, and the thread that made the arena does not read it until the stream has
+        // stopped. Each run below is this channel's alone.
+        let captured = unsafe { &mut *self.captured.get() };
+        for (index, pair) in self.inputs.iter().enumerate() {
+            let from = pair[half & 1] as *const i32;
+            if from.is_null() {
+                continue;
+            }
+            // Safety: the aggregate made this buffer and it is `block` samples of `i32`, which is
+            // the one sample type the aggregate presents.
+            let run = unsafe { std::slice::from_raw_parts(from, self.block) };
+            let into = index * self.samples + at;
+            captured[into..into + self.block].copy_from_slice(run);
+        }
+
+        for &emit in &self.emits {
+            let start = emit.max(at);
+            let end = (emit + self.click.len()).min(at + self.block);
+            if start >= end {
+                continue;
+            }
+            for pair in &self.outputs {
+                let into = pair[half & 1] as *mut i32;
+                if into.is_null() {
+                    continue;
+                }
+                // Safety: as above, for a buffer the aggregate handed us to fill.
+                let run = unsafe { std::slice::from_raw_parts_mut(into, self.block) };
+                run[start - at..end - at].copy_from_slice(&self.click[start - emit..end - emit]);
+            }
+        }
+
+        self.written.store(at + self.block, Ordering::Release);
+    }
+}
+
+/// The run in flight, for the callbacks to find. Null except between `start` and `stop`.
+static ARENA: AtomicPtr<Arena> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Whose turn it is. The callbacks are global, so there is one run at a time, and a run that
+/// panicked says nothing about the next one.
+static ORDER: Mutex<()> = Mutex::new(());
+
+/// Take the one run there can be. Held for the whole of a measurement.
+pub fn one_at_a_time() -> MutexGuard<'static, ()> {
+    ORDER.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+unsafe extern "system" fn buffer_switch(index: i32, _direct: i32) {
+    let arena = ARENA.load(Ordering::Acquire);
+    if arena.is_null() {
+        return;
+    }
+    // Safety: the pointer is published before the stream is started and cleared after it has been
+    // stopped, so the arena is alive for as long as this can run.
+    unsafe { (*arena).block_happened((index as usize) & 1) };
+}
+
+unsafe extern "system" fn sample_rate_did_change(_hz: f64) {}
+
+unsafe extern "system" fn message(which: i32, value: i32, _message: *mut c_void, _opt: *mut f64) -> i32 {
+    match which {
+        selector::SUPPORTED => i32::from(matches!(
+            value,
+            selector::SUPPORTED | selector::ENGINE_VERSION | selector::RESET_REQUEST | selector::LATENCIES_CHANGED
+        )),
+        selector::ENGINE_VERSION => ENGINE_VERSION_2,
+        // The plain callback is all this host wants: it counts its own blocks.
+        selector::SUPPORTS_TIME_INFO | selector::SUPPORTS_TIME_CODE => 0,
+        // A reset in the middle of a measurement would silently change what is being measured, so
+        // this host does not take one. The run is short enough to simply do again.
+        selector::RESET_REQUEST => 0,
+        _ => 1,
+    }
+}
+
+unsafe extern "system" fn buffer_switch_time_info(_time: *mut Time, index: i32, _direct: i32) -> *mut Time {
+    unsafe { buffer_switch(index, 0) };
+    std::ptr::null_mut()
+}
+
+/// The four functions the aggregate is handed, which is what makes this a host.
+pub fn callbacks() -> CallbacksRaw {
+    CallbacksRaw { buffer_switch, sample_rate_did_change, message, buffer_switch_time_info }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The run.
+// ---------------------------------------------------------------------------------------------
+
+/// What makes the blocks happen. At the hardware the devices' own threads do, and this only
+/// waits; against devices made of data the test fires them itself.
+///
+/// It answers whether to carry on. Answering false gives up on the run there and then, which is
+/// what a person pressing stop is: the click is loud, it is in the room, and the way to end it
+/// cannot be to wait for the run to finish. The devices are let go on that path exactly as they
+/// are on every other.
+pub type Pump<'a> = &'a mut dyn FnMut(usize) -> bool;
+
+/// Wait for the devices to do the work, which is all a real run has to do between blocks.
+pub fn wait_for_the_devices(_block: usize) -> bool {
+    std::thread::sleep(Duration::from_millis(1));
+    true
+}
+
+/// What a run that was given up on says, in the words the person who stopped it would use.
+pub const STOPPED: &str = "the measurement was stopped part way, so nothing was measured";
+
+/// **The one entry that opens anything.** Everything it refuses, it refuses before a device is
+/// opened or a sample is played.
+#[cfg(windows)]
+pub fn measure(rig: &Rig, settings: &Settings) -> Outcome {
+    measure_with(rig, settings, &mut wait_for_the_devices)
+}
+
+/// [`measure`], with the caller's own wait between blocks, which is how a program around this one
+/// follows a run and stops it. Every refusal is still made before a device is opened.
+#[cfg(windows)]
+pub fn measure_with(rig: &Rig, settings: &Settings, pump: Pump<'_>) -> Outcome {
+    if let Some(why) = no_hardware_refusal(std::env::var(NO_HARDWARE).ok().as_deref()) {
+        return Outcome::refused(rig.direction, why);
+    }
+    if let Some(why) = driver_in_use() {
+        return Outcome::refused(rig.direction, why);
+    }
+    let Some(path) = gazelle_aggregate::config::config_path() else {
+        return Outcome::refused(rig.direction, "there is no APPDATA folder to read aggregate.json from");
+    };
+    let config = match Config::read(&path) {
+        Ok(config) => config,
+        Err(why) => return Outcome::refused(rig.direction, why),
+    };
+    let host: Box<dyn Host> = Box::new(gazelle_aggregate::windows_host::ThisPc);
+    measure_against(host, config, path.display().to_string(), rig, settings, pump)
+}
+
+/// Whether the driver already has these interfaces, read from the record it publishes. A record
+/// that is not there at all is a driver that is not running, which is the ordinary case.
+#[cfg(windows)]
+pub fn driver_in_use() -> Option<String> {
+    use gazelle_audio_aggregate_status::windows::Section;
+    use gazelle_audio_aggregate_status::Reader;
+
+    let section = Section::open().ok()?;
+    let reader = Reader::map(Box::new(section)).ok()?;
+    let snapshot = reader.read().ok()?;
+    in_use_refusal(snapshot.driver.open != 0, snapshot.driver.streaming != 0)
+}
+
+/// The measurement, against whatever PC it is handed.
+///
+/// This is the seam the tests use, with sub-devices made of data. [`measure`] is the only thing
+/// that hands it a real one.
+pub fn measure_against(
+    host: Box<dyn Host>,
+    config: Config,
+    source: String,
+    rig: &Rig,
+    settings: &Settings,
+    pump: Pump<'_>,
+) -> Outcome {
+    let _order = one_at_a_time();
+    let direction = rig.direction;
+    if let Some(why) = rig.refusal() {
+        return Outcome::refused(direction, why);
+    }
+    if let Some(why) = settings.refusal() {
+        return Outcome::refused(direction, why);
+    }
+
+    // What the file already says, kept before the configuration is handed over, because that is
+    // what this run's measurement is added to.
+    let old: Vec<i32> = (0..rig.devices())
+        .map(|index| {
+            let device = config.devices.get(index);
+            match direction {
+                Direction::Inputs => device.and_then(|d| d.input_trim).unwrap_or(0),
+                Direction::Outputs => device.and_then(|d| d.output_trim).unwrap_or(0),
+            }
+        })
+        .collect();
+
+    let mut aggregate = Aggregate::new(host);
+    if let Err(why) = aggregate.init(config, source) {
+        return Outcome::refused(direction, why);
+    }
+    if let Some(hz) = settings.rate {
+        if let Err(why) = aggregate.set_rate(hz) {
+            return Outcome::refused(direction, why);
+        }
+    }
+
+    let Some(plan) = aggregate.plan().cloned() else {
+        return Outcome::refused(direction, "the aggregate opened without a plan, which should not be possible");
+    };
+    let names: Vec<String> = plan.devices.iter().map(|device| device.name.clone()).collect();
+    if names.len() < 2 {
+        return Outcome::refused(
+            direction,
+            format!(
+                "the aggregate has {} interface in it, and a lag is the difference between two of them: add the other \
+                 interface to aggregate.json and measure again",
+                names.len()
+            ),
+        );
+    }
+    let on_input = |channel: i32| plan.inputs.get(usize::try_from(channel).ok()?).map(|reference| reference.device);
+    let on_output = |channel: i32| plan.outputs.get(usize::try_from(channel).ok()?).map(|reference| reference.device);
+    if let Some(why) = rig.refusal_against(on_input, on_output, &names) {
+        return Outcome::refused(direction, why);
+    }
+
+    let rate = aggregate.rate();
+    if !(rate.is_finite() && rate > 0.0) {
+        return Outcome::refused(direction, "these interfaces did not say what rate they are running at");
+    }
+    let block = settings.buffer_size.unwrap_or(plan.preferred);
+
+    // Everything the run needs, allocated before a single device is started.
+    let samples = click::run_length(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);
+    let emits = click::schedule(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);
+    let mut arena = Box::new(Arena::new(
+        block.max(0) as usize,
+        rig.devices(),
+        samples,
+        click::as_samples(settings.click_samples, settings.level()),
+        emits,
+    ));
+
+    let wanted: Vec<Wanted> = rig
+        .inputs
+        .iter()
+        .map(|&channel| Wanted { is_input: true, channel })
+        .chain(rig.outputs.iter().map(|&channel| Wanted { is_input: false, channel }))
+        .collect();
+    let pairs = match aggregate.create_buffers(&wanted, block, callbacks()) {
+        Ok(pairs) => pairs,
+        Err(why) => return Outcome::refused(direction, why),
+    };
+    let (inputs, outputs) = pairs.split_at(rig.inputs.len());
+    arena.buffers(inputs.to_vec(), outputs.to_vec());
+
+    // From here on the drivers are open and something has to let them go, whatever happens.
+    ARENA.store(arena.as_mut() as *mut Arena, Ordering::Release);
+    let started = aggregate.start();
+    let ran = match started {
+        Ok(()) => {
+            let limit = Duration::from_secs_f64((samples as f64 / rate) * 3.0 + 5.0);
+            let since = Instant::now();
+            let mut index = 0usize;
+            let mut stopped = false;
+            while !arena.is_full() && since.elapsed() < limit {
+                if !pump(index) {
+                    stopped = true;
+                    break;
+                }
+                index += 1;
+            }
+            if stopped {
+                Err(STOPPED.to_string())
+            } else {
+                Ok(())
+            }
+        }
+        Err(why) => Err(why),
+    };
+    aggregate.stop();
+    aggregate.dispose_buffers();
+    ARENA.store(std::ptr::null_mut(), Ordering::Release);
+    drop(aggregate);
+
+    if let Err(why) = ran {
+        return Outcome::refused(direction, why);
+    }
+    if arena.captured_samples() == 0 {
+        return Outcome::refused(
+            direction,
+            "the interfaces never called back, so nothing was recorded at all: they opened and then did nothing, \
+             which usually means another program still has them",
+        );
+    }
+
+    let outcome = read_arena(&arena, rig, settings, &names, &old, rate, block);
+    drop(arena);
+    outcome
+}
+
+/// What the run captured, turned into readings and trims. No hardware, and no state: this is the
+/// same arithmetic the measurement tests run against signals made of data.
+fn read_arena(
+    arena: &Arena,
+    rig: &Rig,
+    settings: &Settings,
+    names: &[String],
+    old: &[i32],
+    rate: f64,
+    block: i32,
+) -> Outcome {
+    let click = click::shape(settings.click_samples, settings.level());
+    let reference = arena.channel(rig.reference);
+    // A search that reaches past the next click would find the next click, so it stops short of it.
+    let horizon = ((settings.spacing_seconds * rate) as usize / 2).max(1);
+    let emits = arena.emits().to_vec();
+
+    // Nothing on the reference is not the same as nothing on a channel: every other interface is
+    // measured against it, so its cable is the whole run, and saying "nothing arrived" about all
+    // of them would send somebody checking cables that are fine.
+    let of_reference = measure::lags_of_channel(&reference, &reference, &click, &emits, horizon, settings.search_samples);
+    if of_reference.is_empty() {
+        let name = names.get(rig.reference).map(String::as_str).unwrap_or("the reference interface");
+        return Outcome::refused(
+            rig.direction,
+            format!(
+                "the click never came back on {name}, which is the interface everything else is measured against, so \
+                 there is nothing to measure against: check that cable first, and that input channel {} is the one \
+                 it is plugged into",
+                rig.inputs.get(rig.reference).copied().unwrap_or_default()
+            ),
+        );
+    }
+
+    let mut readings = Vec::new();
+    for index in 0..rig.devices() {
+        let name = names.get(index).cloned().unwrap_or_else(|| format!("interface {index}"));
+        let lags = if index == rig.reference {
+            // The reference against itself is zero, and saying so keeps every list the same
+            // length and every index the device's own.
+            of_reference.clone()
+        } else {
+            let channel = arena.channel(index);
+            measure::lags_of_channel(&reference, &channel, &click, &emits, horizon, settings.search_samples)
+        };
+        readings.push(measure::summarise(&name, &lags, emits.len(), rate));
+    }
+
+    let trims = trim::implied_for_all(&readings, rig.direction, old, rig.reference);
+    Outcome { direction: rig.direction, rate, block, clicks: settings.clicks, readings, trims, refusal: None }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_variable_that_keeps_a_test_off_the_hardware_refuses_this_outright() {
+        let refusal = no_hardware_refusal(Some("1")).expect("set means refuse");
+        assert!(refusal.contains(NO_HARDWARE), "{refusal}");
+        assert!(refusal.contains("real converters"), "it says what it would have done: {refusal}");
+        assert_eq!(no_hardware_refusal(None), None);
+        assert_eq!(no_hardware_refusal(Some("0")), None);
+        assert_eq!(no_hardware_refusal(Some("")), None);
+        assert_eq!(no_hardware_refusal(Some("false")), None);
+    }
+
+    #[test]
+    fn a_driver_that_already_has_the_interfaces_is_a_refusal_that_says_what_to_close() {
+        let refusal = in_use_refusal(true, false).expect("open is enough");
+        assert!(refusal.contains("already open"), "{refusal}");
+        assert!(refusal.contains("close the DAW"), "{refusal}");
+        assert!(in_use_refusal(false, true).is_some(), "streaming counts too");
+        assert_eq!(in_use_refusal(false, false), None);
+    }
+
+    #[test]
+    fn a_refusal_carries_no_readings_and_no_trims() {
+        let outcome = Outcome::refused(Direction::Inputs, "no");
+        assert!(outcome.readings.is_empty() && outcome.trims.is_empty());
+        assert!(!outcome.is_measured());
+        assert_eq!(outcome.refusal.as_deref(), Some("no"));
+    }
+
+    #[test]
+    fn a_cabling_mistake_is_refused_before_a_single_device_is_opened() {
+        // No host is handed over at all, so a refusal that reached the aggregate would panic here.
+        let rig = Rig::new(Direction::Inputs, vec![0], vec![0]);
+        assert!(rig.refusal().is_some());
+        let settings = Settings { clicks: 1, ..Settings::default() };
+        assert!(settings.refusal().is_some());
+    }
+}

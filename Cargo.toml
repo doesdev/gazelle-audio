@@ -14,6 +14,9 @@ members = [
     # Phase 2: the record the driver publishes its state in and Gazelle reads. Shared by both, so
     # that neither has to depend on the other.
     "crates/gazelle-audio-aggregate-status",
+    # Measuring what the aggregate has left over: drives the aggregate at real converters and
+    # works out the trim that lines the interfaces up. Never shipped.
+    "crates/gazelle-audio-calibrate",
     # Release chores (SHA256SUMS and its signature). Never shipped.
     "xtask",
 ]

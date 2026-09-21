@@ -1040,6 +1040,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gazelle-audio-calibrate"
+version = "0.1.0"
+dependencies = [
+ "gazelle-audio-aggregate",
+ "gazelle-audio-aggregate-status",
+ "gazelle-audio-stream-abi",
+ "serde",
+]
+
+[[package]]
 name = "gazelle-audio-capture"
 version = "1.2.0"
 dependencies = [
@@ -1081,6 +1091,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "gazelle-audio-aggregate-status",
+ "gazelle-audio-calibrate",
  "gazelle-audio-protocol",
  "gazelle-audio-transport",
  "hidapi",

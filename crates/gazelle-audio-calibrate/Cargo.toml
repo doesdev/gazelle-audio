@@ -1,0 +1,17 @@
+[package]
+name = "gazelle-audio-calibrate"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Measure the sample offset left between the aggregate's interfaces, and the trim that cancels it"
+
+[lib]
+name = "gazelle_calibrate"
+
+[dependencies]
+gazelle-audio-aggregate = { path = "../gazelle-audio-aggregate" }
+gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
+gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
+serde = { version = "1", features = ["derive"] }

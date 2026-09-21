@@ -19,6 +19,7 @@ gazelle-audio-transport = { path = "../gazelle-audio-transport" }
 # The record, the log format and the names the aggregate audio driver and Gazelle agree on.
 # Neither side depends on the other; both depend on this.
 gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
+gazelle-audio-calibrate = { path = "../gazelle-audio-calibrate" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 serde = { version = "1", features = ["derive"] }
