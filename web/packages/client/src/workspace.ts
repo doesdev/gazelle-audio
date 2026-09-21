@@ -151,6 +151,29 @@ export interface AggregateDevice {
   output_names?: Record<string, string>;
   /** Which Gazelle device this is, which is how its clock, rate and buffer are read. Not in the driver's file. */
   device_id?: string;
+  /**
+   * Where the driver measures this interface's capture phase at the start of every session, over
+   * the digital cable from the callback master. Absent means not measured. The driver refuses it on
+   * the callback master itself.
+   */
+  phase?: AggregatePhaseSetting;
+  [field: string]: unknown;
+}
+
+/**
+ * One interface's phase measurement path, and the phase it is lined up to.
+ *
+ * Both channels are the devices' own numbering from zero, the numbering `inputs` and `outputs` use.
+ * `reference` is the phase measured in the session the input trim was measured in, and is written
+ * with that trim and never on its own: it is not a trim, and it is not something to type in.
+ */
+export interface AggregatePhaseSetting {
+  /** A channel of the callback master's own outputs, which the cable leaves from. */
+  master_output: number;
+  /** A channel of this interface's own inputs, which the cable arrives on. */
+  input: number;
+  /** The phase measured beside the trim, in samples. Absent until a measurement gives it one. */
+  reference?: number;
   [field: string]: unknown;
 }
 

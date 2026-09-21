@@ -19,7 +19,7 @@ export type {
   UserTheme,
 } from "./client.ts";
 export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
-export type { AggregateAnswer, AggregateCalibrateDirection, AggregateCalibrateOutcome, AggregateCalibrateReading, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibrateTrim, AggregateCalibration, AggregateChannelNames, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateDrift, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePlan, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
+export type { AggregateAnswer, AggregateCalibrateDirection, AggregateCalibrateOutcome, AggregateCalibratePhase, AggregateCalibrateReading, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibrateTrim, AggregateCalibrateWitness, AggregateCalibration, AggregateChannelNames, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateDrift, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePhaseState, AggregatePlan, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AggregateTrimReference, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
 export type { UpdateRestart, UpdateState, UpdateStatus } from "./update.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
@@ -29,4 +29,4 @@ export { schemas, topologies } from "./generated/index.ts";
 export type { Family, FamilyTypes } from "./generated/index.ts";
 export { SNAPSHOT_VERSION } from "./snapshots.ts";
 export type { Change, ChangeKind, DeviceDiff, DeviceSnapshot, RecallAsk, RecallDevicePlan, RecallExcluded, RecallPart, RecallPlan, RecallRaisedOutput, RecallStep, SectionDiff, Snapshot, SnapshotDeviceSummary, SnapshotDiff, SnapshotImport, SnapshotSummary, Unreadable } from "./snapshots.ts";
-export type { Aggregate, AggregateDevice, ChannelRef, DeviceMixer, Group, InputRef, Link, LinkKind, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Cable, CableEnd, ControlRoom, DigitalPort, Surface, SurfaceStrip, SurfaceStripKind, Workspace } from "./workspace.ts";
+export type { Aggregate, AggregateDevice, AggregatePhaseSetting, ChannelRef, DeviceMixer, Group, InputRef, Link, LinkKind, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Cable, CableEnd, ControlRoom, DigitalPort, Surface, SurfaceStrip, SurfaceStripKind, Workspace } from "./workspace.ts";

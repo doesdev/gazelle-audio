@@ -29,7 +29,11 @@ import {
   appliedTrimsText,
   autoChannelName,
   buffersMatch,
+  cablePort,
   cablingSteps,
+  cardPhaseView,
+  checkVerdicts,
+  choicesWith,
   calibrateDevices,
   calibrateProblem,
   calibrateProgress,
@@ -45,17 +49,31 @@ import {
   deviceName,
   deviceViews,
   driftFound,
+  eventView,
   fixNeedsConfirming,
   gapView,
   isExposed,
   LEVELS_DBFS,
+  livePhaseView,
+  masterIndex,
   matchedBy,
   matchNote,
   matchTarget,
   outcomeSummary,
+  phaseChoices,
+  phaseFromPicks,
+  phasePicks,
+  phaseRefusedText,
+  phaseRoutingNote,
+  phaseSetting,
+  phaseSetupView,
   readingView,
+  reasonCard,
+  reasonHint,
   reconcilePicks,
   resolvedDeviceId,
+  runCleanText,
+  runPhaseViews,
   slotDevice,
   statusLine,
   suggestedChannelName,
@@ -65,6 +83,8 @@ import {
   withChannelExposed,
   withChannelName,
   withMeasuredTrims,
+  withPhase,
+  witnessViews,
   type Aggregate,
   type AggregateAnswer,
   type AggregateCalibrateDirection,
@@ -74,6 +94,11 @@ import {
   type AggregateFix,
   type AggregateReason,
   type CalibratePicks,
+  type PhaseChoice,
+  type PhasePicks,
+  type RunPhaseView,
+  type VerdictView,
+  type WitnessView,
 } from "../store/aggregate.ts";
 import { driverControls } from "../store/driver.ts";
 import { SAMPLE_RATES, type Store } from "../store/store.ts";
@@ -164,6 +189,24 @@ export class GaAggregate extends GaElement {
       .confirm, button[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       .live { display: grid; gap: 6px; }
       .live-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, minmax(0, auto)); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .live-row .phase-line { grid-column: 1 / -1; justify-self: start; }
+      /* The phase: its setup on a card, what a session made of it, and what a run made of it. The
+         tones are the gap's own: accent for lined up, the warning colour for refused. */
+      .phase-part { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--ga-border-subtle); }
+      .phase-part > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); padding: 2px 0; cursor: pointer; }
+      .phase-part .field-grid { margin-top: 6px; }
+      [data-tone="good"]:is(.phase, .phase-summary, .verdict-text) { color: var(--ga-accent); }
+      [data-tone="warn"]:is(.phase, .phase-summary) { color: var(--ga-state-solo); }
+      [data-tone="off"]:is(.phase, .phase-summary, .verdict-text), [data-tone="drift"].verdict-text { color: var(--ga-state-mute); font-weight: 700; }
+      [data-tone="idle"]:is(.phase, .phase-summary) { color: var(--ga-text-muted); }
+      .verdict-row, .phase-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: center; gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .verdict-row + .verdict-row, .phase-row + .phase-row, .witness + .witness { margin-top: 4px; }
+      .verdict-row > *, .phase-row > * { min-width: 0; }
+      .side-head { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-secondary); }
+      .clean.problem { color: var(--ga-state-mute); font-weight: 700; }
+      .reason .hint { grid-column: 2 / -1; font-size: 11px; color: var(--ga-text-muted); }
+      .events .gazelle { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-accent-text); background: var(--ga-accent); align-self: center; }
+      .events .kind[data-problem] { color: var(--ga-state-mute); }
 
       /* Phone width: nothing sits side by side, and the long readouts wrap rather than scroll. */
       @media (max-width: 480px) {
@@ -172,6 +215,9 @@ export class GaAggregate extends GaElement {
         .device-head .name { flex: 1 1 100%; }
         .live-row { grid-template-columns: minmax(0, 1fr) auto; }
         .calibrate-row, .reading, .trim-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .verdict-row, .phase-row { grid-template-columns: minmax(0, 1fr); }
+        .reason .hint { grid-column: 1 / -1; }
+        .events li { flex-wrap: wrap; }
         .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
         .channel-row .field, .channel-row .hint { grid-column: 1 / -1; }
       }
@@ -318,7 +364,7 @@ export class GaAggregate extends GaElement {
       verdict.setAttribute("data-ready", String(answer.ready));
       state.textContent = statusLine(answer.status);
       readAt.textContent = `Read at ${new Date(answer.read_at_ms).toLocaleTimeString()}.`;
-      this.#showReasons(model, reasons, noReasons, answer);
+      this.#showReasons(store, reasons, noReasons, answer);
       this.#showRegistration(registration, command, registerButton, unregisterButton, answer);
       this.#showPlan(plan, live, liveNote, answer);
       this.#showEvents(events, eventsNote, answer);
@@ -360,16 +406,17 @@ export class GaAggregate extends GaElement {
    */
   #reasonsShown: string | undefined;
 
-  #showReasons(model: Store["aggregate"], list: HTMLElement, none: HTMLElement, answer: AggregateAnswer): void {
+  #showReasons(store: Store, list: HTMLElement, none: HTMLElement, answer: AggregateAnswer): void {
     none.hidden = answer.reasons.length > 0;
     list.hidden = answer.reasons.length === 0;
     const shown = JSON.stringify(answer.reasons);
     if (shown === this.#reasonsShown) return;
     this.#reasonsShown = shown;
-    list.replaceChildren(...answer.reasons.map((reason) => this.#reasonRow(model, reason)));
+    list.replaceChildren(...answer.reasons.map((reason) => this.#reasonRow(store, reason)));
   }
 
-  #reasonRow(model: Store["aggregate"], reason: AggregateReason): HTMLElement {
+  #reasonRow(store: Store, reason: AggregateReason): HTMLElement {
+    const model = store.aggregate;
     const severity = h(
       "span",
       { class: "severity", "data-severity": reason.severity, "data-testid": `reason-severity-${reason.code}`, "data-explain": "aggregate.severity" },
@@ -377,7 +424,42 @@ export class GaAggregate extends GaElement {
     );
     const text = h("span", { "data-testid": `reason-${reason.code}` }, reason.message);
     const fix = reason.fix === undefined ? undefined : this.#fixButton(model, reason, reason.fix);
-    return h("li", { class: "reason", "data-testid": `reason-row-${reason.code}` }, severity, text, ...(fix === undefined ? [] : [fix]));
+    // A reason the page can say more about, and point at the place on the page that answers it.
+    const hint = reasonHint(reason);
+    const goes = reasonCard(reason, store.workspace.peek()?.aggregate) === undefined
+      ? undefined
+      : h(
+          "button",
+          {
+            type: "button",
+            class: "fix",
+            "data-testid": `reason-goto-${reason.code}`,
+            "data-explain": "aggregate.reason-goto-phase",
+            "on:click": () => {
+              const at = reasonCard(reason, store.workspace.peek()?.aggregate);
+              if (at !== undefined) this.#openPhase(at);
+            },
+          },
+          "Set up the phase",
+        );
+    const button = fix ?? goes;
+    return h(
+      "li",
+      { class: "reason", "data-testid": `reason-row-${reason.code}` },
+      severity,
+      text,
+      ...(button === undefined ? [] : [button]),
+      ...(hint === undefined ? [] : [h("span", { class: "hint", "data-testid": `reason-hint-${reason.code}` }, hint)]),
+    );
+  }
+
+  /** Opens one card's phase setup, brings it into view and puts the first picker under the cursor. */
+  #openPhase(index: number): void {
+    const part = this.root.querySelector<HTMLDetailsElement>(`[data-testid="device-${index}-phase-part"]`);
+    if (part === null || part.hidden) return;
+    part.open = true;
+    part.scrollIntoView({ block: "center" });
+    part.querySelector<HTMLSelectElement>("select:not([disabled])")?.focus();
   }
 
   /**
@@ -470,6 +552,7 @@ export class GaAggregate extends GaElement {
     const lock = h("span", { class: "lock", "data-testid": `${testid}-lock`, "data-explain": "aggregate.device-lock" }, "LOCK");
     const rate = h("span", { class: "readout", "data-testid": `${testid}-rate`, "data-explain": "aggregate.device-rate" });
     const gap = h("span", { class: "readout gap", "data-testid": `${testid}-gap`, "data-explain": "aggregate.device-gap" });
+    const phaseNow = h("span", { class: "readout phase", "data-testid": `${testid}-phase`, "data-explain": "aggregate.device-phase" });
 
     // The driver's buffer size and Safe Mode, exactly as the Devices page offers them.
     const bufferMenu = h("select", { "aria-label": `Buffer size for ${named}`, "data-testid": `${testid}-buffer`, "data-no-wheel": true, "data-explain": "aggregate.device-buffer" });
@@ -529,6 +612,8 @@ export class GaAggregate extends GaElement {
       opened.value = channelsPart.open;
     });
 
+    const phasePart = this.#phasePart(store, device, index, watch);
+
     // One grid for the whole card, two label-and-field pairs to a line: what you set down the left,
     // what the interface reports down the right. Every label shares one column, so every value
     // starts at the same place instead of wherever its own little grid happened to put it.
@@ -552,7 +637,9 @@ export class GaAggregate extends GaElement {
         ...field("Gap", gap),
         ...field("Input trim", inTrim),
         ...field("Output trim", outTrim),
+        ...field("Phase now", phaseNow),
         channelsPart,
+        phasePart,
       ),
       notMatched,
     );
@@ -590,6 +677,9 @@ export class GaAggregate extends GaElement {
       const reading = gapFor(view);
       gap.textContent = reading.text;
       gap.setAttribute("data-tone", reading.tone);
+      const phase = cardPhaseView(view?.live, masterIndex(store.workspace.value?.aggregate, model.answer.value) === index);
+      phaseNow.textContent = phase.text;
+      phaseNow.setAttribute("data-tone", phase.tone);
     });
 
     watch(() => {
@@ -639,6 +729,108 @@ export class GaAggregate extends GaElement {
     });
 
     return card;
+  }
+
+  /**
+   * A follower's phase setup: the channel the cable leaves the callback master on, the one it
+   * arrives on here, and a way to clear it, with what the setting means now and the routing it
+   * needs. Not offered on the callback master's card, which the others are measured against; a
+   * setting left on it from before is shown only so it can be cleared, because the driver refuses it.
+   *
+   * Nothing is written until both channels are chosen, since half a path is refused: the first pick
+   * waits in this tab's view state, so a poll or a rebuild does not take it away.
+   */
+  #phasePart(store: Store, device: AggregateDevice, index: number, watch: (fn: () => void) => void): HTMLElement {
+    const model = store.aggregate;
+    const testid = `device-${index}`;
+    const setting = phaseSetting(device);
+    const draft = store.view<PhasePicks | undefined>(`draft:aggregate:${index}:phase`, undefined);
+
+    const summary = h("span", { class: "readout phase-summary", "data-testid": `${testid}-phase-summary`, "data-explain": "aggregate.device-phase-summary" });
+    const note = h("p", { class: "note", "data-testid": `${testid}-phase-note` });
+    const leaves = h("select", { "aria-label": "Channel the cable leaves the callback master on", "data-testid": `${testid}-phase-leaves`, "data-no-wheel": true, "data-explain": "aggregate.device-phase-leaves" });
+    const arrives = h("select", { "aria-label": `Channel the cable arrives on at ${deviceName(device, index)}`, "data-testid": `${testid}-phase-arrives`, "data-no-wheel": true, "data-explain": "aggregate.device-phase-arrives" });
+    const clear = h("button", { type: "button", "data-testid": `${testid}-phase-clear`, "data-explain": "aggregate.device-phase-clear" }, "Clear");
+    this.onDisconnect(
+      bindConfirm(clear, "Clear", () => {
+        draft.value = undefined;
+        if (phaseSetting(device) !== undefined) this.#editDevice(store, index, (current) => withPhase(current, undefined));
+      }),
+    );
+    const routing = h("p", { class: "note", "data-testid": `${testid}-phase-routing` });
+    const pickers = h("div", { class: "field-grid" }, h("span", { class: "label" }, "Leaves the callback master on"), leaves, h("span", { class: "label" }, "Arrives on"), arrives);
+
+    const pick = (key: keyof PhasePicks, value: string) => {
+      const chosen = value === "" ? undefined : Number(value);
+      const { [key]: _was, ...others } = phasePicks(setting, draft.peek());
+      const picks: PhasePicks = chosen === undefined ? others : { ...others, [key]: chosen };
+      const next = phaseFromPicks(setting, picks);
+      if (next === undefined) {
+        draft.value = picks;
+        return;
+      }
+      draft.value = undefined;
+      if (next !== setting) this.#editDevice(store, index, (current) => withPhase(current, phaseFromPicks(phaseSetting(current), picks)));
+    };
+    leaves.addEventListener("change", () => pick("master_output", leaves.value));
+    arrives.addEventListener("change", () => pick("input", arrives.value));
+
+    const part = h(
+      "details",
+      { class: "phase-part wide", "data-testid": `${testid}-phase-part` },
+      h("summary", { "data-testid": `${testid}-phase-open`, "data-explain": "aggregate.device-phase-open" }, h("span", { class: "label" }, "Phase setup"), summary),
+      note,
+      pickers,
+      h("div", { class: "add" }, clear),
+      routing,
+    );
+    const opened = store.view<boolean>(`aggregate:${index}:phase-open`, false);
+    part.open = opened.peek();
+    part.addEventListener("toggle", () => {
+      opened.value = part.open;
+    });
+
+    const fill = (select: HTMLSelectElement, choices: PhaseChoice[] | undefined, chosen: number | undefined, named: string) => {
+      const listed = choicesWith(choices, chosen, named);
+      const empty = choices === undefined ? `Not known until a DAW opens the aggregate or Gazelle knows which device ${named} is` : "Choose a channel";
+      const options = [{ value: "", text: empty }, ...listed.map((choice) => ({ value: String(choice.value), text: choice.text }))];
+      const shape = JSON.stringify(options);
+      if (select.dataset["shape"] !== shape) {
+        select.dataset["shape"] = shape;
+        select.replaceChildren(...options.map((option) => h("option", { value: option.value }, option.text)));
+      }
+      select.value = chosen === undefined ? "" : String(chosen);
+    };
+
+    watch(() => {
+      const config = store.workspace.value?.aggregate;
+      const answer = model.answer.value;
+      const at = masterIndex(config, answer);
+      const isMaster = at === index;
+      const masterDevice = at === undefined ? undefined : config?.devices?.[at];
+      const master = masterDevice === undefined || at === undefined ? "the callback master" : deviceName(masterDevice, at);
+      const view = phaseSetupView(device, isMaster, master);
+      part.hidden = isMaster && setting === undefined;
+      summary.textContent = view.summary;
+      summary.setAttribute("data-tone", view.tone);
+      note.textContent = view.note;
+      pickers.hidden = isMaster;
+      routing.hidden = isMaster;
+
+      const picks = phasePicks(setting, draft.value);
+      const choices = phaseChoices(config, answer, index);
+      fill(leaves, choices?.outputs, picks.master_output, master);
+      fill(arrives, choices?.inputs, picks.input, deviceName(device, index));
+      clear.hidden = setting === undefined && picks.master_output === undefined && picks.input === undefined;
+
+      const own = resolvedDeviceId(viewFor(answer, device, index), device);
+      const from = masterDevice === undefined || at === undefined ? undefined : resolvedDeviceId(viewFor(answer, masterDevice, at), masterDevice);
+      routing.textContent = phaseRoutingNote(master, deviceName(device, index), cablePort(store.workspace.value?.cables, from, own));
+      const connected = store.connected.value;
+      for (const control of [leaves, arrives, clear]) control.disabled = !connected;
+    });
+
+    return part;
   }
 
   /**
@@ -856,6 +1048,13 @@ export class GaAggregate extends GaElement {
         if (request !== undefined) void model.startCalibration(request);
       }),
     );
+    const check = h("button", { type: "button", "data-testid": "calibrate-check", "data-explain": "aggregate.calibrate-check" }, "Check");
+    this.onDisconnect(
+      bindConfirm(check, "Check", () => {
+        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, model.answer.peek(), { check: true });
+        if (request !== undefined) void model.startCalibration(request);
+      }),
+    );
     const stop = h("button", { type: "button", "data-testid": "calibrate-stop", "data-explain": "aggregate.calibrate-stop", hidden: true, "on:click": () => void model.stopCalibration() }, "Stop");
     const step = h("span", { class: "readout", "data-testid": "calibrate-step", "data-explain": "aggregate.calibrate-step" });
     const fill = h("span", { class: "fill" });
@@ -863,8 +1062,13 @@ export class GaAggregate extends GaElement {
     const running = h("div", { class: "running", "data-testid": "calibrate-running", hidden: true }, step, track);
 
     const summary = h("p", { class: "note", "data-testid": "calibrate-summary", hidden: true });
+    const cleanText = h("span", { class: "readout", "data-explain": "aggregate.calibrate-clean" });
+    const clean = h("p", { class: "note clean", "data-testid": "calibrate-clean", hidden: true }, cleanText);
+    const phaseRefused = h("p", { class: "drift", role: "alert", "data-testid": "calibrate-phase-refused", hidden: true });
     const drift = h("p", { class: "drift", role: "alert", "data-testid": "calibrate-drift", hidden: true });
     const readings = h("div", { "data-testid": "calibrate-readings" });
+    const phases = h("div", { "data-testid": "calibrate-phases" });
+    const witnesses = h("div", { "data-testid": "calibrate-witnesses" });
     const trims = h("div", { "data-testid": "calibrate-trims" });
     const apply = h("button", { type: "button", "data-testid": "calibrate-apply", "data-explain": "aggregate.calibrate-apply", hidden: true }, "Write these trims into the setup");
     apply.addEventListener("click", () => this.#applyTrims(store));
@@ -882,22 +1086,36 @@ export class GaAggregate extends GaElement {
         { class: "note" },
         "The aggregate lines its interfaces up from the latency figures their own drivers report, and those figures are a little out, so two interfaces can still record a few tens of samples apart. This plays one click through the aggregate itself and hears where each interface puts it, which is the difference to put in the trims.",
       ),
+      h(
+        "p",
+        { class: "note", "data-testid": "calibrate-check-note" },
+        "Measure finds the trims, and the phase reference written with each, with nothing lined up; Check lines the session up exactly as a DAW's is and says how far apart a recording would land now, and writes nothing.",
+      ),
       h("div", { class: "setup field-grid pairs", "data-testid": "calibrate-setup" }, h("span", { class: "label" }, "Pass"), direction, h("span", { class: "label" }, "Reference"), reference, h("span", { class: "label" }, "Clicks"), clicks, h("span", { class: "label" }, "Level"), level),
       rows,
-      h("p", { class: "note", "data-testid": "calibrate-patch-note" }, "Patch it like this, one cable a line, then press Measure twice:"),
+      h("p", { class: "note", "data-testid": "calibrate-patch-note" }, "Patch it like this, one cable a line, then press Measure or Check, each twice:"),
       cables,
       h(
         "p",
+        { class: "note", "data-testid": "calibrate-routing-note" },
+        "The click only gets there if the interfaces' own routing carries it: on the interface that plays it, route each playback channel chosen above to the output socket its cable leaves from, and on each interface that records it, route the input socket its cable arrives at to the record channel chosen above. The phase needs the same of its own path, the one set under Phase setup on each card: the callback master's playback channel to its S/PDIF output, and the follower's S/PDIF input to its record channel. On a fresh setup neither path is there, and it reads as nothing heard. Both are on the Routing page.",
+      ),
+      h(
+        "p",
         { class: "note warning", "data-testid": "calibrate-warning" },
-        "It plays a click out of a real output at the level above, so turn monitors down first, and it takes both audio drivers for itself while it runs, so close any DAW that has them open. Measure asks for a confirming click.",
+        "It plays a click out of a real output at the level above, so turn monitors down first, and it takes both audio drivers for itself while it runs, so close any DAW that has them open. Measure and Check each ask for a confirming click.",
       ),
       problem,
-      h("div", { class: "add" }, measure, stop),
+      h("div", { class: "add" }, measure, check, stop),
       running,
       refusal,
       summary,
+      clean,
+      phaseRefused,
       drift,
       readings,
+      phases,
+      witnesses,
       trims,
       h("div", { class: "add" }, apply),
       applied,
@@ -959,7 +1177,9 @@ export class GaAggregate extends GaElement {
       fill.style.width = `${Math.round(calibrateProgress(state) * 100)}%`;
       stop.hidden = !isRunning;
       measure.hidden = isRunning;
+      check.hidden = isRunning;
       measure.disabled = why !== undefined || offered === false || !store.connected.value || model.busy.value !== undefined;
+      check.disabled = measure.disabled;
       for (const control of [direction, reference, clicks, level, ...controls.flatMap(({ output, input }) => [output, input])]) control.disabled = isRunning || !store.connected.value;
 
       const said = model.calibrationProblem.value ?? (state?.state === "failed" ? state.refusal : undefined);
@@ -971,12 +1191,30 @@ export class GaAggregate extends GaElement {
       const shown = JSON.stringify(outcome ?? null);
       if (shown !== shownOutcome) {
         shownOutcome = shown;
+        const checking = outcome?.checking === true;
         summary.hidden = outcome === undefined;
         summary.textContent = outcome === undefined ? "" : outcomeSummary(outcome);
+        const wasClean = runCleanText(outcome);
+        clean.hidden = wasClean === undefined;
+        clean.classList.toggle("problem", wasClean?.problem === true);
+        clean.setAttribute("role", wasClean?.problem === true ? "alert" : "status");
+        cleanText.textContent = wasClean?.text ?? "";
+        const refused = phaseRefusedText(outcome);
+        phaseRefused.hidden = refused === undefined;
+        phaseRefused.textContent = refused ?? "";
         drift.hidden = !driftFound(outcome);
         drift.textContent = driftFound(outcome) ? "The interfaces are not sharing one clock. A trim cannot answer that: it would be right now and wrong in a minute. Put every interface on the clock that comes down the digital cable, then measure again." : "";
-        readings.replaceChildren(...(outcome?.readings ?? []).map((reading) => this.#readingRow(reading)));
-        trims.replaceChildren(...trimRows(outcome).map((trim, at) => this.#trimRow(trim, at)));
+        // A check is a verdict per interface and offers nothing; a measurement is readings and trims.
+        readings.replaceChildren(
+          ...(checking
+            ? checkVerdicts(outcome).map((verdict) => this.#verdictRow(verdict))
+            : (outcome?.readings ?? []).map((reading) => this.#readingRow(reading))),
+        );
+        const phaseViews = runPhaseViews(outcome);
+        phases.replaceChildren(...(phaseViews.length === 0 ? [] : [h("p", { class: "side-head" }, "THE PHASE"), ...phaseViews.map((phase) => this.#runPhaseRow(phase))]));
+        const witnessed = witnessViews(outcome, aggregateChannels(store.workspace.peek()?.aggregate, model.answer.peek(), true));
+        witnesses.replaceChildren(...(witnessed.length === 0 ? [] : [h("p", { class: "side-head" }, "LISTENED IN ON"), ...witnessed.map((witness, at) => this.#witnessRow(witness, at))]));
+        trims.replaceChildren(...(checking ? [] : trimRows(outcome).map((trim, at) => this.#trimRow(trim, at))));
         apply.hidden = trimsToApply(outcome).length === 0;
         warnings.hidden = (outcome?.warnings ?? []).length === 0;
         warnings.textContent = (outcome?.warnings ?? []).join(" ");
@@ -1042,6 +1280,52 @@ export class GaAggregate extends GaElement {
     // The server's own sentence for this interface, and the drift finding, which is the serious one.
     if (view.note !== undefined) after.push(h("p", { class: "note", "data-testid": `calibrate-note-${view.device}` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-note" }, view.note)));
     if (view.drift !== undefined) after.push(h("p", { class: "drift", "data-testid": `calibrate-drift-${view.device}`, "data-explain": "aggregate.calibrate-drift" }, view.drift));
+    if (view.lost !== undefined) after.push(h("p", { class: "drift", "data-testid": `calibrate-lost-${view.device}` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-lost" }, view.lost)));
+    return after.length === 0 ? row : h("div", {}, row, ...after);
+  }
+
+  /** One interface's verdict from a check: how far apart a recording would land now. */
+  #verdictRow(verdict: VerdictView): HTMLElement {
+    const row = h(
+      "div",
+      { class: "verdict-row field-line", "data-testid": `calibrate-verdict-${verdict.device}` },
+      h("span", {}, verdict.device),
+      h("span", { class: "readout verdict-text", "data-tone": verdict.tone, "data-testid": `calibrate-verdict-text-${verdict.device}`, "data-explain": "aggregate.calibrate-verdict" }, verdict.text),
+    );
+    if (verdict.note === undefined) return row;
+    return h("div", {}, row, h("p", { class: "note", "data-testid": `calibrate-note-${verdict.device}` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-note" }, verdict.note)));
+  }
+
+  /** What the driver made of one interface's phase at the start of the run. */
+  #runPhaseRow(phase: RunPhaseView): HTMLElement {
+    const row = h(
+      "div",
+      { class: "phase-row field-line", "data-testid": `calibrate-phase-${phase.device}` },
+      h("span", {}, phase.device),
+      h(
+        "span",
+        { class: "field-row" },
+        h("span", { class: "readout phase", "data-tone": phase.tone, "data-testid": `calibrate-phase-state-${phase.device}`, "data-explain": "aggregate.calibrate-phase" }, phase.text),
+        ...(phase.figures === undefined ? [] : [h("span", { class: "readout", "data-testid": `calibrate-phase-figures-${phase.device}`, "data-explain": "aggregate.calibrate-phase-figures" }, phase.figures)]),
+      ),
+    );
+    if (phase.note === undefined) return row;
+    return h("div", {}, row, h("p", { class: "note", "data-testid": `calibrate-phase-note-${phase.device}` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-phase-note" }, phase.note)));
+  }
+
+  /** One extra channel the run listened in on. It changes no trim. */
+  #witnessRow(witness: WitnessView, at: number): HTMLElement {
+    const row = h(
+      "div",
+      { class: "reading witness field-line", "data-testid": `calibrate-witness-${at}` },
+      h("span", {}, `${witness.channel}, on ${witness.device}`),
+      h("span", { class: "readout lag", "data-tone": witness.tone, "data-testid": `calibrate-witness-${at}-lag`, "data-explain": "aggregate.calibrate-witness" }, witness.lag),
+      h("span", { class: "readout", "data-testid": `calibrate-witness-${at}-spread`, "data-explain": "aggregate.calibrate-spread" }, witness.spread),
+      h("span", { class: "readout", "data-testid": `calibrate-witness-${at}-clicks`, "data-explain": "aggregate.calibrate-found" }, witness.clicks),
+    );
+    const after: Node[] = [];
+    if (witness.note !== undefined) after.push(h("p", { class: "note" }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-note" }, witness.note)));
+    if (witness.lost !== undefined) after.push(h("p", { class: "drift" }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-lost" }, witness.lost)));
     return after.length === 0 ? row : h("div", {}, row, ...after);
   }
 
@@ -1057,9 +1341,12 @@ export class GaAggregate extends GaElement {
       cell("Measured", trim.measured, `calibrate-trim-${at}-measured`, "aggregate.calibrate-trim-measured"),
       cell("Would be", trim.now, `calibrate-trim-${at}-now`, "aggregate.calibrate-trim-now"),
     );
-    if (trim.notApplied === undefined) return row;
+    const after: Node[] = [];
+    // The phase reference written with this trim, and what writing it does to the one there now.
+    if (trim.reference !== undefined) after.push(h("p", { class: "note", "data-testid": `calibrate-trim-${at}-reference` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-phase-reference" }, trim.reference)));
     // One the server is not offering: it is shown, with its reason, and the button passes it over.
-    return h("div", {}, row, h("p", { class: "note", "data-testid": `calibrate-trim-${at}-not-applied` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-not-applied" }, trim.notApplied)));
+    if (trim.notApplied !== undefined) after.push(h("p", { class: "note", "data-testid": `calibrate-trim-${at}-not-applied` }, h("span", { class: "readout", "data-explain": "aggregate.calibrate-not-applied" }, trim.notApplied)));
+    return after.length === 0 ? row : h("div", {}, row, ...after);
   }
 
   /** Writes the measured trims into the setup, the same way every other field on this page does. */
@@ -1101,6 +1388,7 @@ export class GaAggregate extends GaElement {
     rows.replaceChildren(
       ...status.devices.map((device) => {
         const reading = gapView(device);
+        const phase = livePhaseView(device);
         return h(
           "div",
           { class: "live-row field-line", "data-testid": `live-${device.name}` },
@@ -1109,6 +1397,15 @@ export class GaAggregate extends GaElement {
           h("span", { class: "readout", "data-testid": `live-callbacks-${device.name}`, "data-explain": "aggregate.live-callbacks" }, `${device.callbacks} blocks`),
           h("span", { class: "readout", "data-testid": `live-dropped-${device.name}`, "data-explain": "aggregate.live-dropped" }, `${device.dropped} dropped`),
           h("span", { class: "readout", "data-testid": `live-starved-${device.name}`, "data-explain": "aggregate.live-starved" }, `${device.starved} starved`),
+          ...(phase === undefined
+            ? []
+            : [
+                h(
+                  "span",
+                  { class: "readout phase phase-line", "data-tone": phase.tone, "data-testid": `live-phase-${device.name}`, "data-explain": "aggregate.live-phase" },
+                  phase.figures === undefined ? `Phase: ${phase.text}` : `Phase: ${phase.text}. ${phase.figures}`,
+                ),
+              ]),
         );
       }),
     );
@@ -1125,15 +1422,17 @@ export class GaAggregate extends GaElement {
         ? "The driver has written nothing yet. It writes a line only when something happens, so an empty log is a driver that has never run here."
         : "The driver's own log, newest last. It is kept on disk, so a session that would not start last night still says why today.";
     list.replaceChildren(
-      ...answer.events.map((event) =>
-        h(
+      ...answer.events.map((event) => {
+        const view = eventView(event);
+        return h(
           "li",
-          { "data-testid": "aggregate-event" },
-          h("span", { class: "at" }, event.at),
-          h("span", { class: "kind" }, event.kind),
-          h("span", {}, event.message),
-        ),
-      ),
+          { "data-testid": "aggregate-event", ...(view.gazelle ? { "data-gazelle": "" } : {}) },
+          h("span", { class: "at" }, view.at),
+          h("span", { class: "kind", "data-testid": "aggregate-event-kind", "data-explain": "aggregate.event-kind", ...(view.problem ? { "data-problem": "" } : {}) }, view.kind),
+          ...(view.gazelle ? [h("span", { class: "gazelle", "data-testid": "aggregate-event-gazelle", "data-explain": "aggregate.event-gazelle" }, "GAZELLE")] : []),
+          h("span", { "data-testid": "aggregate-event-message" }, view.message),
+        );
+      }),
     );
   }
 }

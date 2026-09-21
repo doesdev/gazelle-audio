@@ -17,7 +17,32 @@ import {
   autoChannelName,
   appliedTrimsText,
   buffersMatch,
+  cablePort,
   cablingSteps,
+  cardPhaseView,
+  CHECK_TOLERANCE_SAMPLES,
+  checkVerdicts,
+  choicesWith,
+  eventView,
+  GAZELLE_MEASUREMENT,
+  livePhaseView,
+  masterIndex,
+  phaseChoices,
+  phaseFromPicks,
+  phasePicks,
+  phaseReference,
+  phaseRefusedText,
+  phaseRoutingNote,
+  phaseSetting,
+  phaseSetupView,
+  reasonCard,
+  reasonHint,
+  referenceChanges,
+  referenceText,
+  runCleanText,
+  runPhaseViews,
+  withPhase,
+  witnessViews,
   CALIBRATE_POLL_MS,
   calibrateDevices,
   calibrateProblem,
@@ -596,6 +621,317 @@ test("applying the trims writes them into the setup, by the name the setup gives
 });
 
 // ---------------------------------------------------------------------------------------------
+// The phase reference, written with the trim
+// ---------------------------------------------------------------------------------------------
+
+/** A run whose Studio+ trim comes with a phase reference, as the server offers one. */
+const withReference = (reference: { was: number | null; now: number | null }, trim: Partial<AggregateCalibrateOutcome["trims"][number]> = {}) =>
+  measured({ trims: [{ device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, phase_reference: reference, ...trim }] });
+
+const phased = { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } };
+
+test("writing a trim writes the phase reference measured beside it", () => {
+  const written = withMeasuredTrims({ devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", phase: { master_output: 15, input: 8 } }] }, withReference({ was: null, now: -84 }));
+  assert.deepEqual(written.devices?.[1], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
+  // A new reference replaces the old one, and the path it was measured on is left as it was.
+  const again = withMeasuredTrims({ devices: [phased] }, withReference({ was: -84, now: -148 }, { was: 28, measured: 30, now: 30 }));
+  assert.deepEqual(again.devices?.[0], { key: "S", name: "Studio+", input_trim: 30, phase: { master_output: 15, input: 8, reference: -148 } });
+});
+
+test("a trim offered with nothing heard on the cable takes the old reference out", () => {
+  const written = withMeasuredTrims({ devices: [phased] }, withReference({ was: -84, now: null }, { was: 28, measured: 31, now: 31 }));
+  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 31, phase: { master_output: 15, input: 8 } });
+  // Even when the trim itself comes out the same, because the old reference no longer belongs beside it.
+  const same = withReference({ was: -84, now: null }, { was: 28, measured: 28, now: 28 });
+  assert.equal(trimsToApply(same).length, 1);
+  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, same).devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } });
+});
+
+test("a first run whose trim is unchanged but whose reference is new is still there to write", () => {
+  // The trim was already 28 and was measured at 28; the reference was nothing and is now -84.
+  const first = withReference({ was: null, now: -84 }, { was: 28, measured: 28, now: 28 });
+  assert.equal(referenceChanges(first.trims[0] as AggregateCalibrateOutcome["trims"][number]), true);
+  assert.equal(trimsToApply(first).length, 1, "the button is offered");
+  assert.equal(trimRows(first)[0]?.changed, true);
+  const written = withMeasuredTrims({ devices: [{ key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } }] }, first);
+  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
+  assert.equal(appliedTrimsText(trimsToApply(first)), "1 trim written: Studio+ in 28 (phase reference -84).");
+  // And nothing changing on either count is still nothing to write.
+  const settled = withReference({ was: -84, now: -84 }, { was: 28, measured: 28, now: 28 });
+  assert.equal(referenceChanges(settled.trims[0] as AggregateCalibrateOutcome["trims"][number]), false);
+  assert.deepEqual(trimsToApply(settled), []);
+});
+
+test("a reference is only written where there is a phase path to go with it", () => {
+  // The phase setting was cleared after the run: the trim is written, and no half setting is made up.
+  const written = withMeasuredTrims({ devices: [{ key: "S", name: "Studio+" }] }, withReference({ was: null, now: -84 }));
+  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28 });
+  // An output trim never carries one, whatever arrives beside it.
+  const out = withReference({ was: null, now: -84 }, { direction: "outputs", field: "output_trim" });
+  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, out).devices?.[0], { ...phased, output_trim: 28 });
+  // And one the server is not offering writes neither.
+  const held = withReference({ was: null, now: -84 }, { not_applied: "Only 2 of 8 clicks were found." });
+  assert.deepEqual(trimsToApply(held), []);
+});
+
+test("a check offers no trims, whatever its outcome carries", () => {
+  const checked = { ...withReference({ was: null, now: -84 }), checking: true };
+  assert.deepEqual(trimsToApply(checked), []);
+  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, checked).devices, [phased]);
+});
+
+test("the reference beside a trim is said as a reference, and never as a trim", () => {
+  assert.equal(referenceText(undefined), undefined);
+  assert.equal(referenceText({ was: null, now: -84 }), "Phase reference: none yet, becomes -84 samples");
+  assert.equal(referenceText({ was: -84, now: -148 }), "Phase reference: -84 samples becomes -148 samples");
+  assert.equal(referenceText({ was: -84, now: -84 }), "Phase reference: stays at -84 samples");
+  assert.match(String(referenceText({ was: -84, now: null })), /-84 samples is taken out, because nothing was heard on the cable/);
+  assert.match(String(referenceText({ was: null, now: null })), /none, and nothing was heard/);
+  assert.equal(trimRows(withReference({ was: null, now: -84 }))[0]?.reference, "Phase reference: none yet, becomes -84 samples");
+  assert.equal(trimRows(measured())[0]?.reference, undefined, "a trim with no phase setting says nothing about one");
+  for (const text of [referenceText({ was: null, now: -84 }), referenceText({ was: -84, now: null }), referenceText({ was: 1, now: 2 })]) assert.doesNotMatch(String(text), /trim/i);
+  assert.equal(appliedTrimsText(trimsToApply(withReference({ was: -84, now: null }, { was: 28, now: 30, measured: 30 }))), "1 trim written: Studio+ in 30 (phase reference taken out).");
+});
+
+test("a check is asked for with the same cabling, and a measurement leaves the field out", () => {
+  const it = twoInterfaces();
+  const picks = defaultPicks(it.config, it.answer);
+  assert.equal(Object.hasOwn(calibrateRequest(picks, it.config, it.answer) ?? {}, "check"), false);
+  assert.deepEqual(calibrateRequest(picks, it.config, it.answer, { check: true }), { ...calibrateRequest(picks, it.config, it.answer), check: true });
+  assert.equal(calibrateRequest({ ...picks, outputs: [1, 1] }, it.config, it.answer, { check: true }), undefined, "a check that cannot be made is no request either");
+});
+
+// ---------------------------------------------------------------------------------------------
+// The phase setup on a card
+// ---------------------------------------------------------------------------------------------
+
+test("a phase setting counts only when both channels are there", () => {
+  assert.deepEqual(phaseSetting({ phase: { master_output: 15, input: 8 } }), { master_output: 15, input: 8 });
+  assert.equal(phaseSetting({ phase: { master_output: 15 } as never }), undefined);
+  assert.equal(phaseSetting({ phase: { master_output: -1, input: 8 } }), undefined);
+  assert.equal(phaseSetting({}), undefined);
+  assert.equal(phaseReference({ phase: { master_output: 15, input: 8, reference: -84 } }), -84);
+  assert.equal(phaseReference({ phase: { master_output: 15, input: 8 } }), undefined);
+});
+
+test("the callback master is the one the setup names, and the first when it names none", () => {
+  const it = twoInterfaces();
+  assert.equal(masterIndex(it.config, it.answer), 0);
+  assert.equal(masterIndex({ ...it.config, callback_master: "Studio+" }, it.answer), 1);
+  assert.equal(masterIndex({ ...it.config, callback_master: "s" }, it.answer), 1, "by registry key, without case");
+  assert.equal(masterIndex({ devices: [] }, it.answer), undefined);
+});
+
+test("the pickers offer the master's own outputs and this interface's own inputs, counted from one", () => {
+  const it = twoInterfaces([{ output_names: { "3": "To Studio+" } }, {}]);
+  const choices = phaseChoices(it.config, it.answer, 1);
+  assert.equal(choices?.master, "Quadro");
+  assert.deepEqual(choices?.outputs?.map((one) => [one.value, one.text]), [
+    [0, "Quadro 1 (Main L)"],
+    [1, "Quadro 2 (Main R)"],
+    [2, "Quadro 3 (Cue L)"],
+    [3, "Quadro 4 (To Studio+)"],
+  ]);
+  assert.deepEqual(choices?.inputs?.map((one) => one.text), ["Studio+ 1 (Line 1)", "Studio+ 2 (Line 2)"]);
+  // Not on the callback master's card, which the others are measured against.
+  assert.equal(phaseChoices(it.config, it.answer, 0), undefined);
+  // A channel kept out of what a DAW sees is still offered: the driver opens these two itself.
+  const hidden = twoInterfaces([{}, { inputs: [0] }]);
+  assert.equal(phaseChoices(hidden.config, hidden.answer, 1)?.inputs?.length, 2);
+  // With no count to go on, nothing is guessed at.
+  assert.equal(phaseChoices(it.config, answer(), 1)?.inputs, undefined);
+  // And a setting made while more channels were known is kept on the list.
+  assert.deepEqual(choicesWith([{ value: 0, text: "Studio+ 1" }], 9, "Studio+").map((one) => one.text), ["Studio+ 1", "Studio+ 10 (not listed now)"]);
+  assert.equal(choicesWith(undefined, undefined, "Studio+").length, 0);
+});
+
+test("nothing is written until both channels are chosen, and a new path loses the old reference", () => {
+  assert.equal(phaseFromPicks(undefined, { master_output: 15 }), undefined, "half a path is refused by the driver");
+  assert.deepEqual(phaseFromPicks(undefined, { master_output: 15, input: 8 }), { master_output: 15, input: 8 });
+  const current = { master_output: 15, input: 8, reference: -84 };
+  assert.equal(phaseFromPicks(current, { master_output: 15, input: 8 }), current, "the same path is the same setting");
+  assert.deepEqual(phaseFromPicks(current, { master_output: 14, input: 8 }), { master_output: 14, input: 8 });
+  // What the pickers show: this tab's pick, and otherwise the setting.
+  assert.deepEqual(phasePicks(current, undefined), { master_output: 15, input: 8 });
+  assert.deepEqual(phasePicks(current, { input: 9 }), { master_output: 15, input: 9 });
+  assert.deepEqual(phasePicks(undefined, undefined), {});
+  assert.deepEqual(withPhase({ key: "S" }, { master_output: 1, input: 2 }), { key: "S", phase: { master_output: 1, input: 2 } });
+  assert.deepEqual(withPhase({ key: "S", phase: { master_output: 1, input: 2 } }, undefined), { key: "S" });
+});
+
+test("the phase setup says whether it is set up and whether it has a reference yet", () => {
+  assert.equal(phaseSetupView({}, false, "Quadro").summary, "Not set up");
+  assert.match(phaseSetupView({}, false, "Quadro").note, /leaves Quadro on/);
+  const waiting = phaseSetupView({ phase: { master_output: 15, input: 8 } }, false, "Quadro");
+  assert.equal(waiting.summary, "Set up, no reference yet");
+  assert.match(waiting.note, /One measurement under Line the interfaces up gives it one/);
+  assert.equal(phaseSetupView(phased, false, "Quadro").summary, "Set up, reference -84 samples");
+  assert.equal(phaseSetupView(phased, false, "Quadro").tone, "good");
+  assert.equal(phaseSetupView(phased, true, "Quadro").summary, "Refused on the callback master");
+  for (const view of [waiting, phaseSetupView(phased, false, "Quadro")]) assert.doesNotMatch(view.summary, /trim/i);
+});
+
+test("the routing the phase needs names both ends and the kind of socket the cable is", () => {
+  const cables = [{ id: "c", from: { device_id: "q", port: "SPDIF_OUT" as const, first: 0 }, to: { device_id: "s", port: "SPDIF_IN" as const, first: 0 }, channels: 2 }];
+  assert.equal(cablePort(cables, "q", "s"), "S/PDIF");
+  assert.equal(cablePort([{ ...cables[0]!, from: { device_id: "q", port: "ADAT_OUT", first: 0 } }], "q", "s"), "ADAT");
+  assert.equal(cablePort(cables, "s", "q"), undefined);
+  assert.equal(cablePort(cables, undefined, "s"), undefined);
+  const note = phaseRoutingNote("Quadro", "Studio+", "S/PDIF");
+  assert.match(note, /on Quadro, route the playback channel chosen under Leaves the callback master on to its S\/PDIF output/);
+  assert.match(note, /on Studio\+, route its S\/PDIF input, where the cable arrives, to the record channel chosen under Arrives on/);
+  assert.match(note, /reads as nothing heard/);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The phase, live and in a run
+// ---------------------------------------------------------------------------------------------
+
+test("a session's phase is said in words, with what was measured and what was applied", () => {
+  const applied = livePhaseView(liveDevice("Studio+", { phase: "applied", phase_measured: -148, phase_applied: -64 }));
+  assert.deepEqual(applied, { text: "Lined up to its reference", tone: "good", refused: false, figures: "Measured -148 samples, applied -64 samples" });
+  assert.equal(livePhaseView(liveDevice("Studio+", { phase: "no_reference", phase_measured: -148, phase_applied: 0 }))?.tone, "warn");
+  const unheard = livePhaseView(liveDevice("Studio+", { phase: "not_heard" }));
+  assert.equal(unheard?.refused, true);
+  assert.equal(unheard?.figures, undefined, "nothing heard is nothing measured");
+  assert.equal(livePhaseView(liveDevice("Studio+", { phase: "off_the_grid", phase_measured: -100, phase_applied: 0 }))?.text, "Refused: not a whole number of 32 sample steps from its reference");
+  assert.equal(livePhaseView(liveDevice("Studio+", { phase: "something_new" }))?.text, "something_new", "a word this page does not know is shown as it came");
+  assert.equal(livePhaseView(liveDevice("Quadro", { is_master: true, phase: "not_configured" })), undefined);
+  assert.equal(livePhaseView(liveDevice("Studio+")), undefined, "an older driver says nothing about it");
+  // The card's own line.
+  assert.equal(cardPhaseView(undefined, false).text, "No DAW has it open");
+  assert.equal(cardPhaseView(undefined, true).text, "The others are measured against it");
+  assert.equal(cardPhaseView(liveDevice("Studio+", { phase: "applied", phase_measured: -148, phase_applied: -64 }), false).text, "Lined up to its reference. Measured -148 samples, applied -64 samples");
+  assert.equal(cardPhaseView(liveDevice("Studio+"), false).text, "Not reported");
+});
+
+test("a run says whether it was clean, and how many blocks it lost when it was not", () => {
+  assert.equal(runCleanText(measured()), undefined, "an older server does not say");
+  assert.deepEqual(runCleanText(measured({ clean: true, blocks_lost: 0 })), { text: "Clean: no interface lost a block while it ran.", problem: false });
+  const lost = runCleanText(measured({ clean: false, blocks_lost: 4 }));
+  assert.equal(lost?.problem, true);
+  assert.match(String(lost?.text), /^Not clean: 4 blocks lost while it ran\./);
+  assert.match(String(runCleanText(measured({ clean: false, blocks_lost: 1 }))?.text), /1 block lost/);
+});
+
+test("a run's phases read as measured and not applied, on purpose, and a refused one reads as refused", () => {
+  const run = measured({
+    phases: [
+      { device: "Quadro", state: "not_configured", measured_samples: 0, applied_samples: 0, note: "" },
+      { device: "Studio+", state: "measured_only", measured_samples: -148, applied_samples: 0, note: "Studio+ was measured at -148 samples." },
+    ],
+  });
+  const views = runPhaseViews(run);
+  assert.match(views[1]?.text ?? "", /not applied, on purpose/);
+  assert.equal(views[1]?.figures, "Measured -148 samples, applied 0 samples");
+  assert.equal(views[1]?.note, "Studio+ was measured at -148 samples.");
+  assert.equal(views[0]?.note, undefined);
+  assert.equal(phaseRefusedText(run), undefined);
+  const refused = measured({ phases: [{ device: "Studio+", state: "not_heard", measured_samples: 0, applied_samples: 0, note: "Nothing arrived on its measurement channel." }] });
+  assert.equal(runPhaseViews(refused)[0]?.refused, true);
+  assert.match(String(phaseRefusedText(refused)), /not measured on Studio\+, so writing the trims takes that interface's old reference out/);
+  assert.match(String(phaseRefusedText({ ...refused, checking: true })), /this check ran on the drivers' own figures/);
+  // In a check, lined up is lined up.
+  assert.equal(runPhaseViews(measured({ checking: true, phases: [{ device: "Studio+", state: "applied", measured_samples: -148, applied_samples: -64 }] }))[0]?.text, "Lined up to its reference");
+});
+
+test("a check is a verdict per interface: how far apart a recording would land now", () => {
+  const check = measured({
+    checking: true,
+    trims: [],
+    readings: [heard({ device: "Quadro", is_reference: true, lag_samples: 0 }), heard({ lag_samples: 0.02 })],
+  });
+  assert.match(outcomeSummary(check), /^Checked what the interfaces record at 96 kHz, 512 samples, against Quadro/);
+  assert.match(outcomeSummary(check), /writes nothing/);
+  const verdicts = checkVerdicts(check);
+  assert.equal(verdicts.length, 1, "the reference has no verdict of its own");
+  assert.deepEqual(verdicts[0], { device: "Studio+", text: "Lined up: a recording would land 0.02 samples late against Quadro.", tone: "good" });
+  const out = checkVerdicts({ ...check, readings: [heard({ lag_samples: -32 })] })[0];
+  assert.equal(out?.tone, "off");
+  assert.match(String(out?.text), /^Out: a recording would land 32 samples early against Quadro\. Measure again, then check\./);
+  assert.equal(checkVerdicts({ ...check, readings: [heard({ lag_samples: 0 })] })[0]?.text, "Lined up: a recording would land in step with Quadro.");
+  assert.match(String(checkVerdicts({ ...check, readings: [heard({ clicks_found: 0 })] })[0]?.text), /Nothing was heard/);
+  assert.equal(checkVerdicts({ ...check, readings: [heard({ drift: { samples_per_second: 1, ppm: 10, real: true } })] })[0]?.tone, "drift");
+  assert.equal(checkVerdicts({ ...check, readings: [heard({ lag_samples: CHECK_TOLERANCE_SAMPLES })] })[0]?.tone, "off", "a whole sample out is out");
+  assert.deepEqual(checkVerdicts(measured()), [], "a measurement is not a verdict");
+});
+
+test("a reading says what its interface lost, and how steady it was against what is allowed", () => {
+  const lost = readingView(heard({ blocks_dropped: 3, blocks_starved: 1 }));
+  assert.equal(lost.lost, "Its audio dropped 3 blocks and missed 1 block while this ran, so the clicks were measured across a fault.");
+  assert.equal(readingView(heard({ blocks_dropped: 0, blocks_starved: 0 })).lost, undefined);
+  assert.equal(readingView(heard({ device: "Quadro", is_reference: true, lag_samples: 0, blocks_starved: 2 })).tone, "off", "a reference that lost blocks is not a good reading");
+  assert.equal(readingView(heard({ spread_limit_samples: 7 })).spread, "Clicks agreed to 0.3 samples, within the 7 allowed");
+  const wide = readingView(heard({ lag_samples: 0, spread_samples: 12.4, spread_limit_samples: 7 }));
+  assert.equal(wide.spread, "Clicks disagreed by 12.4 samples, past the 7 allowed");
+  assert.equal(wide.tone, "off");
+});
+
+test("a channel the run listened in on is named as the aggregate names it, and changes no trim", () => {
+  const it = twoInterfaces();
+  const inputs = aggregateChannels(it.config, it.answer, true);
+  const run = measured({ witnesses: [{ channel: 5, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }] });
+  const views = witnessViews(run, inputs);
+  assert.equal(views[0]?.channel, "Studio+ 2");
+  assert.equal(views[0]?.lag, "3.2 samples late");
+  assert.equal(views[0]?.clicks, "8 of 8 clicks found");
+  assert.deepEqual(witnessViews(measured(), inputs), []);
+  assert.deepEqual(trimsToApply(run), trimsToApply(measured()));
+});
+
+// ---------------------------------------------------------------------------------------------
+// The log, and the reason that points at the phase setup
+// ---------------------------------------------------------------------------------------------
+
+test("the log's lines are in words, and a Gazelle measurement's lines say they are Gazelle's", () => {
+  assert.deepEqual(eventView({ at: "2026-09-21 21:14:09", kind: "phase", message: "Studio+ was measured at -148 samples, and held back by 64 samples." }), {
+    at: "2026-09-21 21:14:09",
+    kind: "Phase measured",
+    message: "Studio+ was measured at -148 samples, and held back by 64 samples.",
+    gazelle: false,
+    problem: false,
+  });
+  assert.equal(eventView({ at: "x", kind: "glitched", message: "Studio+ dropped a block" }).kind, "Lost a block");
+  assert.equal(eventView({ at: "x", kind: "glitched", message: "Studio+ dropped a block" }).problem, true);
+  assert.equal(eventView({ at: "x", kind: "phase", message: "Studio+ was not lined up: nothing arrived." }).problem, true);
+  assert.equal(eventView({ at: "x", kind: "session-ended", message: "ran for 47 minutes" }).kind, "Session ended");
+  assert.equal(eventView({ at: "x", kind: "brand-new", message: "" }).kind, "brand-new");
+  const ours = eventView({ at: "x", kind: "phase", message: `${GAZELLE_MEASUREMENT} Studio+ was measured at -148 samples.` });
+  assert.equal(ours.gazelle, true);
+  assert.equal(ours.message, "Studio+ was measured at -148 samples.");
+});
+
+test("a phase not measured says where on the page to set it up", () => {
+  const it = twoInterfaces();
+  const reason = { code: "phase_not_measured" as const, severity: "warning" as const, message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_id: "loopback-1" };
+  assert.match(String(reasonHint(reason)), /Phase on Studio\+'s card/);
+  assert.match(String(reasonHint(reason)), /A trim does not answer this/);
+  assert.equal(reasonCard(reason, it.config), 1);
+  assert.equal(reasonCard({ ...reason, device: "Gone" }, it.config), undefined);
+  assert.equal(reasonHint({ code: "no_cable", severity: "blocking", message: "" }), undefined);
+  assert.equal(reasonCard({ code: "no_cable", severity: "blocking", message: "", device: "Studio+" }, it.config), undefined);
+});
+
+test("nothing the phase writes carries an en or em dash", () => {
+  const texts = [
+    referenceText({ was: null, now: -84 }),
+    referenceText({ was: -84, now: null }),
+    phaseSetupView({}, false, "Quadro").note,
+    phaseSetupView(phased, false, "Quadro").note,
+    phaseSetupView(phased, true, "Quadro").note,
+    phaseRoutingNote("Quadro", "Studio+", undefined),
+    livePhaseView(liveDevice("Studio+", { phase: "too_far", phase_measured: 600, phase_applied: 0 }))?.text,
+    runCleanText(measured({ clean: false, blocks_lost: 2 }))?.text,
+    phaseRefusedText(measured({ phases: [{ device: "Studio+", state: "not_heard", measured_samples: 0, applied_samples: 0 }] })),
+    checkVerdicts(measured({ checking: true, readings: [heard({ lag_samples: 40 })] }))[0]?.text,
+    outcomeSummary(measured({ checking: true })),
+    readingView(heard({ blocks_dropped: 1 })).lost,
+    reasonHint({ code: "phase_not_measured", severity: "warning", message: "", device: "Studio+" }),
+  ];
+  for (const text of texts) assert.doesNotMatch(String(text), DASHES, String(text));
+});
+
+// ---------------------------------------------------------------------------------------------
 // What a press came to
 // ---------------------------------------------------------------------------------------------
 
@@ -972,4 +1308,15 @@ test("the setup is edited in the workspace, which is what exports the driver's f
   assert.deepEqual(it.store.workspace.value?.aggregate?.devices, [{ key: "Zen Quadro", name: "Quadro" }]);
   // The rest of the workspace is untouched by an aggregate edit.
   assert.deepEqual(it.store.workspace.value?.groups, []);
+});
+
+test("a check started through the store is sent as a check", async () => {
+  const it = store();
+  it.client.aggregateAnswer = answer();
+  it.client.calibration = { state: "idle" };
+  await it.store.start();
+  await flush();
+  await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [0, 1], inputs: [0, 16], clicks: 8, level_dbfs: -20, check: true });
+  await flush();
+  assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0/1:0/16:check"), true);
 });

@@ -55,6 +55,13 @@ version that has not been published yet.
 - A manual chapter for it: **The Aggregate page**, covering what an aggregate needs before it can
   work at all, how to set it up, what each reason means, what the gap is, and what to do when
   something is wrong.
+- **Every session now lines up, not just the one the trims were measured in.** The interfaces
+  used to land a different distance apart each time the driver was opened, so no trim could hold.
+  Each follower's card has a Phase setup where you pick the channel the digital cable leaves the
+  callback master on and the one it arrives on; one measurement then records a reference beside
+  the trim, and every later session is put back in step. **Check**, beside Measure, plays the
+  clicks with everything lined up and tells you how far apart a recording would land now. The page
+  shows each session's phase live, and the log records what it measured.
 - **The aggregate writes down what a session lost.** Blocks that go missing are what you hear as a
   click, and until now the count died with the session. The driver's log now says, when a session
   ends, how long it ran and what each interface lost, and says so the first time anything goes

@@ -107,6 +107,8 @@ export interface AggregateDeviceReport {
   controller_error?: string;
   /** Whether it is the device that drives the callback. */
   is_master: boolean;
+  /** Whether the setup says where to measure this interface's capture phase. Older servers leave it out. */
+  phase_configured?: boolean;
 }
 
 /** Where the driver's DLL is, or every place that was looked in. */
@@ -142,7 +144,8 @@ export type AggregateReasonCode =
   | "buffers_differ"
   | "no_cable"
   | "clock_not_cabled"
-  | "not_locked";
+  | "not_locked"
+  | "phase_not_measured";
 
 /** A request the page can make to put one reason right, already addressed and filled in. */
 export interface AggregateFix {
@@ -178,6 +181,25 @@ export interface AggregatePlan {
   output_latency: number;
 }
 
+/**
+ * What a session made of where one interface's capture actually started.
+ *
+ * `not_configured`: nothing is set up to measure it. `measuring`: the measurement is in flight.
+ * `applied`: lined up to the phase its trim was measured at. `no_reference`: measured, with no such
+ * phase to line it up to yet. `measured_only`: a calibration run, which measures and moves nothing.
+ * `not_heard`, `off_the_grid` and `too_far`: a measurement the driver would not use, so the session
+ * ran on the figures the drivers reported.
+ */
+export type AggregatePhaseState =
+  | "not_configured"
+  | "measuring"
+  | "applied"
+  | "not_heard"
+  | "off_the_grid"
+  | "too_far"
+  | "no_reference"
+  | "measured_only";
+
 /** One sub-device, as the driver reports it now. */
 export interface AggregateDeviceStatus {
   name: string;
@@ -196,6 +218,16 @@ export interface AggregateDeviceStatus {
   dropped: number;
   /** Blocks that were not there when they were wanted, which a person hears as a click. */
   starved: number;
+  /**
+   * What this session made of the interface's capture phase. Not the trim: the trim is a constant,
+   * and this is measured again at the start of every session. Older drivers leave it out, and a
+   * word this page does not know is shown as it came.
+   */
+  phase?: AggregatePhaseState | (string & {});
+  /** What the phase measurement came to, in samples. Only worth reading once `phase` says something was measured. */
+  phase_measured?: number;
+  /** What was added to its input path because of it, in samples. Zero unless `phase` is `applied`. */
+  phase_applied?: number;
 }
 
 /** The driver's live record. */
@@ -227,7 +259,11 @@ export type AggregateStatusReading =
 export interface AggregateEvent {
   /** `YYYY-MM-DD HH:MM:SS`, local time, as the driver wrote it. */
   at: string;
-  /** One word: `refused`, `stalled`, `recovered`, `session-started`, `session-ended`, and so on. */
+  /**
+   * One word: `refused`, `stalled`, `recovered`, `glitched`, `phase`, `session-started`,
+   * `session-ended`, `adopted` or `reset-asked`. A line written by one of Gazelle's own measurements
+   * starts its message with `Gazelle's own measurement:`.
+   */
   kind: string;
   message: string;
 }
@@ -285,12 +321,57 @@ export interface AggregateCalibrateReading {
   lag_samples: number;
   /** How far the clicks disagreed with each other, in samples. Small is a measurement to trust. */
   spread_samples: number;
+  /** The widest they could have disagreed and still be one measurement. Past it, the reading was thrown out. */
+  spread_limit_samples?: number;
   clicks_found: number;
   /** How many were played, when the server says. */
   clicks_expected?: number;
+  /** Blocks this interface's audio lost while the run was going: thrown away, and not there in time. */
+  blocks_dropped?: number;
+  blocks_starved?: number;
   /** The server's own sentence for this interface, whether it went well or not. */
   note?: string;
   drift?: AggregateDrift;
+}
+
+/**
+ * An extra input channel a run listened in on. It is an observation, never an interface's
+ * measurement, and it changes no trim. `channel` is the aggregate's own input numbering from zero.
+ */
+export interface AggregateCalibrateWitness {
+  channel: number;
+  /** The interface that channel belongs to. */
+  device: string;
+  lag_samples: number;
+  spread_samples: number;
+  spread_limit_samples?: number;
+  clicks_found: number;
+  clicks_expected?: number;
+  blocks_dropped?: number;
+  blocks_starved?: number;
+  note?: string;
+  drift?: AggregateDrift;
+}
+
+/**
+ * What the driver made of one interface's capture phase at the start of a run. A measurement run
+ * measures it and moves nothing (`measured_only`), on purpose: it is where the reference comes from.
+ */
+export interface AggregateCalibratePhase {
+  device: string;
+  state: AggregatePhaseState | (string & {});
+  measured_samples: number;
+  applied_samples: number;
+  note?: string;
+}
+
+/**
+ * The phase a trim was measured at, written with the trim into that interface's `phase.reference`.
+ * `now` null means nothing was heard on the cable, so writing the trim takes the old reference out.
+ */
+export interface AggregateTrimReference {
+  was: number | null;
+  now: number | null;
 }
 
 /** One trim the measurement implies: what it is now, what was measured, and what it would become. */
@@ -305,6 +386,11 @@ export interface AggregateCalibrateTrim {
   is_reference?: boolean;
   /** Why this one is not offered, when it is not. */
   not_applied?: string;
+  /**
+   * The phase reference written beside this trim. Present only on an input trim for an interface
+   * whose phase the driver measures; never on the reference interface or on an output trim.
+   */
+  phase_reference?: AggregateTrimReference;
 }
 
 /** What a finished run came to. */
@@ -316,8 +402,18 @@ export interface AggregateCalibrateOutcome {
   /** The interface everything was measured against, by the name the setup gives it. */
   reference: string;
   readings: AggregateCalibrateReading[];
+  /** Extra channels the run listened in on. Older servers leave it out. */
+  witnesses?: AggregateCalibrateWitness[];
   trims: AggregateCalibrateTrim[];
+  /** One per interface: what the driver's phase measurement came to at the start of the run. */
+  phases?: AggregateCalibratePhase[];
+  /** True when no interface lost a block while the run was going. Older servers leave it out. */
+  clean?: boolean;
+  /** How many blocks the run lost altogether, across every interface. */
+  blocks_lost?: number;
   warnings: string[];
+  /** True for a check: lined up as a DAW's session is, so its lags are what a recording would get, and it offers no trims. */
+  checking?: boolean;
 }
 
 /**
@@ -346,6 +442,11 @@ export interface AggregateCalibrateRequest {
   clicks: number;
   /** How loud the click is, in dBFS. Modest: it comes out of a real output. */
   level_dbfs: number;
+  /**
+   * A check rather than a measurement: the session is lined up as a DAW's would be, and what it
+   * hears says whether the trims hold. Left out means a measurement, which is what offers trims.
+   */
+  check?: boolean;
 }
 
 /** What starting a run answers. A run it will not start is a refusal rather than this. */

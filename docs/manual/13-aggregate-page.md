@@ -38,6 +38,7 @@ Each reason is marked **STOPS IT** or **WORTH KNOWING**. Only a reason that stop
 | No cable declared | Nothing says the interfaces share a clock. Declare it on the Workspace page |
 | Clocked from the wrong place | An interface is not clocked from the input its cable arrives on. **This is the trap**: an interface left on Internal quietly becomes USB clocked the moment a DAW opens it, and then it drifts |
 | Not locked | An interface says it is not locked to its clock. The cable, or the wrong input |
+| Phase not measured | An interface has a cable from the callback master and no phase setup, so every session lines it up by its driver's figures and it lands a different distance away each time. **Set up the phase** opens its card's [phase setup](#the-phase). A warning |
 
 Where Gazelle can put a reason right, there is a button beside it that does exactly that and nothing else: put an interface at the right rate, put it on the right clock input, match the buffer sizes, or register the driver. After it has run, the whole answer is read again, so what you then see is what the server makes of it.
 
@@ -67,6 +68,8 @@ One card per interface, in the order their channels appear to a DAW. The order i
 | **Buffer** and **Safe Mode** | Antelope's driver settings for this interface, the same ones the [Devices page](06-devices-page.md) shows. Each takes a confirming click, and changing either restarts the audio of every program using that driver |
 | **Input trim** and **Output trim** | Samples to add to what its driver claims its latency is. See [Trims](#trims) |
 | **Gap** | How far it is from the interface driving the callback, while a DAW is playing. See [The gap](#the-gap) |
+| **Phase now** | What this session's phase measurement came to, while a DAW has the aggregate open. See [The phase](#the-phase) |
+| **Phase setup** | Where the driver measures this interface's phase, on every card but the callback master's. See [The phase](#the-phase) |
 
 **Up** and **Down** move an interface along the list; **Remove** takes it out and asks twice. Choose one from the menu at the bottom and press **Add** to put a new one at the end. **Match buffer sizes** puts every interface on the buffer size the callback master is on.
 
@@ -99,21 +102,73 @@ An interface's driver reports how many samples of latency it has, and that figur
 
 You can type a trim in, but the difference is usually tens of samples, which is well under a millisecond and smaller than you can judge from two waveforms. **Line the interfaces up** measures it instead.
 
+## The phase
+
+**Two interfaces do not start in the same place, and where they start changes every time.** Within one session they record a fixed distance apart; the next time a DAW opens the aggregate that distance has moved, by a whole number of 32 sample steps. A trim is a constant, so on its own it can only ever be right for the session it was measured in.
+
+So the driver measures each interface's **phase** at the start of every session, down the digital cable that already carries the clock between the interfaces, and puts the session back where it was when the trim was measured. Then the trim applies, as it always has. Nothing new has to be plugged in.
+
+### Three numbers
+
+They are different things, and all three apply. Mixing them up is how somebody corrects the same thing twice.
+
+| | What it is | Where you see it |
+|---|---|---|
+| **Trim** | A constant, in samples, measured once with a cable and a click | **Input trim** on the card |
+| **Reference** | The phase that was measured in the session the trim was measured in. Written together with the trim, never on its own, and never typed in | **Phase setup** on the card, and beside each trim a measurement offers |
+| **Phase** | Where this session happened to start. Measured again every session | **Phase now** on the card, and the rows under **While a DAW has it open** |
+
+Every session is lined up by **the reference minus its phase**, and then the trim applies.
+
+### Setting it up
+
+Open **Phase setup** on each follower's card (not the callback master's: the others are measured against it) and choose two channels:
+
+- **Leaves the callback master on**: one of the callback master's own playback channels, the one that goes out on the digital cable.
+- **Arrives on**: one of this interface's own record channels, the one the cable comes in on.
+
+Both are counted from one, the way the rest of Gazelle counts. Nothing is saved until both are chosen, because half a path is no use to the driver. The driver keeps those two channels for itself, so a DAW no longer lists them. **Clear** takes the setup out again, reference and all, and asks twice.
+
+Once it is set up, the card says **Set up, no reference yet**. One measurement under **Line the interfaces up** gives it its reference, written together with its input trim, and every session after that is lined up. Choosing a different pair of channels takes the old reference out, because it was measured on the old path: measure once more afterwards.
+
+### The routing it needs
+
+This is the step that is easy to miss. The measurement travels on the digital cable, so **each interface's own routing has to carry it**:
+
+- On the **callback master**, the playback channel chosen under **Leaves the callback master on** has to be routed to the socket the cable leaves from, its S/PDIF out.
+- On the **follower**, the socket the cable arrives at, its S/PDIF in, has to be routed to the record channel chosen under **Arrives on**.
+
+A fresh setup has neither, and a path that is not routed reads as **nothing heard**, not as a missing route. Set both on the [Routing page](10-routing-page.md) before measuring.
+
+### What each session made of it
+
+While a DAW has the aggregate open, **Phase now** on each follower's card, and the row under **While a DAW has it open**, say what this session's measurement came to, with what was measured and what was applied, in samples:
+
+- **Lined up to its reference** is what you want.
+- **Measured, not lined up: no reference yet** means the setup is there and one measurement is all it needs.
+- **Refused** means the driver would not use what it heard: nothing came back on the cable, the change from the reference was not a whole number of 32 sample steps, or it was further than the driver can move it. The session then runs on the figures the drivers report, exactly as it would with no phase setup, and the log says why.
+
 ## Lining the interfaces up
 
 This plays a click out of one interface and records it on every interface at once, then reads how far apart the copies landed. It is measured through the aggregate itself, so everything the aggregate already does to line the interfaces up has happened before anything is measured, and what is left over is exactly what a trim cancels.
 
-**Before you press it.** It makes a noise: a click at a modest level, out of a real output, into whatever is plugged in. Turn amplifiers down the first time. It also takes both audio drivers for itself while it runs, so close your DAW first. Measure takes a confirming click, the way matching buffer sizes does.
+**Measure or Check.** **Measure** finds the trims, and the phase reference written with each, with nothing lined up, so what it hears is the raw difference. **Check** plays the same clicks through the same cables with the session lined up exactly as a DAW's is, and says how far apart a recording would land now; it writes nothing. Measure once, then check whenever you want to know the trims still hold.
+
+**Before you press it.** It makes a noise: a click at a modest level, out of a real output, into whatever is plugged in. Turn amplifiers down the first time. It also takes both audio drivers for itself while it runs, so close your DAW first. Measure and Check each take a confirming click, the way matching buffer sizes does.
 
 **The cabling.** The page writes out exactly what to patch for the channels you have picked, and it is worth reading rather than guessing, because the whole measurement rests on it. For the input pass, one interface plays and every interface records: one output of that interface into its own input, and the next output of **the same** interface into the other interface's input. Both copies leave on the same sample, so any difference in where they land is the difference between the interfaces and nothing else. For the output pass it is the other way round: one output on each interface, all of them into inputs of one interface.
 
-**What comes back.** Per interface: how far behind the reference it landed, in samples; the spread, which is how much the clicks disagreed with each other, and under a sample means a measurement to trust; and how many of the clicks were found at all. Then the trims it implies, showing what the setup says now, what was measured, and what it would become. **Use these trims** writes them into the setup.
+**What comes back.** Per interface: how far behind the reference it landed, in samples; the spread, which is how much the clicks disagreed with each other, and under a sample means a measurement to trust; and how many of the clicks were found at all. Then the trims it implies, showing what the setup says now, what was measured, and what it would become, and beside an input trim the phase reference that goes with it. **Write these trims into the setup** writes each trim and its reference together. If nothing was heard on the cable, writing the trim takes the old reference out rather than leaving it beside a trim it was not measured with. An interface whose trim came out the same but whose reference is new, which is what a first measurement usually looks like, is still written.
+
+Under **The phase**, each interface's phase at the start of the run: in a measurement it is measured and not applied, on purpose, because that is the reference. A phase the driver refused is said before the trims. Extra channels the run listened in on, if any, are listed under **Listened in on**; they change no trim.
+
+**What a check says.** A verdict per interface rather than an offer: **Lined up** when a recording would land within a sample of the reference, **Out** when it would not, which means measure again and then check. At the hardware a good check reads a few hundredths of a sample.
 
 **A drift finding is the serious one.** If the lag grows steadily through the run, the interfaces are not holding a single clock, and no trim fixes that. Check the digital cable and each interface's clock source, and remember that an interface left on Internal quietly becomes USB clocked the moment a DAW opens it.
 
-**The click has to be able to get there.** It leaves on one of the aggregate's playback channels and comes back on one of its record channels, so the interface's own routing has to carry it: from that playback channel to the socket the cable leaves, and from the socket it arrives at to the record channel. That is the same routing the [Routing page](10-routing-page.md) shows, and on a fresh interface it is often not set up, which reads as "nothing arrived" rather than as a bad cable. Check the path before blaming the lead.
+**The click has to be able to get there.** It leaves on one of the aggregate's playback channels and comes back on one of its record channels, so the interface's own routing has to carry it: from that playback channel to the socket the cable leaves, and from the socket it arrives at to the record channel. That is the same routing the [Routing page](10-routing-page.md) shows, and on a fresh interface it is often not set up, which reads as "nothing arrived" rather than as a bad cable. The phase measurement needs the same of its own path (see [The routing it needs](#the-routing-it-needs)). Check the path before blaming the lead.
 
-**Was the audio clean?** A run says so. Blocks that go missing during a measurement move the very thing being measured, so a run that lost any is reported as such and offers no trim. Run it again rather than believing it. The same goes for clicks that disagree with each other: the page shows the spread, and a spread near the buffer size means the eight clicks were not measuring one thing.
+**Was the audio clean?** A run says so, with how many blocks were lost and which interface lost them. Blocks that go missing during a measurement move the very thing being measured, so a run that lost any is reported as not clean. Run it again rather than believing it. The same goes for clicks that disagree with each other: the page shows the spread, and a spread near the buffer size means the eight clicks were not measuring one thing.
 
 If nothing arrives on an input, that is a cable, not a measurement, and the page says which one.
 
@@ -123,7 +178,7 @@ The driver publishes what it is doing only while a DAW has it open, so this sect
 
 It shows the **plan in force**: the master, the rate, the buffer size, how many channels the DAW actually asked for, the alignment, and the latency each way. If the driver is still running an older setup than the one Gazelle last asked for, it says so, and it catches up at the next buffer change. **Last refused** is the last thing the driver would not do, in the same words the DAW was given, and it is usually the line that explains a session that would not start.
 
-Then a row per interface.
+Then a row per interface, with its phase underneath (see [The phase](#the-phase)).
 
 ### The gap
 
@@ -137,7 +192,7 @@ Beside the gap: **blocks** handled, **dropped** (thrown away because that interf
 
 ## What happened
 
-The driver's own log, kept on disk, written only when something actually happens: sessions starting and ending, an interface stalling and recovering, a setup adopted, anything refused. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](18-command-line-and-api.md) says where Gazelle keeps its files.
+The driver's own log, kept on disk, written only when something actually happens: **Session started** and **Session ended** (which says what the session lost), **Phase measured** (what that session's phase came to, or why it was not lined up), **Lost a block** (the first block a session lost), an interface stalling and recovering, a setup adopted, anything refused. Lines written during one of Gazelle's own measurements or checks are marked **GAZELLE**, so they are not mistaken for something that happened to a recording. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](18-command-line-and-api.md) says where Gazelle keeps its files.
 
 ## When something is wrong
 
@@ -150,5 +205,7 @@ The driver's own log, kept on disk, written only when something actually happens
 | Clicks, and starved climbing | The buffer is too small for the machine, or one interface is stalling. Raise the buffer on both |
 | One interface goes quiet mid session | It stalled. The log says when, and whether it recovered |
 | Nothing at all in the live section | No DAW has it open. That is the normal state |
+| Phase: nothing heard on the cable | The routing does not carry the measurement. See [The routing it needs](#the-routing-it-needs) |
+| Takes line up differently from one session to the next | The follower has no phase setup, or no reference yet. Set it up and measure once |
 
 This page tells you about the aggregate; [Troubleshooting](17-troubleshooting.md) covers Gazelle not finding the interfaces in the first place.

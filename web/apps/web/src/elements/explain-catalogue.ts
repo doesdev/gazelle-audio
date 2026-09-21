@@ -841,6 +841,11 @@ export const CATALOGUE: Catalogue = {
     effect: "Afterwards the whole answer is read again, so what you see is what the server makes of it, not what the button hoped for.",
     watch: "Matching buffer sizes restarts the audio of every program using those drivers, so it asks for a second click first.",
   },
+  "aggregate.reason-goto-phase": {
+    title: "Set up the phase",
+    what: "Opens the phase setup on the card of the interface this reason is about, where you say which channel the digital cable leaves the callback master on and which it arrives on.",
+    effect: "It only opens the card. Nothing is written until both channels are chosen there.",
+  },
   "aggregate.outcome": { title: "What that came to", what: "What the last button pressed here actually did, in the server's own words." },
   "aggregate.registration": {
     title: "Registration",
@@ -934,6 +939,38 @@ export const CATALOGUE: Catalogue = {
     title: "Input trim",
     what: "Samples added to what this interface's driver says its input latency is. An interface that records late takes a positive trim.",
     effect: "Saved in the workspace and written out for the driver. It moves this interface's recordings against the others, and nothing else.",
+    watch: "The trim is a constant. It is not the phase, which moves every session and is measured by the driver, and it is not the phase reference, which is written beside it by a measurement.",
+  },
+  "aggregate.device-phase": {
+    title: "Phase now",
+    what: "What this session's phase measurement came to, while a DAW has the driver open: whether the interface was lined up to its reference, or why not, with what was measured and what was applied, in samples.",
+    effect: "Nothing to press. It is measured again at the start of every session.",
+    watch: "This is not a trim. A refused measurement means the session ran on the figures the drivers report.",
+  },
+  "aggregate.device-phase-open": {
+    title: "Phase setup",
+    what: "Where the driver measures this interface's phase: the digital cable from the callback master, named by the channel it leaves on and the channel it arrives on. Two interfaces start a different whole number of 32 sample steps apart every session, and this is what lets the driver put each session back where the trim was measured.",
+  },
+  "aggregate.device-phase-summary": {
+    title: "Phase setup",
+    what: "Whether this interface's phase is set up to be measured, and whether it has a reference to be lined up to yet. A reference comes from one measurement under Line the interfaces up.",
+  },
+  "aggregate.device-phase-leaves": {
+    title: "Leaves the callback master on",
+    what: "The callback master's own output channel the measurement goes out on, which is the one routed to the socket the digital cable leaves from. Numbered from one, as the interface numbers it.",
+    effect: "Saved in the workspace once both channels are chosen. Choosing a different path takes the old reference out, so measure once afterwards. The wheel does not step this menu.",
+    watch: "The driver keeps this channel for itself: a DAW no longer sees it.",
+  },
+  "aggregate.device-phase-arrives": {
+    title: "Arrives on",
+    what: "This interface's own input channel the measurement comes back on, which is the one the socket the digital cable arrives at is routed to. Numbered from one, as the interface numbers it.",
+    effect: "Saved in the workspace once both channels are chosen. Choosing a different path takes the old reference out, so measure once afterwards. The wheel does not step this menu.",
+    watch: "The driver keeps this channel for itself: a DAW no longer sees it.",
+  },
+  "aggregate.device-phase-clear": {
+    title: "Clear",
+    what: "Takes this interface's phase setup out, reference and all, so its sessions line up by the figures its driver reports again. Click twice.",
+    effect: "Saved in the workspace and written out for the driver. A reference cleared comes back only from another measurement.",
   },
   "aggregate.device-out-trim": { title: "Output trim", what: "Samples added to what this interface's driver says its output latency is, for lining its playback up with the others." },
   "aggregate.device-up": { title: "Move earlier", what: "Moves this interface one place up the list. The order is the order its channels appear to a DAW." },
@@ -1004,6 +1041,12 @@ export const CATALOGUE: Catalogue = {
     effect: "A click comes out of a real output, and the audio drivers are taken for this measurement while it runs, so a DAW holding them will stop it.",
     watch: "Turn monitors down first. It is quiet, but it is a real signal out of a real output.",
   },
+  "aggregate.calibrate-check": {
+    title: "Check",
+    what: "Plays the same clicks through the same cables, with the session lined up exactly as a DAW's is, and says how far apart a recording would land now. Click twice.",
+    effect: "It writes nothing and offers no trims. Like Measure, a click comes out of a real output and the audio drivers are taken while it runs.",
+    watch: "Use it after measuring, and whenever you want to know the trims still hold: every session starts somewhere different, and a check shows the driver putting it back.",
+  },
   "aggregate.calibrate-stop": { title: "Stop", what: "Stops the measurement that is running and gives the audio drivers back. Nothing is written.", effect: "Nothing measured so far is kept." },
   "aggregate.calibrate-step": { title: "What it is doing", what: "The step the measurement is on, and how far through it is. It is over in a few seconds." },
   "aggregate.calibrate-lag": {
@@ -1022,6 +1065,35 @@ export const CATALOGUE: Catalogue = {
     effect: "No trim can put this right: a number that is right now will be wrong in a minute.",
     watch: "Put every interface on the clock that comes down the digital cable between them, then measure again.",
   },
+  "aggregate.calibrate-clean": {
+    title: "Clean",
+    what: "Whether any interface lost a block of audio while the run was going. A lost block moves the very thing being measured, so a run that was not clean is one to run again rather than believe.",
+  },
+  "aggregate.calibrate-lost": {
+    title: "Blocks lost",
+    what: "How many blocks this interface's audio dropped or missed while the run was going. Anything but none means the clicks were measured across a fault.",
+  },
+  "aggregate.calibrate-verdict": {
+    title: "Verdict",
+    what: "What a check found for this interface: how far from the reference a recording would land now, with the session lined up as a DAW's is. Within a sample reads as lined up.",
+    watch: "Out by more than that means the trims no longer hold: measure again, then check.",
+  },
+  "aggregate.calibrate-phase": {
+    title: "The phase in this run",
+    what: "What the driver's phase measurement made of this interface at the start of the run. A measurement measures it and applies nothing, on purpose, because it is the reference written with the trim; a check lines it up as a DAW's session would be.",
+    watch: "Refused means nothing usable came back on the cable. Check the cable and the routing that carries it.",
+  },
+  "aggregate.calibrate-phase-figures": { title: "Measured and applied", what: "What the phase measurement came to, and what was added to this interface's input path because of it, in samples. A measurement applies nothing." },
+  "aggregate.calibrate-phase-note": { title: "What the driver said", what: "The driver's own sentence about this interface's phase, in the words its log keeps." },
+  "aggregate.calibrate-witness": {
+    title: "Listened in on",
+    what: "An extra input channel the run recorded beside the measurement, and how far from the reference the click landed on it. It is an observation and changes no trim.",
+  },
+  "aggregate.calibrate-phase-reference": {
+    title: "Phase reference",
+    what: "The phase measured in this run beside this trim, which is written together with it: every session is lined up by the reference minus its own phase before the trim applies. Not a trim, and not something to type.",
+    effect: "Writing the trims writes it too, and takes the old one out when nothing was heard on the cable, so a new trim is never left beside a reference from another session.",
+  },
   "aggregate.calibrate-note": { title: "What it made of this interface", what: "The measurement's own sentence about this interface, whether it went well or not." },
   "aggregate.calibrate-not-applied": {
     title: "Not offered",
@@ -1032,7 +1104,7 @@ export const CATALOGUE: Catalogue = {
   "aggregate.calibrate-trim-now": { title: "Would be", what: "What the trim becomes if these are written into the setup." },
   "aggregate.calibrate-apply": {
     title: "Write these trims into the setup",
-    what: "Puts the measured trims into the interfaces' own trim fields, as if they had been typed there.",
+    what: "Puts the measured trims into the interfaces' own trim fields, as if they had been typed there, each with the phase reference measured beside it.",
     effect: "Saved in the workspace and written out for the driver. Nothing is sent to a device, and the fields can still be changed by hand afterwards.",
   },
   "aggregate.live": { title: "While a DAW has it open", what: "What the driver itself is reporting: the plan it is running and how each interface is keeping up. It publishes only while a DAW holds it open, so silence here is the ordinary state." },
@@ -1053,13 +1125,26 @@ export const CATALOGUE: Catalogue = {
     what: "This interface's sample count minus the master's, while both are streaming. In step is zero and is the reading you want.",
     watch: "A gap that keeps growing in one direction is two clocks rather than one: check the cable and every interface's clock source.",
   },
+  "aggregate.live-phase": {
+    title: "Phase",
+    what: "What this session's phase measurement came to for this interface: lined up to its reference, measured with no reference yet, or refused, with what was measured and what was applied, in samples.",
+    watch: "Measured with no reference yet means one measurement under Line the interfaces up is all it needs.",
+  },
   "aggregate.live-callbacks": { title: "Blocks", what: "How many blocks of audio this interface has handled since the session started." },
   "aggregate.live-dropped": { title: "Dropped", what: "Blocks thrown away because this interface's buffer was full, which is an interface running ahead of the others." },
   "aggregate.live-starved": { title: "Starved", what: "Blocks that were not there when they were wanted, which is what a person hears as a click." },
   "aggregate.events": {
     title: "What happened",
-    what: "The driver's own log of things that happened: sessions starting and ending, an interface stalling and recovering, a setup adopted, and anything refused.",
+    what: "The driver's own log of things that happened: sessions starting and ending with what they lost, an interface stalling and recovering or losing a block, each session's phase, a setup adopted, and anything refused.",
     effect: "It is kept on disk and only written when something happens, so a session that would not start last night still says why today.",
+  },
+  "aggregate.event-kind": {
+    title: "What kind of line",
+    what: "Session started and Session ended open and close a session, and the end says what it lost. Phase measured is what that session's phase measurement came to. Lost a block is the first block a session lost. Stalled, Recovered, Refused, Setup taken up and Reset asked for are what they say.",
+  },
+  "aggregate.event-gazelle": {
+    title: "Gazelle",
+    what: "Written during one of Gazelle's own measurements or checks rather than a DAW's session, so it is not something that happened to a recording.",
   },
 
   // Notices.

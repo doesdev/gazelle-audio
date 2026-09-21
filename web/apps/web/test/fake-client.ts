@@ -228,7 +228,7 @@ export class FakeClient implements Client {
       return this.calibration;
     },
     calibrate: async (request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted> => {
-      this.aggregateCalls.push(`calibrate:${request.direction}:${request.outputs.join("/")}:${request.inputs.join("/")}`);
+      this.aggregateCalls.push(`calibrate:${request.direction}:${request.outputs.join("/")}:${request.inputs.join("/")}${request.check === true ? ":check" : ""}`);
       this.calibration = { state: "running", step: "Playing the clicks", progress: 0 };
       return { started: true };
     },

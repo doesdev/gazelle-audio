@@ -688,7 +688,7 @@ test("a stalled device is said as a stall, whatever its counters say", async ({ 
   await expect(page.getByTestId("live-gap-Studio+")).toHaveText("Stalled");
   await expect(page.getByTestId("live-gap-Studio+")).toHaveAttribute("data-tone", "stalled");
   await expect(page.getByTestId("aggregate-event")).toHaveCount(2);
-  await expect(page.getByTestId("aggregate-event").last()).toContainText("stalled");
+  await expect(page.getByTestId("aggregate-event").last()).toContainText("Stalled");
   await expect(page.getByTestId("aggregate-events-note")).toContainText("still says why today");
 });
 
@@ -934,6 +934,259 @@ test("a server too old to measure says so rather than failing", async ({ page })
 });
 
 // ---------------------------------------------------------------------------------------------
+// The phase: its setup on each follower's card, the check, and what a run carries
+// ---------------------------------------------------------------------------------------------
+
+/** Both interfaces, with the Studio+'s phase path set and whatever else a test gives it. */
+const phaseConfigured = (studio: Record<string, unknown> = {}) =>
+  putWorkspace(server, {
+    aggregate: {
+      devices: [
+        { key: "Quadro", name: "Quadro", device_id: "loopback-0" },
+        { key: "Studio+", name: "Studio+", device_id: "loopback-1", phase: { master_output: 3, input: 1 }, ...studio },
+      ],
+      callback_master: "Quadro",
+    },
+  });
+
+/** The Studio+ as the server has it now. */
+const studio = async (): Promise<Record<string, unknown>> => (((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[1] ?? {}) as Record<string, unknown>;
+
+test("a follower's phase is set up by two pickers, written only once both are chosen, and cleared", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+
+  // Not offered on the callback master's card: the others are measured against it.
+  await expect(page.getByTestId("device-0-phase-part")).toBeHidden();
+  await expect(page.getByTestId("device-0-phase")).toHaveText("The others are measured against it");
+
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Not set up");
+  await page.getByTestId("device-1-phase-open").click();
+  // The master's own outputs and this interface's own inputs, counted from one like the rest of the page.
+  await expect(page.getByTestId("device-1-phase-leaves").locator("option")).toHaveText(["Choose a channel", "Quadro 1 (Main L)", "Quadro 2 (Main R)", "Quadro 3 (Cue L)", "Quadro 4 (Cue R)"]);
+  await expect(page.getByTestId("device-1-phase-arrives").locator("option")).toHaveText(["Choose a channel", "Studio+ 1 (Line 1)", "Studio+ 2 (Line 2)"]);
+  // The routing it needs, naming both ends.
+  await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Quadro, route the playback channel chosen under Leaves the callback master on to its S/PDIF output");
+  await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Studio+, route its S/PDIF input");
+
+  // One picker alone writes nothing, because the driver refuses half a path, and a poll leaves it be.
+  await page.getByTestId("device-1-phase-leaves").selectOption({ label: "Quadro 4 (Cue R)" });
+  const before = captured.reads;
+  await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before);
+  await expect(page.getByTestId("device-1-phase-leaves")).toHaveValue("3");
+  expect(await studio(), "half a path is not written").not.toHaveProperty("phase");
+
+  // The second writes both, in the devices' own numbering from zero.
+  await page.getByTestId("device-1-phase-arrives").selectOption({ label: "Studio+ 2 (Line 2)" });
+  await expect.poll(async () => (await studio())["phase"]).toEqual({ master_output: 3, input: 1 });
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, no reference yet");
+  await expect(page.getByTestId("device-1-phase-note")).toContainText("One measurement under Line the interfaces up gives it one");
+  // The card was rebuilt by that edit, and the part is still open.
+  await expect(page.getByTestId("device-1-phase-part")).toHaveAttribute("open", "");
+
+  // Clearing asks twice, and takes the whole setting out.
+  await page.getByTestId("device-1-phase-clear").click();
+  await expect(page.getByTestId("device-1-phase-clear")).toHaveText("Confirm");
+  await page.getByTestId("device-1-phase-clear").click();
+  await expect.poll(async () => Object.hasOwn(await studio(), "phase")).toBe(false);
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Not set up");
+});
+
+test("the phase not measured reason says where to set it up, and its button opens that card's setup", async ({ page }) => {
+  await bothConfigured();
+  await fakeAggregate(
+    page,
+    answer({
+      devices: withBoth(),
+      reasons: [{ code: "phase_not_measured", severity: "warning", message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_id: "loopback-1" }],
+    }),
+  );
+  await open(page);
+  await expect(page.getByTestId("reason-severity-phase_not_measured")).toHaveText("WORTH KNOWING");
+  await expect(page.getByTestId("reason-hint-phase_not_measured")).toContainText("under Phase on Studio+'s card");
+  await expect(page.getByTestId("device-1-phase-part")).not.toHaveAttribute("open", "");
+  await page.getByTestId("reason-goto-phase_not_measured").click();
+  await expect(page.getByTestId("device-1-phase-part")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("device-1-phase-leaves")).toBeFocused();
+});
+
+test("checking asks twice, sends a check, and reads as a verdict with no trims to write", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  await open(page);
+  await expect(page.getByTestId("calibrate-check-note")).toContainText("Check lines the session up exactly as a DAW's is");
+  await expect(page.getByTestId("calibrate-routing-note")).toContainText("its S/PDIF output");
+
+  const check = page.getByTestId("calibrate-check");
+  await check.click();
+  await expect(check).toHaveText("Confirm");
+  await page.waitForTimeout(300);
+  expect(captured.posts, "one click plays nothing").toEqual([]);
+
+  captured.calibration = [
+    done(
+      {
+        checking: true,
+        trims: [{ device: "Studio+", direction: "inputs", field: "input_trim", was: 28, measured: 0, now: 28, is_reference: false }],
+        clean: true,
+        blocks_lost: 0,
+        phases: [{ device: "Studio+", state: "applied", measured_samples: -148, applied_samples: -64, note: "Studio+ was lined up to its reference." }],
+      },
+      [
+        { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8 },
+        { device: "Studio+", is_reference: false, lag_samples: 0.02, spread_samples: 0.01, clicks_found: 8, clicks_expected: 8 },
+      ],
+    ),
+  ];
+  await check.click();
+  await expect.poll(() => captured.posts).toEqual([
+    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [0, 1], inputs: [0, 4], clicks: 8, level_dbfs: -20, check: true } },
+  ]);
+  await expect(page.getByTestId("calibrate-summary")).toContainText("Checked what the interfaces record");
+  await expect(page.getByTestId("calibrate-verdict-text-Studio+")).toHaveText("Lined up: a recording would land 0.02 samples late against Quadro.");
+  await expect(page.getByTestId("calibrate-verdict-text-Studio+")).toHaveAttribute("data-tone", "good");
+  await expect(page.getByTestId("calibrate-verdict-Quadro")).toHaveCount(0);
+  await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveText("Lined up to its reference");
+  await expect(page.getByTestId("calibrate-clean")).toHaveText("Clean: no interface lost a block while it ran.");
+  // A verdict, not an offer: no trims, and nothing to write.
+  await expect(page.getByTestId("calibrate-trims")).toBeEmpty();
+  await expect(page.getByTestId("calibrate-apply")).toBeHidden();
+  await expect(page.getByTestId("calibrate-lag-Studio+")).toHaveCount(0);
+});
+
+test("writing a measured trim writes the phase reference measured beside it", async ({ page }) => {
+  await phaseConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [
+    done({
+      clean: true,
+      blocks_lost: 0,
+      trims: [
+        { device: "Quadro", direction: "inputs", field: "input_trim", was: 0, measured: 0, now: 0, is_reference: true, not_applied: "The reference has nothing to correct against itself." },
+        { device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, is_reference: false, phase_reference: { was: null, now: -84 } },
+      ],
+      phases: [
+        { device: "Quadro", state: "not_configured", measured_samples: 0, applied_samples: 0, note: "" },
+        { device: "Studio+", state: "measured_only", measured_samples: -84, applied_samples: 0, note: "Studio+ was measured at -84 samples." },
+      ],
+    }),
+  ];
+  await open(page);
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, no reference yet");
+  await expect(page.getByTestId("calibrate-phase-state-Studio+")).toContainText("not applied, on purpose");
+  await expect(page.getByTestId("calibrate-phase-figures-Studio+")).toHaveText("Measured -84 samples, applied 0 samples");
+  await expect(page.getByTestId("calibrate-trim-1-reference")).toHaveText("Phase reference: none yet, becomes -84 samples");
+
+  await page.getByTestId("calibrate-apply").click();
+  await expect.poll(async () => [(await studio())["input_trim"], (await studio())["phase"]]).toEqual([28, { master_output: 3, input: 1, reference: -84 }]);
+  await expect(page.getByTestId("calibrate-applied")).toHaveText("1 trim written: Studio+ in 28 (phase reference -84).");
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, reference -84 samples");
+});
+
+test("a first run whose trim comes out unchanged still writes its new reference", async ({ page }) => {
+  await phaseConfigured({ input_trim: 28 });
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [
+    done({
+      trims: [{ device: "Studio+", direction: "inputs", field: "input_trim", was: 28, measured: 28, now: 28, is_reference: false, phase_reference: { was: null, now: -148 } }],
+    }),
+  ];
+  await open(page);
+  // The trim alone would be nothing to write; the reference beside it is new, so the button is there.
+  await expect(page.getByTestId("calibrate-trim-0-was")).toHaveText("28");
+  await expect(page.getByTestId("calibrate-trim-0-now")).toHaveText("28");
+  await expect(page.getByTestId("calibrate-apply")).toBeVisible();
+  await page.getByTestId("calibrate-apply").click();
+  await expect.poll(async () => (await studio())["phase"]).toEqual({ master_output: 3, input: 1, reference: -148 });
+  expect((await studio())["input_trim"]).toBe(28);
+});
+
+test("a run that was not clean, or whose phase was refused, reads as such", async ({ page }) => {
+  await phaseConfigured({ input_trim: 28, phase: { master_output: 3, input: 1, reference: -84 } });
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.calibration = [
+    done(
+      {
+        clean: false,
+        blocks_lost: 4,
+        trims: [{ device: "Studio+", direction: "inputs", field: "input_trim", was: 28, measured: 31, now: 31, is_reference: false, phase_reference: { was: -84, now: null } }],
+        phases: [{ device: "Studio+", state: "not_heard", measured_samples: 0, applied_samples: 0, note: "Nothing arrived on its measurement channel." }],
+        witnesses: [{ channel: 5, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Channel 6 recorded it 3.2 samples late." }],
+      },
+      [
+        { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8 },
+        { device: "Studio+", is_reference: false, lag_samples: 31, spread_samples: 0.4, spread_limit_samples: 7, clicks_found: 8, clicks_expected: 8, blocks_dropped: 3, blocks_starved: 1 },
+      ],
+    ),
+  ];
+  await open(page);
+  await expect(page.getByTestId("calibrate-clean")).toContainText("Not clean: 4 blocks lost while it ran.");
+  await expect(page.getByTestId("calibrate-clean")).toHaveClass(/problem/);
+  await expect(page.getByTestId("calibrate-lost-Studio+")).toContainText("dropped 3 blocks and missed 1 block");
+  await expect(page.getByTestId("calibrate-spread-Studio+")).toHaveText("Clicks agreed to 0.4 samples, within the 7 allowed");
+  await expect(page.getByTestId("calibrate-phase-refused")).toContainText("The phase was not measured on Studio+");
+  await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveText("Refused: nothing heard on the cable");
+  await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveAttribute("data-tone", "off");
+  await expect(page.getByTestId("calibrate-trim-0-reference")).toContainText("-84 samples is taken out");
+  await expect(page.getByTestId("calibrate-witness-0")).toContainText("Studio+ 2, on Studio+");
+  await expect(page.getByTestId("calibrate-witness-0-lag")).toHaveText("3.2 samples late");
+
+  // Writing it takes the old reference out rather than leaving it beside the new trim.
+  await page.getByTestId("calibrate-apply").click();
+  await expect.poll(async () => [(await studio())["input_trim"], (await studio())["phase"]]).toEqual([31, { master_output: 3, input: 1 }]);
+});
+
+test("while a DAW has it open each follower's phase is read out beside its gap", async ({ page }) => {
+  await phaseConfigured({ phase: { master_output: 3, input: 1, reference: -84 } });
+  await fakeAggregate(
+    page,
+    answer({
+      devices: withBoth(),
+      status: streaming([
+        liveDevice("Quadro", { is_master: true, phase: "not_configured", phase_measured: 0, phase_applied: 0 }),
+        liveDevice("Studio+", { phase: "applied", phase_measured: -148, phase_applied: -64 }),
+      ]),
+    }),
+  );
+  await open(page);
+  await expect(page.getByTestId("live-phase-Studio+")).toHaveText("Phase: Lined up to its reference. Measured -148 samples, applied -64 samples");
+  await expect(page.getByTestId("live-phase-Studio+")).toHaveAttribute("data-tone", "good");
+  await expect(page.getByTestId("live-phase-Quadro")).toHaveCount(0);
+  await expect(page.getByTestId("device-1-phase")).toHaveText("Lined up to its reference. Measured -148 samples, applied -64 samples");
+  await expect(page.getByTestId("device-1-gap")).toHaveText("In step");
+});
+
+test("a refused phase reads as refused, live", async ({ page }) => {
+  await phaseConfigured();
+  await fakeAggregate(page, answer({ devices: withBoth(), status: streaming([liveDevice("Quadro", { is_master: true }), liveDevice("Studio+", { phase: "not_heard", phase_measured: 0, phase_applied: 0 })]) }));
+  await open(page);
+  await expect(page.getByTestId("live-phase-Studio+")).toHaveText("Phase: Refused: nothing heard on the cable");
+  await expect(page.getByTestId("live-phase-Studio+")).toHaveAttribute("data-tone", "off");
+});
+
+test("the log says phase and lost blocks in words, and marks a Gazelle measurement's lines as Gazelle's", async ({ page }) => {
+  await fakeAggregate(
+    page,
+    answer({
+      events: [
+        { at: "2026-09-21 21:14:07", kind: "session-started", message: "40 in, 40 out at 96000 Hz" },
+        { at: "2026-09-21 21:14:09", kind: "phase", message: "Gazelle's own measurement: Studio+ was measured at -84 samples from where its driver's figures put it." },
+        { at: "2026-09-21 21:47:02", kind: "glitched", message: "Studio+ dropped a block, the first this session has lost" },
+        { at: "2026-09-21 22:02:11", kind: "session-ended", message: "ran for 47 minutes 12 seconds. Quadro lost nothing; Studio+ dropped 3 blocks" },
+      ],
+    }),
+  );
+  await open(page);
+  await expect(page.getByTestId("aggregate-event-kind")).toHaveText(["Session started", "Phase measured", "Lost a block", "Session ended"]);
+  await expect(page.getByTestId("aggregate-event-gazelle")).toHaveCount(1);
+  await expect(page.getByTestId("aggregate-event").nth(1)).toHaveAttribute("data-gazelle", "");
+  await expect(page.getByTestId("aggregate-event-message").nth(1)).toHaveText("Studio+ was measured at -84 samples from where its driver's figures put it.");
+  await expect(page.getByTestId("aggregate-event-kind").nth(2)).toHaveAttribute("data-problem", "");
+  await expect(page.getByTestId("aggregate-event-message").nth(3)).toContainText("Studio+ dropped 3 blocks");
+});
+
+// ---------------------------------------------------------------------------------------------
 // Phone width
 // ---------------------------------------------------------------------------------------------
 
@@ -967,6 +1220,12 @@ test("at phone width the page fits, with nothing running off the side", async ({
   // And the measurement's pickers and its cabling, which are the other things that sit side by side.
   await expect(page.getByTestId("calibrate-plays-0")).toBeVisible();
   await expect(page.getByTestId("calibrate-cable-0")).toBeVisible();
+  await expect(page.getByTestId("calibrate-check")).toBeVisible();
+  // And a follower's phase setup, with its two pickers and the routing it needs.
+  await page.getByTestId("device-1-phase-open").click();
+  await expect(page.getByTestId("device-1-phase-leaves")).toBeVisible();
+  await expect(page.getByTestId("device-1-phase-arrives")).toBeVisible();
+  await expect(page.getByTestId("device-1-phase-routing")).toBeVisible();
   // The window itself does not scroll sideways, which is the phone rule the other pages keep.
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   const main = page.locator("ga-app main");

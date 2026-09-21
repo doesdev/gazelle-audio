@@ -125,7 +125,7 @@ async function workspace(): Promise<void> {
     cables: [{ id: "c1", from: { device_id: STUDIO, port: "ADAT_OUT", first: 0 }, to: { device_id: QUADRO, port: "ADAT_IN", first: 0 }, channels: 8 }],
     control_room: { [QUADRO]: { outputs: [0, 1, 2, 3] } },
     // Two interfaces in the aggregate, so its page has a card for each with every control on it.
-    aggregate: { devices: [{ key: "Zen Quadro Synergy Core", name: "Quadro", device_id: QUADRO, input_trim: 8 }, { key: "Zen Studio+", name: "Studio+", device_id: STUDIO }], callback_master: "Quadro", alignment: "aligned" },
+    aggregate: { devices: [{ key: "Zen Quadro Synergy Core", name: "Quadro", device_id: QUADRO, input_trim: 8 }, { key: "Zen Studio+", name: "Studio+", device_id: STUDIO, phase: { master_output: 1, input: 0, reference: -84 } }], callback_master: "Quadro", alignment: "aligned" },
   });
 }
 
@@ -162,6 +162,7 @@ const AGGREGATE_ANSWER = {
   reasons: [
     { code: "buffers_differ", severity: "blocking", message: "The drivers are on different buffer sizes (256 and 128).", fix: { kind: "match_buffers", method: "POST", route: "aggregate/match-buffers", body: { buffer_size: 256 }, label: "Put them all on 256 samples" } },
     { code: "controller_unknown", severity: "warning", message: "Quadro's USB host controller could not be found." },
+    { code: "phase_not_measured", severity: "warning", message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_id: STUDIO },
   ],
   status: {
     state: "read",
@@ -172,12 +173,16 @@ const AGGREGATE_ANSWER = {
     up_to_date: false,
     plan: { master: "Quadro", rate: 96000, buffer_size: 256, inputs: 40, outputs: 40, alignment: "aligned", input_latency: 611, output_latency: 733 },
     devices: [
-      { name: "Quadro", driver_name: "Quadro", streaming: true, stalled: false, is_master: true, sample_gap: 0, callbacks: 1200, dropped: 0, starved: 0 },
-      { name: "Studio+", driver_name: "Studio+", streaming: false, stalled: true, is_master: false, sample_gap: -64, callbacks: 900, dropped: 2, starved: 3 },
+      { name: "Quadro", driver_name: "Quadro", streaming: true, stalled: false, is_master: true, sample_gap: 0, callbacks: 1200, dropped: 0, starved: 0, phase: "not_configured", phase_measured: 0, phase_applied: 0 },
+      { name: "Studio+", driver_name: "Studio+", streaming: false, stalled: true, is_master: false, sample_gap: -64, callbacks: 900, dropped: 2, starved: 3, phase: "applied", phase_measured: -148, phase_applied: -64 },
     ],
     last_refusal: "Studio+ will not run at 96000 Hz, so neither will the aggregate",
   },
-  events: [{ at: "2026-09-21 09:14:02", kind: "session-started", message: "40 in, 40 out at 96000 Hz" }],
+  events: [
+    { at: "2026-09-21 09:14:02", kind: "session-started", message: "40 in, 40 out at 96000 Hz" },
+    { at: "2026-09-21 09:14:03", kind: "phase", message: "Gazelle's own measurement: Studio+ was measured at -84 samples from where its driver's figures put it." },
+    { at: "2026-09-21 09:31:44", kind: "glitched", message: "Studio+ dropped a block, the first this session has lost" },
+  ],
 };
 
 /**
@@ -193,13 +198,37 @@ const CALIBRATION = {
     reference: "Quadro",
     readings: [
       { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8, note: "Quadro is what the others were measured against." },
-      { device: "Studio+", is_reference: false, lag_samples: 27.8, spread_samples: 0.3, clicks_found: 8, clicks_expected: 8, note: "Studio+ recorded 27.8 samples after the Quadro.", drift: { samples_per_second: 0.6, ppm: 6.25, real: true } },
+      { device: "Studio+", is_reference: false, lag_samples: 27.8, spread_samples: 0.3, spread_limit_samples: 7, clicks_found: 8, clicks_expected: 8, blocks_dropped: 1, blocks_starved: 0, note: "Studio+ recorded 27.8 samples after the Quadro.", drift: { samples_per_second: 0.6, ppm: 6.25, real: true } },
     ],
+    witnesses: [{ channel: 3, device: "Studio+", lag_samples: 27.9, spread_samples: 0.2, spread_limit_samples: 7, clicks_found: 8, clicks_expected: 8, blocks_dropped: 1, blocks_starved: 0, note: "Channel 4 recorded it 27.9 samples late." }],
+    phases: [
+      { device: "Quadro", state: "not_configured", measured_samples: 0, applied_samples: 0, note: "" },
+      { device: "Studio+", state: "measured_only", measured_samples: -148, applied_samples: 0, note: "Studio+ was measured at -148 samples." },
+    ],
+    clean: false,
+    blocks_lost: 1,
     trims: [
       { device: "Quadro", direction: "inputs", field: "input_trim", was: 0, measured: 0, now: 0, is_reference: true, not_applied: "The reference has nothing to correct against itself." },
-      { device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, is_reference: false },
+      { device: "Studio+", direction: "inputs", field: "input_trim", was: 0, measured: 28, now: 28, is_reference: false, phase_reference: { was: -84, now: -148 } },
     ],
     warnings: ["The Studio+ was 3 dB quieter than the Quadro, which does not change the measurement."],
+  },
+};
+
+/** A finished check: a verdict per interface, the phase lined up, and no trims to write. */
+const CHECK = {
+  state: "done",
+  outcome: {
+    ...CALIBRATION.outcome,
+    checking: true,
+    clean: true,
+    blocks_lost: 0,
+    trims: [],
+    phases: [{ device: "Studio+", state: "applied", measured_samples: -148, applied_samples: -64, note: "Studio+ was lined up to its reference." }],
+    readings: [
+      { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8 },
+      { device: "Studio+", is_reference: false, lag_samples: 0.02, spread_samples: 0.01, clicks_found: 8, clicks_expected: 8, note: "Studio+ recorded 0.02 samples after the Quadro." },
+    ],
   },
 };
 
@@ -320,6 +349,18 @@ test("every control, readout, badge and heading on every page carries a key the 
   await page.getByTestId("device-0-buffer").selectOption("512");
   await expect(page.getByTestId("device-0-buffer-confirm")).toBeVisible();
   await check(page, "aggregate");
+  await page.unroute("**/api/v1/aggregate**");
+
+  // And a check's verdict, which is built in place of the readings.
+  await page.route("**/api/v1/aggregate**", (route) => {
+    const calibrate = new URL(route.request().url()).pathname.includes("/aggregate/calibrate");
+    return route.fulfill({ json: calibrate ? CHECK : AGGREGATE_ANSWER });
+  });
+  // Away and back, because the page asks about a run once, when it opens.
+  await visit(`devices/${QUADRO}`, "ga-device-status");
+  await visit("aggregate", "ga-aggregate");
+  await expect(page.getByTestId("calibrate-verdict-Studio+")).toBeVisible();
+  await check(page, "aggregate after a check");
   await page.unroute("**/api/v1/aggregate**");
 
   // A lazy page that could not be loaded leaves its message and a Try again in its place.

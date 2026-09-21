@@ -20,9 +20,11 @@ import type {
   AggregateAnswer,
   AggregateCalibrateDirection,
   AggregateCalibrateOutcome,
+  AggregateCalibratePhase,
   AggregateCalibrateReading,
   AggregateCalibrateRequest,
   AggregateCalibrateTrim,
+  AggregateCalibrateWitness,
   AggregateCalibration,
   AggregateChannelNames,
   AggregateDeviceReport,
@@ -31,11 +33,14 @@ import type {
   AggregateFix,
   AggregateMatchBuffers,
   AggregateMatchedBy,
+  AggregatePhaseSetting,
   AggregatePlan,
   AggregateReason,
   AggregateRegistrationRun,
   AggregateDevice,
   AggregateStatusReading,
+  AggregateTrimReference,
+  Cable,
   Timers,
 } from "gazelle-audio-client";
 
@@ -45,9 +50,11 @@ export type {
   AggregateAnswer,
   AggregateCalibrateDirection,
   AggregateCalibrateOutcome,
+  AggregateCalibratePhase,
   AggregateCalibrateReading,
   AggregateCalibrateRequest,
   AggregateCalibrateTrim,
+  AggregateCalibrateWitness,
   AggregateCalibration,
   AggregateChannelNames,
   AggregateDevice,
@@ -57,10 +64,12 @@ export type {
   AggregateFix,
   AggregateMatchBuffers,
   AggregateMatchedBy,
+  AggregatePhaseSetting,
   AggregatePlan,
   AggregateReason,
   AggregateRegistrationRun,
   AggregateStatusReading,
+  AggregateTrimReference,
 };
 
 /** How often the answer is asked for while nothing has the driver open, which is the usual case. */
@@ -574,8 +583,19 @@ export function calibrateProblem(picks: CalibratePicks, config: Aggregate | unde
   return undefined;
 }
 
-/** The request that starts this run, or nothing when the picks do not make one. */
-export function calibrateRequest(picks: CalibratePicks, config: Aggregate | undefined, answer: AggregateAnswer | undefined): AggregateCalibrateRequest | undefined {
+/**
+ * The request that starts this run, or nothing when the picks do not make one.
+ *
+ * `check` asks for a check rather than a measurement: the same cabling and the same clicks, with
+ * the session lined up as a DAW's would be, so what it hears is how far apart a recording would
+ * land now. A measurement leaves the field out, which is what the server takes as a measurement.
+ */
+export function calibrateRequest(
+  picks: CalibratePicks,
+  config: Aggregate | undefined,
+  answer: AggregateAnswer | undefined,
+  options: { check?: boolean } = {},
+): AggregateCalibrateRequest | undefined {
   if (calibrateProblem(picks, config, answer) !== undefined) return undefined;
   return {
     direction: picks.direction,
@@ -583,6 +603,7 @@ export function calibrateRequest(picks: CalibratePicks, config: Aggregate | unde
     inputs: picks.inputs.filter((number): number is number => number !== undefined),
     clicks: picks.clicks,
     level_dbfs: picks.level_dbfs,
+    ...(options.check === true ? { check: true } : {}),
   };
 }
 
@@ -612,6 +633,20 @@ function samples(value: number): string {
   return `${rounded} sample${Math.abs(rounded) === 1 ? "" : "s"}`;
 }
 
+/**
+ * A number of samples to two decimals, for a check's verdict: a check that lands 0.02 samples out
+ * has to say 0.02 rather than round it to nothing, or a good result and a perfect one read alike.
+ */
+function fineSamples(value: number): string {
+  const rounded = Number(value.toFixed(2));
+  return `${rounded} sample${Math.abs(rounded) === 1 ? "" : "s"}`;
+}
+
+/** How many blocks, in words. */
+function blocks(count: number): string {
+  return `${count} block${count === 1 ? "" : "s"}`;
+}
+
 /** One interface's reading, in the words the page shows. `tone` is what it is coloured by. */
 export interface ReadingView {
   device: string;
@@ -624,7 +659,29 @@ export interface ReadingView {
   note?: string;
   /** The serious finding, when there is one: two clocks, which no trim can put right. */
   drift?: string;
+  /** What this interface's audio lost while the run was going, when it lost anything. */
+  lost?: string;
   tone: "good" | "off" | "drift";
+}
+
+/** What an interface lost during a run, in words, or nothing when it lost nothing. */
+function lostText(dropped: number | undefined, starved: number | undefined): string | undefined {
+  const thrown = dropped ?? 0;
+  const missed = starved ?? 0;
+  if (thrown === 0 && missed === 0) return undefined;
+  const parts = [thrown > 0 ? `dropped ${blocks(thrown)}` : "", missed > 0 ? `missed ${blocks(missed)}` : ""].filter((part) => part !== "");
+  return `Its audio ${parts.join(" and ")} while this ran, so the clicks were measured across a fault.`;
+}
+
+/** How steady the clicks were, against the widest they could disagree and still be one measurement. */
+function spreadText(reading: { spread_samples: number; spread_limit_samples?: number; clicks_found: number }): string {
+  if (reading.clicks_found === 0) return "Nothing to measure";
+  const limit = reading.spread_limit_samples;
+  if (limit === undefined) return `Clicks agreed to ${samples(reading.spread_samples)}`;
+  const allowed = Number(limit.toFixed(1));
+  return reading.spread_samples > limit
+    ? `Clicks disagreed by ${samples(reading.spread_samples)}, past the ${allowed} allowed`
+    : `Clicks agreed to ${samples(reading.spread_samples)}, within the ${allowed} allowed`;
 }
 
 /**
@@ -642,10 +699,12 @@ export function readingView(reading: AggregateCalibrateReading): ReadingView {
     : reading.lag_samples === 0
       ? "In step"
       : `${samples(Math.abs(reading.lag_samples))} ${reading.lag_samples > 0 ? "late" : "early"}`;
+  const lost = lostText(reading.blocks_dropped, reading.blocks_starved);
+  const spreadPast = reading.spread_limit_samples !== undefined && reading.clicks_found > 0 && reading.spread_samples > reading.spread_limit_samples;
   return {
     device: reading.device,
     lag,
-    spread: reading.clicks_found === 0 ? "Nothing to measure" : `Clicks agreed to ${samples(reading.spread_samples)}`,
+    spread: spreadText(reading),
     clicks:
       reading.clicks_expected === undefined
         ? `${reading.clicks_found} click${reading.clicks_found === 1 ? "" : "s"} found`
@@ -658,7 +717,8 @@ export function readingView(reading: AggregateCalibrateReading): ReadingView {
             ? `Its clock is drifting: ${samples(drift.samples_per_second)} a second, ${Number(drift.ppm.toFixed(2))} ppm. The interfaces are not sharing one clock, and no trim can put that right. Check the digital cable, and that this interface is clocked from it.`
             : `No drift worth the name: ${samples(drift.samples_per_second)} a second. The clocks are holding together.`,
         }),
-    tone: real ? "drift" : reading.is_reference || reading.lag_samples === 0 ? "good" : "off",
+    ...(lost === undefined ? {} : { lost }),
+    tone: real ? "drift" : (reading.is_reference || reading.lag_samples === 0) && lost === undefined && !spreadPast ? "good" : "off",
   };
 }
 
@@ -675,22 +735,28 @@ export interface TrimRow {
   was: string;
   measured: string;
   now: string;
-  /** Whether applying it would change anything at all. */
+  /** Whether applying it would change anything at all, the phase reference beside it included. */
   changed: boolean;
   /** Why this one is not offered, when the server says it is not. */
   notApplied?: string;
+  /** What happens to the phase reference written beside this trim, when it has one. Never a trim. */
+  reference?: string;
 }
 
 export function trimRows(outcome: AggregateCalibrateOutcome | undefined): TrimRow[] {
-  return (outcome?.trims ?? []).map((trim) => ({
-    device: trim.device,
-    what: trimField(trim) === "input_trim" ? "Input trim" : "Output trim",
-    was: `${trim.was}`,
-    measured: `${trim.measured}`,
-    now: `${trim.now}`,
-    changed: trim.now !== trim.was && trim.not_applied === undefined,
-    ...(trim.not_applied === undefined ? {} : { notApplied: trim.not_applied }),
-  }));
+  return (outcome?.trims ?? []).map((trim) => {
+    const reference = referenceText(trim.phase_reference);
+    return {
+      device: trim.device,
+      what: trimField(trim) === "input_trim" ? "Input trim" : "Output trim",
+      was: `${trim.was}`,
+      measured: `${trim.measured}`,
+      now: `${trim.now}`,
+      changed: trimWouldChange(trim),
+      ...(trim.not_applied === undefined ? {} : { notApplied: trim.not_applied }),
+      ...(reference === undefined ? {} : { reference }),
+    };
+  });
 }
 
 /** The setup field a trim writes: the one the server names, and failing that the pass's own. */
@@ -699,16 +765,57 @@ export function trimField(trim: AggregateCalibrateTrim): "input_trim" | "output_
   return trim.direction === "inputs" ? "input_trim" : "output_trim";
 }
 
+/**
+ * Whether writing this trim would change the phase reference beside it.
+ *
+ * A first run on an interface is the case this is for: it had no reference, it has one now, and its
+ * trim may well have come out exactly what it was. The trim alone would say there is nothing to
+ * write, and every session after it would go on unlined up.
+ */
+export function referenceChanges(trim: AggregateCalibrateTrim): boolean {
+  const reference = trim.phase_reference;
+  if (reference === undefined) return false;
+  return (reference.was ?? null) !== (reference.now ?? null);
+}
+
+/** Whether writing this one would change anything: the trim, or the reference written with it. */
+function trimWouldChange(trim: AggregateCalibrateTrim): boolean {
+  return trim.not_applied === undefined && (trim.now !== trim.was || referenceChanges(trim));
+}
+
+/**
+ * What happens to the phase reference beside a trim, in words, or nothing when it has none.
+ *
+ * `now` null is nothing heard on the cable in this run, and then the old reference is taken out
+ * rather than left beside a trim it was never measured with.
+ */
+export function referenceText(reference: AggregateTrimReference | undefined): string | undefined {
+  if (reference === undefined) return undefined;
+  const was = reference.was ?? null;
+  const now = reference.now ?? null;
+  if (was === now) return now === null ? "Phase reference: none, and nothing was heard on the cable to give it one" : `Phase reference: stays at ${samples(now)}`;
+  if (now === null) return `Phase reference: ${samples(was as number)} is taken out, because nothing was heard on the cable in this run`;
+  if (was === null) return `Phase reference: none yet, becomes ${samples(now)}`;
+  return `Phase reference: ${samples(was)} becomes ${samples(now)}`;
+}
+
 /** What a finished run came to, as one line above the readings. */
 export function outcomeSummary(outcome: AggregateCalibrateOutcome): string {
   const rate = `${Number((outcome.rate / 1000).toFixed(3))} kHz`;
   const pass = outcome.direction === "inputs" ? "what the interfaces record" : "what the interfaces play";
+  if (outcome.checking === true) {
+    return `Checked ${pass} at ${rate}, ${outcome.buffer_size} samples, against ${outcome.reference}, lined up as a DAW's session would be. A check writes nothing: it says how far apart a recording would land now.`;
+  }
   return `Measured ${pass} at ${rate}, ${outcome.buffer_size} samples, against ${outcome.reference}. A trim is only true for this rate and this buffer size.`;
 }
 
-/** Whether there is a trim here that would change something, which is what the button is for. */
+/**
+ * The trims there are to write, which is what the button is for: every one the server offers that
+ * would change the trim or the phase reference beside it. A check offers none, whatever it carries.
+ */
 export function trimsToApply(outcome: AggregateCalibrateOutcome | undefined): AggregateCalibrateTrim[] {
-  return (outcome?.trims ?? []).filter((trim) => trim.now !== trim.was && trim.not_applied === undefined);
+  if (outcome?.checking === true) return [];
+  return (outcome?.trims ?? []).filter(trimWouldChange);
 }
 
 /**
@@ -717,6 +824,11 @@ export function trimsToApply(outcome: AggregateCalibrateOutcome | undefined): Ag
  * Zero is written as the field being absent, as everything else on this page writes a trim; an
  * interface the measurement names that the setup no longer has is passed over rather than added,
  * and so is a trim the server says it is not offering.
+ *
+ * **An input trim's phase reference is written with it**, into that interface's `phase.reference`,
+ * and taken out when nothing was heard on the cable, so a new trim is never left beside a reference
+ * from another session. An interface whose phase setting has gone since the run keeps no reference:
+ * a reference with no path to measure on means nothing.
  */
 export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrateOutcome | undefined): Aggregate {
   const trims = trimsToApply(outcome);
@@ -728,6 +840,14 @@ export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrate
     const next = { ...device };
     if (trim.now === 0) delete next[field];
     else next[field] = trim.now;
+    const reference = trim.phase_reference;
+    const setting = phaseSetting(device);
+    if (reference !== undefined && field === "input_trim" && setting !== undefined) {
+      const phase: AggregatePhaseSetting = { ...setting };
+      if (reference.now === null || reference.now === undefined) delete phase.reference;
+      else phase.reference = reference.now;
+      next.phase = phase;
+    }
     return next;
   });
   return { ...config, devices };
@@ -736,8 +856,404 @@ export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrate
 /** What applying the trims came to, as one line. */
 export function appliedTrimsText(trims: AggregateCalibrateTrim[]): string {
   if (trims.length === 0) return "Nothing to change: every trim is already what was measured.";
-  const named = trims.map((trim) => `${trim.device} ${trim.direction === "inputs" ? "in" : "out"} ${trim.now}`).join(", ");
+  const named = trims
+    .map((trim) => {
+      const written = `${trim.device} ${trim.direction === "inputs" ? "in" : "out"} ${trim.now}`;
+      if (!referenceChanges(trim)) return written;
+      const now = trim.phase_reference?.now ?? null;
+      return now === null ? `${written} (phase reference taken out)` : `${written} (phase reference ${now})`;
+    })
+    .join(", ");
   return `${trims.length} trim${trims.length === 1 ? "" : "s"} written: ${named}.`;
+}
+
+/** Whether a run lost any audio while it went, in words, or nothing from a server too old to say. */
+export function runCleanText(outcome: AggregateCalibrateOutcome | undefined): { text: string; problem: boolean } | undefined {
+  if (outcome === undefined || outcome.clean === undefined) return undefined;
+  if (outcome.clean) return { text: "Clean: no interface lost a block while it ran.", problem: false };
+  const lost = outcome.blocks_lost ?? 0;
+  const what = lost > 0 ? `${blocks(lost)} lost while it ran` : "Blocks were lost while it ran";
+  return { text: `Not clean: ${what}. A lost block moves the very thing being measured, so run it again rather than believing these figures.`, problem: true };
+}
+
+/** How close a check has to land for the interfaces to count as lined up, in samples. */
+export const CHECK_TOLERANCE_SAMPLES = 1;
+
+/** One interface's verdict from a check: how far apart a recording would land now. */
+export interface VerdictView {
+  device: string;
+  text: string;
+  tone: "good" | "off" | "drift";
+  note?: string;
+}
+
+/**
+ * What a check says about each interface but the reference: a verdict, not an offer. A check was
+ * lined up exactly as a DAW's session is, so the lag it hears is what a recording would get.
+ */
+export function checkVerdicts(outcome: AggregateCalibrateOutcome | undefined): VerdictView[] {
+  if (outcome?.checking !== true) return [];
+  return outcome.readings
+    .filter((reading) => !reading.is_reference)
+    .map((reading) => {
+      const note = reading.note === undefined || reading.note.trim() === "" ? {} : { note: reading.note };
+      if (reading.clicks_found === 0) return { device: reading.device, text: "Nothing was heard, so there is no verdict. Check the cable and its routing.", tone: "off" as const, ...note };
+      if (reading.drift?.real === true) return { device: reading.device, text: "Drifting: the interfaces are not sharing one clock, and nothing lines that up.", tone: "drift" as const, ...note };
+      const off = Math.abs(reading.lag_samples);
+      const where = reading.lag_samples === 0 ? `in step with ${outcome.reference}` : `${fineSamples(off)} ${reading.lag_samples > 0 ? "late" : "early"} against ${outcome.reference}`;
+      return off < CHECK_TOLERANCE_SAMPLES
+        ? { device: reading.device, text: `Lined up: a recording would land ${where}.`, tone: "good" as const, ...note }
+        : { device: reading.device, text: `Out: a recording would land ${where}. Measure again, then check.`, tone: "off" as const, ...note };
+    });
+}
+
+/** One extra channel a run listened in on, in the words a reading is written in, with the channel it was. */
+export interface WitnessView extends ReadingView {
+  channel: string;
+}
+
+/** The channels a run listened in on, named as the aggregate's own list names them. */
+export function witnessViews(outcome: AggregateCalibrateOutcome | undefined, inputs: AggregateChannel[]): WitnessView[] {
+  return (outcome?.witnesses ?? []).map((witness) => ({
+    ...readingView({ ...witness, is_reference: false }),
+    channel: channelText(inputs, witness.channel),
+  }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The phase: where each interface's capture started this session
+// ---------------------------------------------------------------------------------------------
+//
+// Two interfaces record a fixed distance apart within a session, and a different distance each time
+// the driver is opened, by whole steps of 32 samples. A trim is a constant and cannot follow that.
+// So the driver measures each follower's phase down the digital cable at the start of every
+// session, and lines the session up by the reference minus that phase before the trim applies.
+//
+// Three numbers, which this page keeps apart in every word it writes:
+//
+//   - the trim, a constant, measured once with a click;
+//   - the reference, the phase measured in the session the trim was measured in, written with it;
+//   - the phase, what each session measures, live and read only.
+
+const isChannel = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+
+/** The interface's phase setting, when it has a whole one: both channels, and a reference if any. */
+export function phaseSetting(device: AggregateDevice | undefined): AggregatePhaseSetting | undefined {
+  const phase = device?.phase;
+  if (typeof phase !== "object" || phase === null) return undefined;
+  if (!isChannel(phase.master_output) || !isChannel(phase.input)) return undefined;
+  return phase;
+}
+
+/** The phase reference, when the setting has one. */
+export function phaseReference(device: AggregateDevice | undefined): number | undefined {
+  const reference = phaseSetting(device)?.reference;
+  return typeof reference === "number" && Number.isFinite(reference) ? reference : undefined;
+}
+
+/**
+ * Which interface in the setup drives the callback, by its place in the list.
+ *
+ * The setup names it by name, registry key or class id, and the first interface when it names none,
+ * which is what the driver does. A name the setup gives that matches nothing falls back to whichever
+ * one the answer says is the master, and then to the first.
+ */
+export function masterIndex(config: Aggregate | undefined, answer?: AggregateAnswer): number | undefined {
+  const devices = config?.devices ?? [];
+  if (devices.length === 0) return undefined;
+  const named = config?.callback_master;
+  if (typeof named === "string" && named.trim() !== "") {
+    const wanted = named.trim().toLowerCase();
+    const found = devices.findIndex((device, index) => [deviceName(device, index), device.key, device.clsid].some((one) => typeof one === "string" && one.toLowerCase() === wanted));
+    if (found >= 0) return found;
+    const reported = answer?.devices.find((report) => report.is_master)?.name;
+    const byReport = reported === undefined ? -1 : devices.findIndex((device, index) => deviceName(device, index) === reported);
+    if (byReport >= 0) return byReport;
+  }
+  return 0;
+}
+
+/** One channel a phase picker offers: the device's own number from zero, and what to call it. */
+export interface PhaseChoice {
+  value: number;
+  text: string;
+}
+
+/** What the two phase pickers on one follower's card offer, or nothing on the callback master's. */
+export interface PhaseChoices {
+  /** The callback master, by the name the setup gives it. */
+  master: string;
+  /** This interface, by the name the setup gives it. */
+  own: string;
+  /** The master's own outputs, or undefined while how many it has is not known. */
+  outputs: PhaseChoice[] | undefined;
+  /** This interface's own inputs, or undefined while how many it has is not known. */
+  inputs: PhaseChoice[] | undefined;
+}
+
+/**
+ * How a phase channel reads: the interface's name and the channel's number from one, as the rest of
+ * the page counts, with its own name or Gazelle's after it. These are the device's own channels, not
+ * the aggregate's list, and every one is offered, exposed or not: the driver opens these two itself.
+ */
+function phaseChannelText(named: string, device: AggregateDevice, names: AggregateChannelNames | undefined, input: boolean, channel: number): string {
+  const auto = autoChannelName(named, channel);
+  const label = channelLabel(device[input ? "input_names" : "output_names"], channel);
+  const extra = label !== "" ? label : suggestedChannelName(names, input, channel);
+  return extra === undefined ? auto : `${auto} (${extra})`;
+}
+
+export function phaseChoices(config: Aggregate | undefined, answer: AggregateAnswer | undefined, index: number): PhaseChoices | undefined {
+  const devices = config?.devices ?? [];
+  const device = devices[index];
+  const at = masterIndex(config, answer);
+  if (device === undefined || at === undefined || at === index) return undefined;
+  const master = devices[at] as AggregateDevice;
+  const list = (of: AggregateDevice, place: number, input: boolean): PhaseChoice[] | undefined => {
+    const view = viewFor(answer, of, place);
+    const counts = channelCounts(view);
+    const count = input ? counts.inputs : counts.outputs;
+    if (count === undefined) return undefined;
+    const named = deviceName(of, place);
+    return Array.from({ length: count }, (_, channel) => ({ value: channel, text: phaseChannelText(named, of, view?.report?.channels, input, channel) }));
+  };
+  return { master: deviceName(master, at), own: deviceName(device, index), outputs: list(master, at, false), inputs: list(device, index, true) };
+}
+
+/**
+ * The choices a picker shows, with the one chosen kept even when the list does not have it, so a
+ * setting made while more channels were known is shown as it is rather than as nothing.
+ */
+export function choicesWith(choices: PhaseChoice[] | undefined, chosen: number | undefined, named: string): PhaseChoice[] {
+  const listed = choices ?? [];
+  if (chosen === undefined || listed.some((choice) => choice.value === chosen)) return listed;
+  return [...listed, { value: chosen, text: `${autoChannelName(named, chosen)} (not listed now)` }];
+}
+
+/** What the two pickers hold: a channel each, or undefined for one not chosen yet. */
+export interface PhasePicks {
+  master_output?: number;
+  input?: number;
+}
+
+/** What the pickers show: what this tab has chosen and not yet written, and otherwise the setting. */
+export function phasePicks(setting: AggregatePhaseSetting | undefined, draft: PhasePicks | undefined): PhasePicks {
+  const master_output = draft?.master_output ?? setting?.master_output;
+  const input = draft?.input ?? setting?.input;
+  return { ...(master_output === undefined ? {} : { master_output }), ...(input === undefined ? {} : { input }) };
+}
+
+/**
+ * The setting two picks make, or nothing while one of them is not chosen: the driver refuses half
+ * a path, so nothing is written until both are there.
+ *
+ * The reference is kept only while the path is the same one it was measured on. A different pair of
+ * channels is a different path, and a reference from the old one would line every session up to a
+ * state the new one was never in; one measurement gives the new path its own.
+ */
+export function phaseFromPicks(current: AggregatePhaseSetting | undefined, picks: PhasePicks): AggregatePhaseSetting | undefined {
+  if (!isChannel(picks.master_output) || !isChannel(picks.input)) return undefined;
+  if (current !== undefined && current.master_output === picks.master_output && current.input === picks.input) return current;
+  const next: AggregatePhaseSetting = { ...(current ?? {}), master_output: picks.master_output, input: picks.input };
+  delete next.reference;
+  return next;
+}
+
+/** The interface with its phase setting written, or taken out altogether for undefined. */
+export function withPhase(device: AggregateDevice, setting: AggregatePhaseSetting | undefined): AggregateDevice {
+  const next = { ...device };
+  if (setting === undefined) delete next.phase;
+  else next.phase = setting;
+  return next;
+}
+
+/** What a card's phase setup says about itself: one short line while closed, and a sentence open. */
+export interface PhaseSetupView {
+  summary: string;
+  note: string;
+  tone: "idle" | "warn" | "good";
+}
+
+export function phaseSetupView(device: AggregateDevice, isMaster: boolean, master: string): PhaseSetupView {
+  const setting = phaseSetting(device);
+  if (isMaster) {
+    return setting === undefined
+      ? { summary: "Not measured: the others are measured against it", note: "This interface drives the callback, so every other interface's phase is measured against it and it has none of its own.", tone: "idle" }
+      : { summary: "Refused on the callback master", note: "This interface drives the callback, and the driver refuses a phase setup on it: the others are measured against it. Clear it.", tone: "warn" };
+  }
+  if (setting === undefined) {
+    return {
+      summary: "Not set up",
+      note: `Not set up, so every session lines this interface up by the figures its driver reports, and it lands a different distance from ${master} each time. Choose the channel the cable leaves ${master} on and the one it arrives on here.`,
+      tone: "warn",
+    };
+  }
+  const reference = phaseReference(device);
+  if (reference === undefined) {
+    return {
+      summary: "Set up, no reference yet",
+      note: "Set up, with no reference yet, so each session is measured and left where it lands. One measurement under Line the interfaces up gives it one, written together with its input trim, and every session after that is lined up.",
+      tone: "warn",
+    };
+  }
+  return {
+    summary: `Set up, reference ${samples(reference)}`,
+    note: `Every session measures where this interface's capture started and lines it up to ${samples(reference)}, the phase measured in the session its input trim was measured in. The reference changes only when the interfaces are measured again.`,
+    tone: "good",
+  };
+}
+
+/** The kind of digital socket a declared cable runs between two devices, when one is declared. */
+export function cablePort(cables: Cable[] | undefined, from: string | undefined, to: string | undefined): "S/PDIF" | "ADAT" | undefined {
+  if (from === undefined || to === undefined) return undefined;
+  const cable = (cables ?? []).find((one) => one.from.device_id === from && one.to.device_id === to);
+  if (cable === undefined) return undefined;
+  return cable.from.port.startsWith("ADAT") ? "ADAT" : "S/PDIF";
+}
+
+/**
+ * What has to be routed for the phase measurement to be heard, naming the two ends. On a fresh
+ * setup the path is not there, and that reads as nothing heard rather than as a missing route.
+ */
+export function phaseRoutingNote(master: string, own: string, port: "S/PDIF" | "ADAT" | undefined): string {
+  const socket = port ?? "S/PDIF";
+  return `This is only heard if the interfaces' own routing carries it: on ${master}, route the playback channel chosen under Leaves the callback master on to its ${socket} output, where the cable leaves; on ${own}, route its ${socket} input, where the cable arrives, to the record channel chosen under Arrives on. A fresh setup has neither, and that reads as nothing heard. Both are on the Routing page.`;
+}
+
+/** What one session's phase reads as, live. `tone` is what it is coloured by. */
+export interface PhaseLiveView {
+  text: string;
+  /** What was measured and what was applied, in samples, where there is a measurement to say. */
+  figures?: string;
+  tone: "good" | "off" | "warn" | "idle";
+  /** A measurement the driver would not use, so the session ran on the drivers' own figures. */
+  refused: boolean;
+}
+
+const PHASE_WORDS: Record<string, { text: string; tone: PhaseLiveView["tone"]; refused?: true; figures?: true }> = {
+  not_configured: { text: "Not measured: no phase setup", tone: "idle" },
+  measuring: { text: "Measuring", tone: "idle" },
+  applied: { text: "Lined up to its reference", tone: "good", figures: true },
+  no_reference: { text: "Measured, not lined up: no reference yet", tone: "warn", figures: true },
+  measured_only: { text: "Measured and not applied, as a measurement run does", tone: "idle", figures: true },
+  not_heard: { text: "Refused: nothing heard on the cable", tone: "off", refused: true },
+  off_the_grid: { text: "Refused: not a whole number of 32 sample steps from its reference", tone: "off", refused: true, figures: true },
+  too_far: { text: "Refused: further than the driver can move it", tone: "off", refused: true, figures: true },
+};
+
+function phaseWords(state: string, measured: number | undefined, applied: number | undefined): PhaseLiveView {
+  const known = PHASE_WORDS[state];
+  if (known === undefined) return { text: state, tone: "idle", refused: false };
+  const figures = known.figures === true && typeof measured === "number" ? `Measured ${samples(measured)}, applied ${samples(applied ?? 0)}` : undefined;
+  return { text: known.text, tone: known.tone, refused: known.refused === true, ...(figures === undefined ? {} : { figures }) };
+}
+
+/**
+ * The live phase beside a follower's gap, while a DAW has the driver open. Nothing for the callback
+ * master, which the others are measured against, and nothing from a driver too old to say.
+ */
+export function livePhaseView(device: AggregateDeviceStatus | undefined): PhaseLiveView | undefined {
+  if (device === undefined || device.is_master || typeof device.phase !== "string" || device.phase === "") return undefined;
+  return phaseWords(device.phase, device.phase_measured, device.phase_applied);
+}
+
+/**
+ * The Phase now line on a card: the live phase for a follower, what the master is for, and why
+ * there is nothing to read while no DAW has the driver open.
+ */
+export function cardPhaseView(live: AggregateDeviceStatus | undefined, isMaster: boolean): { text: string; tone: PhaseLiveView["tone"] } {
+  if (isMaster) return { text: "The others are measured against it", tone: "idle" };
+  if (live === undefined) return { text: "No DAW has it open", tone: "idle" };
+  const view = livePhaseView(live);
+  if (view === undefined) return { text: "Not reported", tone: "idle" };
+  return { text: view.figures === undefined ? view.text : `${view.text}. ${view.figures}`, tone: view.tone };
+}
+
+/** One interface's phase as a run measured it. */
+export interface RunPhaseView extends PhaseLiveView {
+  device: string;
+  state: string;
+  note?: string;
+}
+
+/**
+ * The phases a run carries. In a measurement each is measured and nothing is applied, on purpose:
+ * it is the reference written with the trim. In a check they are lined up as a DAW's session is.
+ */
+export function runPhaseViews(outcome: AggregateCalibrateOutcome | undefined): RunPhaseView[] {
+  return (outcome?.phases ?? []).map((phase) => {
+    const words = phaseWords(phase.state, phase.measured_samples, phase.applied_samples);
+    const text = phase.state === "measured_only" && outcome?.checking !== true ? "Measured and not applied, on purpose: this is the reference written with the trim" : words.text;
+    const note = phase.note === undefined || phase.note.trim() === "" ? {} : { note: phase.note };
+    return { ...words, text, device: phase.device, state: phase.state, ...note };
+  });
+}
+
+/** Every interface whose phase the run could not use, which is the line said before the trims. */
+export function phaseRefusedText(outcome: AggregateCalibrateOutcome | undefined): string | undefined {
+  const refused = runPhaseViews(outcome).filter((phase) => phase.refused);
+  if (refused.length === 0) return undefined;
+  const named = refused.map((phase) => phase.device).join(" and ");
+  return outcome?.checking === true
+    ? `The phase was not measured on ${named}, so this check ran on the drivers' own figures and says nothing about the trims. Check the cable and its routing, then check again.`
+    : `The phase was not measured on ${named}, so writing the trims takes that interface's old reference out rather than leaving it beside a new trim. Check the cable and its routing, then measure again.`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The log, and the reason that points at the phase setup
+// ---------------------------------------------------------------------------------------------
+
+/** How a line one of Gazelle's own measurements wrote begins. */
+export const GAZELLE_MEASUREMENT = "Gazelle's own measurement:";
+
+const EVENT_WORDS: Record<string, string> = {
+  refused: "Refused",
+  stalled: "Stalled",
+  recovered: "Recovered",
+  glitched: "Lost a block",
+  phase: "Phase measured",
+  "session-started": "Session started",
+  "session-ended": "Session ended",
+  adopted: "Setup taken up",
+  "reset-asked": "Reset asked for",
+};
+
+/** One line of the driver's log, in words. */
+export interface EventView {
+  at: string;
+  kind: string;
+  message: string;
+  /** Written by one of Gazelle's own measurements rather than by a DAW's session. */
+  gazelle: boolean;
+  /** Something that went wrong, which is coloured as such. */
+  problem: boolean;
+}
+
+export function eventView(event: AggregateEvent): EventView {
+  const gazelle = event.message.startsWith(GAZELLE_MEASUREMENT);
+  const message = gazelle ? event.message.slice(GAZELLE_MEASUREMENT.length).trim() : event.message;
+  const refusal = event.kind === "phase" && /\bnot lined up\b/.test(message);
+  return {
+    at: event.at,
+    kind: EVENT_WORDS[event.kind] ?? event.kind,
+    message,
+    gazelle,
+    problem: event.kind === "refused" || event.kind === "stalled" || event.kind === "glitched" || refusal,
+  };
+}
+
+/** The sentence a reason carries beside the server's own message, when the page has one to add. */
+export function reasonHint(reason: AggregateReason): string | undefined {
+  if (reason.code !== "phase_not_measured") return undefined;
+  const which = reason.device === undefined ? "its card" : `${reason.device}'s card`;
+  return `The phase setup is under Phase on ${which}. A trim does not answer this: the trim is a constant, and this moves every session.`;
+}
+
+/** The card a reason is about, by its place in the setup, for a button that goes to it. */
+export function reasonCard(reason: AggregateReason, config: Aggregate | undefined): number | undefined {
+  if (reason.code !== "phase_not_measured" || reason.device === undefined) return undefined;
+  const found = (config?.devices ?? []).findIndex((device, index) => deviceName(device, index) === reason.device);
+  return found >= 0 ? found : undefined;
 }
 
 /** What the model needs of the client, so it can be decided without one. */
