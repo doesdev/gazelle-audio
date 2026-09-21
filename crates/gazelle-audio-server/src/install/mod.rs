@@ -973,10 +973,42 @@ fn remove_if_there(path: &Path) -> io::Result<bool> {
 /// because Windows paths compare without case, and with the `\\?\` a canonical Windows path
 /// carries taken off so a resolved path and a plain one still line up.
 fn components(path: &Path) -> Vec<String> {
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let path = resolved(path);
     let text = path.to_string_lossy().into_owned();
     let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
     text.split(['\\', '/']).filter(|c| !c.is_empty()).map(str::to_lowercase).collect()
+}
+
+/// A path in the one spelling Windows settles on, so two spellings of one place compare equal.
+///
+/// Windows still hands out short 8.3 names (`C:\Users\RUNNER~1` on a CI runner, `JOHNSM~1` for a
+/// person called John Smith), and canonicalising turns them into the long form. But canonicalising
+/// fails on a path that does not exist, and the one place this matters most is a registration
+/// whose file has gone: the folder would resolve to its long name while the file under it kept its
+/// short one, and the two would read as different places. So the deepest part that does exist is
+/// resolved, and the rest is put back on the end as it was written.
+fn resolved(path: &Path) -> PathBuf {
+    if let Ok(whole) = path.canonicalize() {
+        return whole;
+    }
+    let mut missing = Vec::new();
+    let mut existing = path;
+    loop {
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_os_string());
+                existing = parent;
+                if let Ok(mut found) = existing.canonicalize() {
+                    for name in missing.iter().rev() {
+                        found.push(name);
+                    }
+                    return found;
+                }
+            }
+            // Nothing of it exists, not even the drive: compared as written.
+            _ => return path.to_path_buf(),
+        }
+    }
 }
 
 /// Whether `path` sits inside `dir`, at any depth.
@@ -1001,6 +1033,40 @@ mod tests {
         assert!(!is_inside(dir, dir), "a folder is not inside itself");
         assert!(!is_inside(Path::new(r"C:\Users\u\AppData\Local\Programs\Gazelle-other\x.exe"), dir), "a longer name is not the same folder");
         assert!(!is_inside(Path::new(r"D:\portable\gazelle-audio-server.exe"), dir));
+    }
+
+    /// The same folder, spelled with its short 8.3 name and with its long one, is one folder, even
+    /// for a file inside it that is not there. That last part is the whole point: an uninstall
+    /// asking whether a registration points into Gazelle's folder is asking about a driver file
+    /// that may already have gone, and CI's `C:\Users\RUNNER~1` found that it read as elsewhere.
+    #[cfg(windows)]
+    #[test]
+    fn a_short_name_and_a_long_name_are_one_folder_even_for_a_file_that_has_gone() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+        let long = std::env::temp_dir().join(format!("gazelle resolved check {}", std::process::id()));
+        std::fs::create_dir_all(&long).unwrap();
+        // The short name is Windows' to give, once, when the folder is made; it is asked for here
+        // and the folder is kept, since making it again could give it another.
+        let wide: Vec<u16> = long.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut buffer = vec![0u16; 1024];
+        // Safety: `wide` is a terminated string this function owns, and the buffer's length is
+        // the one passed; the answer is the number of characters written, zero on failure.
+        let written = unsafe { GetShortPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+        assert!(written > 0 && written < buffer.len(), "Windows gave no short name for {}", long.display());
+        let short = PathBuf::from(std::ffi::OsString::from_wide(&buffer[..written]));
+        if short == long {
+            // This volume hands out no short names, so there is nothing to tell apart here.
+            let _ = std::fs::remove_dir_all(&long);
+            return;
+        }
+        let gone = short.join("Gazelle").join("gazelle_aggregate.dll");
+        std::fs::create_dir_all(long.join("Gazelle")).unwrap();
+        assert!(!gone.exists(), "the file is meant to be missing");
+        assert!(is_inside(&gone, &long.join("Gazelle")), "{} is inside {}", gone.display(), long.display());
+        assert!(is_inside(&long.join("Gazelle").join("x.dll"), &short.join("Gazelle")), "and the other way round");
+        let _ = std::fs::remove_dir_all(&long);
     }
 
     #[test]
