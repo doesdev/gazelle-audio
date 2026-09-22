@@ -10,118 +10,69 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-22
+
+Gazelle Aggregate: record from both interfaces at once, in one DAW session, lined up to the
+sample. Also faster mix building, and a Start on boot that stays in the tray.
+
 ### Added
 
-- **Build a mix by dragging sources from the Routing page onto the mixer dock.** Each source you
-  drop becomes a new channel in the mix the dock shows, fed by that source and routed just as if
-  you had made it on the Mixer page; a selected run adds one channel each. The dock says what the
-  drop will do while you drag over it, opens if it was folded, and asks first if the mix already
-  has one of those inputs.
 - **Record across both interfaces at once.** Gazelle Aggregate is a single audio driver a DAW
   opens with two or more interfaces underneath it, so a Quadro and a Studio+ appear as one device
-  with one long list of channels. The new **Aggregate** page sets it up and runs it.
-- **The Aggregate page says whether your PC can actually do it, and why not.** One Ready or Not
-  ready, then every reason in plain words: an interface whose driver is missing, two interfaces
-  sharing a USB host controller, rates or buffer sizes that differ, no cable declared between
-  them, an interface clocked from the wrong place, or one that is not locked. Where Gazelle can
-  put a reason right there is a button beside it that does exactly that, and matching buffer
-  sizes asks for a second click first, because it restarts a DAW's audio.
-- **Registering the driver from the app.** A DAW will not offer Gazelle Aggregate until Windows
-  lists it, which needs administrator rights: the page offers it behind Windows' own prompt, and
-  shows the command for anyone who would rather run it themselves. It is the one thing in Gazelle
-  that asks for administrator rights. It also says which copy of the driver the registration
-  points at, so a Gazelle that has moved can be registered again.
-- **Set the aggregate up on the page**: which interfaces it opens and in what order, which one
-  drives the callback, how the streams line up, the sample rate and buffer size, and a trim in
-  samples to line up what each one records. Each interface's driver
-  buffer size and Safe Mode are there too, the same settings the Devices page shows, with a
-  button to put them all on one size. The setup is kept in the workspace, so it travels with a
-  backup.
-- **Gazelle works out which connected interface each one is**, whenever exactly one of that model
-  is plugged in, so its clock, its rate and its driver settings can be read and changed without
-  choosing anything. Two of one model, or a driver that does not say what model it is, is the one
-  case it asks: the card says so, and choosing an interface there settles it for good.
-- **Line the interfaces up by measuring, not by eye.** The Aggregate page plays a click out of
-  one interface and records it on every interface at once, then says how far apart they really
-  are, how much the measurement varied, and what trim each one needs, with a button that writes
-  them into the setup. It also says when the interfaces are not holding a single clock, which is
-  the one thing no trim can put right. It makes a noise and takes the audio drivers while it runs,
-  so it says so first and asks for a confirming click.
-- **See where the DAW can play.** Each interface's card on the Aggregate page lists its output
-  sockets, monitors first, and which DAW channels reach each one, through a mix or directly. An
-  output nothing from the DAW reaches says so, with a button that sends it the first free DAW
-  channels (a pair for a pair of sockets, one for a single socket), after a confirming click.
-- **See where the DAW can record.** Beside it, each card lists the interface's input sockets, its
-  preamps, line inputs, ADAT and S/PDIF, and which DAW inputs carry each one: directly, through a
-  mix or through an effect. An input nothing records says so, with a button that records it on the
-  first free DAW input, after a confirming click.
-- **One set of names for everything on the Aggregate page, and in your DAW.** Each interface is
-  called by its name in Gazelle, the one in the sidebar, so renaming the device renames it on the
-  page and in the DAW, and the vendor driver's own name appears once, as a detail. Each channel is
-  one of the interface's USB channels (sixteen each way on the Quadro, twenty four on the Studio+,
-  known without opening a DAW) and is named for what it carries, then by that USB channel: an input
-  for what the routing sends it, "Vocal mic, USB A REC 1", and an output for where the routing sends
-  it, "Monitor L, USB 1 PLAY 1", or "USB 1 PLAY 5, not routed". An output reaching several sockets is
-  named for the most important one, the monitors first, then the line outs, the headphones, S/PDIF,
-  ADAT and the reamp. Re-routing renames it, and Gazelle
-  keeps the names the DAW sees in step whenever the routing changes, whether or not the page is
-  open. In the DAW a device you have not named goes by its model's short form, so a channel reads
-  "Monitor L (Quadro 3)" and fits. Any channel can be given a name of your own, which wins over the
-  one from the routing until you clear it, or be kept out of the aggregate altogether.
-- **See whether it is holding, while the DAW plays.** The page shows the plan the driver is
-  running and, for every interface, the gap in samples between it and the one driving the
-  callback: in step is what you want, and a gap that keeps growing is two clocks rather than one.
-  A stalled interface is said as a stall. The driver's own log is on the page as well, so a
-  session that would not start last night can be explained today.
-- A manual chapter for it: **The Aggregate page**, covering what an aggregate needs before it can
-  work at all, how to set it up, what each reason means, what the gap is, and what to do when
-  something is wrong.
-- **Every session now lines up, not just the one the trims were measured in.** The interfaces
-  used to land a different distance apart each time the driver was opened, so no trim could hold.
-  Each follower's card has a Phase setup where you pick the channel the digital cable leaves the
-  callback master on and the one it arrives on; one measurement then records a reference beside
-  the trim, and every later session is put back in step. **Check**, beside Measure, plays the
-  clicks with everything lined up and tells you how far apart a recording would land now. The page
-  shows each session's phase live, and the log records what it measured.
-- **Gazelle Aggregate comes with Gazelle.** Installing or updating puts the driver in Gazelle's
-  folder, ready to register from the Aggregate page, and an update while your DAW has the driver
-  open finishes the next time the DAW starts rather than failing. Uninstalling offers to remove
-  the driver's registration, so a DAW is never left listing a driver that is no longer there.
-- **The aggregate writes down what a session lost.** Blocks that go missing are what you hear as a
-  click, and until now the count died with the session. The driver's log now says, when a session
-  ends, how long it ran and what each interface lost, and says so the first time anything goes
-  missing, so a session that sounded wrong last night can be looked up today.
-- **A measurement says whether the audio under it was clean**, and one taken across a dropout, or
-  one whose clicks disagreed with each other, reports honestly and offers no trim rather than
-  handing you a number that looks as good as any other.
+  with one long list of channels. It comes with Gazelle: installing or updating puts it in
+  Gazelle's folder, an update while your DAW has it open finishes the next time the DAW starts,
+  and uninstalling offers to remove its registration.
+- **The Aggregate page** sets it up and runs it:
+  - **Whether your PC can do it, and why not**, in plain words: a missing driver, two interfaces
+    on one USB host controller, rates or buffer sizes that differ, no digital cable between them,
+    or a clock that is wrong or not locked. Where Gazelle can put a reason right, a button beside
+    it does.
+  - **Registering the driver**, behind Windows' own administrator prompt. It is the one thing in
+    Gazelle that asks for administrator rights.
+  - **The setup**: which interfaces, in what order, which drives the callback, the rate, the buffer
+    size, each driver's buffer size and Safe Mode, and a trim for each. It is kept in the
+    workspace, so it travels with a backup.
+  - **Measure and Check.** Measure plays a click out of one interface, records it on all of them
+    and writes the trims that line them up. The interfaces land a different whole number of 32
+    samples apart each time the driver opens, so each follower also measures its phase over the
+    digital cable, and every later session is put back where the trims were measured. Check says
+    how far apart a recording would land now. A measurement taken across a dropout, or whose
+    clicks disagree, says so and offers nothing.
+  - **Watching it while the DAW plays**: the gap between the interfaces, stalls, the phase each
+    session was lined up by, and the driver's own log, which records what each session lost.
+- **One set of names, on the page and in your DAW.** Each interface goes by its name in Gazelle.
+  Each channel is named for what it carries, then its USB channel: an input for what the routing
+  sends it, "Vocal mic, USB A REC 1", and an output for where it ends up, "Monitor L, USB 1
+  PLAY 1". Re-routing renames it, and Gazelle keeps the DAW's names in step. A name of your own
+  wins until you clear it, and any channel can be left out.
+- **Where the DAW can play and record.** Each interface's card lists its output sockets and
+  which DAW channels reach each one, and its input sockets and which DAW inputs carry each one,
+  directly, through a mix or through an effect. A socket nothing reaches says so, with a button
+  that routes the first free DAW channels to it after a confirming click.
+- **Build a mix by dragging sources from the Routing page onto the mixer dock.** Each source you
+  drop becomes a channel in the mix the dock shows, routed as if you had made it on the Mixer
+  page. The dock says what a drop will do, opens if it was folded, and asks first if the mix
+  already has one of those inputs.
+- A manual chapter, **The Aggregate page**.
 
 ### Changed
 
-- **Switch a mixer to another layout at any time.** The Mixer page's **Start from** used to
-  appear only while no channel was set up, so moving to a saved layout meant clearing every channel
-  first. It is always there now, beside **Save as**, and applying a layout over channels that are
-  set up asks for a confirming click, since it replaces them.
-- **Start on boot starts Gazelle in the tray, without opening its window.** Choose **Open Gazelle**
-  from the tray when you want it. An entry you turned on with an earlier version is changed to
-  work this way the next time Gazelle starts. Restarting into an update brings the window back as
-  it was, open or tucked away in the tray.
-- **Fields and their labels line up.** Boxes you type in, menus and the small value readouts are
-  now one height with one spacing throughout, and every label on a card or a settings block shares
-  a column, so values start in the same place down the page instead of stepping in and out row by
-  row. The Aggregate page, which was the most crowded, reads as proper columns now.
+- **Switch a mixer to another layout at any time.** **Start from** is always on the Mixer page
+  now, beside **Save as**, and applying a layout over channels you have set up asks for a
+  confirming click, since it replaces them.
+- **Start on boot starts Gazelle in the tray**, without opening its window. An entry turned on
+  with an earlier version changes to work this way the next time Gazelle starts, and restarting
+  into an update brings the window back as it was.
+- **Fields and their labels line up.** Boxes, menus and readouts share one height and spacing,
+  and labels share a column, so values start in the same place down the page.
 
 ### Fixed
 
-- **Picking a device in the sidebar works on every page.** On a surface it used to take you off the
-  surface, and on the Aggregate page it did nothing at all. On a page that shows no one device it
-  now selects the device and keeps you where you are, as the Workspace page always did, and the
-  next page with a device opens on it.
-- **A mixer strip fed by something the interface does not meter on its own now shows a level.**
-  The test oscillator, an emulated mic and a loopback return used to leave a strip's meter dead
-  while the same signal showed on the output meters, because the interface reports no meter for
-  those inputs. The strip is now metered at the mixer's own input instead. On the Zen Studio+ that
-  works in any mix; the Zen Quadro meters its mixer channels for Mix 1 alone, and a strip that
-  still cannot be metered says so when you hover it.
+- **Picking a device in the sidebar works on every page.** On a surface it used to take you off
+  the surface, and on the Aggregate page it did nothing.
+- **A mixer strip fed by the oscillator, an emulated mic or a loopback return now shows a level.**
+  It is metered at the mixer's own input. The Zen Quadro meters its mixer channels for Mix 1
+  only, and a strip that still cannot be metered says so when you hover it.
 
 ## [1.2.0] - 2026-09-20
 

@@ -1,6 +1,6 @@
 # The Gazelle manual
 
-Gazelle controls Antelope Audio's Zen Quadro Synergy Core and Zen Studio+ interfaces. This manual covers version 1.2.0 on Windows. Read [Safety](manual/02-safety.md) before anything else.
+Gazelle controls Antelope Audio's Zen Quadro Synergy Core and Zen Studio+ interfaces. This manual covers version 1.3.0 on Windows. Read [Safety](manual/02-safety.md) before anything else.
 
 1. [About Gazelle](manual/01-about.md): what it is, why, and how well it has been tested
 2. [Safety](manual/02-safety.md): the risks of software that controls audio hardware, and what to do about them

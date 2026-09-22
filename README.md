@@ -26,7 +26,7 @@ A DAW opens one audio driver at a time, so two interfaces are ordinarily two sep
 
 ## How much it has been tested
 
-Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. The last release is 1.2.0; Gazelle Aggregate is newer than that and arrives in the next one.
+Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. Version 1.3.0.
 
 Over a thousand automated tests run against a built-in emulator of both devices, and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That shows Gazelle sends what it means to send; it cannot show what your device does with it.
 
@@ -34,7 +34,7 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 
 **Gazelle Aggregate, on the real devices:** both interfaces recording together in one Cubase session; the Aggregate page's readiness answer, driver registration and buffer matching on the real PC; the click measurement that finds how far apart the interfaces record; and the per session phase measurement. That last one is the reason the rest can be trusted: the interfaces land a different whole number of 32 sample steps apart each time the driver opens, which is why a fixed correction never held. With the phase measured and a reference set, eight checks in a row on 2026-09-21 put the two interfaces 0.02 samples apart, although the sessions had started in three different states.
 
-**Gazelle Aggregate, not yet tried on the devices:** long sessions; a sample rate change mid session; unplugging an interface while it streams; three or more interfaces; measuring the output side; and the Aggregate page's own controls for the phase setup and Check, which were driven through the API on the night rather than clicked.
+**Gazelle Aggregate, not yet tried on the devices:** long sessions; a sample rate change mid session; unplugging an interface while it streams; three or more interfaces; and measuring the output side. The page's own Measure, Check and phase setup were first driven by hand, rather than through the API, on 2026-09-22.
 
 **Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 
