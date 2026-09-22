@@ -163,10 +163,21 @@ export const CATALOGUE: Catalogue = {
   "cr.talk-to": { title: "Talkback to {name}", name: "this output", what: "Whether talkback is heard on {name} while Talk is held." },
 
   // The mixer dock.
-  "dock.section": { title: "Mixer dock", what: "The mix you picked on the Mixer page as slim strips, so levels can be ridden from any page. Hidden on the Mixer page itself. Whether it is folded is remembered in this browser." },
+  "dock.section": {
+    title: "Mixer dock",
+    what: "The mix you picked on the Mixer page as slim strips, so levels can be ridden from any page. Hidden on the Mixer page itself. Whether it is folded is remembered in this browser.",
+    effect: "Drop sources dragged from the Routing page here to add a channel for each, fed by it, in the mix shown. Held over a folded dock, the drag opens it.",
+    watch: "It adds only to the device the sources belong to: while it shows a surface or another device it refuses the drop and says why.",
+  },
   "dock.source": { title: "Dock shows", what: "This device's selected mix, or one of your surfaces, so strips from any device can sit under every page. Remembered in this browser." },
   "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix buttons: changing one changes the other." },
   "dock.open-mixer": { title: "Open the Mixer page", what: "No channel is set up in this mix yet; channels are set up on the Mixer page." },
+  "dock.drop-confirm": {
+    title: "Confirm",
+    what: "The sources just dropped would put an input into this mix a second time, so the mix would sum it twice, about 6 dB louder. Press Confirm to add them anyway.",
+    effect: "Nothing has been added or sent yet. Left alone for a few seconds, the question goes away and nothing is added.",
+  },
+  "dock.drop-cancel": { title: "Cancel", what: "Adds nothing: the sources just dropped are left out of the mix." },
   "dock.open-surface": { title: "Open the surface", what: "This surface has no strips yet; strips are added on the surface's own page." },
 
   // Pages in general.
@@ -509,7 +520,8 @@ export const CATALOGUE: Catalogue = {
     title: "{name}",
     name: "Source",
     what: "A source channel. Click to select it, shift-click to select a run from the last one picked. Then click a destination cell, or drag onto one.",
-    effect: "Selecting sends nothing; the destination click does.",
+    effect: "Selecting sends nothing; the destination click does. Dragged onto the Mixer dock instead, each selected source becomes a new channel in the dock's mix, as if made on the Mixer page.",
+    watch: "Dragging to the dock needs a mouse; on a touch screen, drag onto destination cells only.",
   },
   "routing.cell": {
     title: "{name}",

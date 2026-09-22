@@ -76,7 +76,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **What Gazelle does.** It asks before it happens and marks it after.
 
-Before: on the Mixer page, choosing an **Input** or a **Main mix** that would put one input into a mix that already has it holds the change behind a **Confirm** button beside the menu, with the reason on it; **Add to** *(mix)* does the same in two clicks, the first reading Confirm. Press Confirm to do it anyway. This asks about the routing, so it still asks when the channel already there is muted or at the bottom of its fader.
+Before: on the Mixer page, choosing an **Input** or a **Main mix** that would put one input into a mix that already has it holds the change behind a **Confirm** button beside the menu, with the reason on it; **Add to** *(mix)* does the same in two clicks, the first reading Confirm, and sources dropped on the mixer dock from the Routing page wait behind a **Confirm** in the dock. Press Confirm to do it anyway. This asks about the routing, so it still asks when the channel already there is muted or at the bottom of its fader.
 
 After: both strips show a **×2** badge, on the Mixer page and in the mixer dock. Its tooltip says why: "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)", or "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)". The badge is a picture of the mix as it stands, so a channel that is muted or at the bottom of its fader does not count towards it. A chain *with* an effect in it is left alone, since dry and processed together is a normal parallel setup, and is neither asked about nor badged.
 

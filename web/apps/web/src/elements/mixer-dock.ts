@@ -17,6 +17,13 @@
 // released, as they are when another device comes into view. Whether it is collapsed is kept per
 // browser; until someone chooses, it starts collapsed at phone width, where open it would take a
 // quarter of the screen.
+//
+// Sources dragged from the Routing page drop here (`source-drag.ts`): each becomes a channel in the
+// mix shown, fed by that source, made as the Mixer page's "+" and its Input and Main mix menus make
+// one. While such a drag is over it the dock is outlined and says what a drop would do, or why it
+// would not: it adds only to the device the sources belong to, so a dock showing a surface or
+// another device refuses the drop and says so. A drop that would put an input into the mix twice
+// waits behind Confirm, as the Input menu's does. Held over a folded dock, the drag opens it.
 
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
@@ -24,16 +31,33 @@ import { meterDeflection } from "../store/mixer.ts";
 import { displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { channelStrip } from "./channel.ts";
+import { CONFIRM_MS } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { isReady, loadElement } from "./lazy.ts";
 import { href, route } from "./router.ts";
 import type { GaSection } from "./section.ts";
+import { activeSourceDrag, addDroppedSources, carriesSources, decodeSourceDrag, doublingsOf, dropHint, layoutForDrop, SOURCE_MIME, type SourceDrag } from "./source-drag.ts";
+
+/** How long a drag of sources rests on a folded dock before it opens. */
+const OPEN_ON_HOVER_MS = 600;
+/** How long a drop that would double an input waits for Confirm: a few seconds more than a menu's, since the reason must be read first. */
+const DROP_CONFIRM_MS = 2 * CONFIRM_MS;
 
 export class GaMixerDock extends GaElement {
   static override styles = [
     sheet(`
-      :host { display: block; padding: 6px 8px; border-top: 1px solid var(--ga-surface-background); background: var(--ga-surface-panel); }
+      :host { position: relative; display: block; padding: 6px 8px; border-top: 1px solid var(--ga-surface-background); background: var(--ga-surface-panel); }
       :host([hidden]) { display: none; }
+      /* A drag of routing sources over the dock: outlined, with what a drop would do or why not. */
+      :host([data-drop]) { outline: 2px dashed var(--ga-accent); outline-offset: -3px; }
+      :host([data-drop="refused"]) { outline-color: var(--ga-state-mute); }
+      .drop-hint { position: absolute; top: 6px; left: 50%; z-index: 2; max-width: calc(100% - 32px); padding: 2px 10px; border-radius: 3px; background: var(--ga-accent); color: var(--ga-accent-text); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: translateX(-50%); pointer-events: none; }
+      :host([data-drop="refused"]) .drop-hint { background: var(--ga-state-mute); color: var(--ga-text-inverse); }
+      .drop-hint[hidden], .drop-confirm[hidden] { display: none; }
+      /* A drop that would double an input: the reason and Confirm, outlined as an armed 48V is. */
+      .drop-confirm { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; font-size: 11px; }
+      .drop-confirm .reason { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .drop-confirm button { min-height: 20px; padding: 0 8px; font-size: 10px; font-weight: 700; }
       .actions { display: flex; align-items: center; gap: 6px; min-width: 0; }
       .device { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .actions select { height: 18px; min-height: 18px; padding: 0 4px; font-size: 10px; color: var(--ga-text-secondary); background: transparent; border: 1px solid var(--ga-border-subtle); border-radius: 2px; }
@@ -67,10 +91,15 @@ export class GaMixerDock extends GaElement {
     const sourceSelect = h("select", { "aria-label": "Dock shows", "data-testid": "dock-source-select", "data-explain": "dock.source", "on:change": () => store.setMixerDockSurface(sourceSelect.value === "" ? undefined : sourceSelect.value) });
     const actions = h("div", { class: "actions", slot: "actions" }, sourceSelect, device, mixSelect);
     const strips = h("div", { class: "strips", "data-testid": "dock-strips" });
-    const section = h("ga-section", { heading: "Mixer", explain: "dock.section" }, actions, strips) as GaSection;
+    const dropReason = h("span", { class: "reason", "data-testid": "dock-drop-reason" });
+    const dropConfirm = h("button", { type: "button", "data-testid": "dock-drop-confirm", "data-explain": "dock.drop-confirm" }, "Confirm");
+    const dropCancel = h("button", { type: "button", "data-testid": "dock-drop-cancel", "data-explain": "dock.drop-cancel" }, "Cancel");
+    const dropBar = h("div", { class: "drop-confirm", role: "alert", hidden: true }, dropReason, dropConfirm, dropCancel);
+    const hint = h("div", { class: "drop-hint", "data-testid": "dock-drop-hint", "aria-live": "polite", hidden: true });
+    const section = h("ga-section", { heading: "Mixer", explain: "dock.section" }, actions, dropBar, strips) as GaSection;
     section.collapsed = store.mixerDockCollapsed.peek();
     section.addEventListener("toggle", () => store.setMixerDockCollapsed(section.collapsed));
-    this.root.replaceChildren(section);
+    this.root.replaceChildren(section, hint);
 
     // What the shown device's dock holds on to: its mix reads, meter report and strips. Released
     // when another device is shown, the dock is collapsed or the Mixer page opens.
@@ -184,6 +213,9 @@ export class GaMixerDock extends GaElement {
       sourceSelect.disabled = !store.connected.value;
     });
 
+    // What a drop of routing sources lands in: the device the dock shows, or a surface, or nothing.
+    let showing: { surface: string } | { deviceId: string } | undefined;
+
     let shown: string | undefined;
     this.watch(() => {
       const current = route.value;
@@ -198,6 +230,7 @@ export class GaMixerDock extends GaElement {
       actions.hidden = collapsed || (surface === undefined && id === undefined && store.surfaces.list.value.length === 0);
       mixSelect.hidden = surface !== undefined || id === undefined;
       device.hidden = surface === undefined && id === undefined;
+      showing = repeated ? undefined : surface !== undefined ? { surface } : id !== undefined ? { deviceId: id } : undefined;
       const key = repeated || collapsed ? "" : surface !== undefined ? `surface:${surface}` : `device:${id ?? ""}`;
       if (key === shown) return;
       shown = key;
@@ -217,11 +250,140 @@ export class GaMixerDock extends GaElement {
       });
     });
 
+    this.#dropTarget(store, () => showing, section, hint, { bar: dropBar, reason: dropReason, confirm: dropConfirm, cancel: dropCancel });
+
     this.watch(() => {
       // Meter gradient stops are dBFS; place them on the scale the meters use, as the Mixer page does.
       this.style.setProperty("--mixer-meter-gradient", meterGradient(store.theme.value.meter.gradient, undefined, "to top", (db) => meterDeflection(-db)));
     });
   }
+
+  /**
+   * Makes the dock a drop target for sources dragged from the Routing page. `showing` is what the
+   * dock shows now. Only a drag of sources is answered: any other drag passes over as before.
+   */
+  #dropTarget(store: ReturnType<typeof useStore>, showing: () => { surface: string } | { deviceId: string } | undefined, section: GaSection, hint: HTMLElement, ask: DropBar): void {
+    /** What a drop of `drag` would do here: add to a mix, or be refused, with the words for either. */
+    const verdict = (drag: SourceDrag): { add: { deviceId: string; mix: number }; text: string } | { add?: undefined; text: string } => {
+      const target = showing();
+      const name = (id: string) => {
+        const entry = store.devices.peek().find((d) => d.id === id);
+        return entry === undefined ? id : displayName(entry, store.workspace.peek());
+      };
+      if (!store.connected.peek()) return { text: "Not connected: nothing can be added" };
+      if (target === undefined) return { text: "No device with a known mixer is shown here" };
+      if ("surface" in target) return { text: "Showing a surface: set Show to This device to add channels" };
+      if (target.deviceId !== drag.deviceId) return { text: `These sources are ${name(drag.deviceId)}'s; the dock shows ${name(target.deviceId)}` };
+      const mix = store.channels(target.deviceId).meteredMix.peek();
+      return { add: { deviceId: target.deviceId, mix }, text: dropHint(drag.sources.length, store.channels(target.deviceId).mixName(mix)) };
+    };
+
+    let depth = 0;
+    let opening: ReturnType<typeof setTimeout> | undefined;
+    const clear = () => {
+      depth = 0;
+      clearTimeout(opening);
+      opening = undefined;
+      this.removeAttribute("data-drop");
+      hint.hidden = true;
+    };
+    const show = (drag: SourceDrag) => {
+      const { add, text } = verdict(drag);
+      this.setAttribute("data-drop", add === undefined ? "refused" : "add");
+      hint.textContent = text;
+      hint.hidden = false;
+      return add;
+    };
+    const ours = (event: DragEvent) => (carriesSources(event.dataTransfer?.types) ? activeSourceDrag() : undefined);
+
+    this.addEventListener("dragenter", (event) => {
+      const drag = ours(event);
+      if (drag === undefined) return;
+      depth++;
+      const add = show(drag);
+      if (add !== undefined) event.preventDefault();
+      // Held over a folded dock, the drag opens it, so the new channel is seen arriving.
+      if (add !== undefined && section.collapsed && opening === undefined) opening = setTimeout(() => store.setMixerDockCollapsed(false), OPEN_ON_HOVER_MS);
+    });
+    this.addEventListener("dragover", (event) => {
+      const drag = ours(event);
+      if (drag === undefined) return;
+      // Refused, the browser's own "no" cursor shows, and no drop comes.
+      if (show(drag) === undefined) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+    });
+    this.addEventListener("dragleave", (event) => {
+      if (ours(event) === undefined) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) clear();
+    });
+    // A drag that ends anywhere else (Escape, or a drop elsewhere) takes the outline with it.
+    const ended = () => clear();
+    document.addEventListener("dragend", ended);
+    document.addEventListener("drop", ended);
+    this.onDisconnect(() => {
+      document.removeEventListener("dragend", ended);
+      document.removeEventListener("drop", ended);
+    });
+
+    // The question a drop that would double an input waits behind.
+    let pending: { deviceId: string; mix: number; sources: SourceDrag["sources"] } | undefined;
+    let waiting: ReturnType<typeof setTimeout> | undefined;
+    const dismiss = () => {
+      clearTimeout(waiting);
+      waiting = undefined;
+      pending = undefined;
+      ask.bar.hidden = true;
+    };
+    this.onDisconnect(dismiss);
+    ask.cancel.addEventListener("click", dismiss);
+    ask.confirm.addEventListener("click", () => {
+      const go = pending;
+      dismiss();
+      // Only while the dock still shows that mix: it was that mix the question was about.
+      const target = showing();
+      if (go === undefined || target === undefined || !("deviceId" in target) || target.deviceId !== go.deviceId || store.channels(go.deviceId).meteredMix.peek() !== go.mix) return;
+      void addDroppedSources(store, go.deviceId, go.mix, go.sources);
+    });
+
+    this.addEventListener("drop", (event) => {
+      const data = event.dataTransfer?.getData(SOURCE_MIME);
+      if (data === undefined || data === "") return;
+      event.preventDefault();
+      clear();
+      const drag = decodeSourceDrag(data);
+      if (drag === undefined) return;
+      const { add } = verdict(drag);
+      if (add === undefined) return;
+      // A folded dock opens, so what the drop did can be seen.
+      if (section.collapsed) store.setMixerDockCollapsed(false);
+      dismiss();
+      void (async () => {
+        await layoutForDrop(store, add.deviceId);
+        const doubled = doublingsOf(store, add.deviceId, add.mix, drag.sources);
+        if (doubled.length === 0) {
+          await addDroppedSources(store, add.deviceId, add.mix, drag.sources);
+          return;
+        }
+        const mixName = store.channels(add.deviceId).mixName(add.mix);
+        pending = { deviceId: add.deviceId, mix: add.mix, sources: drag.sources };
+        ask.reason.textContent = `${mixName}: ${doubled.join(" ")}`;
+        ask.reason.title = ask.reason.textContent;
+        ask.confirm.title = `${ask.reason.textContent}. Confirm to add anyway`;
+        ask.bar.hidden = false;
+        waiting = setTimeout(dismiss, DROP_CONFIRM_MS);
+      })();
+    });
+  }
+}
+
+/** The question a drop that would double an input waits behind. */
+interface DropBar {
+  bar: HTMLElement;
+  reason: HTMLElement;
+  confirm: HTMLButtonElement;
+  cancel: HTMLButtonElement;
 }
 
 declare global {

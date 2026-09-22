@@ -72,6 +72,7 @@ The **Mixer** band along the bottom of every page (except the Mixer page itself)
 - **Show** chooses **This device** or any [surface](14-surfaces-and-cables.md) you have built.
 - The mix menu beside the device name is the same choice as the Mixer page's Mix buttons.
 - Click the band's title to fold it away; Gazelle remembers.
+- Drag sources from the [Routing page](10-routing-page.md#adding-sources-to-a-mix) onto it to add a channel for each to the mix it shows.
 
 ## Notices and the "last sent" line
 

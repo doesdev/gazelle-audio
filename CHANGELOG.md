@@ -12,6 +12,11 @@ version that has not been published yet.
 
 ### Added
 
+- **Build a mix by dragging sources from the Routing page onto the mixer dock.** Each source you
+  drop becomes a new channel in the mix the dock shows, fed by that source and routed just as if
+  you had made it on the Mixer page; a selected run adds one channel each. The dock says what the
+  drop will do while you drag over it, opens if it was folded, and asks first if the mix already
+  has one of those inputs.
 - **Record across both interfaces at once.** Gazelle Aggregate is a single audio driver a DAW
   opens with two or more interfaces underneath it, so a Quadro and a Studio+ appear as one device
   with one long list of channels. The new **Aggregate** page sets it up and runs it.

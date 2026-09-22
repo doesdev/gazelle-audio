@@ -4,11 +4,17 @@
 // the chips onto a cell: the run fills that cell and the ones after it, cut at the row's end, with
 // one read and one write per row. Delete mutes a focused cell; "Mute row" mutes a row. Mixer inputs
 // belong to the Mixer page's channels, so their rows are shown but not edited here.
+//
+// With a mouse the chips drag natively (`source-drag.ts`), so the same drag reaches the mixer dock
+// under the page too, where dropping adds a channel per source to the dock's mix. A touch or a pen
+// drags them by pointer events instead, as before, onto cells only: a native drag needs a long
+// press on a touch screen, and would take over the quick drag that works there now.
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
 import type { RouteSlot } from "../store/routing.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
+import { activeSourceDrag, carriesSources, encodeSourceDrag, setActiveSourceDrag, SOURCE_MIME } from "./source-drag.ts";
 
 /** How far a pointer moves before a press on a chip is a drag. */
 const DRAG_PX = 4;
@@ -100,7 +106,7 @@ export class GaRouting extends GaElement {
             "data-testid": `source-${g}-${c}`,
             "data-explain": "routing.source",
             "data-explain-name": `${group.name} ${c + 1}`,
-            title: `${group.name} ${c + 1}`,
+            title: `${group.name} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`,
             "on:click": (event) => {
               if (suppressClick) {
                 suppressClick = false;
@@ -160,12 +166,12 @@ export class GaRouting extends GaElement {
     const destinations = h("section", {}, h("h2", { "data-explain": "routing.destinations" }, "Destinations"), h("div", { class: "table" }, destinationRows));
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
-      h("p", { class: "note" }, "Pick sources (shift-click for a run) and click a destination cell, or drag them onto one; a run fills that cell and those after it. Delete mutes a cell. Mixer inputs are set on the Mixer page."),
+      h("p", { class: "note" }, "Pick sources (shift-click for a run) and click a destination cell, or drag them onto one; a run fills that cell and those after it. Delete mutes a cell. Mixer inputs are set on the Mixer page; drag sources onto the Mixer dock below to add them there as channels."),
       sources,
       destinations,
     );
 
-    // Dragging chips onto a cell.
+    // Dragging chips onto a cell: by pointer events for touch and pen, natively for a mouse (below).
     let drag: { pointer: number; x: number; y: number; moved: boolean; over: HTMLElement | undefined } | undefined;
     const cellAt = (x: number, y: number) => (this.root.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>("[data-destination]") ?? undefined;
     sources.addEventListener("pointerdown", (event) => {
@@ -173,6 +179,10 @@ export class GaRouting extends GaElement {
       if (chip === null || event.button !== 0 || !store.connected.peek()) return;
       const [g, c] = (chip.dataset["source"] ?? "").split(":").map(Number) as [number, number];
       if (!(selection !== undefined && selection.group === g && c >= selection.from && c <= selection.to)) select(g, c, event.shiftKey);
+      // A mouse drags natively, which can leave the page for the dock; the press still selects.
+      const native = event.pointerType === "mouse";
+      (chip as HTMLButtonElement).draggable = native;
+      if (native) return;
       drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false, over: undefined };
       chip.setPointerCapture(event.pointerId);
     });
@@ -199,6 +209,58 @@ export class GaRouting extends GaElement {
     };
     sources.addEventListener("pointerup", (event) => endDrag(event, true));
     sources.addEventListener("pointercancel", (event) => endDrag(event, false));
+
+    // The native drag: the selected run (the press has just selected the chip if it was not in it),
+    // onto a cell here or onto the mixer dock, which reads the same data.
+    let over: HTMLElement | undefined;
+    const mark = (cell: HTMLElement | undefined) => {
+      if (cell === over) return;
+      over?.removeAttribute("data-drop");
+      over = cell;
+      over?.setAttribute("data-drop", "");
+    };
+    sources.addEventListener("dragstart", (event) => {
+      const chip = (event.target as HTMLElement).closest<HTMLElement>("[data-source]");
+      const run = selected();
+      if (chip === null || event.dataTransfer === null || !store.connected.peek() || run.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const payload = { deviceId, sources: run.map((slot) => ({ group: slot.source, channel: slot.channel })) };
+      event.dataTransfer.setData(SOURCE_MIME, encodeSourceDrag(payload));
+      event.dataTransfer.setData("text/plain", run.map((slot) => shortLabel(slot.source, slot.channel)).join(", "));
+      event.dataTransfer.effectAllowed = "copy";
+      setActiveSourceDrag(payload);
+    });
+    sources.addEventListener("dragend", () => {
+      setActiveSourceDrag(undefined);
+      mark(undefined);
+    });
+    /** The cell a drag of this device's sources may drop on, under the event, if any. */
+    const target = (event: DragEvent) => {
+      if (!carriesSources(event.dataTransfer?.types) || activeSourceDrag()?.deviceId !== deviceId) return undefined;
+      const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-destination]");
+      return cell !== null && cell.dataset["readonly"] === undefined ? cell : undefined;
+    };
+    destinations.addEventListener("dragover", (event) => {
+      const cell = target(event);
+      mark(cell);
+      if (cell === undefined) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+    });
+    destinations.addEventListener("dragleave", (event) => {
+      if (event.target === over) mark(undefined);
+    });
+    destinations.addEventListener("drop", (event) => {
+      const cell = target(event);
+      mark(undefined);
+      const payload = activeSourceDrag();
+      if (cell === undefined || payload === undefined) return;
+      event.preventDefault();
+      const [d, c] = (cell.dataset["destination"] ?? "").split(":").map(Number) as [number, number];
+      fill(d, c, payload.sources.map((source) => ({ source: source.group, channel: source.channel })));
+    });
 
     this.watch(() => {
       const connected = store.connected.value;

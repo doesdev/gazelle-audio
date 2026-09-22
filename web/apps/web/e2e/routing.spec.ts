@@ -64,6 +64,9 @@ test("dragging a source onto a cell routes it; Delete mutes a cell; mixer inputs
   await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
   await page.mouse.down();
   await page.mouse.move(cell.x + cell.width / 2, cell.y + cell.height / 2, { steps: 8 });
+  // A mouse drags a chip with the browser's own drag and drop, and Playwright hands the page its
+  // first dragover on the move after the one that started the drag.
+  await page.mouse.move(cell.x + cell.width / 2 + 1, cell.y + cell.height / 2);
   await expect(page.getByTestId("dest-0-1")).toHaveAttribute("data-drop", "");
   await page.mouse.up();
   await expect(lastSent(page)).toContainText(routingHex(0, { 1: [1, 2] }));

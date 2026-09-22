@@ -309,6 +309,24 @@ export class ChannelsModel {
     return added ? id : undefined;
   }
 
+  /**
+   * Adds a channel fed by `source` with `mix` as its main mix, as "+" and then the channel's Input
+   * and Main mix menus would, so it is routed the same way. Asks nothing: whoever calls it has asked
+   * about doubling first. Resolves to the new channel's id, or undefined when none could be added.
+   */
+  async addFed(source: RouteSource, mix: number): Promise<string | undefined> {
+    this.#checkMix(mix);
+    const group = this.#context.topology.inputs[source.group];
+    if (group === undefined || group.type === "MUTE" || !Number.isInteger(source.channel) || source.channel < 0 || source.channel >= group.channels) {
+      throw new RangeError(`no source ${source.group}:${source.channel}`);
+    }
+    const id = this.add();
+    if (id === undefined) return undefined;
+    await this.setSource(id, source);
+    await this.setMainMix(id, mix);
+    return id;
+  }
+
   /** Removes a channel, muting its slot in every mix it fed. */
   remove(id: string): Promise<boolean> {
     const before = this.#require(id);
