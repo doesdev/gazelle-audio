@@ -307,20 +307,30 @@ const FAMILY_WORDS: Readonly<Record<string, string>> = { quadro: "Zen Quadro Syn
 /**
  * The destination group kinds that are sockets on the interface, which is where an output's audio
  * ends up, with what Gazelle calls each (undefined is the group's own name, as with HP1 and HP2).
- * The server names them from the same list.
+ *
+ * **In the order outputs are named by**: a channel reaching several sockets is named for the first of
+ * them here, whatever order the device lists its groups in, so one feeding both the monitors and the
+ * headphones reads "Monitor L +1". Two headphone groups keep their own order. The server names from
+ * the same list, and both sides are held to one file of cases.
  */
-const HARDWARE_OUTPUTS: Readonly<Record<string, string | undefined>> = {
-  MONITOR: "Monitor",
-  HEADPHONES: undefined,
-  LINE_OUT: "Line out",
-  REAMP: "Reamp",
-  SPDIF_OUT: "S/PDIF out",
-  ADAT_OUT: "ADAT out",
-};
+const HARDWARE_OUTPUTS: readonly (readonly [type: string, words: string | undefined])[] = [
+  ["MONITOR", "Monitor"],
+  ["LINE_OUT", "Line out"],
+  ["HEADPHONES", undefined],
+  ["SPDIF_OUT", "S/PDIF out"],
+  ["ADAT_OUT", "ADAT out"],
+  ["REAMP", "Reamp"],
+];
+
+/** Where a hardware output group comes in the order outputs are named by, or -1 for a group that is not one. */
+function hardwareRank(group: TopologyGroup): number {
+  return HARDWARE_OUTPUTS.findIndex(([type]) => type === group.type);
+}
 
 /** What Gazelle calls a hardware output group, or nothing for a group that is not one. */
 function hardwareName(group: TopologyGroup): string | undefined {
-  return Object.hasOwn(HARDWARE_OUTPUTS, group.type) ? (HARDWARE_OUTPUTS[group.type] ?? group.name) : undefined;
+  const found = HARDWARE_OUTPUTS.find(([type]) => type === group.type);
+  return found === undefined ? undefined : (found[1] ?? group.name);
 }
 
 /** A channel of a stereo pair as L or R, and of anything else as its number from one. */
@@ -536,15 +546,18 @@ function outputPlaces(topology: Topology, groups: UsbGroups, naming: InterfaceNa
       if (slots === undefined) return [];
       return Array.from({ length: group.channels }, (_, c) => c).filter((c) => slots[c]?.source === source && slots[c]?.channel === from).map((c): [TopologyGroup, number, number] => [group, at, c]);
     });
-  const hardware: string[] = [];
+  // Each socket reached, with where it ranks: its kind, then the device's own order, then its side.
+  const hardware: { rank: [number, number, number]; name: string }[] = [];
   const mixed: string[] = [];
-  const add = (list: string[], name: string) => {
-    if (!list.includes(name)) list.push(name);
-  };
-  for (const [group, , at] of taking(groups.playbackPosition, channel)) {
+  const reach = (group: TopologyGroup, position: number, at: number) => {
     const socket = hardwareName(group);
-    if (socket !== undefined) {
-      add(hardware, `${socket} ${side(at, group.channels)}`);
+    if (socket === undefined) return;
+    const name = `${socket} ${side(at, group.channels)}`;
+    if (!hardware.some((one) => one.name === name)) hardware.push({ rank: [hardwareRank(group), position, at], name });
+  };
+  for (const [group, position, at] of taking(groups.playbackPosition, channel)) {
+    if (hardwareName(group) !== undefined) {
+      reach(group, position, at);
       continue;
     }
     const mix = topology.mixers.inputGroups.indexOf(group.id);
@@ -552,21 +565,164 @@ function outputPlaces(topology: Topology, groups: UsbGroups, naming: InterfaceNa
     const outId = topology.mixers.outputGroups[mix];
     const out = topology.inputs.findIndex((one) => one.id === outId);
     const outGroup = topology.inputs[out];
-    const beyond =
-      outGroup === undefined
-        ? []
-        : taking(out, outGroup.channels >= 2 ? channel % 2 : 0).flatMap(([g, , c]) => {
-            const name = hardwareName(g);
-            return name === undefined ? [] : [`${name} ${side(c, g.channels)}`];
-          });
-    if (beyond.length === 0) add(mixed, mixChannel(naming.layout, mix, at));
-    for (const name of beyond) add(hardware, name);
+    const beyond = outGroup === undefined ? [] : taking(out, outGroup.channels >= 2 ? channel % 2 : 0).filter(([g]) => hardwareName(g) !== undefined);
+    if (beyond.length === 0) {
+      const name = mixChannel(naming.layout, mix, at);
+      if (!mixed.includes(name)) mixed.push(name);
+    }
+    for (const [g, p, c] of beyond) reach(g, p, c);
   }
-  const places = [...hardware, ...mixed];
+  hardware.sort((x, y) => x.rank[0] - y.rank[0] || x.rank[1] - y.rank[1] || x.rank[2] - y.rank[2]);
+  const places = [...hardware.map((one) => one.name), ...mixed];
   const first = places[0];
   if (first !== undefined) return { routed: places.length > 1 ? `${first} +${places.length - 1}` : first, unrouted: false };
   const allRead = namingGroups(topology).every((at) => at === groups.recordPosition || routing[at] !== undefined);
   return { unrouted: allRead };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Where the DAW can play: each hardware output, and which USB playback channels reach it
+// ---------------------------------------------------------------------------------------------
+
+/** A list of channel numbers from zero as runs from one: "1 to 2", "1 to 4 and 7". */
+export function channelRuns(channels: readonly number[]): string {
+  const sorted = [...new Set(channels)].sort((a, b) => a - b);
+  const runs: [number, number][] = [];
+  for (const channel of sorted) {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && channel === last[1] + 1) last[1] = channel;
+    else runs.push([channel, channel]);
+  }
+  return runs.map(([from, to]) => (from === to ? String(from + 1) : `${from + 1} to ${to + 1}`)).join(" and ");
+}
+
+/** The button that sends a run of USB playback channels to an output nothing from the DAW reaches. */
+export interface PlaybackSend {
+  /** The USB playback channels it sends, from zero. */
+  run: number[];
+  /** What the button says: "Send USB 1 PLAY 7 to 8 here". */
+  label: string;
+  /** What pressing it gives up: "Line out stops playing Mix 3, and plays USB 1 PLAY 7 to 8 instead". */
+  title: string;
+  /** The destination group it writes, by place among the destinations. */
+  destination: number;
+  /** Only the output's own slots, each to its USB playback channel; the group's others are kept as they are. */
+  changes: { channel: number; source: RouteSlot }[];
+}
+
+/** One hardware output, as the "Where the DAW can play" list says it. */
+export interface PlaybackOutput {
+  /** "Monitor", "HP1", "Line out 1 to 2". */
+  label: string;
+  /** Its group, by place among the destinations, and its channels in that group. */
+  destination: number;
+  channels: number[];
+  /** `reached` when USB playback channels reach it, `nothing` when none do, `unread` while that is not known. */
+  state: "reached" | "nothing" | "unread";
+  /** What reaches it: "USB 1 PLAY 1 to 2, through Mix 1". */
+  text: string;
+  send?: PlaybackSend;
+  /** Why there is no button for an output nothing reaches. */
+  noSend?: string;
+}
+
+/** A mix as a person names it: their name for it, else "Mix 1". */
+function mixName(layout: DeviceMixer | undefined, mix: number): string {
+  const named = layout?.mixes[mix]?.name?.trim();
+  return named === undefined || named === "" ? `Mix ${mix + 1}` : plain(named);
+}
+
+/**
+ * Every hardware output of one interface, in the order outputs are named by, and which of its USB
+ * playback channels reach each one: directly, through a mix, both, or none.
+ *
+ * A pair of sockets is one line ("Monitor"); a larger group is a line per pair ("Line out 1 to 2").
+ * "Nothing from the DAW reaches it" is said only once the output's group, and the mix input behind
+ * any mix feeding it, have been read, the same rule the names follow; before that it is not read
+ * yet. An output nothing reaches offers a button that sends it the first free run of USB playback
+ * channels of its width, where free is reaching nothing and being in no mix, once every group the
+ * names come from has been read.
+ */
+export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOutput[] {
+  const topology = naming?.topology;
+  const groups = usbGroups(topology);
+  if (topology === undefined || groups === undefined || naming === undefined) return [];
+  const routing = naming.routing ?? {};
+  const usb = (channels: readonly number[]) => `${groups.playback.name} ${channelRuns(channels)}`;
+  const units = topology.outputs
+    .map((group, destination) => ({ group, destination, rank: hardwareRank(group) }))
+    .filter((one) => one.rank >= 0)
+    .sort((x, y) => x.rank - y.rank || x.destination - y.destination)
+    .flatMap(({ group, destination }) => {
+      const name = hardwareName(group) as string;
+      if (group.channels <= 2) return [{ group, destination, label: name, channels: Array.from({ length: group.channels }, (_, c) => c) }];
+      return Array.from({ length: Math.ceil(group.channels / 2) }, (_, pair) => {
+        const channels = [2 * pair, 2 * pair + 1].filter((c) => c < group.channels);
+        return { group, destination, label: `${name} ${channelRuns(channels)}`, channels };
+      });
+    });
+
+  // Which USB playback channels are free: every group the names come from read, and the channel in none of them.
+  const allRead = namingGroups(topology).every((at) => routing[at] !== undefined);
+  const used = new Set<number>();
+  for (const at of namingGroups(topology)) for (const slot of routing[at] ?? []) if (slot.source === groups.playbackPosition) used.add(slot.channel);
+
+  return units.map(({ group, destination, label, channels }): PlaybackOutput => {
+    const slots = routing[destination];
+    const base = { label, destination, channels };
+    if (slots === undefined) return { ...base, state: "unread", text: "not read yet" };
+    const direct: number[] = [];
+    const mixes = new Map<number, number[]>();
+    const feeds: string[] = [];
+    let unread = false;
+    for (const channel of channels) {
+      const slot = slots[channel];
+      const from = slot === undefined ? undefined : topology.inputs[slot.source];
+      if (slot === undefined || from === undefined || from.type === "MUTE") continue;
+      if (slot.source === groups.playbackPosition) {
+        direct.push(slot.channel);
+        if (!feeds.includes(usb([slot.channel]))) feeds.push(usb([slot.channel]));
+        continue;
+      }
+      const mix = topology.mixers.outputGroups.indexOf(from.id);
+      const feed = mix >= 0 ? mixName(naming.layout, mix) : sourceLabel(topology, { group: slot.source, channel: slot.channel });
+      if (!feeds.includes(feed)) feeds.push(feed);
+      if (mix < 0) continue;
+      const input = topology.outputs.findIndex((one) => one.id === topology.mixers.inputGroups[mix]);
+      const inMix = routing[input];
+      if (inMix === undefined) {
+        unread = true;
+        continue;
+      }
+      const playing = inMix.filter((one) => one.source === groups.playbackPosition).map((one) => one.channel);
+      if (playing.length > 0) mixes.set(mix, [...(mixes.get(mix) ?? []), ...playing]);
+    }
+    const parts = [...[...mixes.entries()].sort(([x], [y]) => x - y).map(([mix, playing]) => `${usb(playing)}, through ${mixName(naming.layout, mix)}`), ...(direct.length === 0 ? [] : [`${usb(direct)}, directly`])];
+    if (parts.length > 0) return { ...base, state: "reached", text: parts.join("; ") };
+    if (unread) return { ...base, state: "unread", text: "not read yet" };
+
+    const nothing = { ...base, state: "nothing" as const, text: "nothing from the DAW reaches it" };
+    if (!allRead) return { ...nothing, noSend: "Which USB playback channels are free is not known until the routing has been read." };
+    const width = channels.length;
+    let run: number[] | undefined;
+    for (let first = 0; first + width <= groups.playback.channels && run === undefined; first += width) {
+      const candidate = Array.from({ length: width }, (_, at) => first + at);
+      if (candidate.every((channel) => !used.has(channel))) run = candidate;
+    }
+    if (run === undefined) return { ...nothing, noSend: "Every USB playback channel already goes somewhere, so none is free to send here." };
+    const chosen = run;
+    const now = feeds.length === 0 ? `${label} plays nothing now, and plays ${usb(chosen)} instead` : `${label} stops playing ${feeds.join(" and ")}, and plays ${usb(chosen)} instead`;
+    return {
+      ...nothing,
+      send: {
+        run: chosen,
+        label: `Send ${usb(chosen)} here`,
+        title: now,
+        destination,
+        changes: channels.map((channel, at) => ({ channel, source: { source: groups.playbackPosition, channel: chosen[at] as number } })),
+      },
+    };
+  });
 }
 
 /**

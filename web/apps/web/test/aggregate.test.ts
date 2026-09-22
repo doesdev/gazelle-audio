@@ -2,6 +2,7 @@
 // the routes at all, how a reason's `fix` becomes exactly one request, and what a gap, a stall and
 // a buffer match read as. No server is started here and nothing reaches a device.
 
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -55,7 +56,9 @@ import {
   channelCounts,
   channelLabel,
   channelName,
+  channelRuns,
   channelSummary,
+  playbackOutputs,
   countedNames,
   dawLine,
   interfaceNames,
@@ -105,7 +108,7 @@ import {
   type CalibratePicks,
   type NamingSources,
 } from "../src/store/aggregate.ts";
-import type { RouteSlot } from "../src/store/routing.ts";
+import { RoutingModel, type RouteSlot } from "../src/store/routing.ts";
 import { Store } from "../src/store/store.ts";
 import { device, ends, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -505,12 +508,12 @@ test("an output routed nowhere says so, once everything it could reach has been 
   assert.equal(quadroOutput(partial, 4).text, "USB 1 PLAY 5");
 });
 
-test("an output reaching several places is the first hardware output and a count of the rest", () => {
+test("an output reaching several places is the highest ranked hardware output and a count of the rest", () => {
   const routing = quadroRouting([
     ["HEADPHONES0", 0, "COM_PLAY0", 0],
     ["MONITOR0", 0, "COM_PLAY0", 0],
   ]);
-  assert.equal(quadroOutput(routing, 0).text, "HP1 L +1, USB 1 PLAY 1");
+  assert.equal(quadroOutput(routing, 0).text, "Monitor L +1, USB 1 PLAY 1", "the monitors outrank the headphones");
   // A typed name still wins.
   const it = twoInterfaces([{ output_names: { "0": "Talkback" } }, {}], { routing });
   assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Talkback, USB 1 PLAY 1");
@@ -1631,4 +1634,145 @@ test("a check started through the store is sent as a check", async () => {
   await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20, check: true });
   await flush();
   assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0.0/0.1:0.0/1.0:check"), true);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Outputs ranked, and where the DAW can play
+// ---------------------------------------------------------------------------------------------
+
+/** The cases the server's naming is held to as well, from the one file both sides read. */
+const SHARED_CASES = JSON.parse(readFileSync(new URL("../../../../refs/fixtures/aggregate_output_names.json", import.meta.url), "utf8")) as {
+  cases: { what: string; family: "quadro" | "studio"; routes: [string, number, string, number][]; names: Record<string, string> }[];
+};
+
+/** A device of either model with every group its names come from read, MUTE unless `routes` says otherwise. */
+function namingWith(family: "quadro" | "studio", routes: [string, number, string, number][], layout?: DeviceMixer) {
+  const topology = topologies[family];
+  const mute = topology.inputs.findIndex((group) => group.id === "MUTE0");
+  const groups = new Map(namingGroups(topology).map((at) => [at, Array.from({ length: topology.outputs[at]?.channels ?? 0 }, () => ({ source: mute, channel: 0 }))]));
+  for (const [to, channel, from, fromChannel] of routes) {
+    const slots = groups.get(topology.outputs.findIndex((group) => group.id === to));
+    if (slots !== undefined) slots[channel] = { source: topology.inputs.findIndex((group) => group.id === from), channel: fromChannel };
+  }
+  const id = family === "quadro" ? "serial:Q" : "serial:S";
+  const config = { devices: [{ key: family, device_id: id }] };
+  const naming = aggregateNaming(config, answer({ devices: [report(family, { index: 0, device_id: id })] }), {
+    devices: attached,
+    aliases: {},
+    routing: (_, at) => groups.get(at),
+    ...(layout === undefined ? {} : { layouts: { [id]: layout } }),
+  });
+  return { config, naming: naming[0], groups };
+}
+
+test("outputs are named by the same cases the server is held to, the monitors first", () => {
+  assert.ok(SHARED_CASES.cases.length >= 4);
+  for (const one of SHARED_CASES.cases) {
+    const { config, naming } = namingWith(one.family, one.routes);
+    for (const [channel, expected] of Object.entries(one.names)) assert.equal(channelName(config.devices[0], naming, false, Number(channel)).text, expected, `${one.what}: output ${channel}`);
+  }
+});
+
+test("channels are listed as runs", () => {
+  assert.equal(channelRuns([0, 1]), "1 to 2");
+  assert.equal(channelRuns([6]), "7");
+  assert.equal(channelRuns([3, 0, 1, 2, 6, 7, 9]), "1 to 4 and 7 to 8 and 10");
+  assert.equal(channelRuns([1, 1, 0]), "1 to 2");
+});
+
+/** The owner's Quadro: USB 1 PLAY 1 and 2 through Mix 1 to the monitors and HP1, and the line outs fed by Mix 3, which no USB channel enters. */
+const OWNER: [string, number, string, number][] = [
+  ["MIXER_IN0", 16, "COM_PLAY0", 0],
+  ["MIXER_IN0", 17, "COM_PLAY0", 1],
+  ["MONITOR0", 0, "MIXER_OUT0", 0],
+  ["MONITOR0", 1, "MIXER_OUT0", 1],
+  ["HEADPHONES0", 0, "MIXER_OUT0", 0],
+  ["HEADPHONES0", 1, "MIXER_OUT0", 1],
+  ["LINE_OUT0", 0, "MIXER_OUT2", 0],
+  ["LINE_OUT0", 1, "MIXER_OUT2", 1],
+];
+
+test("where the DAW can play: each output in rank, through a mix, directly, or nothing", () => {
+  const lines = playbackOutputs(namingWith("quadro", [...OWNER, ["SPDIF_OUT0", 0, "COM_PLAY0", 4], ["HEADPHONES1", 1, "COM_PLAY0", 5], ["HEADPHONES1", 0, "MIXER_OUT0", 0]]).naming);
+  assert.deepEqual(lines.map((line) => [line.label, line.state, line.text]), [
+    ["Monitor", "reached", "USB 1 PLAY 1 to 2, through Mix 1"],
+    ["Line out", "nothing", "nothing from the DAW reaches it"],
+    ["HP1", "reached", "USB 1 PLAY 1 to 2, through Mix 1"],
+    ["HP2", "reached", "USB 1 PLAY 1 to 2, through Mix 1; USB 1 PLAY 6, directly"],
+    ["S/PDIF out", "reached", "USB 1 PLAY 5, directly"],
+  ]);
+  // The person's name for the mix.
+  const named = playbackOutputs(namingWith("quadro", OWNER, { mixes: [{ name: "Cue" }], groups: [], channels: [] }).naming);
+  assert.equal(named[0]?.text, "USB 1 PLAY 1 to 2, through Cue");
+  // A group larger than a pair is a line per pair, as the Studio+'s line outs are.
+  const studio = playbackOutputs(namingWith("studio", [["LINE_OUT0", 2, "USB_PLAY0", 2], ["LINE_OUT0", 3, "USB_PLAY0", 3]]).naming);
+  assert.deepEqual(studio.slice(0, 3).map((line) => [line.label, line.text]), [["Monitor", "nothing from the DAW reaches it"], ["Line out 1 to 2", "nothing from the DAW reaches it"], ["Line out 3 to 4", "USB PLAY 3 to 4, directly"]]);
+  assert.equal(studio[studio.length - 1]?.label, "Reamp", "reamp comes last");
+});
+
+test("nothing reaching an output is said only once the groups behind it have been read", () => {
+  const { config, groups } = namingWith("quadro", OWNER);
+  const without = (missing: string) => {
+    const at = topologies.quadro.outputs.findIndex((group) => group.id === missing);
+    return aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === at ? undefined : groups.get(g)) })[0];
+  };
+  const lineOut = (naming: ReturnType<typeof without>) => playbackOutputs(naming).find((line) => line.label === "Line out");
+  assert.deepEqual([lineOut(without("MIXER_IN2"))?.state, lineOut(without("MIXER_IN2"))?.text], ["unread", "not read yet"], "the mix behind it is not read");
+  assert.equal(lineOut(without("LINE_OUT0"))?.state, "unread", "its own group is not read");
+  // Read, but the free channels are not all known: no button, and it says why.
+  const notAll = lineOut(without("MIXER_IN3"));
+  assert.equal(notAll?.state, "nothing");
+  assert.equal(notAll?.send, undefined);
+  assert.match(String(notAll?.noSend), /not known until the routing has been read/);
+});
+
+test("an output nothing reaches offers the first free run of its width, and says what it would stop playing", () => {
+  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line out");
+  const playback = quadroSource("COM_PLAY0");
+  assert.deepEqual(line?.send?.run, [2, 3], "USB 1 PLAY 1 and 2 are in Mix 1, so the first free pair is 3 and 4");
+  assert.equal(line?.send?.label, "Send USB 1 PLAY 3 to 4 here");
+  assert.equal(line?.send?.title, "Line out stops playing Mix 3, and plays USB 1 PLAY 3 to 4 instead");
+  assert.equal(line?.send?.destination, quadroDestination("LINE_OUT0"));
+  assert.deepEqual(line?.send?.changes, [
+    { channel: 0, source: { source: playback, channel: 2 } },
+    { channel: 1, source: { source: playback, channel: 3 } },
+  ]);
+  // Every pair in use: no button, and it says so.
+  const busy: [string, number, string, number][] = Array.from({ length: 16 }, (_, channel): [string, number, string, number] => ["MIXER_IN3", channel, "COM_PLAY0", channel]);
+  const full = playbackOutputs(namingWith("quadro", [...OWNER, ...busy]).naming).find((one) => one.label === "Line out");
+  assert.equal(full?.send, undefined);
+  assert.match(String(full?.noSend), /none is free/);
+});
+
+test("pressing send is one routing write of the output's group, changing only its own slots", async () => {
+  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line out");
+  const send = line?.send;
+  assert.ok(send !== undefined);
+  const mix3 = quadroSource("MIXER_OUT2");
+  const written: { destination: number; slots: readonly RouteSlot[] }[] = [];
+  const routing = new RoutingModel({
+    deviceId: "serial:Q",
+    topology: topologies.quadro,
+    read: async () => ({ slots: [{ source: mix3, channel: 0 }, { source: mix3, channel: 1 }], dryRun: false }),
+    write: async (destination, slots) => {
+      written.push({ destination, slots });
+      return true;
+    },
+    notify: () => {},
+  });
+  assert.equal(await routing.routeMany(send.destination, send.changes), true);
+  assert.equal(written.length, 1, "one write");
+  const mute = quadroSource("MUTE0");
+  assert.equal(written[0]?.destination, quadroDestination("LINE_OUT0"));
+  assert.deepEqual(written[0]?.slots, [
+    { source: quadroSource("COM_PLAY0"), channel: 2 },
+    { source: quadroSource("COM_PLAY0"), channel: 3 },
+    ...Array.from({ length: 30 }, () => ({ source: mute, channel: 0 })),
+  ]);
+});
+
+test("nothing the playback list writes carries an en or em dash", () => {
+  for (const line of playbackOutputs(namingWith("quadro", OWNER).naming)) {
+    for (const text of [line.label, line.text, line.send?.label ?? "", line.send?.title ?? "", line.noSend ?? ""]) assert.doesNotMatch(text, DASHES, text);
+  }
 });

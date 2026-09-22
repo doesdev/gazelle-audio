@@ -47,13 +47,19 @@ version that has not been published yet.
   them into the setup. It also says when the interfaces are not holding a single clock, which is
   the one thing no trim can put right. It makes a noise and takes the audio drivers while it runs,
   so it says so first and asks for a confirming click.
+- **See where the DAW can play.** Each interface's card on the Aggregate page lists its output
+  sockets, monitors first, and which DAW channels reach each one, through a mix or directly. An
+  output nothing from the DAW reaches says so, with a button that sends it the first free pair of
+  DAW channels, after a confirming click.
 - **One set of names for everything on the Aggregate page, and in your DAW.** Each interface is
   called by its name in Gazelle, the one in the sidebar, so renaming the device renames it on the
   page and in the DAW, and the vendor driver's own name appears once, as a detail. Each channel is
   one of the interface's USB channels (sixteen each way on the Quadro, twenty four on the Studio+,
   known without opening a DAW) and is named for what it carries, then by that USB channel: an input
   for what the routing sends it, "Vocal mic, USB A REC 1", and an output for where the routing sends
-  it, "Monitor L, USB 1 PLAY 1", or "USB 1 PLAY 5, not routed". Re-routing renames it, and Gazelle
+  it, "Monitor L, USB 1 PLAY 1", or "USB 1 PLAY 5, not routed". An output reaching several sockets is
+  named for the most important one, the monitors first, then the line outs, the headphones, S/PDIF,
+  ADAT and the reamp. Re-routing renames it, and Gazelle
   keeps the names the DAW sees in step whenever the routing changes, whether or not the page is
   open. In the DAW a device you have not named goes by its model's short form, so a channel reads
   "Monitor L (Quadro 3)" and fits. Any channel can be given a name of your own, which wins over the

@@ -95,10 +95,18 @@ So the count is known as soon as Gazelle knows which device an interface is, wit
 
 - It reaches an output socket, directly or through a mix: that output and side, **Monitor L, USB 1 PLAY 1**. Through a mix, the first channel of a pair is the left side and the second the right, which is how a DAW's stereo pairs land in a stereo mix.
 - It lands in a mix whose output goes nowhere: the mix channel, with your names for the channel and the mix where you gave them, **Click in Cue, USB 1 PLAY 3**, else **Ch 11 in Mix 3, USB 1 PLAY 3**.
-- It reaches several places: the first output socket and how many more, **Monitor L +2, USB 1 PLAY 1**.
+- It reaches several places: the most important socket it reaches and how many more, **Monitor L +1, USB 1 PLAY 1**. Sockets rank in this order, whatever order the interface lists them in: Monitor, Line out, the headphones (HP1 before HP2), S/PDIF out, ADAT out, and Reamp last. So a channel feeding a mix that goes to both the monitors and HP1 is named for the monitors.
 - It goes nowhere: **USB 1 PLAY 5, not routed**.
 
 Until Gazelle has read the routing the name depends on, a channel is just its USB channel. Gazelle reads each routing group it needs once, when it first needs it.
+
+### Where the DAW can play
+
+Each card lists the interface's output sockets, in the same order, and which of its USB playback channels reach each one: **Monitor: USB 1 PLAY 1 to 2, through Mix 1**, **S/PDIF out: USB 1 PLAY 5, directly**, or both, one after the other. A pair of sockets is one line; the Studio+'s eight line outs are a line per pair, **Line out 1 to 2**. It is the quickest way to see that something the DAW plays will actually be heard somewhere, and where.
+
+An output that nothing from the DAW reaches says so: **Line out: nothing from the DAW reaches it**, which is what you see when the line outs are fed by a mix no USB playback channel goes into. Until Gazelle has read the routing behind an output, it says **not read yet** instead of guessing.
+
+Beside such an output, **Send USB 1 PLAY 3 to 4 here** routes the first free USB playback channels, ones that go nowhere and are in no mix, straight to it, so the DAW can play there. It asks twice, and its tip says what the output stops playing, **Line out stops playing Mix 3**. It is one routing change to that output alone, the same as making it on the [Routing page](10-routing-page.md), and the names on the page follow it at once. If every USB playback channel already goes somewhere, there is no button, and the line says so.
 
 **Channels** on a card opens the list, inputs and then outputs. Each row is one channel and says its name once: whether the aggregate exposes it, its name, a field for a name of your own (empty until you type), and what a DAW adds to that name, where it adds anything.
 

@@ -928,6 +928,19 @@ export const CATALOGUE: Catalogue = {
     what: "A name for this channel that wins over the one from the routing, here and in the DAW. Empty takes the automatic one, shown beside it. Up to 31 characters.",
     effect: "Saved in the workspace and written out for the driver when you press Enter or leave the field. Clear it and the name from the routing comes back.",
   },
+  "aggregate.plays": {
+    title: "Where the DAW can play",
+    what: "Each output socket on this interface, monitors first, and which of its USB playback channels reach it: through a mix, directly, or not at all. A channel the DAW plays is only heard where one of these lines says it goes.",
+  },
+  "aggregate.play-line": {
+    title: "What reaches this output",
+    what: "The USB playback channels that reach this output, and how: through a mix, named as you named it, or directly. Nothing from the DAW reaches it means the DAW cannot be heard here as the routing stands. Not read yet means Gazelle has not read that routing.",
+  },
+  "aggregate.play-send": {
+    title: "Send DAW channels here",
+    what: "Routes the first free USB playback channels, ones that go nowhere and are in no mix, straight to this output, so the DAW can play here. Click twice.",
+    effect: "One routing change to this output, the same as making it on the Routing page. The output stops playing whatever feeds it now; the button's tip says what that is.",
+  },
   "aggregate.channel-daw": {
     title: "In a DAW",
     what: "The name a DAW will show for this channel: its name, with the interface's name and the channel's number after it, all in 31 characters. A device you have not named goes by its model's short form here, Quadro or Studio+. Shown only when it says something the channel's name does not.",

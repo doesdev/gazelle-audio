@@ -1,0 +1,44 @@
+{
+  "about": "What the Aggregate page and the server's export call an aggregate output, for routings given as [destination group, channel, source group, source channel] over a device whose every other slot is MUTE. Both sides' tests read this file, so the two cannot name an output differently.",
+  "cases": [
+    {
+      "what": "the owner's Quadro: USB 1 PLAY 1 and 2 into Mix 1, and Mix 1 out to the monitors and HP1",
+      "family": "quadro",
+      "routes": [
+        ["MIXER_IN0", 16, "COM_PLAY0", 0],
+        ["MIXER_IN0", 17, "COM_PLAY0", 1],
+        ["MONITOR0", 0, "MIXER_OUT0", 0],
+        ["MONITOR0", 1, "MIXER_OUT0", 1],
+        ["HEADPHONES0", 0, "MIXER_OUT0", 0],
+        ["HEADPHONES0", 1, "MIXER_OUT0", 1]
+      ],
+      "names": { "0": "Monitor L +1, USB 1 PLAY 1", "1": "Monitor R +1, USB 1 PLAY 2", "2": "USB 1 PLAY 3, not routed" }
+    },
+    {
+      "what": "a Quadro channel straight to HP2 and the line outs: the line outs outrank the headphones",
+      "family": "quadro",
+      "routes": [
+        ["HEADPHONES1", 0, "COM_PLAY0", 3],
+        ["LINE_OUT0", 0, "COM_PLAY0", 3]
+      ],
+      "names": { "3": "Line out L +1, USB 1 PLAY 4" }
+    },
+    {
+      "what": "a Quadro channel in a mix that goes nowhere",
+      "family": "quadro",
+      "routes": [["MIXER_IN2", 9, "COM_PLAY0", 4]],
+      "names": { "4": "Ch 10 in Mix 3, USB 1 PLAY 5" }
+    },
+    {
+      "what": "a Studio+ channel to HP1 and the reamp, and another to ADAT and the reamp: reamp comes last",
+      "family": "studio",
+      "routes": [
+        ["REAMP0", 0, "USB_PLAY0", 0],
+        ["HEADPHONES0", 0, "USB_PLAY0", 0],
+        ["REAMP0", 1, "USB_PLAY0", 1],
+        ["ADAT_OUT0", 3, "USB_PLAY0", 1]
+      ],
+      "names": { "0": "HP1 L +1, USB PLAY 1", "1": "ADAT out 4 +1, USB PLAY 2" }
+    }
+  ]
+}

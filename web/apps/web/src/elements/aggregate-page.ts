@@ -69,6 +69,7 @@ import {
   matchedBy,
   namingGroups,
   pageNameOf,
+  playbackOutputs,
   matchNote,
   matchTarget,
   outcomeSummary,
@@ -208,6 +209,13 @@ export class GaAggregate extends GaElement {
       /* The phase: its setup on a card, what a session made of it, and what a run made of it. The
          tones are the gap's own: accent for lined up, the warning colour for refused. */
       .phase-part { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--ga-border-subtle); }
+      /* Where the DAW can play: a line per output, its label in the card's own label column. */
+      .plays { display: grid; grid-template-columns: subgrid; row-gap: 4px; margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--ga-border-subtle); }
+      .plays > .head { grid-column: 1 / -1; }
+      .play-row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
+      .play-row > .what { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); min-width: 0; }
+      .play-row .readout { overflow-wrap: anywhere; }
+      .play-row[data-state="nothing"] .readout { color: var(--ga-state-solo); }
       .phase-part > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); padding: 2px 0; cursor: pointer; }
       .phase-part .field-grid { margin-top: 6px; }
       [data-tone="good"]:is(.phase, .phase-summary, .verdict-text) { color: var(--ga-accent); }
@@ -235,6 +243,7 @@ export class GaAggregate extends GaElement {
         .events li { flex-wrap: wrap; }
         .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
         .channel-row .field, .channel-row .daw { grid-column: 1 / -1; }
+        .play-row > .what { grid-column: 1 / -1; }
       }
     `),
   ];
@@ -660,6 +669,7 @@ export class GaAggregate extends GaElement {
     });
 
     const phasePart = this.#phasePart(store, device, index, watch);
+    const playsPart = this.#playsPart(store, index, watch);
 
     // One grid for the whole card, two label-and-field pairs to a line: what you set down the left,
     // what the interface reports down the right. Every label shares one column, so every value
@@ -687,6 +697,7 @@ export class GaAggregate extends GaElement {
         ...field("Output trim", outTrim),
         ...field("Phase now", phaseNow),
         channelsPart,
+        playsPart,
         phasePart,
       ),
       notMatched,
@@ -885,6 +896,55 @@ export class GaAggregate extends GaElement {
       for (const control of [leaves, arrives, clear]) control.disabled = !connected;
     });
 
+    return part;
+  }
+
+  /**
+   * Where the DAW can play on this interface: a line per hardware output, in the order outputs are
+   * named by, saying which USB playback channels reach it and how, and for an output nothing from
+   * the DAW reaches, a button that sends it the first free run. The button is the app's two click
+   * confirm and writes through the store's routing model, exactly as a change on the Routing page
+   * does, so the write, the dry run's bytes line and every name that follows from it all follow as
+   * they do there. Nothing here writes by itself.
+   *
+   * The lines are rebuilt only when what they say changes, so a poll landing does not disarm a
+   * Confirm half pressed.
+   */
+  #playsPart(store: Store, index: number, watch: (fn: () => void) => void): HTMLElement {
+    const testid = `device-${index}`;
+    const part = h("div", { class: "plays wide", "data-testid": `${testid}-plays` }, h("span", { class: "label head", "data-explain": "aggregate.plays" }, "Where the DAW can play"));
+    let shown: string | undefined;
+    let disarms: (() => void)[] = [];
+    this.onDisconnect(() => {
+      for (const disarm of disarms) disarm();
+    });
+    watch(() => {
+      const naming = this.#naming(store)[index];
+      const lines = playbackOutputs(naming);
+      const shape = JSON.stringify([naming?.deviceId, lines]);
+      part.hidden = lines.length === 0;
+      if (shape !== shown) {
+        shown = shape;
+        for (const disarm of disarms) disarm();
+        disarms = [];
+        const rows = lines.map((line, at) => {
+          const what = h("span", { class: "what" }, h("span", { class: "readout", "data-testid": `${testid}-play-${at}-text`, "data-explain": "aggregate.play-line" }, line.text));
+          const send = line.send;
+          const id = naming?.deviceId;
+          if (send !== undefined && id !== undefined) {
+            const button = h("button", { type: "button", class: "fix", title: send.title, "data-testid": `${testid}-play-${at}-send`, "data-explain": "aggregate.play-send" }, send.label);
+            disarms.push(bindConfirm(button, send.label, () => void store.routing(id).routeMany(send.destination, send.changes)));
+            what.append(button);
+          } else if (line.noSend !== undefined) {
+            what.append(h("span", { class: "note", "data-testid": `${testid}-play-${at}-no-send` }, line.noSend));
+          }
+          return h("div", { class: "play-row", "data-state": line.state, "data-testid": `${testid}-play-${at}` }, h("span", { class: "label" }, line.label), what);
+        });
+        untracked(() => part.replaceChildren(part.firstChild as Node, ...rows));
+      }
+      const connected = store.connected.value;
+      for (const button of part.querySelectorAll<HTMLButtonElement>("button")) button.disabled = !connected;
+    });
     return part;
   }
 

@@ -41,14 +41,26 @@ pub const USB_GROUPS: &[(&str, &str, &str)] = &[("quadro", "COM_REC0", "COM_PLAY
 
 /// The destination group kinds that are sockets on the interface, which is where an output's audio
 /// ends up, with what Gazelle calls each (`None` is the group's own name, as with HP1 and HP2).
+///
+/// **In the order an output is named by.** A channel that reaches several sockets is named for the
+/// first of them in this list, whatever order the device lists its groups in: the monitors are what
+/// a person listens on, so a channel feeding both the monitors and a pair of headphones reads
+/// "Monitor L +1", not "HP1 L +1". Two headphone groups keep their own order, HP1 before HP2. The web
+/// page ranks them from the same list.
 const HARDWARE_OUTPUTS: &[(&str, Option<&str>)] = &[
     ("MONITOR", Some("Monitor")),
-    ("HEADPHONES", None),
     ("LINE_OUT", Some("Line out")),
-    ("REAMP", Some("Reamp")),
+    ("HEADPHONES", None),
     ("SPDIF_OUT", Some("S/PDIF out")),
     ("ADAT_OUT", Some("ADAT out")),
+    ("REAMP", Some("Reamp")),
 ];
+
+/// Where a hardware output group comes in the order outputs are named by, or nothing for a group
+/// that is not one.
+fn hardware_rank(group: &Group) -> Option<usize> {
+    HARDWARE_OUTPUTS.iter().position(|(kind, _)| *kind == group.kind)
+}
 
 /// The routing groups a device's channels are named from, by topology id, each as its slots.
 pub type Routing = BTreeMap<String, Vec<[u8; 2]>>;
@@ -297,12 +309,13 @@ pub fn input_channel(family: &str, channel: u32, routing: &Routing, mixer: Optio
 
 /// Every place the routing sends one source: the destination groups whose slots take it, as
 /// `(group, channel)`, in topology order, from the groups seen so far.
-fn taking<'a>(destinations: &'a [Group], routing: &Routing, source: [u8; 2]) -> Vec<(&'a Group, u32)> {
+fn taking<'a>(destinations: &'a [Group], routing: &Routing, source: [u8; 2]) -> Vec<(usize, &'a Group, u32)> {
     destinations
         .iter()
-        .flat_map(|group| {
+        .enumerate()
+        .flat_map(|(position, group)| {
             let slots = routing.get(&group.id);
-            (0..group.channels).filter(move |&at| slots.and_then(|slots| slots.get(at as usize)) == Some(&source)).map(move |at| (group, at))
+            (0..group.channels).filter(move |&at| slots.and_then(|slots| slots.get(at as usize)) == Some(&source)).map(move |at| (position, group, at))
         })
         .collect()
 }
@@ -310,7 +323,8 @@ fn taking<'a>(destinations: &'a [Group], routing: &Routing, source: [u8; 2]) -> 
 /// Aggregate output `channel`: its USB playback channel, which is a routing source, named for where
 /// the routing sends it.
 ///
-/// A hardware output it reaches, directly or through a mix, comes first: "Monitor L". Through a mix
+/// A hardware output it reaches, directly or through a mix, comes first, the highest ranked of them
+/// when it reaches several ([`HARDWARE_OUTPUTS`]): "Monitor L". Through a mix
 /// the side is the playback channel's own within its pair (the first of each pair is L), which is how
 /// a DAW's stereo pairs land in a stereo mix. With no hardware output reached, the mix channel it
 /// lands in: "Click in Cue", with the person's names for the channel and the mix where they gave
@@ -329,36 +343,43 @@ pub fn output_channel(family: &str, channel: u32, routing: &Routing, mixer: Opti
     let mix_outputs = topology::mix_outputs(family).unwrap_or_default();
     let reached = |source: [u8; 2]| taking(destinations, routing, source);
 
-    let mut hardware: Vec<String> = Vec::new();
+    // Each socket reached, with where it ranks: its kind, then the device's own order, then its side.
+    let mut hardware: Vec<((usize, usize, u32), String)> = Vec::new();
     let mut mixed: Vec<String> = Vec::new();
-    let add = |list: &mut Vec<String>, name: String| {
-        if !list.contains(&name) {
-            list.push(name);
+    let reach = |hardware: &mut Vec<((usize, usize, u32), String)>, position: usize, group: &Group, at: u32| {
+        if let (Some(rank), Some(name)) = (hardware_rank(group), hardware_channel(group, at)) {
+            if !hardware.iter().any(|(_, known)| *known == name) {
+                hardware.push(((rank, position, at), name));
+            }
         }
     };
     let own = [groups.playback_position as u8, channel as u8];
-    for (group, at) in reached(own) {
-        if let Some(name) = hardware_channel(group, at) {
-            add(&mut hardware, name);
+    for (position, group, at) in reached(own) {
+        if hardware_rank(group).is_some() {
+            reach(&mut hardware, position, group, at);
             continue;
         }
         let Some(mix) = mix_inputs.iter().position(|id| *id == group.id) else { continue };
         // Where that mix goes: its output group, on the side this channel takes in its pair.
         let out = mix_outputs.get(mix).and_then(|id| sources.iter().position(|g| g.id == *id).map(|at| (at, &sources[at])));
-        let beyond: Vec<String> = out
+        let beyond: Vec<(usize, &Group, u32)> = out
             .map(|(position, group)| {
                 let side = if group.channels >= 2 { channel % 2 } else { 0 };
-                reached([position as u8, side as u8]).into_iter().filter_map(|(g, c)| hardware_channel(g, c)).collect()
+                reached([position as u8, side as u8]).into_iter().filter(|(_, g, _)| hardware_rank(g).is_some()).collect()
             })
             .unwrap_or_default();
         if beyond.is_empty() {
-            add(&mut mixed, mix_channel(mixer, mix, at));
+            let name = mix_channel(mixer, mix, at);
+            if !mixed.contains(&name) {
+                mixed.push(name);
+            }
         }
-        for name in beyond {
-            add(&mut hardware, name);
+        for (position, group, at) in beyond {
+            reach(&mut hardware, position, group, at);
         }
     }
-    let places: Vec<String> = hardware.into_iter().chain(mixed).collect();
+    hardware.sort_by_key(|(rank, _)| *rank);
+    let places: Vec<String> = hardware.into_iter().map(|(_, name)| name).chain(mixed).collect();
     let carries = places.first().map(|first| if places.len() > 1 { format!("{first} +{}", places.len() - 1) } else { first.clone() });
     // Not routed is said only once every group it could reach has been seen.
     let all_seen = destinations.iter().filter(|g| hardware_name(g).is_some() || mix_inputs.contains(&g.id)).all(|g| routing.contains_key(&g.id));
@@ -584,9 +605,58 @@ mod tests {
         let mut routing = silent("quadro");
         route(&mut routing, "HEADPHONES0", 0, [play, 0]);
         route(&mut routing, "MONITOR0", 0, [play, 0]);
-        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "HP1 L +1, USB 1 PLAY 1");
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 PLAY 1", "the monitors outrank the headphones");
         route(&mut routing, "MIXER_IN2", 0, [play, 0]);
-        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().label(), "HP1 L +2", "a mix channel going nowhere counts as one of the rest");
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().label(), "Monitor L +2", "a mix channel going nowhere counts as one of the rest");
+    }
+
+    /// The owner's Quadro: USB 1 PLAY 1 and 2 into Mix 1's slots 17 and 18, and Mix 1 out to both the
+    /// monitors and the first headphones. The device lists the headphones first; the name is Monitor.
+    #[test]
+    fn a_channel_reaching_monitor_and_headphones_through_a_mix_is_named_for_the_monitor() {
+        let play = source("quadro", "COM_PLAY0");
+        let mix1 = source("quadro", "MIXER_OUT0");
+        let mut routing = silent("quadro");
+        route(&mut routing, "MIXER_IN0", 16, [play, 0]);
+        route(&mut routing, "MIXER_IN0", 17, [play, 1]);
+        for group in ["MONITOR0", "HEADPHONES0"] {
+            route(&mut routing, group, 0, [mix1, 0]);
+            route(&mut routing, group, 1, [mix1, 1]);
+        }
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 PLAY 1");
+        assert_eq!(output_channel("quadro", 1, &routing, None).unwrap().text(), "Monitor R +1, USB 1 PLAY 2");
+    }
+
+    #[test]
+    fn outputs_are_ranked_monitor_line_out_headphones_in_order_then_spdif_adat_and_reamp() {
+        let kinds: Vec<&str> = HARDWARE_OUTPUTS.iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(kinds, ["MONITOR", "LINE_OUT", "HEADPHONES", "SPDIF_OUT", "ADAT_OUT", "REAMP"]);
+        let play = source("quadro", "COM_PLAY0");
+        let mut routing = silent("quadro");
+        for group in ["SPDIF_OUT0", "HEADPHONES1", "HEADPHONES0", "LINE_OUT0"] {
+            route(&mut routing, group, 0, [play, 5]);
+        }
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "Line out L +3");
+        routing.get_mut("LINE_OUT0").unwrap()[0] = [source("quadro", "MUTE0"), 0];
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "HP1 L +2", "HP1 before HP2");
+    }
+
+    /// The cases the web page is held to as well, from one file both sides read.
+    #[test]
+    fn the_shared_output_naming_cases_come_out_as_the_file_says() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/fixtures/aggregate_output_names.json"))).unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let family = case["family"].as_str().unwrap();
+            let mut routing = silent(family);
+            for step in case["routes"].as_array().unwrap() {
+                let [to, channel, from, from_channel] = [&step[0], &step[1], &step[2], &step[3]];
+                route(&mut routing, to.as_str().unwrap(), channel.as_u64().unwrap() as usize, [source(family, from.as_str().unwrap()), from_channel.as_u64().unwrap() as u8]);
+            }
+            for (channel, expected) in case["names"].as_object().unwrap() {
+                let name = output_channel(family, channel.parse().unwrap(), &routing, None).unwrap().text();
+                assert_eq!(name, expected.as_str().unwrap(), "{}: output {channel}", case["what"]);
+            }
+        }
     }
 
     #[test]

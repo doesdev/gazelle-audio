@@ -1300,9 +1300,10 @@ test.describe("with the routing read from the interfaces", () => {
     await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
     await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
     // Each output is named for where the routing sends it: the loopback's first USB playback channel
-    // goes to the line outs, the monitors and S/PDIF, and through Mixes 1 and 2 to the headphones,
-    // and it sits in Mixes 3 and 4, which go nowhere. The third goes nowhere at all.
-    await expect(page.getByTestId("device-1-out-0-name")).toHaveText("Line out L +6, USB 1 PLAY 1");
+    // goes to the line outs, the monitors and S/PDIF, through Mixes 1 and 2 to the headphones, and into
+    // Mixes 3 and 4, which go nowhere; it is named for the monitors, which outrank the rest. The third
+    // goes nowhere at all.
+    await expect(page.getByTestId("device-1-out-0-name")).toHaveText("Monitor L +6, USB 1 PLAY 1");
     await expect(page.getByTestId("device-1-out-2-name")).toHaveText("USB 1 PLAY 3, not routed");
     await expect(page.getByTestId("device-1-out-2-daw")).toHaveText("In a DAW: Not routed (Quadro 3)");
 
@@ -1316,7 +1317,7 @@ test.describe("with the routing read from the interfaces", () => {
     // And the phase setup on the follower's card.
     await page.getByTestId("device-1-phase-open").click();
     await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(1)).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("Line out 1 +6, USB PLAY 1");
+    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("Monitor L +6, USB PLAY 1");
   });
 
   test("renaming the device in Gazelle renames it on the page, and the callback master stays the same device", async ({ page }) => {
@@ -1344,6 +1345,92 @@ test.describe("with the routing read from the interfaces", () => {
     // And the setup itself never changed: the master is still written as the device's driver.
     const saved = (await (await fetch(`${reading.url}/api/v1/workspace`)).json()) as { aggregate: { callback_master: string } };
     expect(saved.aggregate.callback_master).toBe("Zen Quadro Synergy Core");
+  });
+});
+
+test.describe("the owner's Quadro, and where the DAW can play", () => {
+  // A loopback that is not in dry run keeps the routing it is given, which is what these read back.
+  let owner: RunningServer;
+
+  test.beforeAll(async () => {
+    owner = await startServer(["--backend", "loopback"], { webUi: true });
+  });
+
+  test.afterAll(async () => {
+    await owner?.stop();
+  });
+
+  // The Quadro's routing groups by place, and its sources by place, as its topology lists them.
+  const LINE_OUT = 0, HP1 = 1, HP2 = 2, MONITOR = 3, SPDIF_OUT = 6, MIX_IN = [8, 9, 10, 11];
+  const COM_PLAY = 1, MIX1_OUT = 6, MIX3_OUT = 8, MUTE = 10;
+
+  /** One destination group's 32 slots, MUTE except where `slots` says, written through the command route. */
+  async function route(group: number, slots: Record<number, [number, number]>): Promise<void> {
+    const pairs = Array.from({ length: 32 }, (_, at) => slots[at] ?? [MUTE, 0]).flat();
+    const response = await fetch(`${owner.url}/api/v1/devices/loopback-0/command/set_routing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bank_idx: group, bank_configs: pairs }) });
+    expect(response.ok, await response.text()).toBe(true);
+  }
+
+  /**
+   * What the owner has: USB 1 PLAY 1 and 2 into Mix 1's slots 17 and 18, Mix 1 out to both the
+   * monitors and HP1, and the line outs fed by Mix 3, which no USB playback channel enters.
+   */
+  async function ownersRouting(): Promise<void> {
+    await route(MIX_IN[0] as number, { 16: [COM_PLAY, 0], 17: [COM_PLAY, 1] });
+    for (const mix of MIX_IN.slice(1)) await route(mix, {});
+    await route(MONITOR, { 0: [MIX1_OUT, 0], 1: [MIX1_OUT, 1] });
+    await route(HP1, { 0: [MIX1_OUT, 0], 1: [MIX1_OUT, 1] });
+    await route(HP2, {});
+    await route(SPDIF_OUT, {});
+    await route(LINE_OUT, { 0: [MIX3_OUT, 0], 1: [MIX3_OUT, 1] });
+  }
+
+  test("a channel reaching the monitors and HP1 is named for the monitors, and the card lists where the DAW can play", async ({ page }) => {
+    await ownersRouting();
+    await putWorkspace(owner, { aliases: OWN_NAMES, aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
+    await page.goto(`${owner.url}/#/aggregate`);
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-out-0-name")).toHaveText("Monitor L +1, USB 1 PLAY 1", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-out-1-name")).toHaveText("Monitor R +1, USB 1 PLAY 2");
+
+    const rows = page.locator('[data-testid^="device-0-play-"][data-state]');
+    await expect(rows).toHaveCount(5);
+    const line = (at: number) => page.getByTestId(`device-0-play-${at}`);
+    await expect(line(0)).toContainText("Monitor");
+    await expect(page.getByTestId("device-0-play-0-text")).toHaveText("USB 1 PLAY 1 to 2, through Mix 1");
+    await expect(line(1)).toContainText("Line out");
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("nothing from the DAW reaches it");
+    await expect(page.getByTestId("device-0-play-2-text")).toHaveText("USB 1 PLAY 1 to 2, through Mix 1");
+    await expect(line(2)).toContainText("HP1");
+    await expect(page.getByTestId("device-0-play-0-send")).toHaveCount(0, { timeout: 1000 });
+    const send = page.getByTestId("device-0-play-1-send");
+    await expect(send).toHaveText("Send USB 1 PLAY 3 to 4 here");
+    await expect(send).toHaveAttribute("title", "Line out stops playing Mix 3, and plays USB 1 PLAY 3 to 4 instead");
+  });
+
+  test("sending DAW channels to an output asks twice, then writes that one group and nothing else", async ({ page }) => {
+    await ownersRouting();
+    await putWorkspace(owner, { aliases: OWN_NAMES, aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    const captured = await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
+    await page.goto(`${owner.url}/#/aggregate`);
+    const send = page.getByTestId("device-0-play-1-send");
+    await expect(send).toHaveText("Send USB 1 PLAY 3 to 4 here", { timeout: 5000 });
+
+    await send.click();
+    await expect(send).toHaveText("Confirm");
+    await page.waitForTimeout(300);
+    expect(captured.commands.filter((one) => one.command === "set_routing"), "one click writes nothing").toEqual([]);
+
+    await send.click();
+    const hex = (source: number, channel: number) => [source, channel].map((b) => b.toString(16).padStart(2, "0")).join("");
+    await expect.poll(() => captured.commands.filter((one) => one.command === "set_routing")).toEqual([
+      { device_id: "loopback-0", command: "set_routing", args: { bank_idx: LINE_OUT, bank_configs: [hex(COM_PLAY, 2), hex(COM_PLAY, 3), ...Array.from({ length: 30 }, () => hex(MUTE, 0))] } },
+    ]);
+    // The line outs play the DAW now, and the page says so, from the routing it just wrote.
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB 1 PLAY 3 to 4, directly");
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("Line out L, USB 1 PLAY 3");
   });
 });
 
