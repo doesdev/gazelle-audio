@@ -108,6 +108,14 @@ An output that nothing from the DAW reaches says so: **Line out: nothing from th
 
 Beside such an output, **Send USB 1 PLAY 3 to 4 here** routes the first free USB playback channels, ones that go nowhere and are in no mix, straight to it, so the DAW can play there: a free pair for a pair of sockets, and a single free channel for a single socket, **Send USB PLAY 9 here**. It asks twice, and its tip says what the output stops playing, **Line out stops playing Mix 3**. It is one routing change to that output alone, the same as making it on the [Routing page](10-routing-page.md), and the names on the page follow it at once. If every USB playback channel already goes somewhere, there is no button, and the line says so.
 
+### Where the DAW can record
+
+Beside it, each card lists the interface's input sockets, the ones you plug something into: its preamps, the Studio+'s line inputs, ADAT in and S/PDIF in, in the interface's own order. The USB playback channels, the mixes, the effects and the oscillator are not sockets and are not listed. A pair of sockets is one line, **S/PDIF in**; a larger group is a line per socket, **Preamp 1**, **ADAT in 9**.
+
+Each line says which USB record channels carry that input, and how: **USB A REC 1, directly**; **USB A REC 3 to 4, through Mix 2** when a mix with that input in it is recorded, with your name for the mix where you gave one; or **USB A REC 6, through AFX 3** when the input goes into an effect whose output is recorded. Several routes are listed one after the other. An input nothing carries says **nothing records it**, but only once Gazelle has read the USB record channels, the mixes' inputs and the effects' inputs; before that it says **not read yet**.
+
+Beside such an input, **Record it on USB A REC 9** routes it straight to the first free USB record channel, so the DAW can record it; a pair of sockets takes a free pair, **Record it on USB A REC 9 to 10**. Free means routed from nothing. A Quadro fills the USB record channels nobody uses with its first preamp rather than with nothing, so those are not free: the button uses only channels actually routed from nothing, which a fresh setup on the Routing page gives you. It asks twice, and it is one routing change to those record channels alone. The names of the aggregate's inputs follow at once. If no USB record channel is free, there is no button, and the line says every one is in use.
+
 **Channels** on a card opens the list, inputs and then outputs. Each row is one channel and says its name once: whether the aggregate exposes it, its name, a field for a name of your own (empty until you type), and what a DAW adds to that name, where it adds anything.
 
 **A name you type wins**, on this page and in the DAW, over the one from the routing, and the two are kept apart: clear your name and the one from the routing comes back. A name is at most 31 characters, which is all the audio driver carries.

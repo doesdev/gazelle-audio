@@ -346,6 +346,18 @@ export function namingGroups(topology: Topology | undefined): number[] {
   return topology.outputs.flatMap((group, at) => (at === groups.recordPosition || hardwareName(group) !== undefined || topology.mixers.inputGroups.includes(group.id) ? [at] : []));
 }
 
+/**
+ * Every routing group the page reads for an interface: the ones its names come from, and its effect
+ * inputs, which say whether an input reaches a USB record channel through an effect. Each is read
+ * once, when first needed, and again only after the device has been away.
+ */
+export function readGroups(topology: Topology | undefined): number[] {
+  const naming = namingGroups(topology);
+  if (topology === undefined || naming.length === 0) return naming;
+  const effects = topology.outputs.flatMap((group, at) => (group.type === "AFX_IN" ? [at] : []));
+  return [...naming, ...effects].sort((a, b) => a - b);
+}
+
 /** Everything one interface's names are worked out from, as the page has it now. */
 export interface InterfaceNaming {
   /** Gazelle's name for the device, told apart from the others in the setup. */
@@ -437,7 +449,7 @@ export function aggregateNaming(config: Aggregate | undefined, answer: Aggregate
     const reported = view?.report?.channels;
     const routing: Record<number, readonly RouteSlot[]> = {};
     if (id !== undefined) {
-      for (const at of namingGroups(topology)) {
+      for (const at of readGroups(topology)) {
         const slots = sources.routing?.(id, at);
         if (slots !== undefined) routing[at] = slots;
       }
@@ -719,6 +731,140 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
         title: now,
         destination,
         changes: channels.map((channel, at) => ({ channel, source: { source: groups.playbackPosition, channel: chosen[at] as number } })),
+      },
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Where the DAW can record: each input socket, and which USB record channels carry it
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The source group kinds that are sockets a person plugs something into, in no order of their own
+ * (the device's order is kept), with what the page calls each. Everything else a routing source can
+ * be is not a socket and is left out: the USB playback channels, the mixes' outputs, the effects'
+ * outputs, the oscillator, MUTE, and the Quadro's emulated preamps, which are its preamps again with
+ * a microphone's sound put on them rather than sockets of their own.
+ */
+export const INPUT_SOCKETS: Readonly<Record<string, string>> = {
+  PREAMP: "Preamp",
+  LINE_IN: "Line in",
+  HIZ: "Hi-Z",
+  INSTRUMENT: "Instrument",
+  SPDIF_IN: "S/PDIF in",
+  ADAT_IN: "ADAT in",
+};
+
+/** What the page calls an input socket group, or nothing for a source that is not one. */
+export function inputSocketName(group: TopologyGroup): string | undefined {
+  return INPUT_SOCKETS[group.type];
+}
+
+/** One input socket, as the "Where the DAW can record" list says it. */
+export interface RecordingInput {
+  /** "Preamp 1", "ADAT in 9", "S/PDIF in". */
+  label: string;
+  /** Its group, by place among the sources, and its channels in that group. */
+  source: number;
+  channels: number[];
+  /** `recorded` when USB record channels carry it, `nothing` when none do, `unread` while that is not known. */
+  state: "recorded" | "nothing" | "unread";
+  /** What carries it: "USB A REC 1, directly", "USB A REC 3 to 4, through Mix 2". */
+  text: string;
+  send?: PlaybackSend;
+  /** Why there is no button for an input nothing records. */
+  noSend?: string;
+}
+
+/**
+ * Every input socket of one interface, in the device's own order, and which of its USB record
+ * channels carry each one: directly, through a mix whose output is recorded, through an effect whose
+ * output is recorded, or not at all. A pair of sockets is one line ("S/PDIF in"); a larger group is
+ * a line per socket ("Preamp 1").
+ *
+ * "Nothing records it" is said only once the record group, the mix inputs and the effect inputs have
+ * all been read; before that it is not read yet. An input nothing records offers a button that
+ * records it on the first free USB record channels of its width, where free is a slot routed from
+ * MUTE. A slot the device has left on anything else is not free, even the Quadro's unused slots,
+ * which it fills with PREAMP 1 rather than MUTE.
+ */
+export function recordingInputs(naming: InterfaceNaming | undefined): RecordingInput[] {
+  const topology = naming?.topology;
+  const groups = usbGroups(topology);
+  if (topology === undefined || groups === undefined || naming === undefined) return [];
+  const routing = naming.routing ?? {};
+  const record = routing[groups.recordPosition]?.slice(0, groups.record.channels);
+  const rec = (channels: readonly number[]) => `${groups.record.name} ${channelRuns(channels)}`;
+  const mute = topology.inputs.findIndex((group) => group.type === "MUTE");
+  const mixInputs = topology.mixers.inputGroups.map((id) => topology.outputs.findIndex((group) => group.id === id));
+  const mixOutputs = topology.mixers.outputGroups.map((id) => topology.inputs.findIndex((group) => group.id === id));
+  const effectsIn = topology.outputs.findIndex((group) => group.type === "AFX_IN");
+  const effectsOut = topology.inputs.findIndex((group) => group.type === "AFX_OUT");
+  const everythingRead = record !== undefined && mixInputs.every((at) => routing[at] !== undefined) && (effectsIn < 0 || routing[effectsIn] !== undefined);
+  // Which record channels take a source, and which take any channel of one.
+  const recording = (source: number, channel?: number) => (record ?? []).flatMap((slot, at) => (slot.source === source && (channel === undefined || slot.channel === channel) ? [at] : []));
+
+  const units = topology.inputs.flatMap((group, source) => {
+    const name = inputSocketName(group);
+    if (name === undefined) return [];
+    if (group.channels <= 2) return [{ source, label: name, channels: Array.from({ length: group.channels }, (_, c) => c) }];
+    return Array.from({ length: group.channels }, (_, c) => ({ source, label: `${name} ${c + 1}`, channels: [c] }));
+  });
+
+  // The first free run of record channels of each width: slots routed from MUTE, pairs pair aligned.
+  const free = (width: number): number[] | undefined => {
+    if (record === undefined) return undefined;
+    for (let first = 0; first + width <= groups.record.channels; first += width) {
+      const run = Array.from({ length: width }, (_, at) => first + at);
+      if (run.every((at) => record[at]?.source === mute)) return run;
+    }
+    return undefined;
+  };
+
+  return units.map(({ source, label, channels }): RecordingInput => {
+    const base = { label, source, channels };
+    const direct: number[] = [];
+    const mixes = new Map<number, number[]>();
+    const effects: number[] = [];
+    const effectRecords: number[] = [];
+    for (const channel of channels) {
+      direct.push(...recording(source, channel));
+      for (const [mix, input] of mixInputs.entries()) {
+        const slots = routing[input];
+        if (slots === undefined || !slots.some((slot) => slot.source === source && slot.channel === channel)) continue;
+        const recorded = recording(mixOutputs[mix] as number);
+        if (recorded.length > 0) mixes.set(mix, [...(mixes.get(mix) ?? []), ...recorded]);
+      }
+      const effectSlots = effectsIn < 0 ? undefined : routing[effectsIn];
+      for (const [effect, slot] of (effectSlots ?? []).entries()) {
+        if (slot.source !== source || slot.channel !== channel) continue;
+        const recorded = recording(effectsOut, effect);
+        if (recorded.length > 0) {
+          effects.push(effect);
+          effectRecords.push(...recorded);
+        }
+      }
+    }
+    const parts = [
+      ...(direct.length === 0 ? [] : [`${rec(direct)}, directly`]),
+      ...[...mixes.entries()].sort(([x], [y]) => x - y).map(([mix, recorded]) => `${rec(recorded)}, through ${mixName(naming.layout, mix)}`),
+      ...(effectRecords.length === 0 ? [] : [`${rec(effectRecords)}, through AFX ${channelRuns(effects)}`]),
+    ];
+    if (parts.length > 0) return { ...base, state: "recorded", text: parts.join("; ") };
+    if (!everythingRead) return { ...base, state: "unread", text: "not read yet" };
+
+    const nothing = { ...base, state: "nothing" as const, text: "nothing records it" };
+    const run = free(channels.length);
+    if (run === undefined) return { ...nothing, noSend: "Every USB record channel is in use, so none is free to record it on." };
+    return {
+      ...nothing,
+      send: {
+        run,
+        label: `Record it on ${rec(run)}`,
+        title: `${rec(run)} records nothing now, and records ${label} instead`,
+        destination: groups.recordPosition,
+        changes: run.map((channel, at) => ({ channel, source: { source, channel: channels[at] as number } })),
       },
     };
   });

@@ -1441,6 +1441,57 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
   });
 });
 
+test.describe("where the DAW can record", () => {
+  let recording: RunningServer;
+
+  test.beforeAll(async () => {
+    recording = await startServer(["--backend", "loopback"], { webUi: true });
+  });
+
+  test.afterAll(async () => {
+    await recording?.stop();
+  });
+
+  // The Quadro's USB record group, its PREAMP and S/PDIF IN sources, and MUTE, by place.
+  const COM_REC = 4, PREAMP = 0, SPDIF_IN = 4, MUTE = 10;
+
+  test("each input says what records it, and one nothing records is recorded on a free pair, not on the PREAMP 1 padding", async ({ page }) => {
+    // Every USB record slot left on (0, 0), which is PREAMP 1, as a Quadro fills slots nobody uses,
+    // except the ninth and tenth, which are routed from MUTE.
+    const pairs = Array.from({ length: 32 }, (_, at) => (at < 16 && at !== 8 && at !== 9 ? [PREAMP, 0] : [MUTE, 0])).flat();
+    const written = await fetch(`${recording.url}/api/v1/devices/loopback-0/command/set_routing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bank_idx: COM_REC, bank_configs: pairs }) });
+    expect(written.ok).toBe(true);
+    await putWorkspace(recording, { aliases: OWN_NAMES, aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    const captured = await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
+    await page.goto(`${recording.url}/#/aggregate`);
+
+    const line = (at: number) => page.getByTestId(`device-0-record-${at}`);
+    await expect(page.locator('[data-testid^="device-0-record-"][data-state]')).toHaveCount(4 + 8 + 1);
+    await expect(line(0)).toContainText("Preamp 1");
+    await expect(page.getByTestId("device-0-record-0-text")).toHaveText("USB A REC 1 to 8 and 11 to 16, directly", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-record-1-text")).toHaveText("nothing records it");
+    await expect(page.getByTestId("device-0-record-1-send")).toHaveText("Record it on USB A REC 9");
+    await expect(line(12)).toContainText("S/PDIF in");
+    const send = page.getByTestId("device-0-record-12-send");
+    await expect(send).toHaveText("Record it on USB A REC 9 to 10");
+    await expect(send).toHaveAttribute("title", "USB A REC 9 to 10 records nothing now, and records S/PDIF in instead");
+
+    await send.click();
+    await expect(send).toHaveText("Confirm");
+    await page.waitForTimeout(300);
+    expect(captured.commands.filter((one) => one.command === "set_routing"), "one click writes nothing").toEqual([]);
+    await send.click();
+    const hex = (source: number, channel: number) => [source, channel].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const slots = Array.from({ length: 32 }, (_, at) => (at === 8 ? hex(SPDIF_IN, 0) : at === 9 ? hex(SPDIF_IN, 1) : at < 16 ? hex(PREAMP, 0) : hex(MUTE, 0)));
+    await expect.poll(() => captured.commands.filter((one) => one.command === "set_routing")).toEqual([{ device_id: "loopback-0", command: "set_routing", args: { bank_idx: COM_REC, bank_configs: slots } }]);
+
+    // S/PDIF in is recorded now, and the aggregate's inputs are named for it.
+    await expect(page.getByTestId("device-0-record-12-text")).toHaveText("USB A REC 9 to 10, directly");
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-in-8-name")).toHaveText("SPDIF IN 1, USB A REC 9");
+  });
+});
+
 test.describe("each name said once", () => {
   let reading: RunningServer;
 

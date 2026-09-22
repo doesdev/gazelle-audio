@@ -67,9 +67,10 @@ import {
   masterIndex,
   masterReference,
   matchedBy,
-  namingGroups,
   pageNameOf,
   playbackOutputs,
+  readGroups,
+  recordingInputs,
   matchNote,
   matchTarget,
   outcomeSummary,
@@ -112,6 +113,7 @@ import {
   type InterfaceNaming,
   type PhaseChoice,
   type PhasePicks,
+  type PlaybackSend,
   type RunPhaseView,
   type VerdictView,
   type WitnessView,
@@ -216,6 +218,7 @@ export class GaAggregate extends GaElement {
       .play-row > .what { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); min-width: 0; }
       .play-row .readout { overflow-wrap: anywhere; }
       .play-row[data-state="nothing"] .readout { color: var(--ga-state-solo); }
+      .plays + .plays { margin-top: 6px; }
       .phase-part > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ga-field-gap); padding: 2px 0; cursor: pointer; }
       .phase-part .field-grid { margin-top: 6px; }
       [data-tone="good"]:is(.phase, .phase-summary, .verdict-text) { color: var(--ga-accent); }
@@ -407,7 +410,7 @@ export class GaAggregate extends GaElement {
     // away. Nothing is read for an interface Gazelle does not know the model of.
     this.watch(() => {
       for (const named of this.#naming(store)) {
-        const groups = namingGroups(named.topology);
+        const groups = readGroups(named.topology);
         const id = named.deviceId;
         if (id !== undefined && groups.length > 0 && store.routesToRead(id, groups)) untracked(() => void store.readRoutes(id, groups));
       }
@@ -670,6 +673,7 @@ export class GaAggregate extends GaElement {
 
     const phasePart = this.#phasePart(store, device, index, watch);
     const playsPart = this.#playsPart(store, index, watch);
+    const recordsPart = this.#recordsPart(store, index, watch);
 
     // One grid for the whole card, two label-and-field pairs to a line: what you set down the left,
     // what the interface reports down the right. Every label shares one column, so every value
@@ -698,6 +702,7 @@ export class GaAggregate extends GaElement {
         ...field("Phase now", phaseNow),
         channelsPart,
         playsPart,
+        recordsPart,
         phasePart,
       ),
       notMatched,
@@ -902,17 +907,63 @@ export class GaAggregate extends GaElement {
   /**
    * Where the DAW can play on this interface: a line per hardware output, in the order outputs are
    * named by, saying which USB playback channels reach it and how, and for an output nothing from
-   * the DAW reaches, a button that sends it the first free run. The button is the app's two click
-   * confirm and writes through the store's routing model, exactly as a change on the Routing page
-   * does, so the write, the dry run's bytes line and every name that follows from it all follow as
-   * they do there. Nothing here writes by itself.
+   * the DAW reaches, a button that sends it the first free run.
+   */
+  #playsPart(store: Store, index: number, watch: (fn: () => void) => void): HTMLElement {
+    return this.#routeList(store, index, watch, {
+      heading: "Where the DAW can play",
+      part: "plays",
+      row: "play",
+      explainHead: "aggregate.plays",
+      explainLine: "aggregate.play-line",
+      explainSend: "aggregate.play-send",
+      lines: playbackOutputs,
+    });
+  }
+
+  /**
+   * Where the DAW can record on this interface: a line per input socket, in the device's own order,
+   * saying which USB record channels carry it and how, and for an input nothing records, a button
+   * that records it on the first free USB record channels.
+   */
+  #recordsPart(store: Store, index: number, watch: (fn: () => void) => void): HTMLElement {
+    return this.#routeList(store, index, watch, {
+      heading: "Where the DAW can record",
+      part: "records",
+      row: "record",
+      explainHead: "aggregate.records",
+      explainLine: "aggregate.record-line",
+      explainSend: "aggregate.record-send",
+      lines: recordingInputs,
+    });
+  }
+
+  /**
+   * One of the two routing lists on a card: a line each, its label in the card's own label column,
+   * what it says, and where there is one, the button that puts it right. The button is the app's two
+   * click confirm and writes through the store's routing model, exactly as a change on the Routing
+   * page does, so the write, the dry run's bytes line and every name that follows from it all follow
+   * as they do there. Nothing here writes by itself.
    *
    * The lines are rebuilt only when what they say changes, so a poll landing does not disarm a
    * Confirm half pressed.
    */
-  #playsPart(store: Store, index: number, watch: (fn: () => void) => void): HTMLElement {
+  #routeList(
+    store: Store,
+    index: number,
+    watch: (fn: () => void) => void,
+    list: {
+      heading: string;
+      part: string;
+      row: string;
+      explainHead: string;
+      explainLine: string;
+      explainSend: string;
+      lines: (naming: InterfaceNaming | undefined) => { label: string; state: string; text: string; send?: PlaybackSend; noSend?: string }[];
+    },
+  ): HTMLElement {
     const testid = `device-${index}`;
-    const part = h("div", { class: "plays wide", "data-testid": `${testid}-plays` }, h("span", { class: "label head", "data-explain": "aggregate.plays" }, "Where the DAW can play"));
+    const part = h("div", { class: "plays wide", "data-testid": `${testid}-${list.part}` }, h("span", { class: "label head", "data-explain": list.explainHead }, list.heading));
     let shown: string | undefined;
     let disarms: (() => void)[] = [];
     this.onDisconnect(() => {
@@ -920,7 +971,7 @@ export class GaAggregate extends GaElement {
     });
     watch(() => {
       const naming = this.#naming(store)[index];
-      const lines = playbackOutputs(naming);
+      const lines = list.lines(naming);
       const shape = JSON.stringify([naming?.deviceId, lines]);
       part.hidden = lines.length === 0;
       if (shape !== shown) {
@@ -928,17 +979,17 @@ export class GaAggregate extends GaElement {
         for (const disarm of disarms) disarm();
         disarms = [];
         const rows = lines.map((line, at) => {
-          const what = h("span", { class: "what" }, h("span", { class: "readout", "data-testid": `${testid}-play-${at}-text`, "data-explain": "aggregate.play-line" }, line.text));
+          const what = h("span", { class: "what" }, h("span", { class: "readout", "data-testid": `${testid}-${list.row}-${at}-text`, "data-explain": list.explainLine }, line.text));
           const send = line.send;
           const id = naming?.deviceId;
           if (send !== undefined && id !== undefined) {
-            const button = h("button", { type: "button", class: "fix", title: send.title, "data-testid": `${testid}-play-${at}-send`, "data-explain": "aggregate.play-send" }, send.label);
+            const button = h("button", { type: "button", class: "fix", title: send.title, "data-testid": `${testid}-${list.row}-${at}-send`, "data-explain": list.explainSend }, send.label);
             disarms.push(bindConfirm(button, send.label, () => void store.routing(id).routeMany(send.destination, send.changes)));
             what.append(button);
           } else if (line.noSend !== undefined) {
-            what.append(h("span", { class: "note", "data-testid": `${testid}-play-${at}-no-send` }, line.noSend));
+            what.append(h("span", { class: "note", "data-testid": `${testid}-${list.row}-${at}-no-send` }, line.noSend));
           }
-          return h("div", { class: "play-row", "data-state": line.state, "data-testid": `${testid}-play-${at}` }, h("span", { class: "label" }, line.label), what);
+          return h("div", { class: "play-row", "data-state": line.state, "data-testid": `${testid}-${list.row}-${at}` }, h("span", { class: "label" }, line.label), what);
         });
         untracked(() => part.replaceChildren(part.firstChild as Node, ...rows));
       }

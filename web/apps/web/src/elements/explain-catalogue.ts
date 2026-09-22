@@ -941,6 +941,19 @@ export const CATALOGUE: Catalogue = {
     what: "Routes the first free USB playback channels, ones that go nowhere and are in no mix, straight to this output, so the DAW can play here. Click twice.",
     effect: "One routing change to this output, the same as making it on the Routing page. The output stops playing whatever feeds it now; the button's tip says what that is.",
   },
+  "aggregate.records": {
+    title: "Where the DAW can record",
+    what: "Each input socket on this interface, in its own order, and which of its USB record channels carry it: directly, through a mix or an effect whose output is recorded, or not at all. A pair of sockets is one line, and a larger group a line per socket. The DAW only records an input one of these lines says is carried.",
+  },
+  "aggregate.record-line": {
+    title: "What records this input",
+    what: "The USB record channels that carry this input, and how: directly, through a mix, named as you named it, or through an effect. Nothing records it means the DAW cannot record it as the routing stands. Not read yet means Gazelle has not read that routing.",
+  },
+  "aggregate.record-send": {
+    title: "Record this input",
+    what: "Routes this input straight to the first free USB record channels, ones routed from nothing, so the DAW can record it. A pair takes a pair, and a single socket one channel. Click twice.",
+    effect: "One routing change to the USB record channels, the same as making it on the Routing page. Those channels were recording nothing, and the aggregate's input names follow the new routing.",
+  },
   "aggregate.channel-daw": {
     title: "In a DAW",
     what: "The name a DAW will show for this channel: its name, with the interface's name and the channel's number after it, all in 31 characters. A device you have not named goes by its model's short form here, Quadro or Studio+. Shown only when it says something the channel's name does not.",

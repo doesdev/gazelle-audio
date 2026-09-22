@@ -58,7 +58,10 @@ import {
   channelName,
   channelRuns,
   channelSummary,
+  inputSocketName,
   playbackOutputs,
+  readGroups,
+  recordingInputs,
   countedNames,
   dawLine,
   interfaceNames,
@@ -1649,7 +1652,7 @@ const SHARED_CASES = JSON.parse(readFileSync(new URL("../../../../refs/fixtures/
 function namingWith(family: "quadro" | "studio", routes: [string, number, string, number][], layout?: DeviceMixer) {
   const topology = topologies[family];
   const mute = topology.inputs.findIndex((group) => group.id === "MUTE0");
-  const groups = new Map(namingGroups(topology).map((at) => [at, Array.from({ length: topology.outputs[at]?.channels ?? 0 }, () => ({ source: mute, channel: 0 }))]));
+  const groups = new Map(readGroups(topology).map((at) => [at, Array.from({ length: topology.outputs[at]?.channels ?? 0 }, () => ({ source: mute, channel: 0 }))]));
   for (const [to, channel, from, fromChannel] of routes) {
     const slots = groups.get(topology.outputs.findIndex((group) => group.id === to));
     if (slots !== undefined) slots[channel] = { source: topology.inputs.findIndex((group) => group.id === from), channel: fromChannel };
@@ -1793,4 +1796,129 @@ test("nothing the playback list writes carries an en or em dash", () => {
   for (const line of playbackOutputs(namingWith("quadro", OWNER).naming)) {
     for (const text of [line.label, line.text, line.send?.label ?? "", line.send?.title ?? "", line.noSend ?? ""]) assert.doesNotMatch(text, DASHES, text);
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Where the DAW can record
+// ---------------------------------------------------------------------------------------------
+
+test("the sockets a person plugs into are the preamps, line ins, ADAT and S/PDIF, and nothing else", () => {
+  const kept = (family: "quadro" | "studio") => topologies[family].inputs.filter((group) => inputSocketName(group) !== undefined).map((group) => group.id);
+  assert.deepEqual(kept("quadro"), ["PREAMP0", "ADAT_IN0", "SPDIF_IN0"], "not USB PLAY, the mixes, AFX, the oscillator, MUTE or the emulated preamps");
+  assert.deepEqual(kept("studio"), ["PREAMP0", "LINE_IN0", "ADAT_IN0", "SPDIF_IN0"], "and not Thunderbolt playback either");
+  assert.deepEqual(readGroups(topologies.quadro).map((at) => topologies.quadro.outputs[at]?.id), ["LINE_OUT0", "HEADPHONES0", "HEADPHONES1", "MONITOR0", "COM_REC0", "SPDIF_OUT0", "AFX_IN0", "MIXER_IN0", "MIXER_IN1", "MIXER_IN2", "MIXER_IN3"], "the effect inputs are read as well");
+});
+
+test("an input is a line per socket in a larger group, and a pair is one line, in the device's own order", () => {
+  const quadro = recordingInputs(namingWith("quadro", []).naming);
+  assert.deepEqual(quadro.map((line) => line.label), ["Preamp 1", "Preamp 2", "Preamp 3", "Preamp 4", ...Array.from({ length: 8 }, (_, at) => `ADAT in ${at + 1}`), "S/PDIF in"]);
+  assert.deepEqual(quadro[quadro.length - 1]?.channels, [0, 1], "S/PDIF in is a pair");
+  const studio = recordingInputs(namingWith("studio", []).naming);
+  assert.equal(studio.length, 12 + 8 + 16 + 1);
+  assert.deepEqual([studio[12]?.label, studio[20]?.label, studio[36]?.label], ["Line in 1", "ADAT in 1", "S/PDIF in"]);
+});
+
+test("an input says which USB record channels carry it: directly, through a mix, through an effect, or several", () => {
+  const routes: [string, number, string, number][] = [
+    ["COM_REC0", 0, "PREAMP0", 0],
+    ["MIXER_IN1", 6, "PREAMP0", 0],
+    ["MIXER_IN1", 7, "PREAMP0", 1],
+    ["COM_REC0", 2, "MIXER_OUT1", 0],
+    ["COM_REC0", 3, "MIXER_OUT1", 1],
+    ["AFX_IN0", 2, "ADAT_IN0", 4],
+    ["COM_REC0", 5, "AFX_OUT0", 2],
+  ];
+  const lines = recordingInputs(namingWith("quadro", routes).naming);
+  const say = (label: string) => lines.find((line) => line.label === label);
+  assert.equal(say("Preamp 1")?.text, "USB A REC 1, directly; USB A REC 3 to 4, through Mix 2");
+  assert.equal(say("Preamp 2")?.text, "USB A REC 3 to 4, through Mix 2");
+  assert.equal(say("Preamp 2")?.state, "recorded");
+  assert.equal(say("ADAT in 5")?.text, "USB A REC 6, through AFX 3");
+  const named = recordingInputs(namingWith("quadro", routes, { mixes: [{}, { name: "Cue" }], groups: [], channels: [] }).naming);
+  assert.equal(named.find((line) => line.label === "Preamp 2")?.text, "USB A REC 3 to 4, through Cue", "the person's name for the mix");
+  // The Studio+ in the same words.
+  const studio = recordingInputs(namingWith("studio", [["USB_REC0", 7, "LINE_IN0", 2]]).naming);
+  assert.equal(studio.find((line) => line.label === "Line in 3")?.text, "USB REC 8, directly");
+});
+
+test("nothing records an input only once the record group, the mix inputs and the effect inputs are read", () => {
+  const { config, groups } = namingWith("quadro", []);
+  const without = (missing: string) => {
+    const at = topologies.quadro.outputs.findIndex((group) => group.id === missing);
+    return aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === at ? undefined : groups.get(g)) })[0];
+  };
+  assert.deepEqual([recordingInputs(namingWith("quadro", []).naming)[0]?.state, recordingInputs(namingWith("quadro", []).naming)[0]?.text], ["nothing", "nothing records it"]);
+  for (const missing of ["COM_REC0", "MIXER_IN3", "AFX_IN0"]) {
+    const first = recordingInputs(without(missing))[0];
+    assert.deepEqual([first?.state, first?.text, first?.send], ["unread", "not read yet", undefined], missing);
+  }
+});
+
+test("an input nothing records offers the first free record channels of its width, free being routed from MUTE", () => {
+  const preamp = quadroSource("PREAMP0");
+  const lines = recordingInputs(namingWith("quadro", [["COM_REC0", 0, "PREAMP0", 0]]).naming);
+  const second = lines.find((line) => line.label === "Preamp 2");
+  assert.deepEqual(second?.send?.run, [1], "a single socket takes a single channel");
+  assert.equal(second?.send?.label, "Record it on USB A REC 2");
+  assert.equal(second?.send?.title, "USB A REC 2 records nothing now, and records Preamp 2 instead");
+  assert.equal(second?.send?.destination, usbGroups(topologies.quadro)?.recordPosition);
+  assert.deepEqual(second?.send?.changes, [{ channel: 1, source: { source: preamp, channel: 1 } }]);
+  const spdif = lines.find((line) => line.label === "S/PDIF in");
+  assert.deepEqual(spdif?.send?.run, [2, 3], "a pair takes a pair that starts on an odd channel from one");
+  assert.equal(spdif?.send?.label, "Record it on USB A REC 3 to 4");
+  assert.deepEqual(spdif?.send?.changes, [
+    { channel: 2, source: { source: quadroSource("SPDIF_IN0"), channel: 0 } },
+    { channel: 3, source: { source: quadroSource("SPDIF_IN0"), channel: 1 } },
+  ]);
+});
+
+/**
+ * The Quadro fills a USB record slot nobody uses with (0, 0), which is PREAMP 1, not MUTE: such a
+ * slot is recording something and is not free.
+ */
+test("a slot the Quadro filled with PREAMP 1 is not free, and with none free there is no button", () => {
+  const padded: [string, number, string, number][] = Array.from({ length: 16 }, (_, at): [string, number, string, number] => ["COM_REC0", at, "PREAMP0", 0]);
+  const someFree = padded.filter(([, at]) => at !== 8 && at !== 9);
+  const lines = recordingInputs(namingWith("quadro", someFree).naming);
+  assert.equal(lines.find((line) => line.label === "Preamp 1")?.text, "USB A REC 1 to 8 and 11 to 16, directly");
+  assert.deepEqual(lines.find((line) => line.label === "S/PDIF in")?.send?.run, [8, 9], "the only slots routed from MUTE");
+  assert.deepEqual(lines.find((line) => line.label === "ADAT in 1")?.send?.run, [8]);
+  const full = recordingInputs(namingWith("quadro", padded).naming).find((line) => line.label === "S/PDIF in");
+  assert.equal(full?.state, "nothing");
+  assert.equal(full?.send, undefined);
+  assert.match(String(full?.noSend), /Every USB record channel is in use/);
+});
+
+test("pressing record is one routing write of the record group, changing only the chosen slots", async () => {
+  const padded: [string, number, string, number][] = Array.from({ length: 16 }, (_, at): [string, number, string, number] => ["COM_REC0", at, "PREAMP0", 0]);
+  const routes = padded.filter(([, at]) => at !== 8 && at !== 9);
+  const send = recordingInputs(namingWith("quadro", routes).naming).find((line) => line.label === "S/PDIF in")?.send;
+  assert.ok(send !== undefined);
+  const mute = quadroSource("MUTE0");
+  const read = Array.from({ length: 64 }, (_, at) => (at === 8 || at === 9 || at >= 16 ? { source: mute, channel: 0 } : { source: 0, channel: 0 }));
+  const written: { destination: number; slots: readonly RouteSlot[] }[] = [];
+  const routing = new RoutingModel({
+    deviceId: "serial:Q",
+    topology: topologies.quadro,
+    read: async () => ({ slots: read, dryRun: false }),
+    write: async (destination, slots) => {
+      written.push({ destination, slots });
+      return true;
+    },
+    notify: () => {},
+  });
+  assert.equal(await routing.routeMany(send.destination, send.changes), true);
+  assert.equal(written.length, 1, "one write");
+  const spdif = quadroSource("SPDIF_IN0");
+  const expected = read.slice(0, 32).map((slot, at) => (at === 8 ? { source: spdif, channel: 0 } : at === 9 ? { source: spdif, channel: 1 } : at >= 16 ? { source: mute, channel: 0 } : slot));
+  assert.equal(written[0]?.destination, quadroDestination("COM_REC0"));
+  assert.deepEqual(written[0]?.slots, expected, "every other slot as it was read, PREAMP 1 padding included");
+});
+
+test("the recording list on the Studio+ offers single channels for its single sockets", () => {
+  const lines = recordingInputs(namingWith("studio", [["USB_REC0", 0, "PREAMP0", 0]]).naming);
+  assert.equal(lines[0]?.text, "USB REC 1, directly");
+  assert.equal(lines[1]?.send?.label, "Record it on USB REC 2");
+  assert.equal(lines[lines.length - 1]?.send?.label, "Record it on USB REC 3 to 4", "S/PDIF in, a pair, takes the first free pair");
+  for (const line of lines) for (const text of [line.label, line.text, line.send?.label ?? "", line.send?.title ?? "", line.noSend ?? ""]) assert.doesNotMatch(text, DASHES, text);
 });
