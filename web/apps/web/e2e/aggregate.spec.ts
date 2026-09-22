@@ -1286,6 +1286,13 @@ test.describe("with the routing read from the interfaces", () => {
     await page.goto(`${reading.url}/#/aggregate`);
     await expect(page.locator("ga-aggregate")).toBeVisible();
 
+    // The Studio+'s eight line outs are a line each, as the names spell them; its monitors a pair.
+    await expect(page.getByTestId("device-0-play-0")).toContainText("Monitor");
+    await expect(page.getByTestId("device-0-play-1")).toContainText("Line out 1");
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB PLAY 1, directly", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-play-8")).toContainText("Line out 8");
+    await expect(page.getByTestId("device-0-play-8-text")).toHaveText("USB PLAY 8, directly");
+
     // The card: Gazelle's name, and the vendor driver's name once, as a detail.
     await expect(page.getByTestId("device-1-name")).toHaveText("Quadro");
     await expect(page.getByTestId("device-1-entry")).toHaveText("Zen Quadro Synergy Core");

@@ -930,7 +930,7 @@ export const CATALOGUE: Catalogue = {
   },
   "aggregate.plays": {
     title: "Where the DAW can play",
-    what: "Each output socket on this interface, monitors first, and which of its USB playback channels reach it: through a mix, directly, or not at all. A channel the DAW plays is only heard where one of these lines says it goes.",
+    what: "Each output on this interface, monitors first, and which of its USB playback channels reach it: through a mix, directly, or not at all. A left and right pair is one line, and a larger group a line per socket. A channel the DAW plays is only heard where one of these lines says it goes.",
   },
   "aggregate.play-line": {
     title: "What reaches this output",

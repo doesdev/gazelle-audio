@@ -49,8 +49,8 @@ version that has not been published yet.
   so it says so first and asks for a confirming click.
 - **See where the DAW can play.** Each interface's card on the Aggregate page lists its output
   sockets, monitors first, and which DAW channels reach each one, through a mix or directly. An
-  output nothing from the DAW reaches says so, with a button that sends it the first free pair of
-  DAW channels, after a confirming click.
+  output nothing from the DAW reaches says so, with a button that sends it the first free DAW
+  channels (a pair for a pair of sockets, one for a single socket), after a confirming click.
 - **One set of names for everything on the Aggregate page, and in your DAW.** Each interface is
   called by its name in Gazelle, the one in the sidebar, so renaming the device renames it on the
   page and in the DAW, and the vendor driver's own name appears once, as a detail. Each channel is

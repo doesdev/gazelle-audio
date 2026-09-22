@@ -1704,9 +1704,18 @@ test("where the DAW can play: each output in rank, through a mix, directly, or n
   // The person's name for the mix.
   const named = playbackOutputs(namingWith("quadro", OWNER, { mixes: [{ name: "Cue" }], groups: [], channels: [] }).naming);
   assert.equal(named[0]?.text, "USB 1 PLAY 1 to 2, through Cue");
-  // A group larger than a pair is a line per pair, as the Studio+'s line outs are.
+  // A group larger than a pair is a line per channel, as the Studio+'s line outs are.
   const studio = playbackOutputs(namingWith("studio", [["LINE_OUT0", 2, "USB_PLAY0", 2], ["LINE_OUT0", 3, "USB_PLAY0", 3]]).naming);
-  assert.deepEqual(studio.slice(0, 3).map((line) => [line.label, line.text]), [["Monitor", "nothing from the DAW reaches it"], ["Line out 1 to 2", "nothing from the DAW reaches it"], ["Line out 3 to 4", "USB PLAY 3 to 4, directly"]]);
+  assert.deepEqual(studio.slice(0, 5).map((line) => [line.label, line.text]), [
+    ["Monitor", "nothing from the DAW reaches it"],
+    ["Line out 1", "nothing from the DAW reaches it"],
+    ["Line out 2", "nothing from the DAW reaches it"],
+    ["Line out 3", "USB PLAY 3, directly"],
+    ["Line out 4", "USB PLAY 4, directly"],
+  ]);
+  assert.equal(studio.filter((line) => line.label.startsWith("Line out ")).length, 8, "all eight line outs");
+  assert.equal(studio.filter((line) => line.label.startsWith("ADAT out ")).length, 16, "and all sixteen ADAT outs");
+  assert.deepEqual(studio.filter((line) => line.channels.length === 2).map((line) => line.label), ["Monitor", "HP1", "HP2", "S/PDIF out", "Reamp"], "pairs stay one line each");
   assert.equal(studio[studio.length - 1]?.label, "Reamp", "reamp comes last");
 });
 
@@ -1737,6 +1746,15 @@ test("an output nothing reaches offers the first free run of its width, and says
     { channel: 0, source: { source: playback, channel: 2 } },
     { channel: 1, source: { source: playback, channel: 3 } },
   ]);
+  // A single socket takes a single free channel, not a pair, and writes only its own slot.
+  const studio = playbackOutputs(namingWith("studio", [["MONITOR0", 0, "USB_PLAY0", 0], ["MONITOR0", 1, "USB_PLAY0", 1], ["LINE_OUT0", 1, "USB_PLAY0", 2]]).naming);
+  const single = studio.find((one) => one.label === "Line out 1");
+  const studioPlay = topologies.studio.inputs.findIndex((group) => group.id === "USB_PLAY0");
+  assert.deepEqual(single?.send?.run, [3], "USB PLAY 1 to 3 are in use, so the first free one is 4");
+  assert.equal(single?.send?.label, "Send USB PLAY 4 here");
+  assert.deepEqual(single?.send?.changes, [{ channel: 0, source: { source: studioPlay, channel: 3 } }]);
+  // A pair still takes a pair that starts on an odd channel from one.
+  assert.deepEqual(studio.find((one) => one.label === "HP1")?.send?.run, [4, 5]);
   // Every pair in use: no button, and it says so.
   const busy: [string, number, string, number][] = Array.from({ length: 16 }, (_, channel): [string, number, string, number] => ["MIXER_IN3", channel, "COM_PLAY0", channel]);
   const full = playbackOutputs(namingWith("quadro", [...OWNER, ...busy]).naming).find((one) => one.label === "Line out");

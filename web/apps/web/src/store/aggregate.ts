@@ -636,12 +636,13 @@ function mixName(layout: DeviceMixer | undefined, mix: number): string {
  * Every hardware output of one interface, in the order outputs are named by, and which of its USB
  * playback channels reach each one: directly, through a mix, both, or none.
  *
- * A pair of sockets is one line ("Monitor"); a larger group is a line per pair ("Line out 1 to 2").
+ * A pair of sockets is one line ("Monitor"); a larger group is a line per channel ("Line out 3").
  * "Nothing from the DAW reaches it" is said only once the output's group, and the mix input behind
  * any mix feeding it, have been read, the same rule the names follow; before that it is not read
  * yet. An output nothing reaches offers a button that sends it the first free run of USB playback
  * channels of its width, where free is reaching nothing and being in no mix, once every group the
- * names come from has been read.
+ * names come from has been read: a pair takes a free pair that starts on an odd channel from one,
+ * and a single socket a single free channel.
  */
 export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOutput[] {
   const topology = naming?.topology;
@@ -656,10 +657,8 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
     .flatMap(({ group, destination }) => {
       const name = hardwareName(group) as string;
       if (group.channels <= 2) return [{ group, destination, label: name, channels: Array.from({ length: group.channels }, (_, c) => c) }];
-      return Array.from({ length: Math.ceil(group.channels / 2) }, (_, pair) => {
-        const channels = [2 * pair, 2 * pair + 1].filter((c) => c < group.channels);
-        return { group, destination, label: `${name} ${channelRuns(channels)}`, channels };
-      });
+      // A larger group is its channels one by one, as the names spell them: "Line out 3".
+      return Array.from({ length: group.channels }, (_, c) => ({ group, destination, label: `${name} ${c + 1}`, channels: [c] }));
     });
 
   // Which USB playback channels are free: every group the names come from read, and the channel in none of them.
