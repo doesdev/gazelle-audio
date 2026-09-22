@@ -115,6 +115,11 @@ struct Args {
     #[arg(long)]
     no_window: bool,
 
+    /// Start in the tray with the window hidden. The tray's Open, or launching Gazelle again,
+    /// shows it. Start on boot runs Gazelle this way.
+    #[arg(long)]
+    hidden: bool,
+
     /// Also log to a size-capped file in DIR. Tray runs do by default, in the platform's state
     /// folder (on Windows `%LOCALAPPDATA%\gazelle\logs`); `--no-tray` runs only when given this.
     #[arg(long, value_name = "DIR")]
@@ -226,7 +231,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     // over never takes a USB handle or a workspace file on its way out.
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(args.bind)) {
         Ok(listener) => listener,
-        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => return second_instance(args.bind, &e),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => return second_instance(args.bind, args.hidden, &e),
         Err(e) => return Err(Box::new(e)),
     };
     let updater = updater(args);
@@ -243,7 +248,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
     // Before the devices are attached, so the window is on screen while that happens rather than
     // after it; its first request waits in the listener's backlog until the server answers.
-    let window = open_window(args, address);
+    let (window, showing) = open_window(args, address);
     let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone(), carried))?;
 
     // The tray's message loop needs the thread that created the icon, so it takes this one and
@@ -290,7 +295,8 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     // The port is given up and the USB handles are closed; only now is it safe to start the
     // binary the update put in place.
     if restart.is_some_and(|restart| restart.asked()) {
-        update::relaunch();
+        // The new process keeps the window as it is now: on screen, or closed to the tray.
+        update::relaunch(showing.map(|showing| showing()));
     }
     Ok(())
 }
@@ -463,7 +469,13 @@ async fn prepare(
 /// The port is already taken. If a Gazelle holds it, hand it the window and go quietly; the
 /// person double-clicked the app again, and what they want is the window they already have
 /// (`handover`). Anything else on the port is the error it always was.
-fn second_instance(bind: SocketAddr, error: &std::io::Error) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// A `--hidden` start (a login) asks for no window, so it leaves the running one alone and goes.
+fn second_instance(bind: SocketAddr, hidden: bool, error: &std::io::Error) -> Result<(), Box<dyn std::error::Error>> {
+    if hidden {
+        tracing::info!("{bind} is in use ({error}); a --hidden start leaves whatever holds it alone");
+        return Ok(());
+    }
     match gazelle_audio_server::handover::hand_over(bind) {
         Ok(gazelle_audio_server::handover::Outcome::Shown) => {
             tracing::info!("Gazelle is already running on {bind}; brought its window to the front");
@@ -552,26 +564,38 @@ fn tray_context(
 ///
 /// A window that cannot be created is a warning, never a reason to fail: the UI is still served,
 /// and the tray's Open falls back to the browser.
+///
+/// `--hidden` makes it but leaves it closed to the tray. Alongside the way to show it comes a way
+/// to ask whether it is showing, which a restart into an update carries over.
 #[cfg(feature = "window")]
-fn open_window(args: &Args, address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
+fn open_window(args: &Args, address: SocketAddr) -> (Option<gazelle_audio_server::ShowWindow>, Option<Showing>) {
     if args.no_window || args.no_tray || args.no_web_ui {
-        return None;
+        return (None, None);
     }
     let path = gazelle_audio_server::config::default_window_state_path(|k| std::env::var(k).ok());
-    match gazelle_audio_server::window::open(tray::ui_url(address), path) {
-        Ok(window) => Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
+    match gazelle_audio_server::window::open(tray::ui_url(address), path, !args.hidden) {
+        Ok(window) => {
+            let asked = window.clone();
+            (
+                Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
+                Some(Box::new(move || asked.is_showing()) as Showing),
+            )
+        }
         Err(e) => {
             tracing::warn!("no window, serving the UI over HTTP only: {e}");
-            None
+            (None, None)
         }
     }
 }
 
+/// Whether the desktop window is on screen.
+type Showing = Box<dyn Fn() -> bool>;
+
 /// Without the `window` feature there is no window to open, and `--no-window` is accepted and
 /// already true.
 #[cfg(not(feature = "window"))]
-fn open_window(_args: &Args, _address: SocketAddr) -> Option<gazelle_audio_server::ShowWindow> {
-    None
+fn open_window(_args: &Args, _address: SocketAddr) -> (Option<gazelle_audio_server::ShowWindow>, Option<Showing>) {
+    (None, None)
 }
 
 /// Attaches every Antelope control interface the HID stack can open now, then keeps scanning.

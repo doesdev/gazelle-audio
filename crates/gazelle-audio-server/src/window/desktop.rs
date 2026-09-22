@@ -11,6 +11,7 @@
 //! (`crate::handover`).
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,6 +46,8 @@ pub struct Window {
     // `EventLoopProxy` is `Send` but makes no promise about `Sync`, and the HTTP handler that
     // shows the window may be on any worker thread.
     proxy: Mutex<EventLoopProxy<UserEvent>>,
+    /// Whether it is on screen, as the window thread last left it.
+    showing: Arc<AtomicBool>,
 }
 
 impl Window {
@@ -55,25 +58,40 @@ impl Window {
             tracing::warn!("the window did not take the request to show itself: {e}");
         }
     }
+
+    /// Whether the window is on screen rather than closed to the tray.
+    pub fn is_showing(&self) -> bool {
+        self.showing.load(Ordering::Relaxed)
+    }
 }
 
-/// Open the window on `url` and return a handle that brings it to the front.
+/// Open the window on `url` and return a handle that brings it to the front. With `visible` false
+/// it is made but left hidden, as a login start wants: the server is in the tray, and the first
+/// Open shows the window already loaded.
 ///
 /// An error means there is no window and the server carries on headless. The likeliest reason on
 /// Windows is no WebView2 runtime, which Windows 11 ships but an old Windows 10 may not.
-pub fn open(url: String, state_path: PathBuf) -> Result<Arc<Window>, String> {
+pub fn open(url: String, state_path: PathBuf, visible: bool) -> Result<Arc<Window>, String> {
     // The event loop must be built on the thread that runs it, so the proxy comes back from there.
     let (tx, rx) = mpsc::channel::<Result<EventLoopProxy<UserEvent>, String>>();
+    let showing = Arc::new(AtomicBool::new(visible));
+    let shown = showing.clone();
     std::thread::Builder::new()
         .name("gazelle-window".into())
-        .spawn(move || run(&url, state_path, &tx))
+        .spawn(move || run(&url, state_path, visible, &shown, &tx))
         .map_err(|e| format!("starting the window thread: {e}"))?;
     let proxy = rx.recv().map_err(|_| "the window thread stopped before it opened one".to_string())??;
-    Ok(Arc::new(Window { proxy: Mutex::new(proxy) }))
+    Ok(Arc::new(Window { proxy: Mutex::new(proxy), showing }))
 }
 
 /// The window thread: build everything, report back, then pump events until the process ends.
-fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<UserEvent>, String>>) {
+fn run(
+    url: &str,
+    state_path: PathBuf,
+    visible: bool,
+    showing: &Arc<AtomicBool>,
+    tx: &mpsc::Sender<Result<EventLoopProxy<UserEvent>, String>>,
+) {
     let mut builder = EventLoopBuilder::<UserEvent>::with_user_event();
     #[cfg(windows)]
     {
@@ -89,7 +107,9 @@ fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<U
         .with_inner_size(LogicalSize::new(f64::from(saved.width), f64::from(saved.height)))
         .with_min_inner_size(LogicalSize::new(f64::from(MIN_WIDTH), f64::from(MIN_HEIGHT)))
         .with_window_icon(icon())
-        .with_maximized(saved.maximised)
+        .with_visible(visible)
+        // Maximising a window shows it, so a hidden one is maximised when it is first shown.
+        .with_maximized(visible && saved.maximised)
         .build(&event_loop)
     {
         Ok(window) => window,
@@ -118,9 +138,12 @@ fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<U
         // Nobody is waiting for the window, so nobody wants it.
         return;
     }
-    tracing::info!("window open on {url} ({}x{}); --no-window to run without one", saved.width, saved.height);
+    let hidden = if visible { "" } else { ", hidden until the tray's Open" };
+    tracing::info!("window open on {url} ({}x{}{hidden}); --no-window to run without one", saved.width, saved.height);
 
     let mut last_save = Instant::now();
+    let mut maximise_on_show = !visible && saved.maximised;
+    let showing = showing.clone();
     event_loop.run(move |event, _target, control_flow| {
         // Nothing here animates; the loop sleeps until the next event.
         *control_flow = ControlFlow::Wait;
@@ -133,6 +156,7 @@ fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<U
                 save(&window, &state_path);
                 last_save = Instant::now();
                 window.set_visible(false);
+                showing.store(false, Ordering::Relaxed);
             }
             Event::WindowEvent { event: WindowEvent::Resized(_) | WindowEvent::Moved(_), .. } => {
                 if last_save.elapsed() >= SAVE_INTERVAL {
@@ -142,6 +166,10 @@ fn run(url: &str, state_path: PathBuf, tx: &mpsc::Sender<Result<EventLoopProxy<U
             }
             Event::UserEvent(UserEvent::Show) => {
                 window.set_visible(true);
+                showing.store(true, Ordering::Relaxed);
+                if std::mem::take(&mut maximise_on_show) {
+                    window.set_maximized(true);
+                }
                 window.set_minimized(false);
                 window.set_focus();
             }

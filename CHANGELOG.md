@@ -80,6 +80,10 @@ version that has not been published yet.
 
 ### Changed
 
+- **Start on boot starts Gazelle in the tray, without opening its window.** Choose **Open Gazelle**
+  from the tray when you want it. An entry you turned on with an earlier version is changed to
+  work this way the next time Gazelle starts. Restarting into an update brings the window back as
+  it was, open or tucked away in the tray.
 - **Fields and their labels line up.** Boxes you type in, menus and the small value readouts are
   now one height with one spacing throughout, and every label on a card or a settings block shares
   a column, so values start in the same place down the page instead of stepping in and out row by

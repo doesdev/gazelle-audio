@@ -19,7 +19,7 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 | **Warning: Antelope's service is holding the devices** | Shown while that service runs; see [Getting started](03-getting-started.md#stop-antelopes-service) |
 | **Rescan devices** | Looks for interfaces again at once (it also does so every two seconds) |
 | Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](16-install-update-uninstall.md#updates) |
-| **Start on boot** | Starts Gazelle, without a window, when you log in |
+| **Start on boot** | Starts Gazelle in the tray when you log in, with its window hidden until you open it |
 | **Open log folder** | Opens the folder with Gazelle's log files |
 | **Quit** | Stops Gazelle. The devices keep their settings |
 

@@ -129,6 +129,13 @@ pub fn start(context: Context) -> Result<Tray, String> {
     // no console window.
     let program = boot_program(&context.exe, |p| p.is_file());
     let boot = StartOnBoot::new(Box::new(UserRunKey), program, &context.boot_args);
+    // An entry turned on by an older version opens the window at every login; this one's
+    // starts in the tray.
+    match boot.upgrade() {
+        Ok(true) => tracing::info!("start on boot now starts in the tray, without the window"),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("bringing the start on boot entry up to date: {e}"),
+    }
     let state = Rc::new(State {
         icon: make_icon(),
         taskbar_created: unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },

@@ -15,6 +15,10 @@ pub const ENTRY_NAME: &str = "Gazelle";
 /// leave unsaid.
 pub const DEFAULT_BACKEND: &str = "usb";
 
+/// What a boot entry starts with: the tray and no window. Logging in is not asking to see the
+/// app; the tray's Open, or launching Gazelle again, brings the window up.
+pub const HIDDEN_FLAG: &str = "--hidden";
+
 /// Where login entries live: read, write and remove one command line by name.
 pub trait RunKey {
     fn read(&self, name: &str) -> io::Result<Option<String>>;
@@ -38,7 +42,8 @@ impl RunKey for NoRunKey {
     }
 }
 
-/// The arguments a boot entry carries over from the running server.
+/// The arguments a boot entry carries over from the running server, after [`HIDDEN_FLAG`], which
+/// every entry has.
 ///
 /// Carried: what decides what the server serves and how safely (`--bind`, `--backend` when it is
 /// not the default,
@@ -76,7 +81,7 @@ impl BootArgs {
 
     /// The argument list, in a fixed order.
     pub fn arguments(&self) -> Vec<String> {
-        let mut args = Vec::new();
+        let mut args = vec![HIDDEN_FLAG.to_string()];
         // `usb` is the default (decision `0018`), so the ordinary desktop entry names no backend
         // at all; only a run that is deliberately on the emulator has to say so.
         if self.backend != DEFAULT_BACKEND {
@@ -198,6 +203,18 @@ pub fn boot_program(exe: &Path, exists: impl Fn(&Path) -> bool) -> PathBuf {
     }
 }
 
+/// `entry` with [`HIDDEN_FLAG`] put straight after the program, or `None` when it already has it
+/// (or names no program). Entries written before the flag existed open the window at every login;
+/// this is how they are brought up to date without touching anything else they carry.
+pub fn with_hidden(entry: &str) -> Option<String> {
+    let program = program_of(entry)?;
+    let rest = arguments_of(entry);
+    if rest.split([' ', '\t']).any(|a| a == HIDDEN_FLAG) {
+        return None;
+    }
+    Some(format!("\"{program}\" {HIDDEN_FLAG}{rest}"))
+}
+
 /// What the windowless build adds to the server's name.
 pub const WINDOWLESS_SUFFIX: &str = "w";
 
@@ -234,6 +251,20 @@ impl StartOnBoot {
             self.key.write(ENTRY_NAME, &self.command)
         } else {
             self.key.remove(ENTRY_NAME)
+        }
+    }
+
+    /// Bring an enabled entry for this binary up to date: one written before [`HIDDEN_FLAG`]
+    /// existed gains it, and nothing else about it changes. Returns whether it was rewritten. An
+    /// entry that is off, or runs another binary, is left alone.
+    pub fn upgrade(&self) -> io::Result<bool> {
+        if !self.is_enabled() {
+            return Ok(false);
+        }
+        let Some(entry) = self.key.read(ENTRY_NAME)? else { return Ok(false) };
+        match with_hidden(&entry) {
+            Some(command) => self.key.write(ENTRY_NAME, &command).map(|()| true),
+            None => Ok(false),
         }
     }
 
@@ -296,9 +327,9 @@ mod tests {
     /// Task Manager or the registry says nothing about backends at all (decision `0018`).
     #[test]
     fn the_default_backend_is_not_spelled_out_and_the_other_one_is() {
-        assert_eq!(args().arguments(), ["--bind", "127.0.0.1:8420"]);
+        assert_eq!(args().arguments(), ["--hidden", "--bind", "127.0.0.1:8420"]);
         let loopback = BootArgs { backend: "loopback".into(), ..args() };
-        assert_eq!(loopback.arguments()[..4], ["--backend", "loopback", "--bind", "127.0.0.1:8420"]);
+        assert_eq!(loopback.arguments()[..5], ["--hidden", "--backend", "loopback", "--bind", "127.0.0.1:8420"]);
     }
 
     #[test]
@@ -314,7 +345,7 @@ mod tests {
         assert_eq!(
             a.arguments(),
             [
-                "--bind", "127.0.0.1:8420", "--dry-run", "--workspace", "/w/workspace.json", "--themes-dir",
+                "--hidden", "--bind", "127.0.0.1:8420", "--dry-run", "--workspace", "/w/workspace.json", "--themes-dir",
                 "/w/themes", "--log-dir", "/w/logs", "--no-web-ui",
             ]
         );
@@ -326,7 +357,7 @@ mod tests {
         assert!(!usb.arguments().iter().any(|a| a.starts_with("--loopback")));
         let loopback = BootArgs { backend: "loopback".into(), ..usb };
         assert_eq!(
-            loopback.arguments()[4..],
+            loopback.arguments()[5..],
             ["--loopback-models", "quadro,studio", "--loopback-cyclic-ms", "50"]
         );
     }
@@ -402,7 +433,7 @@ mod tests {
         boot.set(true).unwrap();
         assert_eq!(
             key.entries.borrow().get(ENTRY_NAME).map(String::as_str),
-            Some(r#""C:\Program Files\Gazelle\gazelle-audio-server.exe" --bind 127.0.0.1:8420"#)
+            Some(r#""C:\Program Files\Gazelle\gazelle-audio-server.exe" --hidden --bind 127.0.0.1:8420"#)
         );
         assert!(boot.is_enabled());
         boot.set(false).unwrap();
@@ -437,6 +468,45 @@ mod tests {
         assert_eq!(key.entries.borrow().get(ENTRY_NAME).map(String::as_str), Some(boot.command()));
         assert!(!boot.toggle().unwrap());
         assert!(key.entries.borrow().get(ENTRY_NAME).is_none());
+    }
+
+    #[test]
+    fn a_login_starts_the_tray_without_the_window() {
+        assert_eq!(args().arguments()[0], HIDDEN_FLAG);
+        assert_eq!(BootArgs { no_web_ui: true, ..args() }.arguments()[0], HIDDEN_FLAG, "harmless with no window to hide");
+    }
+
+    #[test]
+    fn an_old_entry_gains_the_flag_and_keeps_everything_else() {
+        assert_eq!(
+            with_hidden(r#""C:\Program Files\g.exe" --bind 127.0.0.1:8420 --dry-run"#).as_deref(),
+            Some(r#""C:\Program Files\g.exe" --hidden --bind 127.0.0.1:8420 --dry-run"#)
+        );
+        assert_eq!(with_hidden(r"C:\tools\g.exe").as_deref(), Some(r#""C:\tools\g.exe" --hidden"#));
+        assert_eq!(with_hidden(r#""C:\g.exe" --hidden --bind x"#), None, "already there");
+        assert_eq!(with_hidden(r#""C:\g.exe" --bind x --hidden"#), None, "anywhere counts");
+        assert_eq!(with_hidden(r#""C:\g.exe" --hidden-extra"#).as_deref(), Some(r#""C:\g.exe" --hidden --hidden-extra"#), "a whole argument, not a prefix");
+        assert_eq!(with_hidden(""), None);
+    }
+
+    #[test]
+    fn upgrading_rewrites_only_this_binarys_old_entry() {
+        let key = FakeRunKey::default();
+        let boot = StartOnBoot::new(Box::new(key.clone()), EXE.into(), &args());
+        let entry = || key.entries.borrow().get(ENTRY_NAME).cloned();
+        let set = |command: &str| key.entries.borrow_mut().insert(ENTRY_NAME.into(), command.into());
+
+        assert!(!boot.upgrade().unwrap(), "off stays off");
+        assert_eq!(entry(), None);
+
+        set(r#""C:\other\gazelle-audio-server.exe" --bind 127.0.0.1:8420"#);
+        assert!(!boot.upgrade().unwrap(), "another binary's entry is not ours to change");
+        assert_eq!(entry().as_deref(), Some(r#""C:\other\gazelle-audio-server.exe" --bind 127.0.0.1:8420"#));
+
+        set(&format!("\"{EXE}\" --bind 127.0.0.1:9000"));
+        assert!(boot.upgrade().unwrap());
+        assert_eq!(entry(), Some(format!("\"{EXE}\" --hidden --bind 127.0.0.1:9000")), "its own options kept");
+        assert!(!boot.upgrade().unwrap(), "once is enough");
     }
 
     #[test]

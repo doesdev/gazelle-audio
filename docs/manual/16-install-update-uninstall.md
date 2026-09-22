@@ -52,7 +52,7 @@ The installer has been tested against a temporary folder and a test registry key
 
 ## Start on boot
 
-The tray menu's **Start on boot** adds a login entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, named **Gazelle**) that starts the windowless program when you log in, with the same address and options the running copy has. Untick it to remove the entry. Not yet tried by hand on a real login.
+The tray menu's **Start on boot** adds a login entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, named **Gazelle**) that starts the windowless program when you log in, with the same address and options the running copy has. It starts in the tray only: the window stays hidden until you choose **Open Gazelle** from the tray or launch Gazelle again. An entry made by an older version, which opened the window at every login, is brought up to date the next time Gazelle starts. Untick it to remove the entry. Not yet tried by hand on a real login.
 
 ## Updates
 

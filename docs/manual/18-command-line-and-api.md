@@ -29,6 +29,7 @@ Both take the same options. `gazelle-audio-server.exe --help` lists them; this t
 | `--no-tray` | off | No tray icon, and so no window and no log file unless `--log-dir` is given. For services and test harnesses |
 | `--no-update` | off | No update checks this run |
 | `--no-window` | off | No desktop window; open the app in a browser |
+| `--hidden` | off | Start in the tray with the window hidden; **Open Gazelle** in the tray, or launching Gazelle again, shows it. What Start on boot runs. If Gazelle is already running, a `--hidden` start leaves it alone |
 | `--log-dir <DIR>` | `%LOCALAPPDATA%\gazelle\logs` for tray runs | Also log to a size-capped file in DIR |
 | `--install` | | Install this copy for the current user and stop. See [Install](16-install-update-uninstall.md#install) |
 | `--start` | | With `--install`: start the installed copy |

@@ -554,15 +554,33 @@ pub fn is_offered(bind: std::net::IpAddr, no_update: bool, settings: &Settings) 
 /// Start the binary that is now in place, with the arguments this process was given, and let
 /// this one exit. Called **after** the server has stopped and given up its port and its USB
 /// handles, never while it is running.
-pub fn relaunch() {
+///
+/// `window_showing` is whether the desktop window was on screen, when there is one; the new
+/// process comes back the same way (see [`relaunch_arguments`]).
+pub fn relaunch(window_showing: Option<bool>) {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => return tracing::error!("cannot restart into the update: {e}"),
     };
-    match relaunch_command(&exe, std::env::args_os().skip(1)).spawn() {
+    match relaunch_command(&exe, relaunch_arguments(std::env::args_os().skip(1), window_showing)).spawn() {
         Ok(child) => tracing::info!("restarted into {} as process {}", exe.display(), child.id()),
         Err(e) => tracing::error!("starting {} again: {e}", exe.display()),
     }
+}
+
+/// The arguments a relaunch passes on: this process's own, with `--hidden` taken out when the
+/// window is on screen and put in when it has been closed to the tray. A run started at login
+/// that the person has since opened comes back open; one whose window they closed comes back in
+/// the tray. With no window, the arguments pass unchanged.
+pub fn relaunch_arguments(args: impl IntoIterator<Item = std::ffi::OsString>, window_showing: Option<bool>) -> Vec<std::ffi::OsString> {
+    let hidden = crate::tray::boot::HIDDEN_FLAG;
+    let mut args: Vec<_> = args.into_iter().collect();
+    match window_showing {
+        Some(true) => args.retain(|a| a != hidden),
+        Some(false) if !args.iter().any(|a| a == hidden) => args.push(hidden.into()),
+        _ => {}
+    }
+    args
 }
 
 /// How a relaunch is spelled, so the arguments can be checked without starting anything. The
@@ -694,6 +712,18 @@ mod tests {
         assert_eq!(command.get_program(), exe.as_os_str());
         assert_eq!(command.get_args().collect::<Vec<_>>(), args.iter().collect::<Vec<_>>());
         assert_eq!(command.get_current_dir(), Some(Path::new(r"C:pps\gazelle")));
+    }
+
+    #[test]
+    fn a_relaunch_brings_the_window_back_as_it_was() {
+        let os = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let login = os(&["--hidden", "--bind", "127.0.0.1:8420"]);
+        assert_eq!(relaunch_arguments(login.clone(), Some(true)), os(&["--bind", "127.0.0.1:8420"]), "opened since login: back open");
+        assert_eq!(relaunch_arguments(login.clone(), Some(false)), login, "still in the tray: back in the tray");
+        let opened = os(&["--bind", "127.0.0.1:8420"]);
+        assert_eq!(relaunch_arguments(opened.clone(), Some(true)), opened);
+        assert_eq!(relaunch_arguments(opened.clone(), Some(false)), os(&["--bind", "127.0.0.1:8420", "--hidden"]), "closed to the tray: stays there");
+        assert_eq!(relaunch_arguments(login.clone(), None), login, "no window: nothing to decide");
     }
 
     #[test]
