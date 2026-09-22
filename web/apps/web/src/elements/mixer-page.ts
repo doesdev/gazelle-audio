@@ -18,6 +18,7 @@ import { meterDeflection } from "../store/mixer.ts";
 import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
+import { bindConfirm } from "./controls.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
@@ -151,6 +152,8 @@ export class GaMixer extends GaElement {
       .masters ga-mix-master { flex: 0 0 96px; }
       .starts { --ga-field-height: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
       .starts:empty { display: none; }
+      .starts .save-as { margin-left: 12px; }
+      .starts button[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       ${LINK_STYLES}
     `),
   ];
@@ -228,8 +231,9 @@ export class GaMixer extends GaElement {
     const layoutName = store.view(`mixer:${deviceId}:layout-name`, "");
     const startFrom = store.view<string | undefined>(`mixer:${deviceId}:start-from`, undefined);
 
-    // While no channel is set up, the mixer can start from a starting layout or one the user saved
-    // (value "saved:<id>"); once channels are set up, the layout can be saved by name.
+    // The mixer can always start over from a starting layout or one the user saved (value
+    // "saved:<id>"), and once channels are set up they can be saved as a layout by name. Applying
+    // over channels that are set up replaces them and re-routes, so that takes a confirming click.
     const starts = h("div", { class: "starts" });
     const failed = (error: unknown) => store.reportError(error instanceof Error ? error.message : String(error));
     this.watch(() => {
@@ -239,6 +243,7 @@ export class GaMixer extends GaElement {
       }
       const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
       const saved = channels.savedLayouts();
+      let saveAs: HTMLElement[] = [];
       if (setUp) {
         // This row is rebuilt as the channels change, so the name typed so far is kept outside it.
         const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "data-explain": "mixer.layout-name", "on:input": () => (layoutName.value = name.value) });
@@ -260,8 +265,7 @@ export class GaMixer extends GaElement {
           },
           "Save layout",
         );
-        starts.replaceChildren(h("span", { class: "caption" }, "Save as"), name, save);
-        return;
+        saveAs = [h("span", { class: "caption save-as" }, "Save as"), name, save];
       }
       const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
       const select = h(
@@ -277,13 +281,19 @@ export class GaMixer extends GaElement {
           type: "button",
           "data-testid": "profile-apply",
           "data-explain": "mixer.profile-apply",
-          title: "Replace these channels with the chosen layout and route it",
-          "on:click": () => {
-            const id = chosenSaved();
-            (id === undefined ? channels.applyProfile(select.value) : channels.applySavedLayout(id)).catch(failed);
-          },
+          "aria-label": "Apply the layout",
+          title: setUp ? "Replace these channels with the chosen layout and route it: click twice, since it replaces what is set up" : "Build the chosen layout's channels and route them",
         },
         "Apply",
+      );
+      bindConfirm(
+        apply,
+        "Apply",
+        () => {
+          const id = chosenSaved();
+          (id === undefined ? channels.applyProfile(select.value) : channels.applySavedLayout(id)).catch(failed);
+        },
+        () => setUp,
       );
       const remove = h(
         "button",
@@ -305,7 +315,7 @@ export class GaMixer extends GaElement {
       select.addEventListener("change", () => (startFrom.value = select.value));
       select.addEventListener("change", syncRemove);
       syncRemove();
-      starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove);
+      starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove, ...saveAs);
     });
 
     const strips = h("div", { class: "strips" });

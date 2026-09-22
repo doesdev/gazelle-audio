@@ -87,6 +87,10 @@ version that has not been published yet.
 
 ### Changed
 
+- **Switch a mixer to another layout at any time.** The Mixer page's **Start from** used to
+  appear only while no channel was set up, so moving to a saved layout meant clearing every channel
+  first. It is always there now, beside **Save as**, and applying a layout over channels that are
+  set up asks for a confirming click, since it replaces them.
 - **Start on boot starts Gazelle in the tray, without opening its window.** Choose **Open Gazelle**
   from the tray when you want it. An entry you turned on with an earlier version is changed to
   work this way the next time Gazelle starts. Restarting into an update brings the window back as

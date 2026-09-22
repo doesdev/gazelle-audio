@@ -586,11 +586,15 @@ export class ChannelsModel {
     return this.#context.editSaved((layouts) => layouts.filter((l) => l.id !== id));
   }
 
-  /** Replaces a mixer with no channel set up by `mixer` and routes its channels. */
+  /**
+   * Replaces the mixer by `mixer` and routes its channels. Channels already set up are taken out
+   * first as `remove` takes one out, muting their slots in every mix they fed, so nothing of the
+   * old mixer is left routed behind the new one. Whoever calls this over set-up channels has asked.
+   */
   async #startFrom(mixer: DeviceMixer): Promise<boolean> {
-    if (this.layout.peek().channels.some((c) => this.isActive(c))) throw new Error("a starting layout only replaces a mixer with no channel set up");
-    if (!this.#context.edit(() => ({ ...emptyLayout(), ...mixer }))) return false;
     let routed = true;
+    for (const c of this.layout.peek().channels.filter((c) => this.isActive(c))) routed = (await this.remove(c.id)) && routed;
+    if (!this.#context.edit(() => ({ ...emptyLayout(), ...mixer }))) return false;
     for (const c of mixer.channels) routed = (await this.#apply({ id: c.id, name: c.name, slot: c.slot, sends: [] }, c)) && routed;
     return routed;
   }

@@ -697,8 +697,28 @@ test("a mixer with no channel set up offers starting layouts; applying one build
   await page.getByTestId("profile-apply").click();
   await expect(page.locator("ga-channel")).toHaveCount(6);
   await expect(page.getByTestId("name-10")).toHaveValue("DAW L");
-  await expect(page.getByTestId("profile-select")).toHaveCount(0);
   await expect.poll(() => frames.filter((f) => f.command === "set_routing").length).toBeGreaterThan(0);
+});
+
+test("a set-up mixer still offers the layouts, and applying one over its channels takes a confirming click", async ({ page }) => {
+  await layout({ "loopback-0": { mixes: [{ name: "Monitors" }], channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  await expect(page.getByTestId("name-6")).toHaveValue("Vox");
+  // Both at once: saving what is here, and starting over from another layout.
+  await expect(page.getByTestId("layout-save")).toBeVisible();
+  await page.getByTestId("profile-select").selectOption("tracking");
+  const apply = page.getByTestId("profile-apply");
+  await apply.click();
+  await expect(apply).toHaveText("Confirm");
+  await expect(apply).toHaveAttribute("data-armed", "");
+  await expect(page.getByTestId("name-6")).toHaveValue("Vox");
+  // Left alone, it forgets the first click and replaces nothing.
+  await expect(apply).toHaveText("Apply", { timeout: 5000 });
+  await expect(page.getByTestId("name-6")).toHaveValue("Vox");
+  await apply.click();
+  await apply.click();
+  await expect(page.locator("ga-channel")).toHaveCount(6);
+  await expect(page.getByTestId("name-10")).toHaveValue("DAW L");
 });
 
 test("a set-up mixer can be saved as a layout, and an empty mixer offers saved layouts beside the starting ones", async ({ page }) => {

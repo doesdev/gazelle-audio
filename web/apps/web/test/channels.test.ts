@@ -301,11 +301,21 @@ test("a starting layout makes its channels from the first free slots, names its 
   assert.deepEqual([at(Q, MIX[0] as number, 6), at(Q, MIX[1] as number, 11), at(Q, MIX[2] as number, 6)], [[PREAMP, 0], [USB1, 1], [MUTE, 0]], "main mix and send routed, other mixes left muted");
 });
 
-test("a starting layout replaces only a mixer with no channel set up, and every layout's inputs exist on its device", async () => {
-  const { store } = await setup();
+test("a starting layout replaces a set-up mixer, muting what the old one routed, and every layout's inputs exist on its device", async () => {
+  const { store, at } = await setup();
   const channels = store.channels(Q);
   await channels.applyProfile("tracking");
-  await assert.rejects(channels.applyProfile("playback"), /set up/);
+  const extra = channels.add();
+  assert.ok(extra);
+  await channels.setSource(extra, { group: PREAMP, channel: 0 });
+  await channels.setMainMix(extra, 2);
+  const slot = channels.channel(extra)?.slot as number;
+  assert.deepEqual(at(Q, MIX[2] as number, slot), [PREAMP, 0]);
+  assert.equal(await channels.applyProfile("playback"), true);
+  const playback = PROFILES.quadro.find((p) => p.id === "playback");
+  assert.deepEqual(channels.layout.value.channels.map((c) => c.name), playback?.channels.map((c) => c.name));
+  assert.deepEqual(at(Q, MIX[2] as number, slot), [MUTE, 0], "a slot the new layout does not use is muted");
+  assert.deepEqual([at(Q, MIX[0] as number, 8), at(Q, MIX[1] as number, 8)], [[MUTE, 0], [MUTE, 0]], "the old Preamp 3 is gone from both mixes it fed");
   await assert.rejects(store.channels(S).applyProfile("no-such-layout"), RangeError);
 
   for (const [family, deviceId] of [["quadro", Q], ["studio", S]] as const) {
@@ -336,7 +346,6 @@ test("a mixer can be saved as a layout for its model, applied later like a start
   assert.deepEqual(channels.savedLayouts().map((l) => [l.name, l.family, l.mixer.channels.length]), [["My session", "quadro", 6]]);
   assert.deepEqual(store.channels(S).savedLayouts(), [], "saved per model: the Studio+ does not offer a Quadro layout");
 
-  await assert.rejects(channels.applySavedLayout(id), /set up/, "like starting layouts, it never replaces a working mixer");
   for (const c of [...channels.layout.value.channels]) await channels.remove(c.id);
   assert.equal(await channels.applySavedLayout(id), true);
   assert.deepEqual(channels.layout.value.channels.map((c) => [c.name, c.slot]).slice(0, 2), [["Vox", 6], ["Preamp 2", 7]]);

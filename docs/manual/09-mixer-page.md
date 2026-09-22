@@ -12,7 +12,7 @@ The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels rout
 - **How this mixer works** opens a short explanation.
 - **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from.
 
-A device with no channels yet offers **Start from**: starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones. **Apply** replaces the channels and routes them. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
+**Start from** offers the starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones, whether or not channels are set up. **Apply** replaces the channels and routes them. With channels already set up it asks first: the first click reads **Confirm**, and a second within three seconds replaces them, so save the current ones as a layout before you switch if you want them back. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
 
 ## Channels
 
