@@ -124,8 +124,14 @@ async function workspace(): Promise<void> {
     ],
     cables: [{ id: "c1", from: { device_id: STUDIO, port: "ADAT_OUT", first: 0 }, to: { device_id: QUADRO, port: "ADAT_IN", first: 0 }, channels: 8 }],
     control_room: { [QUADRO]: { outputs: [0, 1, 2, 3] } },
-    // Two interfaces in the aggregate, so its page has a card for each with every control on it.
-    aggregate: { devices: [{ key: "Zen Quadro Synergy Core", name: "Quadro", device_id: QUADRO, input_trim: 8 }, { key: "Zen Studio+", name: "Studio+", device_id: STUDIO, phase: { master_output: 1, input: 0, reference: -84 } }], callback_master: "Quadro", alignment: "aligned" },
+    // Two interfaces in the aggregate, so its page has a card for each with every control on it, each
+    // called by its name in Gazelle, with a typed name on one channel.
+    aliases: { [QUADRO]: "Quadro", [STUDIO]: "Studio+" },
+    aggregate: {
+      devices: [{ key: "Zen Quadro Synergy Core", device_id: QUADRO, input_trim: 8, input_names: { "1": "Room" } }, { key: "Zen Studio+", device_id: STUDIO, phase: { master_output: 1, input: 0, reference: -84 } }],
+      callback_master: "Zen Quadro Synergy Core",
+      alignment: "aligned",
+    },
   });
 }
 
@@ -155,14 +161,14 @@ const AGGREGATE_ANSWER = {
     dll_search: { state: "found", dll: "C:\\gazelle\\gazelle_aggregate.dll" },
   },
   devices: [
-    { name: "Quadro", key: "Zen Quadro Synergy Core", registered: true, entry_key: "Zen Quadro Synergy Core", device_id: QUADRO, matched_by: "chosen", channels: { inputs: ["Mic 1", "Mic 2"], outputs: ["Monitor L", "Monitor R"], source: "gazelle" }, attached: true, family: "quadro", clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 }, driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 }, is_master: true },
-    { name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, matched_by: "worked_out", channels: { inputs: ["Line 1", "Line 2"], outputs: ["Main L", "Main R"], source: "gazelle" }, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
+    { index: 0, name: "Quadro", key: "Zen Quadro Synergy Core", registered: true, entry_key: "Zen Quadro Synergy Core", device_id: QUADRO, matched_by: "chosen", channels: { inputs: 16, outputs: 16, input_group: "USB A REC", output_group: "USB 1 PLAY" }, attached: true, family: "quadro", clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 }, driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 }, is_master: true },
+    { index: 1, name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, matched_by: "worked_out", channels: { inputs: 24, outputs: 24, input_group: "USB REC", output_group: "USB PLAY" }, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
   ],
   ready: false,
   reasons: [
     { code: "buffers_differ", severity: "blocking", message: "The drivers are on different buffer sizes (256 and 128).", fix: { kind: "match_buffers", method: "POST", route: "aggregate/match-buffers", body: { buffer_size: 256 }, label: "Put them all on 256 samples" } },
     { code: "controller_unknown", severity: "warning", message: "Quadro's USB host controller could not be found." },
-    { code: "phase_not_measured", severity: "warning", message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_id: STUDIO },
+    { code: "phase_not_measured", severity: "warning", message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_index: 1, device_id: STUDIO },
   ],
   status: {
     state: "read",
@@ -348,6 +354,10 @@ test("every control, readout, badge and heading on every page carries a key the 
   await visit("aggregate", "ga-aggregate");
   await page.getByTestId("device-0-buffer").selectOption("512");
   await expect(page.getByTestId("device-0-buffer-confirm")).toBeVisible();
+  // Every channel named, with what a DAW shows for it, and the follower's phase setup.
+  await page.getByTestId("device-0-channels-open").click();
+  await expect(page.getByTestId("device-0-in-1-name")).toBeVisible();
+  await page.getByTestId("device-1-phase-open").click();
   await check(page, "aggregate");
   await page.unroute("**/api/v1/aggregate**");
 

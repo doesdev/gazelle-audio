@@ -104,7 +104,9 @@ pub struct Aggregate {
     /// The sub-devices, in the order their channels appear to a DAW.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub devices: Vec<AggregateDevice>,
-    /// Which device drives the callback, by name, registry key or class id. The first device
+    /// Which device drives the callback. Gazelle writes the device's registry key (or class id),
+    /// which a rename cannot change, and turns it into the name the driver knows it by when the
+    /// file is written. An older setup's name for a device is still understood. The first device
     /// when it is not said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback_master: Option<String>,
@@ -132,7 +134,10 @@ pub struct AggregateDevice {
     /// The vendor driver's class id, which is the sure way to name one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clsid: Option<String>,
-    /// What to call this device's channels.
+    /// What an older setup called this interface. **Not a name anything is called by any more**:
+    /// an interface is called by Gazelle's name for its device, so renaming the device is the one
+    /// way to rename it and there is no second name to keep in step. It is kept, and read, only so
+    /// that a `callback_master` an older Gazelle wrote by this name still finds its device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Samples to add to what this device's driver says its input latency is. A device that
@@ -147,10 +152,12 @@ pub struct AggregateDevice {
     pub inputs: Option<Vec<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs: Option<Vec<u32>>,
-    /// What the person calls this device's inputs, by the device's own channel number from zero,
-    /// the same numbering [`AggregateDevice::inputs`] uses. A channel with a label of its own is
-    /// called "Vocal mic (Quadro 1)" in a DAW; one without keeps the plain "Quadro 1". A channel
-    /// that is not named is left out, so an empty map is the same as saying nothing.
+    /// The names the person has **typed** for this device's inputs, by the device's own channel
+    /// number from zero, the same numbering [`AggregateDevice::inputs`] uses. Only typed names are
+    /// here: the name each channel takes from Gazelle's routing is worked out whenever the file is
+    /// written (`crate::aggregate::naming`), so it can never overwrite one of these, and clearing
+    /// one brings the automatic name back. A channel that is not named is left out, so an empty map
+    /// is the same as saying nothing.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub input_names: BTreeMap<u32, String>,
     /// As [`AggregateDevice::input_names`], for its outputs.
@@ -166,9 +173,42 @@ pub struct AggregateDevice {
     /// of the exported file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_id: Option<DeviceId>,
+    /// What Gazelle last knew about the interface this entry turned out to be. The server's alone:
+    /// it is worked out again on every save and whenever the routing changes, a client's copy of it
+    /// is never taken, and it is left out of the exported file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known: Option<AggregateKnown>,
     /// As [`Aggregate::extra`], per device.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// What Gazelle last knew about the interface one aggregate entry turned out to be.
+///
+/// The names the driver is given come from Gazelle's device and Gazelle's routing, and neither can be
+/// read while the interface is unplugged or before Gazelle has heard from it after a start. Keeping
+/// what was last known here is what keeps those names in the driver's file across a restart, rather
+/// than falling back to the vendor driver's until the interface is back. It is a record of facts,
+/// never of names: the names are worked out from it, with the person's own names as they are now.
+///
+/// It records one routing group, the one the aggregate's inputs are, and that for naming only: a
+/// device's state is otherwise never kept in the workspace.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregateKnown {
+    /// The device it was, whether the person chose it or Gazelle worked it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<DeviceId>,
+    /// Its model, as a family key (`quadro`, `studio`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    /// Its model's name, as the sidebar shows it when the person has not named the device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// What its routing sends to each of its USB record channels, by channel from zero, as
+    /// `[source group position, channel]`, which is the pair a routing slot is. Absent until the
+    /// group has been read or written through Gazelle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_routing: Option<Vec<[u8; 2]>>,
 }
 
 /// The digital path the driver measures one interface's capture phase over: which output of the

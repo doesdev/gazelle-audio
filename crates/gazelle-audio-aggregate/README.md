@@ -85,10 +85,13 @@ by recording one source into both devices and comparing, but a trim written by h
 reference beside it, so it holds only in sessions that happen to start in the state it was
 measured in. See "The phase" below for why that matters.
 
-**Naming the channels.** A channel is called "Quadro 1" unless you say otherwise, which tells you
-which interface and which socket but nothing about what is plugged into it. `input_names` and
-`output_names` give a channel your own name for it, keyed by the device's own channel number from
-zero, the same numbering `inputs` and `outputs` use:
+**Naming the channels.** A device's channels are its USB audio channels, the ones its vendor driver
+publishes: input *k* is its USB record channel *k* and output *k* its USB playback channel *k* (16
+each way on the Zen Quadro Synergy Core, `USB A REC` and `USB 1 PLAY`; 24 each way on the Zen Studio+,
+`USB REC` and `USB PLAY`). A channel is called "Quadro 1" unless the file says otherwise, which
+tells you which interface and which channel but nothing about what it carries. `input_names` and
+`output_names` give a channel a label, keyed by the device's own channel number from zero, the
+same numbering `inputs` and `outputs` use:
 
 ```json
 { "key": "Zen Quadro Synergy Core", "name": "Quadro",
@@ -96,12 +99,21 @@ zero, the same numbering `inputs` and `outputs` use:
   "output_names": { "0": "Main L", "1": "Main R" } }
 ```
 
-That channel then appears in the DAW as "Vocal mic (Quadro 1)": your name first, and the interface
-and socket still there in brackets, so a patch you have forgotten is one glance away. The interface
-carries 31 characters, and when your name and the bracketed automatic name together will not fit,
-your name alone is what is kept, because half a bracket reads as a name that was cut off. A name for a channel the
+That channel then appears in the DAW as "Vocal mic (Quadro 1)": the label first, and the interface
+and channel still there in brackets, so a patch you have forgotten is one glance away. The interface
+carries 31 characters, and when the label and the bracketed automatic name together will not fit,
+the label alone is what is kept, because half a bracket reads as a name that was cut off. A name for a channel the
 device does not expose is simply unused, and a name that is empty or only spaces is the same as not
 giving one.
+
+**Gazelle writes these names, and keeps them in step.** When Gazelle writes this file, every name in
+it is Gazelle's: each device's `name` is Gazelle's name for the device (the person's own name for it,
+else its model), `callback_master` is that same name, and every channel has a label, taken from what
+Gazelle's routing sends to that USB record channel (or, for an output, the Mixer channel that plays
+it), with a name the person typed on the Aggregate page put over it. When the routing changes
+through Gazelle, it writes the file again and the driver takes the new names at its next reset, as
+it takes any other change. A long device name leaves no room for the bracketed part, and the DAW
+then shows the label alone; a short name for the device in Gazelle keeps it.
 
 **To give a device only some of its channels**, add `inputs` or `outputs` with the indexes to keep:
 `"inputs": [0, 1, 2, 3]` exposes that device's first four inputs and no others. Leave the field out
@@ -134,13 +146,13 @@ clocks it:
 | `devices` | The sub-devices, in the order their channels appear to the DAW. | every Antelope driver found, in registry order |
 | `devices[].key` | The name the vendor driver registers itself under. Matched without case, whole or as a part. | |
 | `devices[].clsid` | The vendor driver's class id, which is the sure way to name one. Used in preference to `key`. | |
-| `devices[].name` | What to call this device's channels. | its registry key |
+| `devices[].name` | What to call this device's channels. Gazelle writes its own name for the device here. | its registry key |
 | `devices[].input_trim` | Samples to add to what this device's driver says its input latency is. A device that records late takes a positive trim, and the others are held back to match it. | 0 |
 | `devices[].output_trim` | The same for its outputs. | 0 |
 | `devices[].phase` | How this interface's capture phase is measured at the start of a session, as `{"master_output": n, "input": n, "reference": n}`: the output of the interface that drives the callback the cable leaves from, and this interface's own input it arrives on, both by the devices' own channel numbering from zero, and the phase measured when its input trim was measured, which a calibration run writes. Not for the interface that drives the callback. See "The phase" below. | not measured |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |
 | `devices[].outputs` | Which of its outputs to expose. | all of them |
-| `devices[].input_names` | What to call its inputs, keyed by the device's own channel number from zero: `{"0": "Vocal mic"}`. The channel is then "Vocal mic (Quadro 1)". | the automatic name |
+| `devices[].input_names` | A label for each of its inputs, keyed by the device's own channel number from zero: `{"0": "Vocal mic"}`. The channel is then "Vocal mic (Quadro 1)". Gazelle writes one for every channel. | the automatic name |
 | `devices[].output_names` | The same for its outputs. | the automatic name |
 | `callback_master` | Which device drives the DAW's callback, by name, registry key or class id. | the first device in the list |
 | `alignment` | `"aligned"` or `"lowest_latency"`. | `"aligned"` |

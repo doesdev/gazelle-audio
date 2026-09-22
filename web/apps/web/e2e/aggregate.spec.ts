@@ -36,15 +36,21 @@ const registration = (parts: Record<string, unknown> = {}) => ({
   ...parts,
 });
 
+/** The person's own names for the two loopbacks, which is what the page calls them. */
+const OWN_NAMES = { "loopback-0": "Quadro", "loopback-1": "Studio+" };
+
+/** The workspace with an aggregate section, and the devices named as a person would name them. */
+const setUp = (aggregate: Record<string, unknown>, parts: Record<string, unknown> = {}) => putWorkspace(server, { aliases: OWN_NAMES, aggregate, ...parts });
+
 const deviceReport = (name: string, parts: Record<string, unknown> = {}) => ({
   name,
   key: name,
   registered: true,
   entry_key: name,
-  device_id: "loopback-0",
+  device_id: name.includes("Studio") ? "loopback-1" : "loopback-0",
   matched_by: "chosen",
   attached: true,
-  family: "quadro",
+  family: name.includes("Studio") ? "studio" : "quadro",
   clock: { source_index: 0, source: "Internal", locked: true, hz: 96000, rate_index: 4 },
   driver: { sample_rate: 96000, buffer_size: 256, safe_mode: false, asio_clients: 0 },
   is_master: false,
@@ -190,7 +196,7 @@ test("adding an interface writes it into the workspace and gives it a card", asy
   await page.getByTestId("aggregate-add").click();
   await expect(page.getByTestId("aggregate-device-0")).toBeVisible();
   await expect(page.getByTestId("device-0-entry")).toHaveText("Zen Studio+");
-  await expect.poll(async () => (await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices).toEqual([{ key: "Zen Studio+", name: "Zen Studio+" }]);
+  await expect.poll(async () => (await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices).toEqual([{ key: "Zen Studio+" }]);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -395,7 +401,7 @@ test("a match left unconfirmed forgets itself and sends nothing", async ({ page 
 });
 
 test("the Match buffer sizes button in the interfaces section asks twice as well", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }, { key: "Studio+", name: "Studio+" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+" }] });
   const captured = await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true }), deviceReport("Studio+")] }));
   await open(page);
   const match = page.getByTestId("aggregate-match");
@@ -410,17 +416,19 @@ test("the Match buffer sizes button in the interfaces section asks twice as well
 // ---------------------------------------------------------------------------------------------
 
 test("each interface shows what it is doing, and its buffer size is sent only from its Confirm", async ({ page }) => {
-  await putWorkspace(server, {
-    aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0", input_trim: 12 }, { key: "Studio+", name: "Studio+" }], callback_master: "Quadro", alignment: "aligned" },
-  });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0", input_trim: 12 }, { key: "Studio+" }], callback_master: "Quadro", alignment: "aligned" });
   await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true }), deviceReport("Studio+", { attached: false, device_id: undefined, clock: undefined, driver: { message: "Not connected" } })] }));
   await open(page);
 
-  await expect(page.getByTestId("device-0-name")).toHaveValue("Quadro");
+  await expect(page.getByTestId("device-0-name")).toHaveText("Quadro");
+  // Not connected, and nothing says which device it is, so its model is all there is to call it.
+  await expect(page.getByTestId("device-1-name")).toHaveText("Zen Studio+");
+  await expect(page.getByTestId("device-0-entry")).toHaveText("Quadro");
   await expect(page.getByTestId("device-0-clock")).toHaveText("Internal");
   await expect(page.getByTestId("device-0-lock")).toHaveText("LOCK");
   await expect(page.getByTestId("device-0-rate")).toHaveText("96 kHz");
-  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out");
+  await expect(page.getByTestId("device-1-channels")).toHaveText("All 24 in, all 24 out");
   await expect(page.getByTestId("device-0-in-trim")).toHaveValue("12");
   await expect(page.getByTestId("device-0-gap")).toHaveText("No DAW has it open");
   await expect(page.getByTestId("device-0-buffer")).toHaveValue("256");
@@ -448,21 +456,23 @@ test("each interface shows what it is doing, and its buffer size is sent only fr
 });
 
 test("the order of the interfaces is the order of the channels, and it can be changed", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }, { key: "Studio+", name: "Studio+" }] } });
+  await setUp({ devices: [{ key: "Quadro" }, { key: "Studio+" }] });
   await fakeAggregate(page, answer({ devices: [deviceReport("Quadro"), deviceReport("Studio+")] }));
   await open(page);
-  await expect(page.getByTestId("device-0-name")).toHaveValue("Quadro");
+  await expect(page.getByTestId("device-0-name")).toHaveText("Quadro");
   await expect(page.getByTestId("device-0-up")).toBeDisabled();
 
   await page.getByTestId("device-1-up").click();
-  await expect(page.getByTestId("device-0-name")).toHaveValue("Studio+");
-  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? []).map((d: { name: string }) => d.name)).toEqual(["Studio+", "Quadro"]);
+  // The answer here is canned and does not move with the setup, so the driver each card opens is
+  // what shows the move.
+  await expect(page.getByTestId("device-0-entry")).toHaveText("Studio+");
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? []).map((d: { key: string }) => d.key)).toEqual(["Studio+", "Quadro"]);
 
   // Removing takes two clicks, as everything that throws work away here does.
   await page.getByTestId("device-0-remove").click();
   await expect(page.getByTestId("device-0-remove")).toHaveText("Confirm");
   await page.getByTestId("device-0-remove").click();
-  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? []).map((d: { name: string }) => d.name)).toEqual(["Quadro"]);
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? []).map((d: { key: string }) => d.key)).toEqual(["Quadro"]);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -471,7 +481,7 @@ test("the order of the interfaces is the order of the channels, and it can be ch
 
 test("an interface Gazelle worked out for itself is live without anybody choosing, and choosing pins it", async ({ page }) => {
   // Nothing in the workspace says which device this is: the server worked it out from the answer.
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
+  await setUp({ devices: [{ key: "Quadro" }] });
   await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { matched_by: "worked_out", is_master: true })] }));
   await open(page);
 
@@ -493,7 +503,7 @@ test("an interface Gazelle worked out for itself is live without anybody choosin
 
 test("an interface Gazelle cannot tell shows the note saying why, and leaves its driver controls dead", async ({ page }) => {
   const why = "Two interfaces of this model are connected, so Gazelle cannot tell which one this is. Choose it here.";
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
+  await setUp({ devices: [{ key: "Quadro" }] });
   await fakeAggregate(
     page,
     answer({
@@ -517,63 +527,73 @@ test("an interface Gazelle cannot tell shows the note saying why, and leaves its
 // The channels: which of them a DAW sees, and what it calls them
 // ---------------------------------------------------------------------------------------------
 
-const withChannels = (parts: Record<string, unknown> = {}) =>
-  deviceReport("Quadro", { channels: { inputs: ["Mic 1", "Mic 2", "Mic 3", "Mic 4"], outputs: ["Main L", "Main R"], source: "gazelle" }, ...parts });
+const withChannels = (parts: Record<string, unknown> = {}) => deviceReport("Quadro", { channels: { inputs: 16, outputs: 16, input_group: "USB A REC", output_group: "USB 1 PLAY" }, ...parts });
 
 /** The one configured interface, as the server has it now. */
 const configured = async (): Promise<Record<string, unknown>> => (((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[0] ?? {}) as Record<string, unknown>;
 
-test("the channels are listed one by one, with Gazelle's own names beside them as a suggestion", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+test("the channels are the interface's USB channels, all of them, each named by Gazelle and as a DAW will show it", async ({ page }) => {
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
   await fakeAggregate(page, answer({ devices: [withChannels()] }));
   await open(page);
 
   // Closed, it is one line, and the rows are not on screen.
-  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out");
   await expect(page.getByTestId("device-0-in-0-label")).toBeHidden();
 
   await page.getByTestId("device-0-channels-open").click();
-  await expect(page.getByTestId("device-0-in-0-auto")).toHaveText("Quadro 1");
-  await expect(page.getByTestId("device-0-in-3-auto")).toHaveText("Quadro 4");
-  await expect(page.getByTestId("device-0-in-4")).toHaveCount(0, { timeout: 2000 });
-  await expect(page.getByTestId("device-0-out-1-auto")).toHaveText("Quadro 2");
-  await expect(page.getByTestId("device-0-in-1-hint")).toHaveText("Gazelle calls it Mic 2");
-  await expect(page.getByTestId("device-0-out-0-hint")).toHaveText("Gazelle calls it Main L");
-  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "Quadro 1");
-  await expect(page.getByTestId("device-0-channels-note")).toContainText("in brackets");
+  // This server is in dry run, so nothing reads the routing and each channel is its USB channel.
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A REC 1");
+  await expect(page.getByTestId("device-0-in-15-name")).toHaveText("USB A REC 16");
+  await expect(page.getByTestId("device-0-in-16")).toHaveCount(0, { timeout: 2000 });
+  await expect(page.getByTestId("device-0-out-1-name")).toHaveText("USB 1 PLAY 2");
+  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: USB A REC 1 (Quadro 1)");
+  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "USB A REC 1");
+  await expect(page.getByTestId("device-0-channels-note")).toContainText("USB channels");
+  await expect(page.getByTestId("device-0-channels-check")).toBeHidden();
+  await expect(page.getByTestId("aggregate-names-note")).toContainText("a short name for the device in Gazelle keeps that part");
+});
+
+test("a driver that published another count than the interface's USB channels is said as a check", async ({ page }) => {
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
+  await fakeAggregate(page, answer({ devices: [withChannels()], status: streaming([liveDevice("Quadro", { is_master: true, inputs: 14, outputs: 16 })]) }));
+  await open(page);
+  await page.getByTestId("device-0-channels-open").click();
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out", { timeout: 5000 });
+  await expect(page.getByTestId("device-0-channels-check")).toContainText("reports 14 inputs");
 });
 
 test("with no count to go on the channels are not guessed at, and the page says why", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }] } });
-  await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { device_id: undefined, matched_by: "none", driver: {} })] }));
+  await setUp({ devices: [{ key: "Quadro" }] });
+  await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { device_id: undefined, family: undefined, matched_by: "none", driver: {} })] }));
   await open(page);
   await page.getByTestId("device-0-channels-open").click();
-  await expect(page.getByTestId("device-0-channels-unknown")).toContainText("not known until a DAW opens the aggregate");
+  await expect(page.getByTestId("device-0-channels-unknown")).toContainText("not known until Gazelle knows which device it is");
   await expect(page.getByTestId("device-0-in-0")).toHaveCount(0);
 });
 
 test("not exposing a channel writes the ones that are left, and exposing it again takes the field away", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
   await fakeAggregate(page, answer({ devices: [withChannels()] }));
   await open(page);
   await page.getByTestId("device-0-channels-open").click();
 
   await expect(page.getByTestId("device-0-in-2-expose")).toHaveText("On");
   await page.getByTestId("device-0-in-2-expose").click();
-  await expect.poll(async () => (await configured())["inputs"]).toEqual([0, 1, 3]);
+  await expect.poll(async () => (await configured())["inputs"]).toEqual([0, 1, ...Array.from({ length: 13 }, (_, at) => at + 3)]);
   await expect(page.getByTestId("device-0-in-2-expose")).toHaveText("Off");
-  await expect(page.getByTestId("device-0-channels")).toHaveText("3 in, All out");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("15 of 16 in, all 16 out");
   // The card was rebuilt by that edit, and the part stayed open.
   await expect(page.getByTestId("device-0-in-2-expose")).toBeVisible();
 
   // Everything exposed again means no field at all, which is what the driver's file takes as all.
   await page.getByTestId("device-0-in-2-expose").click();
   await expect.poll(async () => Object.hasOwn(await configured(), "inputs")).toBe(false);
-  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out");
 });
 
 test("naming a channel writes the name, and clearing it takes the entry out rather than writing nothing", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
   await fakeAggregate(page, answer({ devices: [withChannels()] }));
   await open(page);
   await page.getByTestId("device-0-channels-open").click();
@@ -581,8 +601,11 @@ test("naming a channel writes the name, and clearing it takes the entry out rath
   await page.getByTestId("device-0-in-0-label").fill("Vocal mic");
   await page.getByTestId("device-0-in-0-label").press("Enter");
   await expect.poll(async () => (await configured())["input_names"]).toEqual({ "0": "Vocal mic" });
-  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out, 1 named");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out, 1 named");
   await expect(page.getByTestId("device-0-in-0-label")).toHaveValue("Vocal mic");
+  // The typed name is the channel's name now, on the page and in the DAW.
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
+  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: Vocal mic (Quadro 1)");
   // A label is at most 31 characters, and the field will not take more.
   await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("maxlength", "31");
 
@@ -593,11 +616,13 @@ test("naming a channel writes the name, and clearing it takes the entry out rath
   await page.getByTestId("device-0-in-0-label").fill("");
   await page.getByTestId("device-0-in-0-label").press("Enter");
   await expect.poll(async () => Object.hasOwn(await configured(), "input_names")).toBe(false);
-  await expect(page.getByTestId("device-0-channels")).toHaveText("All in, All out");
+  await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out");
+  // Cleared, the automatic name is back.
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A REC 1");
 });
 
 test("a poll landing leaves a label half typed where it was, and the Channels part as it was", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
   const captured = await fakeAggregate(page, answer({ devices: [withChannels()] }));
   await open(page);
   await page.getByTestId("device-0-channels-open").click();
@@ -637,7 +662,7 @@ const streaming = (devices: Record<string, unknown>[], parts: Record<string, unk
 });
 
 test("while a DAW is streaming the plan and every device's gap are on screen, and zero reads as in step", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro" }, { key: "Studio+", name: "Studio+" }] } });
+  await setUp({ devices: [{ key: "Quadro" }, { key: "Studio+" }] });
   await fakeAggregate(
     page,
     answer({
@@ -726,14 +751,11 @@ test("the answer is read again while a DAW is streaming, and not once the page h
 // Lining the interfaces up
 // ---------------------------------------------------------------------------------------------
 
-/** Two interfaces with channels the page can list: four each way on the Quadro, two on the Studio+. */
-const withBoth = () => [
-  deviceReport("Quadro", { is_master: true, channels: { inputs: ["Mic 1", "Mic 2", "Mic 3", "Mic 4"], outputs: ["Main L", "Main R", "Cue L", "Cue R"], source: "gazelle" } }),
-  deviceReport("Studio+", { device_id: "loopback-1", channels: { inputs: ["Line 1", "Line 2"], outputs: ["Out 1", "Out 2"], source: "gazelle" } }),
-];
+/** Both interfaces: sixteen USB channels each way on the Quadro, twenty four on the Studio+. */
+const withBoth = () => [deviceReport("Quadro", { is_master: true }), deviceReport("Studio+")];
 
 const bothConfigured = () =>
-  putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }, { key: "Studio+", name: "Studio+", device_id: "loopback-1" }], callback_master: "Quadro" } });
+  setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+", device_id: "loopback-1" }], callback_master: "Quadro" });
 
 /** A finished run: the Studio+ records 28 samples late, and that is the trim it implies. */
 const done = (parts: Record<string, unknown> = {}, readings: Record<string, unknown>[] = []) => ({
@@ -767,28 +789,26 @@ test("the cabling is named channel by channel, and follows the pickers", async (
   // The input pass by default: both clicks leave the Quadro, and each interface records its own.
   await expect(page.getByTestId("calibrate-direction")).toHaveValue("inputs");
   await expect(page.getByTestId("calibrate-reference")).toHaveValue("Quadro");
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 2 into Studio+ 1");
+  await expect(page.getByTestId("calibrate-cable-0")).toHaveText("1.USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-1")).toHaveText("2.USB 1 PLAY 2 on Quadro into USB REC 1 on Studio+");
   await expect(page.getByTestId("calibrate-problem")).toBeHidden();
 
   // Choosing another output moves the cable that goes with it, and nothing else.
-  await page.getByTestId("calibrate-plays-1").selectOption({ label: "Quadro 4" });
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 4 into Studio+ 1");
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 PLAY 4" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 4 on Quadro into USB REC 1 on Studio+");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
 
   // And the other pass is the same thing the other way round: one output on each interface.
   await page.getByTestId("calibrate-direction").selectOption("outputs");
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Quadro 1 into Quadro 1");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Studio+ 1 into Quadro 2");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB PLAY 1 on Studio+ into USB A REC 2 on Quadro");
 });
 
-test("a channel with a name of its own is named in the cabling with its own number after it", async ({ page }) => {
-  await putWorkspace(server, {
-    aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0", output_names: { "0": "Monitor L" } }, { key: "Studio+", name: "Studio+", device_id: "loopback-1" }] },
-  });
+test("a channel with a name of its own is named in the cabling by it, then by its USB channel", async ({ page }) => {
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0", output_names: { "0": "Monitor L" } }, { key: "Studio+", device_id: "loopback-1" }] });
   await fakeAggregate(page, answer({ devices: withBoth() }));
   await open(page);
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Monitor L (Quadro 1) into Quadro 1");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Monitor L, USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
 });
 
 test("measuring asks twice, then sends exactly the channels the pickers name", async ({ page }) => {
@@ -812,37 +832,35 @@ test("measuring asks twice, then sends exactly the channels the pickers name", a
 });
 
 /**
- * **The Check that was refused on the owner's rig.** Gazelle's own list has fourteen inputs for the
+ * **The Check that was refused on the owner's rig.** Gazelle's list had fourteen inputs for the
  * Quadro while its driver has sixteen, so a page that counted the aggregate's channels itself sent
- * the Studio+'s first input as 14, which is the Quadro's fifteenth. A Check now names every cable end
- * by interface and that interface's own channel, so no count on this page can move a cable.
+ * the Studio+'s first input as 14, which is the Quadro's fifteenth. The count is the USB group's own
+ * now, and a Check names every cable end by interface and that interface's own channel anyway.
  */
 test("a check sends each cable end as an interface and that interface's own channel", async ({ page }) => {
+  // Nobody has named either device, so each is called by its model.
   await putWorkspace(server, {
     aggregate: {
       devices: [
-        { key: "Zen Quadro Synergy Core", name: "Zen Quadro Synergy Core", device_id: "loopback-0" },
-        { key: "ZenStudioTB ASIO Driver", name: "ZenStudioTB ASIO Driver", device_id: "loopback-1" },
+        { key: "Zen Quadro Synergy Core", device_id: "loopback-0" },
+        { key: "ZenStudioTB ASIO Driver", device_id: "loopback-1" },
       ],
       callback_master: "Zen Quadro Synergy Core",
     },
   });
-  const fourteen = Array.from({ length: 14 }, (_, at) => `Mic ${at + 1}`);
   const captured = await fakeAggregate(
     page,
-    answer({
-      devices: [
-        deviceReport("Zen Quadro Synergy Core", { is_master: true, channels: { inputs: fourteen, outputs: fourteen, source: "gazelle" } }),
-        deviceReport("ZenStudioTB ASIO Driver", { device_id: "loopback-1", channels: { inputs: fourteen.slice(0, 8), outputs: fourteen.slice(0, 8), source: "gazelle" } }),
-      ],
-    }),
+    answer({ devices: [deviceReport("Zen Quadro Synergy Core", { is_master: true }), deviceReport("Zen Studio+", { key: "ZenStudioTB ASIO Driver", entry_key: "ZenStudioTB ASIO Driver" })] }),
   );
   await open(page);
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Zen Quadro Synergy Core 2 into ZenStudioTB ASIO Driver 1");
+  await expect(page.getByTestId("device-0-name")).toHaveText("Zen Quadro Synergy Core");
+  // The device's model, not its driver's registry name.
+  await expect(page.getByTestId("device-1-name")).toHaveText("Zen Studio+");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 2 on Zen Quadro Synergy Core into USB REC 1 on Zen Studio+");
 
-  // The Studio+'s second input, which is its own channel 1 however many the Quadro is counted as.
-  await page.getByTestId("calibrate-records-1").selectOption({ label: "ZenStudioTB ASIO Driver 2" });
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Zen Quadro Synergy Core 2 into ZenStudioTB ASIO Driver 2");
+  // The Studio+'s second input, which is its own channel 1 however many the Quadro has.
+  await page.getByTestId("calibrate-records-1").selectOption({ label: "USB REC 2" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 2 on Zen Quadro Synergy Core into USB REC 2 on Zen Studio+");
 
   captured.calibration = [done({ checking: true })];
   const check = page.getByTestId("calibrate-check");
@@ -957,7 +975,7 @@ test("a drift finding is said as the serious one it is, and no trim is offered a
 });
 
 test("with one interface there is nothing to line up, and the page says so instead of measuring", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
   await fakeAggregate(page, answer({ devices: [withBoth()[0] as Record<string, unknown>] }));
   await open(page);
   await expect(page.getByTestId("calibrate-problem")).toContainText("at least two interfaces");
@@ -968,11 +986,11 @@ test("a poll landing leaves a picker where it was put", async ({ page }) => {
   await bothConfigured();
   const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
   await open(page);
-  await page.getByTestId("calibrate-plays-1").selectOption({ label: "Quadro 4" });
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 PLAY 4" });
   const before = captured.reads;
   await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before + 1);
   await expect(page.getByTestId("calibrate-plays-1")).toHaveValue("3");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Quadro 4 into Studio+ 1");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 4 on Quadro into USB REC 1 on Studio+");
 });
 
 test("a server too old to measure says so rather than failing", async ({ page }) => {
@@ -991,14 +1009,12 @@ test("a server too old to measure says so rather than failing", async ({ page })
 
 /** Both interfaces, with the Studio+'s phase path set and whatever else a test gives it. */
 const phaseConfigured = (studio: Record<string, unknown> = {}) =>
-  putWorkspace(server, {
-    aggregate: {
-      devices: [
-        { key: "Quadro", name: "Quadro", device_id: "loopback-0" },
-        { key: "Studio+", name: "Studio+", device_id: "loopback-1", phase: { master_output: 3, input: 1 }, ...studio },
-      ],
-      callback_master: "Quadro",
-    },
+  setUp({
+    devices: [
+      { key: "Quadro", device_id: "loopback-0" },
+      { key: "Studio+", device_id: "loopback-1", phase: { master_output: 3, input: 1 }, ...studio },
+    ],
+    callback_master: "Quadro",
   });
 
 /** The Studio+ as the server has it now. */
@@ -1015,22 +1031,24 @@ test("a follower's phase is set up by two pickers, written only once both are ch
 
   await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Not set up");
   await page.getByTestId("device-1-phase-open").click();
-  // The master's own outputs and this interface's own inputs, counted from one like the rest of the page.
-  await expect(page.getByTestId("device-1-phase-leaves").locator("option")).toHaveText(["Choose a channel", "Quadro 1 (Main L)", "Quadro 2 (Main R)", "Quadro 3 (Cue L)", "Quadro 4 (Cue R)"]);
-  await expect(page.getByTestId("device-1-phase-arrives").locator("option")).toHaveText(["Choose a channel", "Studio+ 1 (Line 1)", "Studio+ 2 (Line 2)"]);
+  // The master's own USB playback channels and this interface's own USB record channels, named as everywhere else.
+  await expect(page.getByTestId("device-1-phase-leaves").locator("option")).toHaveCount(17);
+  await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("USB 1 PLAY 1");
+  await expect(page.getByTestId("device-1-phase-arrives").locator("option")).toHaveCount(25);
+  await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(2)).toHaveText("USB REC 2");
   // The routing it needs, naming both ends.
   await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Quadro, route the playback channel chosen under Leaves the callback master on to its S/PDIF output");
   await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Studio+, route its S/PDIF input");
 
   // One picker alone writes nothing, because the driver refuses half a path, and a poll leaves it be.
-  await page.getByTestId("device-1-phase-leaves").selectOption({ label: "Quadro 4 (Cue R)" });
+  await page.getByTestId("device-1-phase-leaves").selectOption({ label: "USB 1 PLAY 4" });
   const before = captured.reads;
   await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before);
   await expect(page.getByTestId("device-1-phase-leaves")).toHaveValue("3");
   expect(await studio(), "half a path is not written").not.toHaveProperty("phase");
 
   // The second writes both, in the devices' own numbering from zero.
-  await page.getByTestId("device-1-phase-arrives").selectOption({ label: "Studio+ 2 (Line 2)" });
+  await page.getByTestId("device-1-phase-arrives").selectOption({ label: "USB REC 2" });
   await expect.poll(async () => (await studio())["phase"]).toEqual({ master_output: 3, input: 1 });
   await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, no reference yet");
   await expect(page.getByTestId("device-1-phase-note")).toContainText("One measurement under Line the interfaces up gives it one");
@@ -1181,7 +1199,7 @@ test("a run that was not clean, or whose phase was refused, reads as such", asyn
   await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveText("Refused: nothing heard on the cable");
   await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveAttribute("data-tone", "off");
   await expect(page.getByTestId("calibrate-trim-0-reference")).toContainText("-84 samples is taken out");
-  await expect(page.getByTestId("calibrate-witness-0")).toContainText("Studio+ 2, on Studio+");
+  await expect(page.getByTestId("calibrate-witness-0")).toContainText("USB REC 2, on Studio+");
   await expect(page.getByTestId("calibrate-witness-0-lag")).toHaveText("3.2 samples late");
 
   // Writing it takes the old reference out rather than leaving it beside the new trim.
@@ -1239,11 +1257,94 @@ test("the log says phase and lost blocks in words, and marks a Gazelle measureme
 });
 
 // ---------------------------------------------------------------------------------------------
+// One naming throughout
+// ---------------------------------------------------------------------------------------------
+
+test.describe("with the routing read from the interfaces", () => {
+  // A loopback that is not in dry run answers a routing read the way an interface does, which is
+  // what names the channels for what they carry. It is still the loopback: nothing reaches a device.
+  let reading: RunningServer;
+
+  test.beforeAll(async () => {
+    reading = await startServer(["--backend", "loopback"], { webUi: true });
+  });
+
+  test.afterAll(async () => {
+    await reading?.stop();
+  });
+
+  test("an interface and its channels are named one way on the card, in Channels and in every picker", async ({ page }) => {
+    // The loopback Quadro records its four preamps on USB A REC 1 to 4, and the person has a Mixer
+    // channel for the first preamp that they have named. Its PREAMP group is its first source.
+    await putWorkspace(reading, {
+      aliases: OWN_NAMES,
+      mixers: { "loopback-0": { mixes: [], groups: [], channels: [{ id: "vox", name: "Vocal mic", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } },
+      aggregate: { devices: [{ key: "Zen Studio+", device_id: "loopback-1" }, { key: "Zen Quadro Synergy Core", device_id: "loopback-0" }], callback_master: "Zen Studio+" },
+    });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Studio+", { is_master: true }), deviceReport("Quadro")] }));
+    await page.goto(`${reading.url}/#/aggregate`);
+    await expect(page.locator("ga-aggregate")).toBeVisible();
+
+    // The card: Gazelle's name, and the vendor driver's name once, as a detail.
+    await expect(page.getByTestId("device-1-name")).toHaveText("Quadro");
+    await expect(page.getByTestId("device-1-entry")).toHaveText("Zen Quadro Synergy Core");
+    await expect(page.getByTestId("aggregate-master")).toHaveValue("Zen Studio+");
+    await expect(page.getByTestId("aggregate-master").locator("option:checked")).toHaveText("Studio+");
+
+    // The Channels part: each input named for what the routing sends it, the person's name first.
+    await page.getByTestId("device-1-channels-open").click();
+    await expect(page.getByTestId("device-1-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
+    await expect(page.getByTestId("device-1-in-1-name")).toHaveText("PREAMP 2, USB A REC 2");
+    await expect(page.getByTestId("device-1-in-4-name")).toHaveText("USB A REC 5", { timeout: 2000 });
+    await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: Vocal mic (Quadro 1)");
+    await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Vocal mic");
+
+    // The calibration's pickers and its cabling name the same channels the same way.
+    await page.getByTestId("calibrate-direction").selectOption("outputs");
+    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("PREAMP 1, USB REC 1");
+    await page.getByTestId("calibrate-reference").selectOption("Quadro");
+    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Vocal mic, USB A REC 1");
+    await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 1 on Quadro into PREAMP 2, USB A REC 2 on Quadro");
+
+    // And the phase setup on the follower's card.
+    await page.getByTestId("device-1-phase-open").click();
+    await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(1)).toHaveText("Vocal mic, USB A REC 1");
+    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("USB PLAY 1");
+  });
+
+  test("renaming the device in Gazelle renames it on the page, and the callback master stays the same device", async ({ page }) => {
+    await putWorkspace(reading, { aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }, { key: "Zen Studio+", device_id: "loopback-1" }], callback_master: "Zen Quadro Synergy Core" } });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Zen Quadro Synergy Core", { is_master: true }), deviceReport("Zen Studio+")] }));
+    await page.goto(`${reading.url}/#/aggregate`);
+    await expect(page.getByTestId("device-0-name")).toHaveText("Zen Quadro Synergy Core");
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: PREAMP 1", { timeout: 5000 });
+
+    // Renamed where every device is renamed, on the Workspace page.
+    await page.goto(`${reading.url}/#/workspace`);
+    const field = page.locator("ga-workspace").getByLabel("Name for loopback-0");
+    await field.fill("Desk");
+    await field.press("Enter");
+    await expect.poll(async () => ((await (await fetch(`${reading.url}/api/v1/workspace`)).json()) as { aliases: Record<string, string> }).aliases["loopback-0"]).toBe("Desk");
+
+    await page.goto(`${reading.url}/#/aggregate`);
+    await expect(page.getByTestId("device-0-name")).toHaveText("Desk");
+    await expect(page.getByTestId("aggregate-master").locator("option:checked")).toHaveText("Desk");
+    // A short name keeps the driver's own part of the channel's name in the DAW.
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: PREAMP 1 (Desk 1)");
+    // And the setup itself never changed: the master is still written as the device's driver.
+    const saved = (await (await fetch(`${reading.url}/api/v1/workspace`)).json()) as { aggregate: { callback_master: string } };
+    expect(saved.aggregate.callback_master).toBe("Zen Quadro Synergy Core");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Phone width
 // ---------------------------------------------------------------------------------------------
 
 test("at phone width the page fits, with nothing running off the side", async ({ page }) => {
-  await putWorkspace(server, { aggregate: { devices: [{ key: "Quadro", name: "Quadro", device_id: "loopback-0" }, { key: "Studio+", name: "Studio+" }] } });
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+" }] });
   await fakeAggregate(
     page,
     answer({

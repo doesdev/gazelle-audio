@@ -74,7 +74,14 @@ pub struct WorkerContext {
     pub device: Box<dyn Device + Send>,
     pub registry: Option<Arc<Registry>>,
     pub events: Box<dyn Fn(DeviceEvent) + Send>,
+    /// Told of every command that reached the device, whichever client sent it: its name, its
+    /// `ext3` and what came of it. A dry run reaches nothing and is not told. This is how the server
+    /// knows a device's routing without asking it again (`crate::device::routing_memory`).
+    pub answered: Answered,
 }
+
+/// What a worker tells of a command that reached its device: its name, its `ext3` and what came of it.
+pub type Answered = Box<dyn Fn(&str, Option<u32>, &CommandOutcome) + Send>;
 
 /// Why a worker stopped.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -94,6 +101,11 @@ pub fn run(mut ctx: WorkerContext, rx: Receiver<WorkerCommand>) -> Exit {
             Ok(WorkerCommand::Shutdown) => return Exit::Shutdown,
             Ok(WorkerCommand::Request { name, values, ext3, dry_run, respond }) => {
                 let result = handle_request(&mut ctx, &mut correlator, &name, &values, ext3, dry_run);
+                if let Ok(outcome) = &result {
+                    if !outcome.dry_run {
+                        (ctx.answered)(&name, ext3, outcome);
+                    }
+                }
                 respond(result);
             }
             Err(RecvTimeoutError::Timeout) => {

@@ -69,20 +69,27 @@ export interface AggregateDriverSummary {
 export type AggregateMatchedBy = "chosen" | "worked_out" | "none";
 
 /**
- * The names Gazelle itself shows for a device's channels, in Gazelle's order.
- *
- * It is a hint and nothing more: the vendor audio driver need not put its channels in the order
- * Gazelle does, so a page offers these as a suggestion and never writes one by itself.
+ * One interface's channels in the aggregate, which are its USB audio channels: aggregate input k is
+ * its USB record channel k, and aggregate output k its USB playback channel k. The counts are those
+ * groups' own, from the model's topology, so they are exact and known without a DAW.
  */
-export interface AggregateChannelNames {
-  inputs: string[];
-  outputs: string[];
-  source: "gazelle" | "none";
+export interface AggregateUsbChannels {
+  inputs: number;
+  outputs: number;
+  /** What Gazelle calls the group its inputs are: "USB A REC" on the Quadro, "USB REC" on the Studio+. */
+  input_group: string;
+  /** What Gazelle calls the group its outputs are: "USB 1 PLAY", "USB PLAY". */
+  output_group: string;
 }
 
 /** One configured device, with everything known about it now. */
 export interface AggregateDeviceReport {
-  /** What the setup calls it, which is what its channels are named after. */
+  /** Its place in the setup, from zero. Older servers leave it out. */
+  index?: number;
+  /**
+   * Gazelle's name for the device: the person's own name for it, else its model. It is the name the
+   * driver is given, so the driver's own record and log call it the same.
+   */
   name: string;
   key?: string;
   clsid?: string;
@@ -96,8 +103,8 @@ export interface AggregateDeviceReport {
   matched_by?: AggregateMatchedBy;
   /** Why it could not be told which device this is, and what would settle it. Only with `none`. */
   match_note?: string;
-  /** Gazelle's own names for this device's channels, as a suggestion. */
-  channels?: AggregateChannelNames;
+  /** Its channels in the aggregate, when its model is known. */
+  channels?: AggregateUsbChannels;
   /** Whether that device is connected to Gazelle now, which is what makes the readings possible. */
   attached: boolean;
   family?: "quadro" | "studio";
@@ -163,8 +170,10 @@ export interface AggregateReason {
   /** `ready` is false only when there is at least one blocking reason. */
   severity: "blocking" | "warning";
   message: string;
-  /** The configured device this is about, by the name the setup gives it. */
+  /** The configured device this is about, by Gazelle's name for it. */
   device?: string;
+  /** That device's place in the setup, from zero. Older servers leave it out. */
+  device_index?: number;
   device_id?: string;
   fix?: AggregateFix;
 }

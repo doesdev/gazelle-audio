@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::aggregate::calibrate::{Ask, Calibration};
-use crate::aggregate::config::device_name;
+use crate::aggregate::naming::interface_names;
 use crate::aggregate::elevate::{arguments_for, command_for, DllSearch, REGISTRAR};
 use crate::aggregate::service::{match_device, serial_of, AggregateService};
 use crate::driver::{DriverChange, DriverWriteReport, WriteRefusal};
@@ -120,7 +120,7 @@ struct MatchBuffers {
 /// What one device came to.
 #[derive(Serialize)]
 struct DeviceOutcome {
-    /// The name the setup gives it.
+    /// Gazelle's name for it, as the page names it.
     device: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<String>,
@@ -143,7 +143,7 @@ async fn match_buffers(
     let body: Result<Json<MatchBuffers>, JsonRejection> = <Json<MatchBuffers> as axum::extract::FromRequest<()>>::from_request(request, &()).await;
     let Json(ask) = body.map_err(|e| ServerError::BadValue(e.body_text()))?;
     let workspace = store.load()?;
-    let Some(config) = workspace.aggregate.filter(|config| !config.devices.is_empty()) else {
+    let Some(config) = workspace.aggregate.clone().filter(|config| !config.devices.is_empty()) else {
         return Ok(error(
             StatusCode::CONFLICT,
             "not_configured",
@@ -153,6 +153,9 @@ async fn match_buffers(
     let wanted = config.devices.clone();
 
     let outcomes = tokio::task::spawn_blocking(move || {
+        // Each named as the page names it: Gazelle's name for the device it is now.
+        let settled = service.settled(&workspace);
+        let names = settled.aggregate.as_ref().map(|config| interface_names(config, &settled)).unwrap_or_default();
         let change = DriverChange { buffer_size: Some(ask.buffer_size), safe_mode: None, force: ask.force };
         // Which interface each entry is, worked out exactly as the answer on the page worked it
         // out, so a device the page could read is never one this route says it cannot find.
@@ -160,9 +163,9 @@ async fn match_buffers(
         let attached = service.devices.descriptors();
         wanted
             .iter()
-            .map(|device| {
-                let name = device_name(device);
-                let found = match_device(device, &entries, &attached);
+            .zip(names)
+            .map(|(device, name)| {
+                let found = match_device(device, &name, &entries, &attached);
                 let unavailable = |message: String, id: Option<String>| DeviceOutcome {
                     device: name.clone(),
                     device_id: id,
@@ -390,9 +393,12 @@ mod tests {
         }
     }
 
+    /// The setup, with the person's own names for the two devices, which is what the page and the
+    /// driver call them.
     fn workspace_with(aggregate: Aggregate) -> Workspace {
         Workspace {
             aggregate: Some(aggregate),
+            aliases: [(DeviceId::from_serial(QUADRO), "Quadro".to_string()), (DeviceId::from_serial(STUDIO), "Studio+".to_string())].into_iter().collect(),
             cables: vec![Cable {
                 id: "c1".into(),
                 from: CableEnd { device_id: DeviceId::from_serial(QUADRO), port: "SPDIF_OUT".into(), first: 0 },
@@ -539,6 +545,35 @@ mod tests {
         let drivers = body["drivers"].as_array().unwrap();
         assert_eq!(drivers.iter().filter(|d| d["configured"] == true).count(), 2);
         assert!(drivers.iter().any(|d| d["is_aggregate"] == true));
+    }
+
+    /// Renaming the device in Gazelle is renaming the interface in the aggregate: the answer names it
+    /// the new way at once, and the callback master, which the setup names by its registry key, is
+    /// still the same device.
+    #[tokio::test]
+    async fn a_device_renamed_in_gazelle_is_renamed_in_the_answer_and_stays_the_master() {
+        let h = harness();
+        let mut config = pair();
+        for device in &mut config.devices {
+            device.name = None;
+        }
+        config.callback_master = Some(QUADRO_KEY.into());
+        let mut workspace = workspace_with(config);
+        workspace.aliases.clear();
+        h.store.save(&workspace).unwrap();
+        let (_, body) = get(&h.app, "/api/v1/aggregate").await;
+        assert_eq!(body["devices"][0]["name"], "Zen Quadro Synergy Core", "its model, where the person has not named it");
+        assert_eq!(body["devices"][1]["name"], "Zen Studio+");
+        assert_eq!(body["devices"][0]["index"], 0);
+        assert_eq!(body["devices"][0]["is_master"], true);
+
+        workspace.aliases.insert(DeviceId::from_serial(QUADRO), "Desk".into());
+        h.store.save(&workspace).unwrap();
+        let (_, body) = get(&h.app, "/api/v1/aggregate").await;
+        assert_eq!(body["devices"][0]["name"], "Desk");
+        assert_eq!(body["devices"][0]["is_master"], true, "the master is found by its key, which a rename does not touch");
+        let (_, matched) = post(&h.app, "/api/v1/aggregate/match-buffers", r#"{"buffer_size":256}"#).await;
+        assert_eq!(matched["devices"][0]["device"], "Desk", "and every other answer names it the same way");
     }
 
     #[tokio::test]
@@ -743,9 +778,9 @@ mod tests {
         assert_eq!(body["devices"][0]["matched_by"], "worked_out");
         assert_eq!(body["devices"][0]["device_id"], format!("serial:{QUADRO}"));
         assert!(body["devices"][0].get("match_note").is_none(), "nothing to explain when it was worked out");
-        assert_eq!(body["devices"][0]["channels"]["source"], "gazelle");
-        assert_eq!(body["devices"][0]["channels"]["inputs"][0], "Preamp 1");
-        assert_eq!(body["devices"][0]["channels"]["outputs"][0], "Monitor L");
+        assert_eq!(body["devices"][0]["name"], "Quadro", "named by Gazelle's name for the device it was worked out to be");
+        assert_eq!(body["devices"][0]["channels"], serde_json::json!({ "inputs": 16, "outputs": 16, "input_group": "USB A REC", "output_group": "USB 1 PLAY" }));
+        assert_eq!(body["devices"][1]["channels"]["inputs"], 24);
         assert!(
             body["reasons"].as_array().unwrap().iter().all(|r| r["code"] != "device_not_matched"),
             "one of each model is plugged in, so there is nothing to ask: {body}"
@@ -780,10 +815,11 @@ mod tests {
         let (_, body) = get(&h.app, "/api/v1/aggregate").await;
         assert_eq!(body["devices"][1]["matched_by"], "none");
         assert_eq!(body["devices"][1]["attached"], false);
-        assert_eq!(body["devices"][1]["channels"]["source"], "none");
+        assert!(body["devices"][1].get("channels").is_none(), "a device of no known model has no channels to say: {body}");
         assert!(body["devices"][1]["match_note"].as_str().unwrap().contains("does not say which model it is"), "{body}");
         let unmatched = body["reasons"].as_array().unwrap().iter().find(|r| r["code"] == "device_not_matched").expect("{body}");
-        assert_eq!(unmatched["device"], "Focusrite");
+        assert_eq!(unmatched["device"], "Focusrite USB", "nothing is known of it but its driver's key");
+        assert_eq!(unmatched["device_index"], 1);
         assert_eq!(unmatched["severity"], "warning");
 
         let (_, body) = post(&h.app, "/api/v1/aggregate/match-buffers", r#"{"buffer_size":256}"#).await;

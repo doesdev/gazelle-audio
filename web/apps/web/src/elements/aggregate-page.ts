@@ -16,17 +16,21 @@
 //
 // The setup itself lives in the workspace, so editing it here saves it there; the server exports
 // the file the driver reads and tells the driver to look again. That includes each interface's
-// channels: which of them the aggregate exposes, and what a DAW calls each one.
+// channels: which of them the aggregate exposes, and a name of the person's own for any of them.
+//
+// Everything is named one way, Gazelle's (the store's `aggregateNaming`): an interface by Gazelle's
+// name for its device, and a channel, which is one of the interface's USB channels, first for what
+// it carries and then by that USB channel. The vendor driver's own name appears once, as a detail.
 //
 // Which of Gazelle's devices an entry is comes from the answer, not from this page: the server
 // resolves it the same way for every route, so an interface nobody has pinned still reads its
 // clock, rate and buffer. Choosing one in the menu pins it, and Work it out gives it back.
 
 import { h } from "../core/dom.ts";
-import { effect } from "../core/signal.ts";
+import { effect, untracked } from "../core/signal.ts";
 import {
+  aggregateNaming,
   appliedTrimsText,
-  autoChannelName,
   buffersMatch,
   cablePort,
   cablingSteps,
@@ -41,21 +45,27 @@ import {
   calibrateStepText,
   channelCounts,
   channelLabel,
+  channelName,
   channelsOf,
   channelSummary,
   CHANNEL_LABEL_MAX,
   CLICKS,
-  deviceName,
+  countCheck,
+  dawChannelName,
   deviceViews,
   driftFound,
+  driverOfferText,
   eventView,
   fixNeedsConfirming,
   gapView,
   interfaceChannels,
+  interfaceName,
+  interfaceNames,
   isExposed,
   LEVELS_DBFS,
   livePhaseView,
   masterIndex,
+  masterReference,
   matchedBy,
   matchNote,
   matchTarget,
@@ -76,9 +86,9 @@ import {
   runPhaseViews,
   slotDevice,
   statusLine,
-  suggestedChannelName,
   trimRows,
   trimsToApply,
+  usbGroups,
   viewFor,
   withChannelExposed,
   withChannelName,
@@ -89,12 +99,13 @@ import {
   type Aggregate,
   type AggregateAnswer,
   type AggregateCalibrateDirection,
-  type AggregateChannelNames,
   type AggregateDevice,
   type AggregateDeviceView,
   type AggregateFix,
+  type AggregateNaming,
   type AggregateReason,
   type CalibratePicks,
+  type InterfaceNaming,
   type PhaseChoice,
   type PhasePicks,
   type RunPhaseView,
@@ -102,7 +113,7 @@ import {
   type WitnessView,
 } from "../store/aggregate.ts";
 import { driverControls } from "../store/driver.ts";
-import { SAMPLE_RATES, type Store } from "../store/store.ts";
+import { displayName, SAMPLE_RATES, type Store } from "../store/store.ts";
 import { bindConfirm, confirmedChoice } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 
@@ -134,10 +145,10 @@ export class GaAggregate extends GaElement {
       .severity[data-severity="warning"] { background: var(--ga-state-solo); }
       .device-card { display: grid; gap: 8px; padding: 8px 10px; border-radius: 3px; background: var(--ga-surface-raised); }
       .device-card + .device-card { margin-top: 6px; }
-      /* The head names the interface and orders it. The name field and the readout beside it take
-         the fields' own height, so the two read as one thing rather than as two sizes of box. */
+      /* The head names the interface, by its name in Gazelle, and orders it. A long name wraps rather
+         than pushing the buttons off the card. */
       .device-head { gap: 6px; }
-      .device-head .name { flex: 0 1 180px; }
+      .device-head .name { flex: 0 1 auto; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
       .device-head .spacer { flex: 1; }
       .device-head .order { min-width: 26px; padding: 0 4px; }
       .live-row > * { min-width: 0; }
@@ -150,8 +161,8 @@ export class GaAggregate extends GaElement {
       .channels .side { margin: 8px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-secondary); }
       .channel-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); align-items: center; gap: var(--ga-field-gap); padding: 2px 0; }
       .channel-row > * { min-width: 0; }
-      .channel-row .auto, .channel-row .hint { font-size: 11px; }
-      .channel-row .hint { color: var(--ga-text-muted); }
+      .channel-row .channel-name, .channel-row .daw { font-size: 11px; overflow-wrap: anywhere; }
+      .channel-row .daw { color: var(--ga-text-muted); }
       .expose { min-width: 34px; }
       .expose[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
       .safe[aria-pressed="true"] { background: var(--ga-accent); color: var(--ga-accent-text); }
@@ -220,7 +231,7 @@ export class GaAggregate extends GaElement {
         .reason .hint { grid-column: 1 / -1; }
         .events li { flex-wrap: wrap; }
         .channel-row { grid-template-columns: max-content minmax(0, 1fr); }
-        .channel-row .field, .channel-row .hint { grid-column: 1 / -1; }
+        .channel-row .field, .channel-row .daw { grid-column: 1 / -1; }
       }
     `),
   ];
@@ -298,6 +309,11 @@ export class GaAggregate extends GaElement {
       devices,
       h("div", { class: "add" }, addSelect, addButton, h("span", { class: "spacer" }), matchButton),
       h("p", { class: "note" }, `Buffer size and Safe Mode are the audio driver's own settings on this PC, the same ones the Devices page shows. Changing either, or matching them, takes a confirming click, because ${RESTARTS}.`),
+      h(
+        "p",
+        { class: "note", "data-testid": "aggregate-names-note" },
+        "Each interface is called by its name in Gazelle, and renaming the device renames it here and in the DAW. A DAW shows each channel's name with the interface's name and the channel's number after it, all in 31 characters; with a long name there is no room and the DAW shows the channel's name alone, so a short name for the device in Gazelle keeps that part.",
+      ),
     );
 
     const setup = h("div", { class: "setup field-grid pairs", "data-testid": "aggregate-setup" });
@@ -373,26 +389,55 @@ export class GaAggregate extends GaElement {
       matchButton.title = buffersMatch(answer) ? "Every interface is already on one buffer size" : `Put every interface on ${matchTarget(answer) ?? "one"} samples: ${RESTARTS}`;
     });
 
-    // The cards and the setup are rebuilt only when the setup itself changes, so a poll landing
-    // does not take away a name half typed or a menu half chosen.
+    // Each interface's USB record channels are named for what its routing sends them, so that one
+    // group is read, once, as the Routing page reads it, and again only once the device has been
+    // away. Nothing is read for an interface Gazelle does not know the model of.
+    this.watch(() => {
+      for (const named of this.#naming(store)) {
+        const groups = usbGroups(named.topology);
+        const id = named.deviceId;
+        if (id !== undefined && groups !== undefined && store.routesToRead(id, [groups.recordPosition])) untracked(() => void store.readRoutes(id, [groups.recordPosition]));
+      }
+    });
+
+    // The cards and the setup are rebuilt only when the setup itself, or what the interfaces are
+    // called, changes, so a poll landing does not take away a name half typed or a menu half chosen.
     let shown: string | undefined;
     this.watch(() => {
       const config = store.workspace.value?.aggregate;
       noDevices.hidden = (config?.devices ?? []).length > 0;
-      // Only the list itself decides what is built; everything else about the setup is followed by
-      // the controls' own effects, so a rate chosen elsewhere does not throw away a name half typed.
-      const shape = JSON.stringify(config?.devices ?? []);
+      // Only the list and the names decide what is built; everything else about the setup is
+      // followed by the controls' own effects, so a rate chosen elsewhere does not throw away a name
+      // half typed. What Gazelle last knew of each device is the server's, and changes nothing here.
+      const names = interfaceNames(config, this.#naming(store));
+      const shape = JSON.stringify([(config?.devices ?? []).map(({ known: _known, ...rest }) => rest), names]);
       if (shape === shown) return;
       shown = shape;
       const watch = this.#renew();
-      this.#buildDevices(store, devices, config, watch);
-      this.#buildSetup(store, setup, config, watch);
+      untracked(() => {
+        this.#buildDevices(store, devices, config, names, watch);
+        this.#buildSetup(store, setup, config, names, watch);
+      });
     });
 
     this.watch(() => {
       const answer = model.answer.value;
       exportPath.textContent = answer?.export_path ?? "";
       this.#fillAdd(store, addSelect, addButton, answer);
+    });
+  }
+
+  /**
+   * How every interface and channel on the page is named, read reactively: the answer, the devices
+   * Gazelle has, the person's own names in the workspace, and the routing the store has read.
+   */
+  #naming(store: Store): AggregateNaming {
+    const workspace = store.workspace.value;
+    return aggregateNaming(workspace?.aggregate, store.aggregate.answer.value, {
+      devices: store.devices.value,
+      aliases: workspace?.aliases,
+      layouts: workspace?.mixers,
+      record: (deviceId, destination) => (store.topology(deviceId) === undefined ? undefined : store.routing(deviceId).destination(destination).value),
     });
   }
 
@@ -427,7 +472,7 @@ export class GaAggregate extends GaElement {
     const fix = reason.fix === undefined ? undefined : this.#fixButton(model, reason, reason.fix);
     // A reason the page can say more about, and point at the place on the page that answers it.
     const hint = reasonHint(reason);
-    const goes = reasonCard(reason, store.workspace.peek()?.aggregate) === undefined
+    const goes = reasonCard(reason, store.workspace.peek()?.aggregate, untracked(() => this.#naming(store))) === undefined
       ? undefined
       : h(
           "button",
@@ -437,7 +482,7 @@ export class GaAggregate extends GaElement {
             "data-testid": `reason-goto-${reason.code}`,
             "data-explain": "aggregate.reason-goto-phase",
             "on:click": () => {
-              const at = reasonCard(reason, store.workspace.peek()?.aggregate);
+              const at = reasonCard(reason, store.workspace.peek()?.aggregate, untracked(() => this.#naming(store)));
               if (at !== undefined) this.#openPhase(at);
             },
           },
@@ -510,24 +555,18 @@ export class GaAggregate extends GaElement {
   // The interfaces: what each one is doing, and how to change it
   // -------------------------------------------------------------------------------------------
 
-  #buildDevices(store: Store, into: HTMLElement, config: Aggregate | undefined, watch: (fn: () => void) => void): void {
+  #buildDevices(store: Store, into: HTMLElement, config: Aggregate | undefined, names: string[], watch: (fn: () => void) => void): void {
     const list = config?.devices ?? [];
-    into.replaceChildren(...list.map((device, index) => this.#deviceCard(store, device, index, list.length, watch)));
+    into.replaceChildren(...list.map((device, index) => this.#deviceCard(store, device, index, list.length, names[index] ?? interfaceName(undefined, index, device), watch)));
   }
 
-  #deviceCard(store: Store, device: AggregateDevice, index: number, total: number, watch: (fn: () => void) => void): HTMLElement {
+  #deviceCard(store: Store, device: AggregateDevice, index: number, total: number, named: string, watch: (fn: () => void) => void): HTMLElement {
     const model = store.aggregate;
-    const named = device.name ?? device.key ?? device.clsid ?? `Interface ${index + 1}`;
     const testid = `device-${index}`;
 
-    const name = h("input", { class: "name", "aria-label": "Name for this interface", placeholder: device.key ?? "Interface", "data-testid": `${testid}-name`, "data-explain": "aggregate.device-name" });
-    const showName = commitOnEnter(
-      name,
-      (value) => this.#editDevice(store, index, (current) => withField(current, "name", value.trim() === "" ? undefined : value.trim())),
-      () => device.name ?? "",
-      store.view<string | undefined>(`draft:aggregate:${index}:name`, undefined),
-    );
-    showName(device.name ?? "");
+    // Gazelle's name for the device, which is the one name this interface has. It is renamed where
+    // the device is, on the Devices and Workspace pages, and there is nothing here to keep in step with it.
+    const name = h("span", { class: "name", title: "Its name in Gazelle. Rename the device to rename it here and in the DAW.", "data-testid": `${testid}-name`, "data-explain": "aggregate.device-name" }, named);
 
     const up = h("button", { type: "button", class: "order", "data-testid": `${testid}-up`, "data-explain": "aggregate.device-up", "aria-label": `Move ${named} earlier`, title: "Earlier: its channels come before the others", "on:click": () => this.#move(store, index, -1) }, "↑");
     const down = h("button", { type: "button", class: "order", "data-testid": `${testid}-down`, "data-explain": "aggregate.device-down", "aria-label": `Move ${named} later`, title: "Later: its channels come after the others", "on:click": () => this.#move(store, index, 1) }, "↓");
@@ -536,6 +575,7 @@ export class GaAggregate extends GaElement {
     const remove = h("button", { type: "button", "data-testid": `${testid}-remove`, "data-explain": "aggregate.device-remove", "aria-label": `Take ${named} out of the aggregate` }, "Remove");
     this.onDisconnect(bindConfirm(remove, "Remove", () => this.#removeDevice(store, index)));
 
+    // The vendor driver's own name, once, as a detail: it is what the aggregate opens, not a name.
     const which = h("span", { class: "readout", "data-testid": `${testid}-entry`, "data-explain": "aggregate.device-entry" }, device.key ?? device.clsid ?? "Not named");
 
     // Which of Gazelle's devices this is: what makes its clock, rate and buffer readable at all.
@@ -590,18 +630,20 @@ export class GaAggregate extends GaElement {
     const unknownChannels = h(
       "p",
       { class: "note", "data-testid": `${testid}-channels-unknown`, hidden: true },
-      "How many channels this interface has is not known until a DAW opens the aggregate or Gazelle knows which device it is.",
+      "How many channels this interface has is not known until Gazelle knows which device it is, or a DAW opens the aggregate.",
     );
     const channelsNote = h(
       "p",
       { class: "note", "data-testid": `${testid}-channels-note`, hidden: true },
-      "A name given here is what a DAW shows, with the automatic name in brackets after it, and Gazelle's own names are only a suggestion, because the audio driver may put its channels in another order.",
+      "Each channel is one of this interface's USB channels: input 1 is what its first USB record channel records, and output 1 is what its first USB playback channel plays. Each is named for what it carries, from Gazelle's routing and your names on the Mixer, so re-routing renames it. A name typed here wins, on this page and in the DAW; clear it and the name from the routing comes back.",
     );
+    const channelsCheck = h("p", { class: "note warning", "data-testid": `${testid}-channels-check`, hidden: true });
     const channelsPart = h(
       "details",
       { class: "channels wide", "data-testid": `${testid}-channels-part` },
       h("summary", { "data-testid": `${testid}-channels-open`, "data-explain": "aggregate.device-channels-open" }, h("span", { class: "label" }, "Channels"), channels),
       channelsNote,
+      channelsCheck,
       unknownChannels,
       inputRows,
       outputRows,
@@ -626,11 +668,12 @@ export class GaAggregate extends GaElement {
     const card = h(
       "div",
       { class: "device-card", "data-testid": `aggregate-${testid}` },
-      h("div", { class: "device-head field-row" }, h("span", { class: "label" }, `${index + 1}.`), name, which, h("span", { class: "spacer" }), up, down, remove),
+      h("div", { class: "device-head field-row" }, h("span", { class: "label" }, `${index + 1}.`), name, h("span", { class: "spacer" }), up, down, remove),
       h(
         "div",
         { class: "field-grid pairs" },
         ...field("Gazelle device", idSelect, worked),
+        ...field("Audio driver", which),
         ...field("Clock", clock, lock),
         ...field("Buffer", bufferMenu, bufferChoice.confirm),
         ...field("Rate", rate),
@@ -648,12 +691,12 @@ export class GaAggregate extends GaElement {
     watch(() => {
       // Which device this is, as the answer resolved it, and the menu of the connected ones with
       // whatever the setup names kept even when it is away.
-      const view = viewFor(model.answer.value, device, index);
+      const view = viewFor(model.answer.value, index);
       resolvedId = resolvedDeviceId(view, device);
       const how = matchedBy(view);
       const attached = store.devices.value;
       const options = [h("option", { value: "" }, "Work it out")];
-      for (const found of attached) options.push(h("option", { value: found.id }, `${found.model ?? found.id} (${found.id})`));
+      for (const found of attached) options.push(h("option", { value: found.id }, `${displayName(found, store.workspace.value)} (${found.id})`));
       if (resolvedId !== undefined && !attached.some((found) => found.id === resolvedId)) options.push(h("option", { value: resolvedId }, `${resolvedId} (not connected)`));
       idSelect.replaceChildren(...options);
       idSelect.value = resolvedId ?? "";
@@ -669,7 +712,7 @@ export class GaAggregate extends GaElement {
     });
 
     watch(() => {
-      const view = viewFor(model.answer.value, device, index);
+      const view = viewFor(model.answer.value, index);
       const report = view?.report;
       clock.textContent = report?.clock?.source ?? (report?.attached === true ? "Not reported" : "Not connected");
       lock.toggleAttribute("data-locked", report?.clock?.locked === true);
@@ -686,7 +729,7 @@ export class GaAggregate extends GaElement {
     watch(() => {
       // The sizes the driver offers, read as the Devices page reads them; its own reading wins.
       // The device is the one the answer resolved, so this is live without anybody choosing one.
-      const view = viewFor(model.answer.value, device, index);
+      const view = viewFor(model.answer.value, index);
       const id = resolvedDeviceId(view, device);
       const controls = id === undefined ? undefined : driverControls(store.driver(id).value);
       const summary = view?.report?.driver;
@@ -704,26 +747,31 @@ export class GaAggregate extends GaElement {
       safe.setAttribute("aria-pressed", String(safeMode));
       if (!safe.hasAttribute("data-armed")) safe.textContent = summary?.safe_mode === undefined && controls === undefined ? "Not read" : safeMode ? "On" : "Off";
       safe.disabled = id === undefined || !store.connected.value;
-      for (const field of [inTrim, outTrim, name]) field.disabled = !store.connected.value;
+      for (const field of [inTrim, outTrim]) field.disabled = !store.connected.value;
     });
 
-    // The channel rows are rebuilt only when how many there are, or what Gazelle calls them,
-    // changes: a poll landing every second must not take away a label half typed.
+    // The channel rows are rebuilt only when how many there are, or what they are called, changes:
+    // a poll landing every second must not take away a label half typed.
     let built: string | undefined;
     watch(() => {
-      const view = viewFor(model.answer.value, device, index);
-      const counts = channelCounts(view);
-      const names = view?.report?.channels;
+      const naming = this.#naming(store)[index];
+      const counts = channelCounts(naming);
       channels.textContent = channelSummary(device, counts);
       channels.title = device.inputs === undefined && device.outputs === undefined ? "Every channel the interface has" : "Only the channels the workspace names";
       const known = counts.inputs !== undefined || counts.outputs !== undefined;
       unknownChannels.hidden = known;
       channelsNote.hidden = !known;
-      const shape = JSON.stringify([counts, names]);
+      const check = countCheck(naming);
+      channelsCheck.hidden = check === undefined;
+      channelsCheck.textContent = check ?? "";
+      const texts = (input: boolean, count: number | undefined) => Array.from({ length: count ?? 0 }, (_, channel) => channelName(device, naming, input, channel));
+      const shape = JSON.stringify([counts, named, texts(true, counts.inputs), texts(false, counts.outputs)]);
       if (shape !== built) {
         built = shape;
-        inputRows.replaceChildren(...this.#channelRows(store, device, index, named, true, counts.inputs, names));
-        outputRows.replaceChildren(...this.#channelRows(store, device, index, named, false, counts.outputs, names));
+        untracked(() => {
+          inputRows.replaceChildren(...this.#channelRows(store, device, index, named, true, counts.inputs, naming));
+          outputRows.replaceChildren(...this.#channelRows(store, device, index, named, false, counts.outputs, naming));
+        });
       }
       const connected = store.connected.value;
       for (const control of channelsPart.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button.expose, input.field")) control.disabled = !connected;
@@ -750,7 +798,7 @@ export class GaAggregate extends GaElement {
     const summary = h("span", { class: "readout phase-summary", "data-testid": `${testid}-phase-summary`, "data-explain": "aggregate.device-phase-summary" });
     const note = h("p", { class: "note", "data-testid": `${testid}-phase-note` });
     const leaves = h("select", { "aria-label": "Channel the cable leaves the callback master on", "data-testid": `${testid}-phase-leaves`, "data-no-wheel": true, "data-explain": "aggregate.device-phase-leaves" });
-    const arrives = h("select", { "aria-label": `Channel the cable arrives on at ${deviceName(device, index)}`, "data-testid": `${testid}-phase-arrives`, "data-no-wheel": true, "data-explain": "aggregate.device-phase-arrives" });
+    const arrives = h("select", { "aria-label": "Channel the cable arrives on at this interface", "data-testid": `${testid}-phase-arrives`, "data-no-wheel": true, "data-explain": "aggregate.device-phase-arrives" });
     const clear = h("button", { type: "button", "data-testid": `${testid}-phase-clear`, "data-explain": "aggregate.device-phase-clear" }, "Clear");
     this.onDisconnect(
       bindConfirm(clear, "Clear", () => {
@@ -791,9 +839,9 @@ export class GaAggregate extends GaElement {
       opened.value = part.open;
     });
 
-    const fill = (select: HTMLSelectElement, choices: PhaseChoice[] | undefined, chosen: number | undefined, named: string) => {
-      const listed = choicesWith(choices, chosen, named);
-      const empty = choices === undefined ? `Not known until a DAW opens the aggregate or Gazelle knows which device ${named} is` : "Choose a channel";
+    const fill = (select: HTMLSelectElement, choices: PhaseChoice[] | undefined, chosen: number | undefined, named: string, called: (channel: number) => string) => {
+      const listed = choicesWith(choices, chosen, called);
+      const empty = choices === undefined ? `Not known until Gazelle knows which device ${named} is` : "Choose a channel";
       const options = [{ value: "", text: empty }, ...listed.map((choice) => ({ value: String(choice.value), text: choice.text }))];
       const shape = JSON.stringify(options);
       if (select.dataset["shape"] !== shape) {
@@ -806,10 +854,12 @@ export class GaAggregate extends GaElement {
     watch(() => {
       const config = store.workspace.value?.aggregate;
       const answer = model.answer.value;
+      const naming = this.#naming(store);
       const at = masterIndex(config, answer);
       const isMaster = at === index;
       const masterDevice = at === undefined ? undefined : config?.devices?.[at];
-      const master = masterDevice === undefined || at === undefined ? "the callback master" : deviceName(masterDevice, at);
+      const master = masterDevice === undefined || at === undefined ? "the callback master" : interfaceName(naming, at, masterDevice);
+      const own = interfaceName(naming, index, device);
       const view = phaseSetupView(device, isMaster, master);
       part.hidden = isMaster && setting === undefined;
       summary.textContent = view.summary;
@@ -819,14 +869,14 @@ export class GaAggregate extends GaElement {
       routing.hidden = isMaster;
 
       const picks = phasePicks(setting, draft.value);
-      const choices = phaseChoices(config, answer, index);
-      fill(leaves, choices?.outputs, picks.master_output, master);
-      fill(arrives, choices?.inputs, picks.input, deviceName(device, index));
+      const choices = phaseChoices(config, answer, naming, index);
+      fill(leaves, choices?.outputs, picks.master_output, master, (channel) => channelName(masterDevice, at === undefined ? undefined : naming[at], false, channel).text);
+      fill(arrives, choices?.inputs, picks.input, own, (channel) => channelName(device, naming[index], true, channel).text);
       clear.hidden = setting === undefined && picks.master_output === undefined && picks.input === undefined;
 
-      const own = resolvedDeviceId(viewFor(answer, device, index), device);
-      const from = masterDevice === undefined || at === undefined ? undefined : resolvedDeviceId(viewFor(answer, masterDevice, at), masterDevice);
-      routing.textContent = phaseRoutingNote(master, deviceName(device, index), cablePort(store.workspace.value?.cables, from, own));
+      const ownId = resolvedDeviceId(viewFor(answer, index), device);
+      const from = masterDevice === undefined || at === undefined ? undefined : resolvedDeviceId(viewFor(answer, at), masterDevice);
+      routing.textContent = phaseRoutingNote(master, own, cablePort(store.workspace.value?.cables, from, ownId));
       const connected = store.connected.value;
       for (const control of [leaves, arrives, clear]) control.disabled = !connected;
     });
@@ -838,22 +888,23 @@ export class GaAggregate extends GaElement {
    * One side of an interface's channels: a heading and a row each, or nothing at all when how many
    * there are is not known. A count that is not known offers nothing rather than guessing at one.
    */
-  #channelRows(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, count: number | undefined, names: AggregateChannelNames | undefined): Node[] {
+  #channelRows(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, count: number | undefined, naming: InterfaceNaming | undefined): Node[] {
     if (count === undefined) return [];
-    const heading = h("p", { class: "side" }, input ? "INPUTS" : "OUTPUTS");
-    return [heading, ...Array.from({ length: count }, (_, channel) => this.#channelRow(store, device, index, named, input, channel, count, names))];
+    const group = input ? usbGroups(naming?.topology)?.record : usbGroups(naming?.topology)?.playback;
+    const heading = h("p", { class: "side" }, input ? "INPUTS" : "OUTPUTS", group === undefined ? "" : `, ${group.name}`);
+    return [heading, ...Array.from({ length: count }, (_, channel) => this.#channelRow(store, device, index, named, input, channel, count, naming))];
   }
 
   /**
-   * One channel: what it is called by itself, whether the aggregate exposes it, and the name the
-   * person gives it, which a DAW shows with the automatic one in brackets after it.
+   * One channel: whether the aggregate exposes it, its name, a name of the person's own for it, and
+   * what a DAW will show for it.
    */
-  #channelRow(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, channel: number, count: number, names: AggregateChannelNames | undefined): HTMLElement {
+  #channelRow(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, channel: number, count: number, naming: InterfaceNaming | undefined): HTMLElement {
     const side = input ? "in" : "out";
     const testid = `device-${index}-${side}-${channel}`;
     const listKey = input ? "inputs" : "outputs";
     const nameKey = input ? "input_names" : "output_names";
-    const auto = autoChannelName(named, channel);
+    const called = channelName(device, naming, input, channel);
     const exposed = isExposed(device[listKey], channel);
 
     const expose = h(
@@ -862,8 +913,8 @@ export class GaAggregate extends GaElement {
         type: "button",
         class: "expose",
         "aria-pressed": String(exposed),
-        "aria-label": `Expose ${auto}`,
-        title: exposed ? `${auto} is one of the channels a DAW sees` : `${auto} is kept out of what a DAW sees`,
+        "aria-label": `Expose ${called.text}`,
+        title: exposed ? `${called.text} is one of the channels a DAW sees` : `${called.text} is kept out of what a DAW sees`,
         "data-testid": `${testid}-expose`,
         "data-explain": "aggregate.channel-expose",
         "on:click": () => this.#editDevice(store, index, (current) => withField(current, listKey, withChannelExposed(current[listKey] as number[] | undefined, count, channel, !exposed))),
@@ -871,11 +922,12 @@ export class GaAggregate extends GaElement {
       exposed ? "On" : "Off",
     );
 
+    // The automatic label is the placeholder, so an empty field says what the channel will be called.
     const label = h("input", {
       class: "field",
       maxlength: String(CHANNEL_LABEL_MAX),
-      placeholder: auto,
-      "aria-label": `Name for ${auto}`,
+      placeholder: called.automatic ?? called.usb,
+      "aria-label": `Name of your own for ${called.usb}`,
       "data-testid": `${testid}-label`,
       "data-explain": "aggregate.channel-label",
     });
@@ -887,14 +939,14 @@ export class GaAggregate extends GaElement {
     );
     showLabel(channelLabel(device[nameKey], channel));
 
-    const hint = suggestedChannelName(names, input, channel);
+    const daw = dawChannelName(named, channel, called.typed ?? called.automatic);
     return h(
       "div",
       { class: "channel-row", "data-testid": testid },
       expose,
-      h("span", { class: "auto readout", "data-testid": `${testid}-auto`, "data-explain": "aggregate.channel-auto" }, auto),
+      h("span", { class: "channel-name readout", "data-testid": `${testid}-name`, "data-explain": "aggregate.channel-name" }, called.text),
       label,
-      h("span", { class: "hint readout", "data-testid": `${testid}-hint`, "data-explain": "aggregate.channel-hint" }, hint === undefined ? "" : `Gazelle calls it ${hint}`),
+      h("span", { class: "daw readout", "data-testid": `${testid}-daw`, "data-explain": "aggregate.channel-daw" }, `In a DAW: ${daw}`),
     );
   }
 
@@ -902,12 +954,17 @@ export class GaAggregate extends GaElement {
   // Editing the setup
   // -------------------------------------------------------------------------------------------
 
-  #buildSetup(store: Store, into: HTMLElement, config: Aggregate | undefined, watch: (fn: () => void) => void): void {
+  #buildSetup(store: Store, into: HTMLElement, config: Aggregate | undefined, names: string[], watch: (fn: () => void) => void): void {
     const devices = config?.devices ?? [];
+    // Each interface by its name, and written as its registry key, which a rename cannot change,
+    // so renaming the device in Gazelle never loses the master.
     const master = h("select", { "aria-label": "Which interface drives the callback", "data-testid": "aggregate-master", "data-no-wheel": true, "data-explain": "aggregate.master" });
     master.replaceChildren(
       h("option", { value: "" }, "The first one"),
-      ...devices.map((device, index) => h("option", { value: nameOf(device, index) }, nameOf(device, index))),
+      ...devices.flatMap((device, index) => {
+        const reference = masterReference(device);
+        return reference === undefined ? [] : [h("option", { value: reference }, names[index] ?? reference)];
+      }),
     );
     master.addEventListener("change", () => store.editAggregate((current) => withField(current, "callback_master", master.value === "" ? undefined : master.value)));
 
@@ -948,7 +1005,10 @@ export class GaAggregate extends GaElement {
 
     watch(() => {
       const current = store.workspace.value?.aggregate;
-      master.value = typeof current?.callback_master === "string" && devices.some((device, index) => nameOf(device, index) === current.callback_master) ? current.callback_master : "";
+      const named = typeof current?.callback_master === "string" && current.callback_master.trim() !== "";
+      const at = named ? masterIndex(current) : undefined;
+      const chosen = at === undefined ? undefined : devices[at];
+      master.value = chosen === undefined ? "" : (masterReference(chosen) ?? "");
       alignment.value = current?.alignment === "lowest_latency" ? "lowest_latency" : "aligned";
       rate.value = typeof current?.rate === "number" && RATE_HZ.includes(current.rate) ? String(current.rate) : "";
       buffer.value = typeof current?.buffer_size === "number" && BUFFER_SIZES.includes(current.buffer_size) ? String(current.buffer_size) : "";
@@ -957,16 +1017,23 @@ export class GaAggregate extends GaElement {
   }
 
   #fillAdd(store: Store, select: HTMLSelectElement, add: HTMLButtonElement, answer: AggregateAnswer | undefined): void {
-    const already = new Set((store.workspace.peek()?.aggregate?.devices ?? []).map((device) => (device.key ?? "").toLowerCase()));
+    const workspace = store.workspace.peek();
+    const already = new Set((workspace?.aggregate?.devices ?? []).map((device) => (device.key ?? "").toLowerCase()));
     const offered = (answer?.drivers ?? []).filter((entry) => !entry.is_aggregate && !already.has(entry.key.toLowerCase()));
-    select.replaceChildren(...(offered.length === 0 ? [h("option", { value: "" }, "No other audio driver on this PC")] : offered.map((entry) => h("option", { value: entry.key }, entry.description ?? entry.key))));
+    const devices = store.devices.value;
+    select.replaceChildren(
+      ...(offered.length === 0
+        ? [h("option", { value: "" }, "No other audio driver on this PC")]
+        : offered.map((entry) => h("option", { value: entry.key }, driverOfferText({ key: entry.key, ...(entry.description === undefined ? {} : { description: entry.description }) }, devices, workspace?.aliases)))),
+    );
     select.disabled = offered.length === 0;
     add.disabled = offered.length === 0;
   }
 
+  /** Adds a driver by its key alone: what it is called is Gazelle's name for the device it turns out to be. */
   #addDevice(store: Store, key: string): void {
     if (key === "") return;
-    store.editAggregate((current) => ({ ...current, devices: [...(current.devices ?? []), { key, name: key }] }));
+    store.editAggregate((current) => ({ ...current, devices: [...(current.devices ?? []), { key }] }));
   }
 
   #removeDevice(store: Store, index: number): void {
@@ -1013,7 +1080,8 @@ export class GaAggregate extends GaElement {
   #buildCalibrate(store: Store): HTMLElement {
     const model = store.aggregate;
     const chosen = store.view<CalibratePicks | undefined>("aggregate:calibrate", undefined);
-    const picksNow = (): CalibratePicks => reconcilePicks(chosen.peek(), store.workspace.peek()?.aggregate, model.answer.peek());
+    const naming = (): AggregateNaming => untracked(() => this.#naming(store));
+    const picksNow = (): CalibratePicks => reconcilePicks(chosen.peek(), store.workspace.peek()?.aggregate, naming());
     const change = (next: CalibratePicks) => {
       chosen.value = next;
     };
@@ -1027,10 +1095,10 @@ export class GaAggregate extends GaElement {
     );
     // Another pass or another reference is other cabling, so it starts from its own defaults.
     const setup = () => store.workspace.peek()?.aggregate;
-    direction.addEventListener("change", () => change(withPass(picksNow(), setup(), model.answer.peek(), direction.value === "outputs" ? "outputs" : "inputs", picksNow().reference)));
+    direction.addEventListener("change", () => change(withPass(picksNow(), setup(), naming(), direction.value === "outputs" ? "outputs" : "inputs", picksNow().reference)));
 
     const reference = menu("Which interface every cable has an end on", "calibrate-reference", "aggregate.calibrate-reference");
-    reference.addEventListener("change", () => change(withPass(picksNow(), setup(), model.answer.peek(), picksNow().direction, reference.value)));
+    reference.addEventListener("change", () => change(withPass(picksNow(), setup(), naming(), picksNow().direction, reference.value)));
 
     const clicks = menu("How many clicks to play", "calibrate-clicks", "aggregate.calibrate-clicks");
     clicks.replaceChildren(...CLICKS.map((count) => h("option", { value: String(count) }, `${count} clicks`)));
@@ -1047,14 +1115,14 @@ export class GaAggregate extends GaElement {
     const measure = h("button", { type: "button", "data-testid": "calibrate-measure", "data-explain": "aggregate.calibrate-measure" }, "Measure");
     this.onDisconnect(
       bindConfirm(measure, "Measure", () => {
-        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, model.answer.peek());
+        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, naming());
         if (request !== undefined) void model.startCalibration(request);
       }),
     );
     const check = h("button", { type: "button", "data-testid": "calibrate-check", "data-explain": "aggregate.calibrate-check" }, "Check");
     this.onDisconnect(
       bindConfirm(check, "Check", () => {
-        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, model.answer.peek(), { check: true });
+        const request = calibrateRequest(picksNow(), store.workspace.peek()?.aggregate, naming(), { check: true });
         if (request !== undefined) void model.startCalibration(request);
       }),
     );
@@ -1101,7 +1169,7 @@ export class GaAggregate extends GaElement {
       h(
         "p",
         { class: "note", "data-testid": "calibrate-routing-note" },
-        "The click only gets there if the interfaces' own routing carries it: on the interface that plays it, route each playback channel chosen above to the output socket its cable leaves from, and on each interface that records it, route the input socket its cable arrives at to the record channel chosen above. The phase needs the same of its own path, the one set under Phase setup on each card: the callback master's playback channel to its S/PDIF output, and the follower's S/PDIF input to its record channel. On a fresh setup neither path is there, and it reads as nothing heard. Both are on the Routing page.",
+        "Every channel here is one of the interfaces' USB channels, so the click only gets there if their own routing carries it: on the interface that plays it, route each USB playback channel chosen above to the output socket its cable leaves from, and on each interface that records it, route the input socket its cable arrives at to the USB record channel chosen above. The phase needs the same of its own path, the one set under Phase setup on each card: the callback master's USB playback channel to its S/PDIF output, and the follower's S/PDIF input to its USB record channel. On a fresh setup neither path is there, and it reads as nothing heard. Both are on the Routing page.",
       ),
       h(
         "p",
@@ -1133,11 +1201,11 @@ export class GaAggregate extends GaElement {
 
     this.watch(() => {
       const config = store.workspace.value?.aggregate;
-      const answer = model.answer.value;
-      const picks = reconcilePicks(chosen.value, config, answer);
-      const devices = calibrateDevices(config);
-      const outputs = interfaceChannels(config, answer, false);
-      const inputs = interfaceChannels(config, answer, true);
+      const named = this.#naming(store);
+      const picks = reconcilePicks(chosen.value, config, named);
+      const devices = calibrateDevices(config, named);
+      const outputs = interfaceChannels(config, named, false);
+      const inputs = interfaceChannels(config, named, true);
 
       // The interfaces menu, and one row per interface. Rebuilt only when what they offer changes.
       const shape = JSON.stringify([devices, picks.direction, picks.reference, outputs.map((one) => one.text), inputs.map((one) => one.text)]);
@@ -1162,12 +1230,12 @@ export class GaAggregate extends GaElement {
 
       // What to plug in, named channel by channel.
       cables.replaceChildren(
-        ...cablingSteps(picks, config, answer).map((cable, at) =>
+        ...cablingSteps(picks, config, named).map((cable, at) =>
           h("li", { "data-testid": `calibrate-cable-${at}` }, h("span", { class: "at" }, `${at + 1}.`), h("span", { class: "cable readout", "data-explain": "aggregate.calibrate-cable" }, cable.text)),
         ),
       );
 
-      const why = calibrateProblem(picks, config, answer);
+      const why = calibrateProblem(picks, config, named);
       problem.hidden = why === undefined;
       problem.textContent = why ?? "";
 
@@ -1215,7 +1283,7 @@ export class GaAggregate extends GaElement {
         );
         const phaseViews = runPhaseViews(outcome);
         phases.replaceChildren(...(phaseViews.length === 0 ? [] : [h("p", { class: "side-head" }, "THE PHASE"), ...phaseViews.map((phase) => this.#runPhaseRow(phase))]));
-        const witnessed = witnessViews(outcome, interfaceChannels(store.workspace.peek()?.aggregate, model.answer.peek(), true));
+        const witnessed = witnessViews(outcome, inputs, config, named);
         witnesses.replaceChildren(...(witnessed.length === 0 ? [] : [h("p", { class: "side-head" }, "LISTENED IN ON"), ...witnessed.map((witness, at) => this.#witnessRow(witness, at))]));
         trims.replaceChildren(...(checking ? [] : trimRows(outcome).map((trim, at) => this.#trimRow(trim, at))));
         apply.hidden = trimsToApply(outcome).length === 0;
@@ -1352,11 +1420,15 @@ export class GaAggregate extends GaElement {
     return after.length === 0 ? row : h("div", {}, row, ...after);
   }
 
-  /** Writes the measured trims into the setup, the same way every other field on this page does. */
+  /**
+   * Writes the measured trims into the setup, the same way every other field on this page does. A
+   * run names each interface by Gazelle's name for it, which is what finds its entry.
+   */
   #applyTrims(store: Store): void {
     const outcome = store.aggregate.calibration.peek()?.outcome;
     const changing = trimsToApply(outcome);
-    store.editAggregate((current) => withMeasuredTrims(current, outcome));
+    const naming = untracked(() => this.#naming(store));
+    store.editAggregate((current) => withMeasuredTrims(current, outcome, interfaceNames(current, naming)));
     store.view<string | undefined>("aggregate:calibrate:applied", undefined).value = appliedTrimsText(changing);
   }
 
@@ -1451,8 +1523,6 @@ function withField<T extends object, K extends keyof T>(base: T, field: K, value
   else next[field] = value;
   return next;
 }
-
-const nameOf = deviceName;
 
 /** One entry of a list changed, for the per-interface channel a picker names. */
 function replaceAt<T>(list: T[], at: number, value: T): T[] {

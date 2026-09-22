@@ -50,7 +50,7 @@ pub async fn put_workspace(
         check_control_room(control_room, families.get(device).map(String::as_str)).map_err(|m| ServerError::BadValue(format!("control room for {device}: {m}")))?;
     }
     if let Some(aggregate) = &workspace.aggregate {
-        crate::aggregate::config::check(aggregate).map_err(|m| ServerError::BadValue(format!("aggregate: {m}")))?;
+        crate::aggregate::config::check(aggregate, &workspace).map_err(|m| ServerError::BadValue(format!("aggregate: {m}")))?;
     }
     state.store.save(&workspace)?;
     Ok(Json(workspace))

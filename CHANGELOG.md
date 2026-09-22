@@ -27,8 +27,8 @@ version that has not been published yet.
   that asks for administrator rights. It also says which copy of the driver the registration
   points at, so a Gazelle that has moved can be registered again.
 - **Set the aggregate up on the page**: which interfaces it opens and in what order, which one
-  drives the callback, how the streams line up, the sample rate and buffer size, a name for each
-  interface, and a trim in samples to line up what each one records. Each interface's driver
+  drives the callback, how the streams line up, the sample rate and buffer size, and a trim in
+  samples to line up what each one records. Each interface's driver
   buffer size and Safe Mode are there too, the same settings the Devices page shows, with a
   button to put them all on one size. The setup is kept in the workspace, so it travels with a
   backup.
@@ -42,11 +42,15 @@ version that has not been published yet.
   them into the setup. It also says when the interfaces are not holding a single clock, which is
   the one thing no trim can put right. It makes a noise and takes the audio drivers while it runs,
   so it says so first and asks for a confirming click.
-- **Name the channels.** Each interface's card opens on its whole channel list, and any channel
-  can be given your own name and be kept out of the aggregate altogether. A named channel reaches
-  a DAW as your name with the automatic one in brackets, "Vocal mic (Quadro 1)", so a track says
-  what it is and still says where it came from. Gazelle offers its own names for that interface's
-  channels as a suggestion, because an audio driver may put its channels in another order.
+- **One set of names for everything on the Aggregate page, and in your DAW.** Each interface is
+  called by its name in Gazelle, the one in the sidebar, so renaming the device renames it on the
+  page and in the DAW, and the vendor driver's own name appears once, as a detail. Each channel is
+  one of the interface's USB channels (sixteen each way on the Quadro, twenty four on the Studio+,
+  known without opening a DAW) and is named for what it carries, then by that USB channel:
+  "Vocal mic, USB A REC 1", from what the routing sends it and your names on the Mixer. Re-routing
+  renames it, and Gazelle keeps the names the DAW sees in step whenever the routing changes, whether
+  or not the page is open. Any channel can be given a name of your own, which wins over the one from
+  the routing until you clear it, or be kept out of the aggregate altogether.
 - **See whether it is holding, while the DAW plays.** The page shows the plan the driver is
   running and, for every interface, the gap in samples between it and the one driving the
   callback: in step is what you want, and a gap that keeps growing is two clocks rather than one.

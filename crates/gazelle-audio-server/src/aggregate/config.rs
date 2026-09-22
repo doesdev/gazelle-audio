@@ -9,40 +9,46 @@
 //! wrote into the section that this one does not know goes through unchanged: the driver ignores
 //! a field it does not know, so passing it on is what makes a newer setup work in an older
 //! Gazelle.
+//!
+//! **Every name in the file is Gazelle's** (`crate::aggregate::naming`): each interface is called
+//! by Gazelle's name for its device, the callback master by that same name, and each channel by
+//! what it carries, with the names the person typed put over the automatic ones. So the file is an
+//! export of the whole workspace, not of the section alone: renaming a device, naming a Mixer
+//! channel or changing the routing all change what the driver is given.
 
 use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
+use crate::aggregate::naming::{driver_labels, interface_names};
 use crate::aggregate::{rate_index, RATES};
-use crate::workspace::model::{Aggregate, AggregateDevice, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, PHASE_REFERENCE_MAX, TRIM_MAX};
+use crate::workspace::model::{Aggregate, AggregateDevice, Workspace, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, PHASE_REFERENCE_MAX, TRIM_MAX};
 
 /// The buffer sizes a configuration may ask for: powers of two the drivers offer.
 pub const BUFFER_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192];
 
-/// The name a device goes by: what the configuration calls it, else its registry key, else its
-/// class id. This is the name every message and every status line uses.
-pub fn device_name(device: &AggregateDevice) -> String {
-    device
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .or(device.key.as_deref())
-        .or(device.clsid.as_deref())
-        .unwrap_or("a device with no key or class id")
-        .to_string()
+/// Which device drives the callback, by its place in the setup: the one `callback_master` names,
+/// else the first.
+pub fn master_index(config: &Aggregate) -> Option<usize> {
+    match config.callback_master.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        None => (!config.devices.is_empty()).then_some(0),
+        Some(master) => config.devices.iter().position(|device| names_device(device, master)),
+    }
 }
 
 /// Which device drives the callback: the one `callback_master` names, else the first.
 pub fn master_of(config: &Aggregate) -> Option<&AggregateDevice> {
-    match config.callback_master.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-        None => config.devices.first(),
-        Some(master) => config.devices.iter().find(|device| names_device(device, master)),
-    }
+    master_index(config).and_then(|at| config.devices.get(at))
 }
 
-/// Whether `named` is this device's name, its registry key or its class id, without case.
+/// What Gazelle writes into `callback_master` for a device: its registry key, else its class id.
+/// Neither changes when the device is renamed, which is why a rename cannot lose the master.
+pub fn master_reference(device: &AggregateDevice) -> Option<String> {
+    device.key.as_deref().or(device.clsid.as_deref()).map(str::trim).filter(|reference| !reference.is_empty()).map(str::to_string)
+}
+
+/// Whether `named` is this device's registry key, its class id or the name an older setup gave it,
+/// without case.
 pub fn names_device(device: &AggregateDevice, named: &str) -> bool {
     [device.name.as_deref(), device.key.as_deref(), device.clsid.as_deref()]
         .into_iter()
@@ -51,8 +57,8 @@ pub fn names_device(device: &AggregateDevice, named: &str) -> bool {
 }
 
 /// Check an aggregate section as the rest of the workspace is checked: every message names the
-/// device it is about and says what would have been right.
-pub fn check(config: &Aggregate) -> Result<(), String> {
+/// device it is about, by Gazelle's name for it, and says what would have been right.
+pub fn check(config: &Aggregate, workspace: &Workspace) -> Result<(), String> {
     if let Some(alignment) = &config.alignment {
         if !ALIGNMENTS.contains(&alignment.as_str()) {
             return Err(format!("alignment must be one of {}, not {alignment:?}", ALIGNMENTS.join(", ")));
@@ -71,9 +77,11 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
             return Err(format!("buffer_size must be one of {}, not {size}", BUFFER_SIZES.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")));
         }
     }
-    let (mut names, mut keys, mut clsids, mut devices) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
-    for device in &config.devices {
-        let named = device_name(device);
+    let (mut keys, mut clsids, mut devices) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+    let names = interface_names(config, workspace);
+    let master = master_index(config);
+    for (at, device) in config.devices.iter().enumerate() {
+        let named = &names[at];
         let bad = |message: String| Err(format!("device '{named}': {message}"));
         let key = device.key.as_deref().map(str::trim).filter(|k| !k.is_empty());
         let clsid = device.clsid.as_deref().map(str::trim).filter(|c| !c.is_empty());
@@ -92,9 +100,6 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
             if !keys.insert(key.to_ascii_lowercase()) {
                 return bad("this key is named twice".into());
             }
-        }
-        if !names.insert(named.to_ascii_lowercase()) {
-            return bad("this name is used twice, and a channel's name would then say nothing".into());
         }
         if let Some(id) = &device.device_id {
             if !devices.insert(id.clone()) {
@@ -127,7 +132,7 @@ pub fn check(config: &Aggregate) -> Result<(), String> {
                     "phase has a reference of {reference} samples, which is outside -{PHASE_REFERENCE_MAX}..{PHASE_REFERENCE_MAX}. It is the phase measured beside the input trim, so measure the interfaces again rather than typing one in."
                 ));
             }
-            if master_of(config).is_some_and(|master| device_name(master) == named) {
+            if master == Some(at) {
                 return bad(
                     "it drives the callback, and a phase is measured against the interface that drives the callback, so it cannot be measured against itself".into(),
                 );
@@ -185,18 +190,28 @@ pub fn looks_like_clsid(text: &str) -> bool {
         && parts.iter().all(|part| part.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
-/// The configuration as the driver's file holds it.
+/// The configuration as the driver's file holds it, with every name Gazelle's.
 ///
 /// Built by hand rather than by deriving a second set of structures, because the shapes differ in
-/// exactly one way that matters: `device_id` is Gazelle's own and the file must not carry it. A
-/// field that is not set is left out, so the file says only what the person chose.
-pub fn export_document(config: &Aggregate) -> Value {
+/// the ways that matter: `device_id` and `known` are Gazelle's own and the file must not carry
+/// them, each interface's `name` is Gazelle's name for its device rather than anything the section
+/// holds, `callback_master` is turned into that same name, and each channel's label is the
+/// automatic one with the person's typed one over it. A field that is not set is left out, so the
+/// file says only what was chosen.
+pub fn export_document(config: &Aggregate, workspace: &Workspace) -> Value {
     let mut document = Map::new();
+    let names = interface_names(config, workspace);
     if !config.devices.is_empty() {
-        document.insert("devices".into(), Value::Array(config.devices.iter().map(export_device).collect()));
+        document.insert("devices".into(), Value::Array(config.devices.iter().zip(&names).map(|(device, name)| export_device(device, name, workspace)).collect()));
     }
+    // The master by the very name the driver will know it by, so a rename moves both together. One
+    // the section names that matches nothing is passed on as it is, and the driver says so.
+    let master = config.callback_master.as_ref().map(|asked| match master_index(config) {
+        Some(at) => names[at].clone(),
+        None => asked.clone(),
+    });
     for (name, value) in [
-        ("callback_master", config.callback_master.clone().map(Value::from)),
+        ("callback_master", master.map(Value::from)),
         ("alignment", config.alignment.clone().map(Value::from)),
         ("rate", config.rate.map(Value::from)),
         ("buffer_size", config.buffer_size.map(Value::from)),
@@ -211,19 +226,19 @@ pub fn export_document(config: &Aggregate) -> Value {
     Value::Object(document)
 }
 
-fn export_device(device: &AggregateDevice) -> Value {
+fn export_device(device: &AggregateDevice, name: &str, workspace: &Workspace) -> Value {
     let mut out = Map::new();
-    for (name, value) in [
+    for (field, value) in [
         ("key", device.key.clone().map(Value::from)),
         ("clsid", device.clsid.clone().map(Value::from)),
-        ("name", device.name.clone().map(Value::from)),
+        ("name", Some(Value::from(name))),
         ("input_trim", device.input_trim.map(Value::from)),
         ("output_trim", device.output_trim.map(Value::from)),
         ("inputs", device.inputs.clone().map(Value::from)),
         ("outputs", device.outputs.clone().map(Value::from)),
     ] {
         if let Some(value) = value {
-            out.insert(name.into(), value);
+            out.insert(field.into(), value);
         }
     }
     // Both ends of the measurement cable or neither, which is what the check above settled, and the
@@ -237,13 +252,14 @@ fn export_device(device: &AggregateDevice) -> Value {
             out.insert("phase".into(), cable);
         }
     }
-    // A channel the person has not named is not in the map, and a map with nothing in it is left
-    // out entirely rather than written as an empty object.
-    for (name, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
+    // Every channel's label: the automatic one from Gazelle's routing and names, with the person's
+    // typed one over it. A map with nothing in it is left out rather than written as an empty object.
+    let (inputs, outputs) = driver_labels(device, workspace);
+    for (field, labels) in [("input_names", inputs), ("output_names", outputs)] {
         if labels.is_empty() {
             continue;
         }
-        out.insert(name.into(), Value::Object(labels.iter().map(|(channel, label)| (channel.to_string(), Value::from(label.clone()))).collect()));
+        out.insert(field.into(), Value::Object(labels.into_iter().map(|(channel, label)| (channel.to_string(), Value::from(label))).collect()));
     }
     for (name, value) in &device.extra {
         out.insert(name.clone(), value.clone());
@@ -255,16 +271,23 @@ fn export_device(device: &AggregateDevice) -> Value {
 mod tests {
     use super::*;
     use crate::device::descriptor::DeviceId;
-    use crate::workspace::model::AggregatePhase;
+    use crate::workspace::model::{AggregateKnown, AggregatePhase, DeviceMixer, MixerChannel, RouteSource};
 
-    fn device(key: &str, name: &str) -> AggregateDevice {
-        AggregateDevice { key: Some(key.into()), name: Some(name.into()), ..AggregateDevice::default() }
+    /// An entry for one of Gazelle's devices, which is how every entry the page makes looks once the
+    /// device has been matched.
+    fn device(key: &str, family: &str, serial: &str) -> AggregateDevice {
+        AggregateDevice {
+            key: Some(key.into()),
+            device_id: Some(DeviceId::from_serial(serial)),
+            known: Some(AggregateKnown { device_id: Some(DeviceId::from_serial(serial)), family: Some(family.into()), model: None, record_routing: None }),
+            ..AggregateDevice::default()
+        }
     }
 
     fn pair() -> Aggregate {
         Aggregate {
-            devices: vec![device("Zen Quadro Synergy Core", "Quadro"), device("ZenStudioTB", "Studio+")],
-            callback_master: Some("Quadro".into()),
+            devices: vec![device("Zen Quadro Synergy Core", "quadro", "Q"), device("ZenStudioTB", "studio", "S")],
+            callback_master: Some("Zen Quadro Synergy Core".into()),
             alignment: Some("aligned".into()),
             rate: Some(96000),
             buffer_size: Some(512),
@@ -272,52 +295,66 @@ mod tests {
         }
     }
 
+    /// The person's own names for the two devices, as the sidebar would show them.
+    fn named() -> Workspace {
+        let mut workspace = Workspace::default();
+        workspace.aliases.insert(DeviceId::from_serial("Q"), "Quadro".into());
+        workspace.aliases.insert(DeviceId::from_serial("S"), "Studio+".into());
+        workspace
+    }
+
     #[test]
     fn the_worked_example_is_accepted() {
-        check(&pair()).expect("the setup phase 0 measured");
-        assert_eq!(device_name(&pair().devices[0]), "Quadro");
-        assert_eq!(master_of(&pair()).map(device_name).as_deref(), Some("Quadro"));
+        check(&pair(), &named()).expect("the setup phase 0 measured");
+        assert_eq!(master_index(&pair()), Some(0));
+        assert_eq!(interface_names(&pair(), &named()), ["Quadro", "Studio+"]);
     }
 
     #[test]
     fn a_device_needs_a_key_or_a_class_id_and_a_class_id_must_look_like_one() {
         let mut config = pair();
-        config.devices[1] = AggregateDevice { name: Some("Studio+".into()), ..AggregateDevice::default() };
-        assert_eq!(check(&config).unwrap_err(), "device 'Studio+': it needs a key or a clsid, which is how the driver finds it");
+        config.devices[1] = AggregateDevice { device_id: Some(DeviceId::from_serial("S")), ..AggregateDevice::default() };
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Studio+': it needs a key or a clsid, which is how the driver finds it");
         config.devices[1] = AggregateDevice { clsid: Some("AE4A4452".into()), ..AggregateDevice::default() };
-        assert!(check(&config).unwrap_err().contains("must be a class id in braces"));
+        assert!(check(&config, &named()).unwrap_err().contains("must be a class id in braces"));
         config.devices[1] = AggregateDevice { clsid: Some("{AE4A4452-A316-11E5-A113-080027F6C1F4}".into()), ..AggregateDevice::default() };
-        check(&config).expect("a class id alone is enough");
+        check(&config, &named()).expect("a class id alone is enough");
     }
 
     #[test]
-    fn a_device_is_named_once() {
+    fn a_device_is_in_the_aggregate_once() {
         let mut config = pair();
         config.devices[1].key = Some("zen quadro synergy core".into());
-        assert_eq!(check(&config).unwrap_err(), "device 'Studio+': this key is named twice");
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Studio+': this key is named twice");
         let mut config = pair();
-        config.devices[1].name = Some("quadro".into());
-        assert_eq!(
-            check(&config).unwrap_err(),
-            "device 'quadro': this name is used twice, and a channel's name would then say nothing"
-        );
+        config.devices[1].device_id = Some(DeviceId::from_serial("Q"));
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Quadro (2)': serial:Q is already another device in this aggregate");
+    }
+
+    /// Two devices of one model that nobody has named come out alike, which is the person's to put
+    /// right in Gazelle, not a setup to refuse: the second is told apart by its place.
+    #[test]
+    fn two_devices_gazelle_names_alike_are_accepted_and_told_apart() {
         let mut config = pair();
-        config.devices[0].device_id = Some(DeviceId::from_serial("1"));
-        config.devices[1].device_id = Some(DeviceId::from_serial("1"));
-        assert_eq!(check(&config).unwrap_err(), "device 'Studio+': serial:1 is already another device in this aggregate");
+        config.devices[1] = device("Zen Quadro Synergy Core 2", "quadro", "Q2");
+        let workspace = Workspace::default();
+        check(&config, &workspace).expect("the names are Gazelle's, and naming the devices is how to tell them apart");
+        let document = export_document(&config, &workspace);
+        assert_eq!(document["devices"][0]["name"], "Zen Quadro Synergy Core");
+        assert_eq!(document["devices"][1]["name"], "Zen Quadro Synergy Core (2)");
     }
 
     #[test]
     fn a_trim_and_a_channel_must_be_numbers_they_could_be() {
         let mut config = pair();
         config.devices[0].input_trim = Some(TRIM_MAX + 1);
-        assert!(check(&config).unwrap_err().contains("input_trim is 192001 samples"));
+        assert!(check(&config, &named()).unwrap_err().contains("input_trim is 192001 samples"));
         config.devices[0].input_trim = Some(-28);
-        check(&config).expect("a real trim is tens of samples, either way");
+        check(&config, &named()).expect("a real trim is tens of samples, either way");
         config.devices[0].outputs = Some(vec![0, 1, AGGREGATE_CHANNEL_MAX + 1]);
-        assert!(check(&config).unwrap_err().contains("outputs names channel 1024"));
+        assert!(check(&config, &named()).unwrap_err().contains("outputs names channel 1024"));
         config.devices[0].outputs = Some(vec![0, 1, 1]);
-        assert_eq!(check(&config).unwrap_err(), "device 'Quadro': outputs names channel 1 twice");
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Quadro': outputs names channel 1 twice");
     }
 
     /// What a channel may be called: the interface carries 31 characters and the name in a DAW is
@@ -327,38 +364,125 @@ mod tests {
         let mut config = pair();
         config.devices[0].input_names = [(0, "Vocal mic".to_string()), (3, "Room".to_string())].into_iter().collect();
         config.devices[0].output_names = [(0, "Main L".to_string())].into_iter().collect();
-        check(&config).expect("a label per channel, on either side");
+        check(&config, &named()).expect("a label per channel, on either side");
 
         config.devices[0].input_names.insert(AGGREGATE_CHANNEL_MAX + 1, "Nowhere".into());
-        assert_eq!(check(&config).unwrap_err(), "device 'Quadro': input_names labels channel 1024, which is outside 0..1023");
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Quadro': input_names labels channel 1024, which is outside 0..1023");
 
         let mut config = pair();
         config.devices[0].input_names = [(2, "   ".to_string())].into_iter().collect();
         assert_eq!(
-            check(&config).unwrap_err(),
+            check(&config, &named()).unwrap_err(),
             "device 'Quadro': input_names gives channel 2 a blank label. Give it something to be called, or leave the channel out."
         );
 
         config.devices[0].input_names = [(2, "a".repeat(CHANNEL_NAME_MAX))].into_iter().collect();
-        check(&config).expect("exactly what the interface carries is still a label");
+        check(&config, &named()).expect("exactly what the interface carries is still a label");
         config.devices[0].input_names = [(2, "a".repeat(CHANNEL_NAME_MAX + 1))].into_iter().collect();
-        let too_long = check(&config).unwrap_err();
+        let too_long = check(&config, &named()).unwrap_err();
         assert!(too_long.contains("which is 32 characters"), "{too_long}");
         assert!(too_long.contains("at most 31"), "{too_long}");
 
         config.devices[0].input_names.clear();
         config.devices[0].output_names = [(1, "Main\tR".to_string())].into_iter().collect();
-        assert!(check(&config).unwrap_err().contains("has a control character in it"));
+        assert!(check(&config, &named()).unwrap_err().contains("has a control character in it"));
+    }
+
+    /// The driver is given a label for every channel: the automatic one from Gazelle's routing, with
+    /// the person's typed one over it, and never anything but those.
+    #[test]
+    fn every_channel_is_exported_with_its_label_and_a_typed_one_wins() {
+        let mut config = pair();
+        config.devices[0].input_names = [(0, "Vocal mic".to_string()), (10, "Room".to_string())].into_iter().collect();
+        let document = export_document(&config, &named());
+        let inputs = document["devices"][0]["input_names"].as_object().expect("the Quadro's inputs");
+        assert_eq!(inputs.len(), 16, "one for each of its sixteen USB record channels");
+        assert_eq!(inputs["0"], "Vocal mic");
+        assert_eq!(inputs["10"], "Room");
+        assert_eq!(inputs["1"], "USB A REC 2", "a channel whose routing is not known yet is its record channel");
+        assert_eq!(document["devices"][0]["output_names"]["15"], "USB 1 PLAY 16");
+        assert_eq!(document["devices"][1]["input_names"].as_object().map(|m| m.len()), Some(24), "and the Studio+'s twenty four");
+        // Every label fits what the interface carries.
+        for device in document["devices"].as_array().unwrap() {
+            for side in ["input_names", "output_names"] {
+                assert!(device[side].as_object().unwrap().values().all(|label| label.as_str().unwrap().chars().count() <= CHANNEL_NAME_MAX));
+            }
+        }
     }
 
     #[test]
-    fn a_channel_label_is_exported_to_the_driver_and_a_side_with_none_is_left_out() {
+    fn a_device_whose_model_is_not_known_yet_is_given_only_what_the_person_typed() {
+        let config = Aggregate {
+            devices: vec![AggregateDevice { key: Some("Zen Quadro".into()), input_names: [(0, "Vocal mic".to_string())].into_iter().collect(), ..AggregateDevice::default() }],
+            ..Aggregate::default()
+        };
+        let document = export_document(&config, &Workspace::default());
+        assert_eq!(document["devices"][0]["input_names"], serde_json::json!({ "0": "Vocal mic" }));
+        assert!(document["devices"][0].get("output_names").is_none(), "a side with nothing on it is not written as an empty object");
+        assert_eq!(document["devices"][0]["name"], "Zen Quadro", "with nothing else known, the vendor driver's key");
+    }
+
+    /// The owner's case: an input named for what the routing sends it, changing with the routing,
+    /// and a typed name left exactly where it was.
+    #[test]
+    fn a_reroute_changes_the_automatic_name_in_the_file_and_leaves_a_typed_one_alone() {
         let mut config = pair();
-        config.devices[0].input_names = [(0, "Vocal mic".to_string()), (10, "Room".to_string())].into_iter().collect();
-        let document = export_document(&config);
-        assert_eq!(document["devices"][0]["input_names"], serde_json::json!({ "0": "Vocal mic", "10": "Room" }));
-        assert!(document["devices"][0].get("output_names").is_none(), "a side nobody has named is not written as an empty object");
-        assert!(document["devices"][1].get("input_names").is_none());
+        let mut workspace = named();
+        workspace.mixers.insert(
+            DeviceId::from_serial("Q"),
+            DeviceMixer {
+                channels: vec![MixerChannel { id: "c".into(), name: "Vocal mic".into(), group: None, color: None, slot: 6, source: Some(RouteSource { group: 0, channel: 0 }), main_mix: Some(0), sends: Vec::new() }],
+                ..DeviceMixer::default()
+            },
+        );
+        config.devices[0].input_names = [(1, "Talkback".to_string())].into_iter().collect();
+        // USB A REC 1 takes PREAMP 1, which the person's Mixer channel calls Vocal mic.
+        config.devices[0].known.as_mut().unwrap().record_routing = Some(vec![[0, 0], [0, 1]]);
+        let before = export_document(&config, &workspace);
+        assert_eq!(before["devices"][0]["input_names"]["0"], "Vocal mic");
+        assert_eq!(before["devices"][0]["input_names"]["1"], "Talkback");
+        // Routed from AFX OUT 3 instead.
+        config.devices[0].known.as_mut().unwrap().record_routing = Some(vec![[5, 2], [0, 1]]);
+        let after = export_document(&config, &workspace);
+        assert_eq!(after["devices"][0]["input_names"]["0"], "AFX OUT 3");
+        assert_eq!(after["devices"][0]["input_names"]["1"], "Talkback", "the typed name is untouched");
+        assert_ne!(before, after);
+    }
+
+    /// Renaming a device in Gazelle renames it in the file, and the callback master follows it,
+    /// because the section names the master by something a rename cannot change.
+    #[test]
+    fn a_device_renamed_in_gazelle_is_renamed_in_the_file_and_stays_the_master() {
+        let config = pair();
+        let mut workspace = named();
+        let first = export_document(&config, &workspace);
+        assert_eq!(first["devices"][0]["name"], "Quadro");
+        assert_eq!(first["callback_master"], "Quadro");
+        workspace.aliases.insert(DeviceId::from_serial("Q"), "Desk".into());
+        let renamed = export_document(&config, &workspace);
+        assert_eq!(renamed["devices"][0]["name"], "Desk");
+        assert_eq!(renamed["callback_master"], "Desk", "the master is the same device, under its new name");
+        assert_eq!(config.callback_master.as_deref(), Some("Zen Quadro Synergy Core"), "and the section itself never had to change");
+        // With the name taken off, it is its model again.
+        workspace.aliases.remove(&DeviceId::from_serial("Q"));
+        let model = export_document(&config, &workspace);
+        assert_eq!(model["devices"][0]["name"], "Zen Quadro Synergy Core");
+        assert_eq!(model["callback_master"], "Zen Quadro Synergy Core");
+    }
+
+    /// A setup an older Gazelle wrote names its master by the name it gave the device; that is still
+    /// understood, and the driver is given the device's name as Gazelle calls it now.
+    #[test]
+    fn a_master_an_older_setup_named_by_its_own_name_still_finds_its_device() {
+        let mut config = pair();
+        config.devices[1].name = Some("Old Studio name".into());
+        config.callback_master = Some("old studio name".into());
+        assert_eq!(master_index(&config), Some(1));
+        check(&config, &named()).expect("an older setup is still a setup");
+        assert_eq!(export_document(&config, &named())["callback_master"], "Studio+");
+        assert_eq!(master_reference(&config.devices[1]).as_deref(), Some("ZenStudioTB"), "what Gazelle writes now is the key");
+        let by_class = AggregateDevice { clsid: Some("{AE4A4452-A316-11E5-A113-080027F6C1F4}".into()), ..AggregateDevice::default() };
+        assert_eq!(master_reference(&by_class).as_deref(), Some("{AE4A4452-A316-11E5-A113-080027F6C1F4}"));
     }
 
     /// Where the cable a phase is measured over runs, and the two ways of getting it wrong.
@@ -366,23 +490,23 @@ mod tests {
     fn a_phase_needs_both_ends_of_its_cable_and_an_interface_that_is_not_the_master() {
         let mut config = pair();
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
-        check(&config).expect("a follower with a cable declared into it");
+        check(&config, &named()).expect("a follower with a cable declared into it");
 
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None, reference: None });
         assert_eq!(
-            check(&config).unwrap_err(),
+            check(&config, &named()).unwrap_err(),
             "device 'Studio+': phase needs input, which is this interface's own input channel the cable arrives on"
         );
         config.devices[1].phase = Some(AggregatePhase { master_output: None, input: Some(16), reference: None });
-        assert!(check(&config).unwrap_err().contains("phase needs master_output"));
+        assert!(check(&config, &named()).unwrap_err().contains("phase needs master_output"));
 
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(AGGREGATE_CHANNEL_MAX + 1), reference: None });
-        assert!(check(&config).unwrap_err().contains("phase names input 1024"));
+        assert!(check(&config, &named()).unwrap_err().contains("phase names input 1024"));
 
         // The interface that drives the callback is what everything else is measured against.
         let mut master = pair();
         master.devices[0].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
-        assert!(check(&master).unwrap_err().contains("cannot be measured against itself"), "{:?}", check(&master));
+        assert!(check(&master, &named()).unwrap_err().contains("cannot be measured against itself"), "{:?}", check(&master, &named()));
     }
 
     /// The reference a calibration run writes beside the trim: any phase the hardware could
@@ -391,14 +515,14 @@ mod tests {
     fn a_phase_reference_is_any_phase_the_hardware_could_measure() {
         let mut config = pair();
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-307) });
-        check(&config).expect("what the hardware measured in one of its sessions");
+        check(&config, &named()).expect("what the hardware measured in one of its sessions");
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(PHASE_REFERENCE_MAX + 1) });
-        let why = check(&config).unwrap_err();
+        let why = check(&config, &named()).unwrap_err();
         assert!(why.starts_with("device 'Studio+': phase has a reference of 192001 samples"), "{why}");
         assert!(why.contains("measure the interfaces again"), "{why}");
         // A reference with no cable is still no cable: the half that is missing is what is said.
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: None, reference: Some(-84) });
-        assert!(check(&config).unwrap_err().contains("phase needs input"));
+        assert!(check(&config, &named()).unwrap_err().contains("phase needs input"));
     }
 
     /// The workspace keeps the reference as it came, and gives it back.
@@ -420,7 +544,7 @@ mod tests {
         let mut config = pair();
         config.devices[1].input_trim = Some(28);
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: None });
-        let document = export_document(&config);
+        let document = export_document(&config, &named());
         assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16 }));
         assert_eq!(document["devices"][1]["input_trim"], 28);
         assert!(document["devices"][0].get("phase").is_none(), "an interface with no cable declared says nothing");
@@ -428,7 +552,7 @@ mod tests {
         // And the reference goes beside the cable, which is where the driver reads it from.
         config.devices[1].input_trim = Some(60);
         config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-84) });
-        let document = export_document(&config);
+        let document = export_document(&config, &named());
         assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16, "reference": -84 }));
         assert_eq!(document["devices"][1]["input_trim"], 60);
     }
@@ -437,16 +561,16 @@ mod tests {
     fn the_master_the_alignment_the_rate_and_the_buffer_must_be_ones_that_exist() {
         let mut config = pair();
         config.callback_master = Some("Octo".into());
-        assert_eq!(check(&config).unwrap_err(), "callback_master is \"Octo\", which is not one of the devices");
+        assert_eq!(check(&config, &named()).unwrap_err(), "callback_master is \"Octo\", which is not one of the devices");
         config = pair();
         config.alignment = Some("sample_accurate".into());
-        assert!(check(&config).unwrap_err().starts_with("alignment must be one of aligned, lowest_latency"));
+        assert!(check(&config, &named()).unwrap_err().starts_with("alignment must be one of aligned, lowest_latency"));
         config = pair();
         config.rate = Some(97000);
-        assert!(check(&config).unwrap_err().starts_with("rate must be one of 32000, 44100"), "a rate the devices cannot be put at");
+        assert!(check(&config, &named()).unwrap_err().starts_with("rate must be one of 32000, 44100"), "a rate the devices cannot be put at");
         config = pair();
         config.buffer_size = Some(500);
-        assert!(check(&config).unwrap_err().contains("buffer_size must be one of 16, 32"));
+        assert!(check(&config, &named()).unwrap_err().contains("buffer_size must be one of 16, 32"));
     }
 
     /// The file the driver reads, field for field against its README's worked example.
@@ -454,27 +578,22 @@ mod tests {
     fn the_export_is_the_shape_the_driver_reads() {
         let config = Aggregate {
             devices: vec![
-                AggregateDevice {
-                    key: Some("Zen Quadro Synergy Core".into()),
-                    name: Some("Quadro".into()),
-                    device_id: Some(DeviceId::from_serial("1000000000001")),
-                    ..AggregateDevice::default()
-                },
+                AggregateDevice { key: Some("Zen Quadro Synergy Core".into()), name: Some("An old name".into()), device_id: Some(DeviceId::from_serial("Q")), ..AggregateDevice::default() },
                 AggregateDevice {
                     clsid: Some("{AE4A4452-A316-11E5-A113-080027F6C1F4}".into()),
-                    name: Some("Studio+".into()),
+                    device_id: Some(DeviceId::from_serial("S")),
                     input_trim: Some(28),
                     inputs: Some(vec![0, 1, 2, 3]),
                     ..AggregateDevice::default()
                 },
             ],
-            callback_master: Some("Quadro".into()),
+            callback_master: Some("Zen Quadro Synergy Core".into()),
             alignment: Some("aligned".into()),
             rate: Some(96000),
             buffer_size: Some(512),
             extra: Default::default(),
         };
-        let document = export_document(&config);
+        let document = export_document(&config, &named());
         assert_eq!(
             document,
             serde_json::json!({
@@ -489,6 +608,7 @@ mod tests {
             })
         );
         assert!(document["devices"][0].get("device_id").is_none(), "Gazelle's own field is not the driver's business");
+        assert!(document["devices"][0].get("known").is_none(), "and nor is what Gazelle last knew");
         assert!(document["devices"][0].get("input_trim").is_none(), "a field that was not set is left out, not written as a default");
     }
 
@@ -501,7 +621,7 @@ mod tests {
             "ring_buffers": 8
         }"#;
         let config: Aggregate = serde_json::from_str(text).unwrap();
-        let document = export_document(&config);
+        let document = export_document(&config, &Workspace::default());
         assert_eq!(document["ring_buffers"], 8);
         assert_eq!(document["devices"][0]["resample"], true);
         assert_eq!(serde_json::to_value(&config).unwrap()["ring_buffers"], 8, "and it is written back to the workspace");
@@ -509,6 +629,6 @@ mod tests {
 
     #[test]
     fn an_empty_section_exports_an_empty_document() {
-        assert_eq!(export_document(&Aggregate::default()), serde_json::json!({}));
+        assert_eq!(export_document(&Aggregate::default(), &Workspace::default()), serde_json::json!({}));
     }
 }

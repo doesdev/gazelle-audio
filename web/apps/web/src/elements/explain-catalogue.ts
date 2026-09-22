@@ -874,10 +874,11 @@ export const CATALOGUE: Catalogue = {
   "aggregate.devices": { title: "Interfaces", what: "What the aggregate opens, in the order their channels appear to a DAW, with what each one is doing now and the controls to change it." },
   "aggregate.device-name": {
     title: "Name",
-    what: "What to call this interface. A DAW names its channels after it, so it is worth something short you will recognise in a track list.",
-    effect: "Saved in the workspace and written out for the driver.",
+    what: "This interface's name, which is the device's name in Gazelle, as the sidebar shows it: the name you gave the device, or its model. The DAW is given the same name.",
+    effect: "Nothing to type here. Rename the device on the Devices or Workspace page and it is renamed here, and in the DAW at the driver's next reset.",
+    watch: "A DAW puts this name after each channel's, all in 31 characters, so a short name keeps it there; a long one leaves the channel's name alone.",
   },
-  "aggregate.device-entry": { title: "Which interface", what: "The audio driver this entry opens, as Windows registers it." },
+  "aggregate.device-entry": { title: "Audio driver", what: "The interface's own audio driver this entry opens, as Windows registers it. It is what the aggregate opens, not a name the interface goes by." },
   "aggregate.device-id": {
     title: "Gazelle device",
     what: "Which of the interfaces Gazelle is connected to this one is. It is how its clock, rate and buffer size can be read and changed from here.",
@@ -889,10 +890,13 @@ export const CATALOGUE: Catalogue = {
     what: "Nobody chose this device: Gazelle settled on it from the model and what is connected, and everything on this card is read from it.",
     effect: "Choosing a device in the menu beside this pins it, so it stops being worked out afresh each time.",
   },
-  "aggregate.device-channels": { title: "Channels", what: "How many of this interface's inputs and outputs the aggregate exposes, and how many of them have been given a name. All means every one it has." },
+  "aggregate.device-channels": {
+    title: "Channels",
+    what: "How many channels this interface has in the aggregate, how many of them it exposes, and how many you have given a name of your own. They are its USB channels, so the count is known without a DAW.",
+  },
   "aggregate.device-channels-open": {
     title: "Channels",
-    what: "Opens the list of this interface's inputs and outputs, where each one can be kept out of what a DAW sees or given a name of its own.",
+    what: "Opens the list of this interface's channels, which are its USB record and playback channels, where each one can be kept out of what a DAW sees or given a name of your own.",
     effect: "Opening and closing it changes nothing. It stays as you leave it while the app is open.",
   },
   "aggregate.channel-expose": {
@@ -901,16 +905,20 @@ export const CATALOGUE: Catalogue = {
     effect: "Saved in the workspace and written out for the driver. A DAW using the aggregate sees the change at its next buffer change.",
     watch: "Taking a channel out moves the numbering of the ones after it, so a DAW session may need its tracks pointing at the right inputs again.",
   },
-  "aggregate.channel-auto": { title: "What it is called by itself", what: "The name this channel has when nobody has named it: the interface's name and the channel's number from one." },
-  "aggregate.channel-label": {
-    title: "Name for this channel",
-    what: "What to call this channel. A DAW shows it with the automatic name in brackets after it, as Vocal mic (Quadro 1). Up to 31 characters; empty is not named.",
-    effect: "Saved in the workspace and written out for the driver when you press Enter or leave the field.",
+  "aggregate.channel-name": {
+    title: "Channel",
+    what: "What this channel is called: what it carries first, then the USB channel it is. An input carries what the routing sends to its USB record channel, named as the Routing page and the Mixer name it; an output is its USB playback channel, named for the Mixer channel that plays it when you named one.",
+    effect: "Nothing to press. Re-routing the channel renames it, here and in the DAW, because it says what would be recorded.",
   },
-  "aggregate.channel-hint": {
-    title: "What Gazelle calls it",
-    what: "The name this channel has on Gazelle's own pages, offered as a suggestion.",
-    watch: "It is a suggestion and nothing more: the interface's audio driver may put its channels in another order than Gazelle does, so check before copying it.",
+  "aggregate.channel-label": {
+    title: "A name of your own",
+    what: "A name for this channel that wins over the one from the routing, here and in the DAW. Empty takes the automatic one, which is shown in the field. Up to 31 characters.",
+    effect: "Saved in the workspace and written out for the driver when you press Enter or leave the field. Clear it and the name from the routing comes back.",
+  },
+  "aggregate.channel-daw": {
+    title: "In a DAW",
+    what: "The name a DAW will show for this channel: its name, with the interface's name and the channel's number after it, all in 31 characters.",
+    watch: "When that does not fit, the DAW shows the channel's name alone. A short name for the device in Gazelle keeps the rest.",
   },
   "aggregate.device-clock": {
     title: "Clock source",
@@ -957,13 +965,13 @@ export const CATALOGUE: Catalogue = {
   },
   "aggregate.device-phase-leaves": {
     title: "Leaves the callback master on",
-    what: "The callback master's own output channel the measurement goes out on, which is the one routed to the socket the digital cable leaves from. Numbered from one, as the interface numbers it.",
+    what: "The callback master's own USB playback channel the measurement goes out on, which is the one routed to the socket the digital cable leaves from.",
     effect: "Saved in the workspace once both channels are chosen. Choosing a different path takes the old reference out, so measure once afterwards. The wheel does not step this menu.",
     watch: "The driver keeps this channel for itself: a DAW no longer sees it.",
   },
   "aggregate.device-phase-arrives": {
     title: "Arrives on",
-    what: "This interface's own input channel the measurement comes back on, which is the one the socket the digital cable arrives at is routed to. Numbered from one, as the interface numbers it.",
+    what: "This interface's own USB record channel the measurement comes back on, which is the one the socket the digital cable arrives at is routed to.",
     effect: "Saved in the workspace once both channels are chosen. Choosing a different path takes the old reference out, so measure once afterwards. The wheel does not step this menu.",
     watch: "The driver keeps this channel for itself: a DAW no longer sees it.",
   },
@@ -981,13 +989,16 @@ export const CATALOGUE: Catalogue = {
     what: "Puts every interface's driver on the same buffer size, which is the one the callback master is on. They will not run together on different sizes.",
     effect: "Click twice. Every program using those drivers, a DAW included, restarts its audio.",
   },
-  "aggregate.add-select": { title: "Interface to add", what: "The audio drivers on this PC that the aggregate does not already open. The wheel does not step this menu." },
+  "aggregate.add-select": {
+    title: "Interface to add",
+    what: "The audio drivers on this PC that the aggregate does not already open, each named for the device it is where Gazelle can tell, with the driver's own name after it. The wheel does not step this menu.",
+  },
   "aggregate.add": { title: "Add", what: "Puts the chosen interface at the end of the aggregate, so its channels come after the others.", effect: "Saved in the workspace and written out for the driver. Nothing is sent to a device." },
   "aggregate.setup": { title: "Setup", what: "The choices that are about the aggregate as a whole rather than about one interface, and where the file the driver reads is written." },
   "aggregate.master": {
     title: "Callback master",
     what: "Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable.",
-    effect: "Saved in the workspace. The wheel does not step this menu.",
+    effect: "Saved in the workspace by the interface's driver, which renaming the device does not change, so a rename never loses it. The wheel does not step this menu.",
   },
   "aggregate.alignment": {
     title: "Alignment",
@@ -1023,17 +1034,17 @@ export const CATALOGUE: Catalogue = {
   },
   "aggregate.calibrate-plays": {
     title: "Plays the click",
-    what: "The output this interface's click leaves from, in the aggregate's own channel list.",
+    what: "The USB playback channel this interface's click leaves from, named as its channels are named everywhere on this page. Route it to the output socket the cable leaves from.",
     effect: "The cabling below follows what is chosen here, channel by channel.",
   },
   "aggregate.calibrate-records": {
     title: "Records the click",
-    what: "The input the click arrives on, in the aggregate's own channel list.",
+    what: "The USB record channel the click arrives on, named as its channels are named everywhere on this page. Route the input socket the cable arrives at to it.",
     effect: "The cabling below follows what is chosen here, channel by channel.",
   },
   "aggregate.calibrate-cable": {
     title: "One cable to patch",
-    what: "One cable, named by the channels chosen above: the output it leaves, and the input it arrives at. Patch all of them, then press Measure.",
+    what: "One cable, named by the channels chosen above and the interface each is on: the playback channel it leaves from, and the record channel it arrives at. Patch all of them, then press Measure.",
   },
   "aggregate.calibrate-measure": {
     title: "Measure",

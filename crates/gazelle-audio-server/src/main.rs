@@ -397,12 +397,16 @@ async fn prepare(
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
         store
     } else {
-        let exporting = Arc::new(ExportingStore::new(store, &aggregate_path, aggregate.link.clone()));
+        // The names the driver is given are Gazelle's and follow the devices and their routing, so
+        // the store sees the devices, and a follower brings the names up to date when the routing
+        // changes or a device comes or goes, whether or not any page is open.
+        let exporting = Arc::new(ExportingStore::new(store, &aggregate_path, aggregate.link.clone()).with_live(aggregate.clone()));
         match exporting.sync() {
             Ok(Some(exported)) => tracing::info!("wrote the aggregate's setup to {}", exported.path.display()),
             Ok(None) => {}
             Err(why) => tracing::warn!("the aggregate's setup could not be exported: {why}"),
         }
+        tokio::spawn(gazelle_audio_server::aggregate::follow::follow(exporting.clone(), devices.clone(), !args.dry_run));
         exporting
     };
 

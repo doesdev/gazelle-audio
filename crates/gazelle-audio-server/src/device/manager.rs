@@ -13,6 +13,7 @@ use crate::device::cyclic_loopback::{CyclicLoopback, Shape};
 use crate::device::mixer_loopback::MixerLoopback;
 use crate::device::read_loopback::ReadLoopback;
 use crate::device::routing_loopback::RoutingLoopback;
+use crate::device::routing_memory::RoutingMemory;
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::handle::DeviceHandle;
 use crate::device::worker::{self, DeviceEvent, WorkerContext};
@@ -77,6 +78,9 @@ pub struct DeviceManager {
     /// reads the last one rather than waiting for the next. Nothing is invented: a device that has
     /// pushed nothing has no entry, and a snapshot records that as unread.
     cyclic: Arc<CyclicCache>,
+    /// Each device's routing as the commands through this server last left it, which is how the
+    /// aggregate's channel names follow the routing without the devices being asked again.
+    routing: Arc<RoutingMemory>,
 }
 
 /// Anything a WebSocket client may be told about.
@@ -95,7 +99,13 @@ impl DeviceManager {
             registries,
             events,
             cyclic: Arc::new(RwLock::new(BTreeMap::new())),
+            routing: Arc::new(RoutingMemory::default()),
         })
+    }
+
+    /// What the commands through this server have left each device's routing as.
+    pub fn routing(&self) -> &Arc<RoutingMemory> {
+        &self.routing
     }
 
     /// The fields of the last report of `report_id` this device pushed, or `None` when it has
@@ -140,7 +150,10 @@ impl DeviceManager {
         let (tx, rx) = std::sync::mpsc::channel();
         let events = self.events.clone();
         let cyclic = Arc::clone(&self.cyclic);
+        let routing = Arc::clone(&self.routing);
+        let answered_by = id.clone();
         let ctx = WorkerContext {
+            answered: Box::new(move |command, ext3, outcome| routing.observe(&answered_by, command, ext3, outcome)),
             device_id: id.clone(),
             device,
             registry: model.map(|m| m.registry.clone()),
@@ -187,6 +200,7 @@ impl DeviceManager {
             return;
         }
         self.forget_cyclic(id);
+        self.routing.forget(id);
         tracing::warn!("{id} stopped responding (unplugged?) and was detached");
         let _ = self.events.send(ServerEvent::DeviceRemoved(id.clone()));
     }
@@ -278,6 +292,7 @@ impl DeviceManager {
             let _ = join.join();
         }
         self.forget_cyclic(id);
+        self.routing.forget(id);
         let _ = self.events.send(ServerEvent::DeviceRemoved(id.clone()));
         Ok(())
     }

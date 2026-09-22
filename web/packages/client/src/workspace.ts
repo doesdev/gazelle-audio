@@ -117,7 +117,11 @@ export interface Workspace {
 export interface Aggregate {
   /** The sub-devices, in the order their channels appear to a DAW. */
   devices?: AggregateDevice[];
-  /** Which device drives the callback, by name, registry key or class id; the first when unset. */
+  /**
+   * Which device drives the callback. Gazelle writes the device's registry key (or class id), which
+   * a rename cannot change, and the driver is given the device's name in its place. An older setup's
+   * own name for a device is still understood. The first device when unset.
+   */
   callback_master?: string;
   alignment?: "aligned" | "lowest_latency";
   /** The rate to put every device at, in Hz. */
@@ -127,13 +131,26 @@ export interface Aggregate {
   [field: string]: unknown;
 }
 
+/** What the server last knew about the interface one aggregate entry turned out to be. */
+export interface AggregateKnown {
+  device_id?: string;
+  family?: string;
+  model?: string;
+  /** What its routing sends to each of its USB record channels, as `[source group, channel]`. */
+  record_routing?: [number, number][];
+}
+
 /** One interface the aggregate opens. It needs a `key` or a `clsid`. */
 export interface AggregateDevice {
   /** The name the vendor driver registers itself under, matched without case, whole or as part. */
   key?: string;
   /** The vendor driver's class id, which is the sure way to name one. */
   clsid?: string;
-  /** What to call this device's channels. */
+  /**
+   * What an older setup called this interface. Nothing is called by it any more: an interface is
+   * called by Gazelle's name for its device. It is kept only so a `callback_master` written by it
+   * still finds its device.
+   */
   name?: string;
   /** Samples to add to this device's input latency. A device that records late takes a positive trim. */
   input_trim?: number;
@@ -142,15 +159,21 @@ export interface AggregateDevice {
   inputs?: number[];
   outputs?: number[];
   /**
-   * What the person calls this device's inputs, by the device's own channel numbering from zero,
-   * which is the numbering `inputs` uses. A DAW shows the name with the automatic one in brackets
-   * after it, as `Vocal mic (Quadro 1)`. A channel with no name here is left out rather than
+   * The names the person has typed for this device's inputs, by the device's own channel numbering
+   * from zero, which is the numbering `inputs` uses. Only typed names are here: the name each
+   * channel takes from Gazelle's routing is worked out by the server when it writes the driver's
+   * file, and a typed name wins over it. A channel with no name here is left out rather than
    * written as an empty string.
    */
   input_names?: Record<string, string>;
   output_names?: Record<string, string>;
   /** Which Gazelle device this is, which is how its clock, rate and buffer are read. Not in the driver's file. */
   device_id?: string;
+  /**
+   * What Gazelle last knew about the interface this entry turned out to be. The server's alone: it
+   * works it out again on every save and ignores what a client sends for it.
+   */
+  known?: AggregateKnown;
   /**
    * Where the driver measures this interface's capture phase at the start of every session, over
    * the digital cable from the callback master. Absent means not measured. The driver refuses it on

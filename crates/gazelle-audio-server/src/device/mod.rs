@@ -8,5 +8,6 @@ pub mod manager;
 pub mod mixer_loopback;
 pub mod read_loopback;
 pub mod routing_loopback;
+pub mod routing_memory;
 pub mod usb;
 pub mod worker;

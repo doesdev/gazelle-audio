@@ -4,6 +4,8 @@ The Aggregate page (`#/aggregate`) is for running **two or more interfaces as on
 
 The page says whether this PC can run it, sets it up, and, while a DAW is playing, shows whether it is holding together.
 
+**Everything on the page is named the way the rest of Gazelle names it.** An interface is called by its name in Gazelle, the one the sidebar shows, and each of its channels by what it carries. See [What things are called](#what-things-are-called).
+
 > **Warning.** This is new and has not been used in anger. It moves audio for a real session, and a session it cannot start is a session you cannot record. Try it before you need it, not on the day.
 
 ## What it needs
@@ -60,9 +62,10 @@ One card per interface, in the order their channels appear to a DAW. The order i
 
 | On the card | What it is |
 |---|---|
-| **Name** | What to call it. A DAW names its channels after this, so keep it short and recognisable |
+| The name at the top | The interface's name in Gazelle. There is nothing to type here: rename the device on the [Devices page](06-devices-page.md) or the [Workspace page](12-workspace-page.md) and it is renamed here and in the DAW |
 | **Gazelle device** | Which of the interfaces Gazelle is connected to this one is. Left on **Work it out**, Gazelle settles it itself whenever exactly one interface of that model is connected, and says "Worked out" beside the menu. Choosing one pins it, which is what two of the same model need |
-| **Channels** | Every input and output the interface has, and what each one is called. See [Naming the channels](#naming-the-channels) |
+| **Audio driver** | The interface's own audio driver, as Windows lists it, which is what the aggregate opens. It is shown once, here, and is not a name the interface goes by |
+| **Channels** | Every channel the interface has in the aggregate, and what each one is called. See [What things are called](#what-things-are-called) |
 | **Clock** and **LOCK** | What it says it is clocked from now, and whether it is locked |
 | **Rate** | The sample rate it reports |
 | **Buffer** and **Safe Mode** | Antelope's driver settings for this interface, the same ones the [Devices page](06-devices-page.md) shows. Each takes a confirming click, and changing either restarts the audio of every program using that driver |
@@ -71,25 +74,38 @@ One card per interface, in the order their channels appear to a DAW. The order i
 | **Phase now** | What this session's phase measurement came to, while a DAW has the aggregate open. See [The phase](#the-phase) |
 | **Phase setup** | Where the driver measures this interface's phase, on every card but the callback master's. See [The phase](#the-phase) |
 
-**Up** and **Down** move an interface along the list; **Remove** takes it out and asks twice. Choose one from the menu at the bottom and press **Add** to put a new one at the end. **Match buffer sizes** puts every interface on the buffer size the callback master is on.
+**Up** and **Down** move an interface along the list; **Remove** takes it out and asks twice. Choose one from the menu at the bottom and press **Add** to put a new one at the end: the menu names each driver for the device it is where Gazelle can tell, with the driver's own name after it. **Match buffer sizes** puts every interface on the buffer size the callback master is on.
 
-### Naming the channels
+### What things are called
 
-**Channels** on a card opens the interface's whole channel list, inputs and then outputs. Each row is one channel: whether the aggregate exposes it, what it is called automatically, a field for your own name, and, where Gazelle knows it, the name Gazelle itself uses for that channel.
+**An interface is called by its name in Gazelle**: the name you gave the device, or its model where you gave it none, exactly as the sidebar shows it. That is the name on its card, in every picker and sentence on the page, in the driver's own record and log, and in the DAW. There is no second name to keep in step: to rename an interface, rename the device.
 
-A channel with no name of its own reaches a DAW as the interface's name and its number, "Quadro 1". Name it and the DAW shows your name with the automatic one in brackets after it, "Vocal mic (Quadro 1)", so the track says what it is and still says where it came from. A name is at most 31 characters, which is all the audio driver carries; clearing the field puts the channel back to its automatic name.
+**An aggregate channel is one of the interface's USB channels**, not a preamp and not an output socket. An interface sends the computer its recordings on its USB record channels and takes what the computer plays on its USB playback channels, and those are exactly the channels the aggregate carries: aggregate input 1 is what the interface's first USB record channel records, and aggregate output 1 is what its first USB playback channel plays. What reaches a USB record channel, and where a USB playback channel goes, is up to the interface's routing on the [Routing page](10-routing-page.md).
+
+| Interface | Aggregate inputs are its | Aggregate outputs are its |
+|---|---|---|
+| Zen Quadro Synergy Core | 16 channels of **USB A REC** | 16 channels of **USB 1 PLAY** |
+| Zen Studio+ | 24 channels of **USB REC** | 24 channels of **USB PLAY** |
+
+So the count is known as soon as Gazelle knows which device an interface is, without a DAW. If the driver of a running DAW reports another number, the card says so.
+
+**A channel is named for what it carries, then by its USB channel.** An input takes the name of whatever the routing sends to its USB record channel, in Gazelle's words: your name for a Mixer channel or a mix that takes that source, where you gave one, or else the source as the Routing page shows it. So with Preamp 1 routed to USB A REC 1 and a Mixer channel for Preamp 1 that you called Vocal mic, the first input is **Vocal mic, USB A REC 1**. Change the routing and the name changes with it, because it says what would be recorded. A channel nothing is routed to is just its USB channel, **USB A REC 5**. An output is named for the Mixer channel that plays its USB playback channel, where you named one, and is otherwise just that channel, **USB 1 PLAY 5**.
+
+**Channels** on a card opens the list, inputs and then outputs. Each row is one channel: whether the aggregate exposes it, its name, a field for a name of your own, and what a DAW will show for it.
+
+**A name you type wins**, on this page and in the DAW, over the one from the routing, and the two are kept apart: clear your name and the one from the routing comes back. A name is at most 31 characters, which is all the audio driver carries. The field shows the automatic name while it is empty.
+
+**What the DAW sees.** Gazelle writes each channel's name into the driver's setup, and keeps it in step with the routing whenever the routing changes through Gazelle, whether or not this page is open; the driver takes the new names at its next reset. The DAW shows the short part, what the channel carries, with the driver's own reference after it, the interface's name and the channel's number: **Vocal mic (Quadro 1)**. All of that has to fit in 31 characters, so with a long name like Zen Quadro Synergy Core there is no room and the DAW shows **Vocal mic** alone. A short name for the device in Gazelle keeps the reference.
 
 Turning a channel off keeps it out of the aggregate altogether, so a DAW never lists it. While every channel is exposed, nothing is recorded in the setup, which is what "all of them" means, and turning everything back on takes it out again.
 
-Gazelle's own names are a suggestion, not the truth: they are the names on the [Inputs](07-inputs-page.md) and [Outputs](08-outputs-page.md) pages, in Gazelle's order, and an audio driver may put its channels in another order. Check one against what you actually hear before trusting the rest.
-
-The number of channels comes from the driver itself while a DAW has the aggregate open. Before that, Gazelle uses what it knows about the matched interface, and where it knows neither, it says so rather than guessing.
+Two interfaces of one model that you have not named come out with the same name, so the second is told apart by its place, **Zen Quadro Synergy Core (2)**. Naming the devices is the better answer.
 
 ## Setup
 
 | Choice | What it does |
 |---|---|
-| **Callback master** | Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable |
+| **Callback master** | Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable. It is kept by the interface's audio driver, which renaming the device does not change, so a rename never loses it |
 | **Alignment** | **Aligned** pads every interface so they all line up, at the cost of a little latency; **lowest latency** pads nothing, so interfaces of different latencies end up offset from each other. Aligned unless you are counting samples |
 | **Sample rate** | The rate to put every interface at. Left alone, the aggregate takes whatever they are already on |
 | **Buffer size** | The buffer size the aggregate offers a DAW as its preferred one |
@@ -124,10 +140,10 @@ Every session is lined up by **the reference minus its phase**, and then the tri
 
 Open **Phase setup** on each follower's card (not the callback master's: the others are measured against it) and choose two channels:
 
-- **Leaves the callback master on**: one of the callback master's own playback channels, the one that goes out on the digital cable.
-- **Arrives on**: one of this interface's own record channels, the one the cable comes in on.
+- **Leaves the callback master on**: one of the callback master's own USB playback channels, the one that goes out on the digital cable.
+- **Arrives on**: one of this interface's own USB record channels, the one the cable comes in on.
 
-Both are counted from one, the way the rest of Gazelle counts. Nothing is saved until both are chosen, because half a path is no use to the driver. The driver keeps those two channels for itself, so a DAW no longer lists them. **Clear** takes the setup out again, reference and all, and asks twice.
+Both are named as channels are named everywhere on the page. Nothing is saved until both are chosen, because half a path is no use to the driver. The driver keeps those two channels for itself, so a DAW no longer lists them. **Clear** takes the setup out again, reference and all, and asks twice.
 
 Once it is set up, the card says **Set up, no reference yet**. One measurement under **Line the interfaces up** gives it its reference, written together with its input trim, and every session after that is lined up. Choosing a different pair of channels takes the old reference out, because it was measured on the old path: measure once more afterwards.
 
@@ -158,7 +174,7 @@ This plays a click out of one interface and records it on every interface at onc
 
 **The cabling.** The page writes out exactly what to patch for the channels you have picked, and it is worth reading rather than guessing, because the whole measurement rests on it. For the input pass, one interface plays and every interface records: one output of that interface into its own input, and the next output of **the same** interface into the other interface's input. Both copies leave on the same sample, so any difference in where they land is the difference between the interfaces and nothing else. For the output pass it is the other way round: one output on each interface, all of them into inputs of one interface.
 
-Each picker lists one interface's own channels, numbered from one as the rest of Gazelle numbers them, and the measurement is asked for by interface and channel. Where that channel sits among the aggregate's channels is worked out by the measurement itself, once it has the audio drivers open, so a cable always lands on the interface its picker named. If a channel cannot be used it says so before anything plays, and says what would work: how many channels the interface really has, which ones the setup exposes, or that the channel is the one its phase setup uses.
+Each picker lists one interface's own USB channels, named as they are everywhere on the page, and the cabling says which interface each is on. The measurement is asked for by interface and channel. Where that channel sits among the aggregate's channels is worked out by the measurement itself, once it has the audio drivers open, so a cable always lands on the interface its picker named. If a channel cannot be used it says so before anything plays, and says what would work: how many channels the interface really has, which ones the setup exposes, or that the channel is the one its phase setup uses.
 
 **What comes back.** Per interface: how far behind the reference it landed, in samples; the spread, which is how much the clicks disagreed with each other, and under a sample means a measurement to trust; and how many of the clicks were found at all. Then the trims it implies, showing what the setup says now, what was measured, and what it would become, and beside an input trim the phase reference that goes with it. **Write these trims into the setup** writes each trim and its reference together. If nothing was heard on the cable, writing the trim takes the old reference out rather than leaving it beside a trim it was not measured with. An interface whose trim came out the same but whose reference is new, which is what a first measurement usually looks like, is still written.
 
@@ -168,7 +184,7 @@ Under **The phase**, each interface's phase at the start of the run: in a measur
 
 **A drift finding is the serious one.** If the lag grows steadily through the run, the interfaces are not holding a single clock, and no trim fixes that. Check the digital cable and each interface's clock source, and remember that an interface left on Internal quietly becomes USB clocked the moment a DAW opens it.
 
-**The click has to be able to get there.** It leaves on one of the aggregate's playback channels and comes back on one of its record channels, so the interface's own routing has to carry it: from that playback channel to the socket the cable leaves, and from the socket it arrives at to the record channel. That is the same routing the [Routing page](10-routing-page.md) shows, and on a fresh interface it is often not set up, which reads as "nothing arrived" rather than as a bad cable. The phase measurement needs the same of its own path (see [The routing it needs](#the-routing-it-needs)). Check the path before blaming the lead.
+**The click has to be able to get there.** It leaves on one of the interfaces' USB playback channels and comes back on one of their USB record channels, so the interface's own routing has to carry it: from that playback channel to the socket the cable leaves, and from the socket it arrives at to the record channel. That is the same routing the [Routing page](10-routing-page.md) shows, and on a fresh interface it is often not set up, which reads as "nothing arrived" rather than as a bad cable. The phase measurement needs the same of its own path (see [The routing it needs](#the-routing-it-needs)). Check the path before blaming the lead.
 
 **Was the audio clean?** A run says so, with how many blocks were lost and which interface lost them. Blocks that go missing during a measurement move the very thing being measured, so a run that lost any is reported as not clean. Run it again rather than believing it. The same goes for clicks that disagree with each other: the page shows the spread, and a spread near the buffer size means the eight clicks were not measuring one thing.
 

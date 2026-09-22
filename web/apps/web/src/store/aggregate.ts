@@ -27,7 +27,6 @@ import type {
   AggregateCalibrateTrim,
   AggregateCalibrateWitness,
   AggregateCalibration,
-  AggregateChannelNames,
   AggregateDeviceReport,
   AggregateDeviceStatus,
   AggregateEvent,
@@ -41,9 +40,16 @@ import type {
   AggregateDevice,
   AggregateStatusReading,
   AggregateTrimReference,
+  AggregateUsbChannels,
   Cable,
+  DeviceMixer,
   Timers,
+  Topology,
+  TopologyGroup,
 } from "gazelle-audio-client";
+import { topologies as builtInTopologies } from "gazelle-audio-client";
+import { sourceLabel } from "./channels.ts";
+import type { RouteSlot } from "./routing.ts";
 
 // Elements do not import the client package, so what the page needs comes through here.
 export type {
@@ -58,7 +64,6 @@ export type {
   AggregateCalibrateTrim,
   AggregateCalibrateWitness,
   AggregateCalibration,
-  AggregateChannelNames,
   AggregateDevice,
   AggregateDeviceReport,
   AggregateDeviceStatus,
@@ -72,6 +77,7 @@ export type {
   AggregateRegistrationRun,
   AggregateStatusReading,
   AggregateTrimReference,
+  AggregateUsbChannels,
 };
 
 /** How often the answer is asked for while nothing has the driver open, which is the usual case. */
@@ -185,11 +191,12 @@ export function registrationText(run: AggregateRegistrationRun, undo: boolean): 
 /**
  * One configured interface, with whatever the driver is saying about it now beside it.
  *
- * The two halves come from different places and are joined by the name the setup gives a device,
- * which is the only thing both sides carry: the report is what Gazelle read about the interface,
- * the live part is what the driver published while a DAW had it open. A device the driver names and
- * the setup does not is kept rather than dropped, because a driver running a plan the setup no
- * longer describes is exactly what somebody needs to see.
+ * The two halves come from different places and are joined by name, which is the only thing both
+ * sides carry: the report is what Gazelle read about the interface, named by Gazelle's name for the
+ * device, and the live part is what the driver published while a DAW had it open, named by the name
+ * Gazelle gave it in its file, which is the same name. A device the driver names and the setup does
+ * not is kept rather than dropped, because a driver running a plan the setup no longer describes
+ * (one from before a rename, until its next reset) is exactly what somebody needs to see.
  */
 export interface AggregateDeviceView {
   name: string;
@@ -243,11 +250,256 @@ export function matchNote(view: AggregateDeviceView | undefined): string | undef
 }
 
 // ---------------------------------------------------------------------------------------------
-// The channels of one interface
+// What the aggregate calls things: Gazelle's names, and one naming for the whole page
 // ---------------------------------------------------------------------------------------------
+//
+// An interface is called by Gazelle's name for its device: the person's own name for it where they
+// gave one, else its model, exactly what the sidebar shows. There is no second name to keep in step:
+// renaming the device in Gazelle renames it here and in what the DAW sees.
+//
+// An aggregate channel is one of the interface's USB audio channels, not a preamp or an output.
+// Input k is the interface's USB record channel k, and output k its USB playback channel k, which
+// was measured at the hardware channel by channel. So a channel is named first for what it carries
+// and then by that USB channel: an input for what Gazelle's routing sends to its record channel
+// ("Vocal mic, USB A REC 1"), an output for the Mixer channel that plays it where the person named
+// one ("Click, USB 1 PLAY 1"). A name the person types for a channel wins over both.
+//
+// The server works the very same names out for the driver's file (its naming module), and keeps
+// them in step with the routing; the rules here are those rules, for what this page shows.
 
-/** The most a channel label may be, in characters, which is what the driver's file takes. */
+/**
+ * Which routing groups a model's aggregate channels are, by topology id: the group the inputs record
+ * from and the group the outputs play into. The Studio+'s `TB_REC` and `TB_PLAY` are its
+ * Thunderbolt audio, which Gazelle does not use.
+ */
+export const AGGREGATE_USB_GROUPS: Readonly<Record<string, { record: string; playback: string }>> = {
+  quadro: { record: "COM_REC0", playback: "COM_PLAY0" },
+  studio: { record: "USB_REC0", playback: "USB_PLAY0" },
+};
+
+/** An interface's USB channels, as its model's topology has them. */
+export interface UsbGroups {
+  /** The destination group its aggregate inputs record from. */
+  record: TopologyGroup;
+  /** Its place among the destinations, which `get_routing` reads it by. */
+  recordPosition: number;
+  /** The source group its aggregate outputs play into. */
+  playback: TopologyGroup;
+  /** Its place among the sources, which is how a routing slot names it. */
+  playbackPosition: number;
+}
+
+export function usbGroups(topology: Topology | undefined): UsbGroups | undefined {
+  const ids = topology === undefined ? undefined : AGGREGATE_USB_GROUPS[topology.family];
+  if (topology === undefined || ids === undefined) return undefined;
+  const recordPosition = topology.outputs.findIndex((group) => group.id === ids.record);
+  const playbackPosition = topology.inputs.findIndex((group) => group.id === ids.playback);
+  const record = topology.outputs[recordPosition];
+  const playback = topology.inputs[playbackPosition];
+  return record === undefined || playback === undefined ? undefined : { record, recordPosition, playback, playbackPosition };
+}
+
+/** What to call a model when nothing better is known, as the rest of the app names it. */
+const FAMILY_WORDS: Readonly<Record<string, string>> = { quadro: "Zen Quadro Synergy Core", studio: "Zen Studio+" };
+
+/** Everything one interface's names are worked out from, as the page has it now. */
+export interface InterfaceNaming {
+  /** Gazelle's name for the device, told apart from the others in the setup. */
+  name: string;
+  /** The Gazelle device it is, when that is known. */
+  deviceId?: string;
+  topology?: Topology;
+  /** What its routing sends to each of its USB record channels, once that group has been read. */
+  record?: readonly RouteSlot[];
+  /** Its Mixer layout, where the person's own names for channels and mixes are. */
+  layout?: DeviceMixer;
+  /** How many channels it has each way: its USB groups' own counts, else what a running driver said. */
+  inputs?: number;
+  outputs?: number;
+  /** What a running driver published, kept beside the topology's count as a check. */
+  published?: { inputs?: number; outputs?: number };
+}
+
+/** The naming of every interface of the setup, in its order. */
+export type AggregateNaming = readonly InterfaceNaming[];
+
+/** Where the naming comes from: the store's devices, the workspace, and the routing it has read. */
+export interface NamingSources {
+  devices: readonly { id: string; model: string | null; family: string | null }[];
+  aliases?: Readonly<Record<string, string>> | undefined;
+  layouts?: Readonly<Record<string, DeviceMixer>> | undefined;
+  /** Every model's topology; the client's own when not given. */
+  topologies?: Readonly<Record<string, Topology>>;
+  /** One routing group of one device as read, or nothing while it has not been. */
+  record?: (deviceId: string, destination: number) => readonly RouteSlot[] | undefined;
+}
+
+/**
+ * Names made distinct without case: the later of two alike takes its place in the setup from one
+ * after it. Two interfaces of one model that nobody has named would otherwise come out the same,
+ * and the server tells them apart in exactly this way.
+ */
+export function distinctNames(names: readonly string[]): string[] {
+  return names.map((name, at) => (names.slice(0, at).some((earlier) => earlier.toLowerCase() === name.toLowerCase()) ? `${name} (${at + 1})` : name));
+}
+
+const positive = (count: number | undefined): number | undefined => (typeof count === "number" && count > 0 ? count : undefined);
+
+/**
+ * How every interface of the setup is named, and what its channels are named from.
+ *
+ * Which device an entry is comes from the answer, as everything else on the page does. Its name is
+ * the person's own name for that device, else its model; with neither known, its model as last
+ * known, then the server's own name for it, then the vendor driver's key.
+ */
+export function aggregateNaming(config: Aggregate | undefined, answer: AggregateAnswer | undefined, sources: NamingSources): AggregateNaming {
+  const built = (config?.devices ?? []).map((device, index): InterfaceNaming => {
+    const view = viewFor(answer, index);
+    const known = device.known;
+    // The device it is now, else the one it was last known to be, which is how the server names an
+    // interface that is unplugged, so the page and the driver's file call it alike.
+    const id = resolvedDeviceId(view, device) ?? known?.device_id;
+    const attached = id === undefined ? undefined : sources.devices.find((one) => one.id === id);
+    const family = attached?.family ?? view?.report?.family ?? known?.family ?? undefined;
+    const topology = family === undefined || family === null ? undefined : (sources.topologies ?? (builtInTopologies as Readonly<Record<string, Topology>>))[family];
+    const alias = id === undefined ? undefined : sources.aliases?.[id]?.trim();
+    const name =
+      (alias === undefined || alias === "" ? undefined : alias) ??
+      attached?.model ??
+      known?.model ??
+      (family === undefined || family === null ? undefined : FAMILY_WORDS[family]) ??
+      view?.report?.name ??
+      device.key ??
+      device.clsid ??
+      `Interface ${index + 1}`;
+    const groups = usbGroups(topology);
+    const live = view?.live;
+    const reported = view?.report?.channels;
+    const record = groups !== undefined && id !== undefined ? sources.record?.(id, groups.recordPosition) : undefined;
+    const layout = id === undefined ? undefined : sources.layouts?.[id];
+    const inputs = groups?.record.channels ?? positive(live?.inputs) ?? positive(reported?.inputs);
+    const outputs = groups?.playback.channels ?? positive(live?.outputs) ?? positive(reported?.outputs);
+    return {
+      name,
+      ...(id === undefined ? {} : { deviceId: id }),
+      ...(topology === undefined ? {} : { topology }),
+      ...(record === undefined ? {} : { record }),
+      ...(layout === undefined ? {} : { layout }),
+      ...(inputs === undefined ? {} : { inputs }),
+      ...(outputs === undefined ? {} : { outputs }),
+      ...(live === undefined ? {} : { published: { ...(live.inputs === undefined ? {} : { inputs: live.inputs }), ...(live.outputs === undefined ? {} : { outputs: live.outputs }) } }),
+    };
+  });
+  const names = distinctNames(built.map((one) => one.name));
+  return built.map((one, at) => ({ ...one, name: names[at] as string }));
+}
+
+/** What one interface is called: Gazelle's name for it, else what little the setup says. */
+export function interfaceName(naming: AggregateNaming | undefined, index: number, device?: AggregateDevice): string {
+  return naming?.[index]?.name ?? device?.key ?? device?.clsid ?? `Interface ${index + 1}`;
+}
+
+/** Every interface's name, in the setup's order. */
+export function interfaceNames(config: Aggregate | undefined, naming: AggregateNaming | undefined): string[] {
+  return (config?.devices ?? []).map((device, index) => interfaceName(naming, index, device));
+}
+
+/** A person's name made fit for a channel's: one line, trimmed. */
+const plain = (text: string): string => text.replace(/\p{Cc}/gu, " ").trim();
+
+/**
+ * What a routing source is called, in Gazelle's own words, with the person's own names first: the
+ * Mixer channel they named that takes this source, else the mix they named when the source is a
+ * mix's output, else the source as the Routing page and the Mixer show it ("PREAMP 1", "AFX OUT 3").
+ * MUTE is nothing.
+ */
+export function sourceName(topology: Topology, source: RouteSlot, layout?: DeviceMixer): string | undefined {
+  const group = topology.inputs[source.source];
+  if (group === undefined || group.type === "MUTE") return undefined;
+  const named = layout?.channels.find((one) => one.source?.group === source.source && one.source.channel === source.channel && one.name.trim() !== "");
+  if (named !== undefined) return plain(named.name);
+  const mix = topology.mixers.outputGroups.indexOf(group.id);
+  const mixName = mix < 0 ? undefined : layout?.mixes[mix]?.name?.trim();
+  if (mixName !== undefined && mixName !== "") return `${plain(mixName)} ${source.channel === 0 ? "L" : source.channel === 1 ? "R" : source.channel + 1}`;
+  return sourceLabel(topology, { group: source.source, channel: source.channel });
+}
+
+/** The most a channel label may be, in characters, which is what the interface carries. */
 export const CHANNEL_LABEL_MAX = 31;
+
+/** As much of a label as the interface carries, in whole characters. */
+export function fitLabel(text: string): string {
+  return [...text].slice(0, CHANNEL_LABEL_MAX).join("").trimEnd();
+}
+
+/** One channel's name, in its parts. */
+export interface ChannelName {
+  /** The USB channel it is: "USB A REC 1", "USB 1 PLAY 5". */
+  usb: string;
+  /** What it carries: the name the person typed, else what routing sends it or the Mixer channel that plays it. */
+  carries?: string;
+  /** The whole name, as the page shows it everywhere: "Vocal mic, USB A REC 1". */
+  text: string;
+  /** The label the driver is given when nobody has typed one, or nothing while the model is not known. */
+  automatic?: string;
+  /** The name the person typed, when they did. */
+  typed?: string;
+}
+
+/**
+ * One channel of one interface, named: first for what it carries, then by its USB channel. An input
+ * is named for what the routing sends to its USB record channel, once that routing has been read;
+ * an output for the Mixer channel that plays its USB playback channel, when the person named one.
+ */
+export function channelName(device: AggregateDevice | undefined, naming: InterfaceNaming | undefined, input: boolean, channel: number): ChannelName {
+  const topology = naming?.topology;
+  const groups = usbGroups(topology);
+  const group = input ? groups?.record : groups?.playback;
+  const usb = group === undefined ? `${input ? "Input" : "Output"} ${channel + 1}` : group.channels > 1 ? `${group.name} ${channel + 1}` : group.name;
+  let routed: string | undefined;
+  if (topology !== undefined && groups !== undefined) {
+    if (input) {
+      const slot = naming?.record?.[channel];
+      routed = slot === undefined ? undefined : sourceName(topology, slot, naming?.layout);
+    } else {
+      const named = naming?.layout?.channels.find((one) => one.source?.group === groups.playbackPosition && one.source.channel === channel && one.name.trim() !== "");
+      routed = named === undefined ? undefined : plain(named.name);
+    }
+  }
+  const typedRaw = channelLabel(device?.[input ? "input_names" : "output_names"], channel).trim();
+  const typed = typedRaw === "" ? undefined : typedRaw;
+  const carries = typed ?? routed;
+  return {
+    usb,
+    ...(carries === undefined ? {} : { carries }),
+    text: carries === undefined ? usb : `${carries}, ${usb}`,
+    ...(groups === undefined ? {} : { automatic: fitLabel(routed ?? usb) }),
+    ...(typed === undefined ? {} : { typed }),
+  };
+}
+
+const bytes = (text: string): number => new TextEncoder().encode(text).length;
+
+/** As much of a name as fits in `room`: whole characters, and never more bytes than that. */
+function cut(text: string, room: number): string {
+  const kept = [...text].slice(0, Math.max(0, room));
+  while (kept.length > 0 && bytes(kept.join("")) > room) kept.pop();
+  return kept.join("").trimEnd();
+}
+
+/**
+ * The name a DAW shows for a channel, built as the driver builds it: the label, with the driver's
+ * own reference "{interface name} {number}" in brackets after it, all within the interface's 31
+ * characters. When both will not fit, the label alone; with no label, the reference alone.
+ */
+export function dawChannelName(interface_: string, channel: number, label: string | undefined): string {
+  const tail = ` ${channel + 1}`;
+  const reference = `${cut(interface_, CHANNEL_LABEL_MAX - tail.length)}${tail}`;
+  const given = label?.trim() ?? "";
+  if (given === "") return reference;
+  const both = `${given} (${reference})`;
+  return [...both].length <= CHANNEL_LABEL_MAX && bytes(both) <= CHANNEL_LABEL_MAX ? both : cut(given, CHANNEL_LABEL_MAX);
+}
 
 /** How many channels an interface has each way, or nothing where that is not known yet. */
 export interface ChannelCounts {
@@ -256,31 +508,27 @@ export interface ChannelCounts {
 }
 
 /**
- * How many channels to list for one interface.
- *
- * The count the driver published while a DAW had it open is the true one, because it is what the
- * vendor driver itself said. Gazelle's own channel names are the fallback. With neither, the
- * number is not known, and a page offers nothing to edit rather than guessing at one.
+ * How many channels to list for one interface: its USB groups' own counts, which are exact and known
+ * without a DAW, else what a running driver published. With neither, the number is not known, and a
+ * page offers nothing to edit rather than guessing at one.
  */
-export function channelCounts(view: AggregateDeviceView | undefined): ChannelCounts {
-  const names = view?.report?.channels;
-  const count = (published: number | undefined, listed: string[] | undefined): number | undefined => {
-    if (typeof published === "number" && published > 0) return published;
-    return listed !== undefined && listed.length > 0 ? listed.length : undefined;
-  };
-  return { inputs: count(view?.live?.inputs, names?.inputs), outputs: count(view?.live?.outputs, names?.outputs) };
+export function channelCounts(naming: InterfaceNaming | undefined): ChannelCounts {
+  return { inputs: naming?.inputs, outputs: naming?.outputs };
 }
 
-/** What a channel is called when nobody has named it: the interface's name and its number from one. */
-export function autoChannelName(interfaceName: string, channel: number): string {
-  return `${interfaceName} ${channel + 1}`;
-}
-
-/** Gazelle's own name for a channel, when it has one. It is a suggestion, never written by itself. */
-export function suggestedChannelName(names: AggregateChannelNames | undefined, input: boolean, channel: number): string | undefined {
-  if (names === undefined || names.source !== "gazelle") return undefined;
-  const found = (input ? names.inputs : names.outputs)[channel];
-  return found === undefined || found.trim() === "" ? undefined : found;
+/**
+ * What to say when a running driver published a count that is not the interface's own, which is the
+ * one check the published count is still good for. Nothing when they agree or there is nothing to
+ * compare.
+ */
+export function countCheck(naming: InterfaceNaming | undefined): string | undefined {
+  const groups = usbGroups(naming?.topology);
+  const published = naming?.published;
+  if (groups === undefined || published === undefined) return undefined;
+  const ins = positive(published.inputs);
+  const outs = positive(published.outputs);
+  if ((ins === undefined || ins === groups.record.channels) && (outs === undefined || outs === groups.playback.channels)) return undefined;
+  return `The driver reports ${ins ?? "no"} inputs and ${outs ?? "no"} outputs for this interface, and it has ${groups.record.channels} USB record and ${groups.playback.channels} USB playback channels. Gazelle lists the USB channels.`;
 }
 
 /** The name the workspace gives a channel, by the device's own numbering from zero. */
@@ -310,7 +558,8 @@ export function withChannelExposed(chosen: number[] | undefined, count: number, 
 }
 
 /**
- * The `input_names` or `output_names` map after naming, or un-naming, one channel.
+ * The `input_names` or `output_names` map after naming, or un-naming, one channel. These are only
+ * ever the names the person typed: the automatic ones are worked out, never written here.
  *
  * A label that is empty or only spaces means the channel is not named, so its entry comes out
  * rather than being written as an empty string, and a map with nothing left in it goes away too.
@@ -323,7 +572,7 @@ export function withChannelName(names: Record<string, string> | undefined, chann
   return Object.keys(next).length === 0 ? undefined : next;
 }
 
-/** How many of a device's channels carry a name, counting only ones the interface actually has. */
+/** How many of a device's channels carry a name the person typed, counting only ones it actually has. */
 export function namedCount(names: Record<string, string> | undefined, count: number | undefined): number {
   return Object.entries(names ?? {}).filter(([key, value]) => {
     const channel = Number(key);
@@ -333,14 +582,44 @@ export function namedCount(names: Record<string, string> | undefined, count: num
 }
 
 /**
- * The one line that stands for a card's Channels part while it is closed: what is exposed, and how
- * many channels have been given a name of their own.
+ * The one line that stands for a card's Channels part while it is closed: how many channels there
+ * are and how many are exposed, and how many have been given a name of their own.
  */
 export function channelSummary(device: AggregateDevice, counts: ChannelCounts): string {
-  const exposed = (chosen: number[] | undefined) => (chosen === undefined ? "All" : String(chosen.length));
+  const exposed = (chosen: number[] | undefined, count: number | undefined, first: boolean) => {
+    const all = first ? "All" : "all";
+    if (chosen === undefined) return count === undefined ? all : `${all} ${count}`;
+    return count === undefined ? String(chosen.length) : `${chosen.filter((one) => one < count).length} of ${count}`;
+  };
   const named = namedCount(device.input_names, counts.inputs) + namedCount(device.output_names, counts.outputs);
-  const shown = `${exposed(device.inputs)} in, ${exposed(device.outputs)} out`;
+  const shown = `${exposed(device.inputs, counts.inputs, true)} in, ${exposed(device.outputs, counts.outputs, false)} out`;
   return named === 0 ? shown : `${shown}, ${named} named`;
+}
+
+/** What Gazelle writes into `callback_master` for a device: its registry key, else its class id, neither of which a rename changes. */
+export function masterReference(device: AggregateDevice): string | undefined {
+  const reference = (device.key ?? device.clsid)?.trim();
+  return reference === undefined || reference === "" ? undefined : reference;
+}
+
+/**
+ * What the menu of drivers to add calls one: Gazelle's name for the device it would be, where
+ * exactly one connected device is of the model the driver's words name, with the driver's own
+ * name after it as a detail; else the driver's own name alone.
+ */
+export function driverOfferText(
+  entry: { key: string; description?: string },
+  devices: readonly { id: string; model: string | null; family: string | null; backend?: string }[],
+  aliases: Readonly<Record<string, string>> | undefined,
+): string {
+  const own = entry.description ?? entry.key;
+  const words = `${entry.key} ${entry.description ?? ""}`.toLowerCase();
+  const family = words.includes("quadro") ? "quadro" : words.includes("studio") ? "studio" : undefined;
+  const matching = family === undefined ? [] : devices.filter((device) => device.family === family && (device.backend === undefined || device.backend === "usb"));
+  const only = matching.length === 1 ? matching[0] : undefined;
+  if (only === undefined) return own;
+  const name = aliases?.[only.id]?.trim() || only.model || own;
+  return name === own ? own : `${name} (${own})`;
 }
 
 /**
@@ -375,16 +654,10 @@ export function buffersMatch(answer: AggregateAnswer | undefined): boolean {
 // once, through the aggregate itself. Both copies left the same device on the same sample, so
 // wherever they land differently in the recording, that difference is the error.
 
-/** What the setup calls one interface, which is the name every answer joins it by. */
-export function deviceName(device: AggregateDevice, index: number): string {
-  return device.name ?? device.key ?? device.clsid ?? `Interface ${index + 1}`;
-}
-
-/** This configured interface's place in the answer, by name first and then by position. */
-export function viewFor(answer: AggregateAnswer | undefined, device: AggregateDevice, index: number): AggregateDeviceView | undefined {
+/** This configured interface's place in the answer: the report for its place in the setup. */
+export function viewFor(answer: AggregateAnswer | undefined, index: number): AggregateDeviceView | undefined {
   const views = deviceViews(answer);
-  const name = device.name ?? device.key;
-  return views.find((view) => view.name === name) ?? views[index];
+  return views.find((view) => view.report?.index === index) ?? views[index];
 }
 
 /**
@@ -392,22 +665,20 @@ export function viewFor(answer: AggregateAnswer | undefined, device: AggregateDe
  * it, and what it is called.
  *
  * **Never a number in the aggregate's own list.** That numbering depends on how many channels each
- * interface's driver really has, which this page cannot know until a DAW has had the driver open,
- * and a count that is two short puts every cable on the next interface along. So a run is asked for
- * by interface and channel, and the run, which opens the drivers, finds where each one really is.
+ * interface's driver really has, and a count that is two short puts every cable on the next
+ * interface along. So a run is asked for by interface and channel, and the run, which opens the
+ * drivers, finds where each one really is.
  */
 export interface InterfaceChannel {
-  /** The interface it is on, by the name the setup gives it. */
+  /** The interface it is on, by Gazelle's name for it. */
   device: string;
   /** That interface's place in the setup, from zero, which is how a request names it. */
   index: number;
   /** Its number on that interface, from zero. */
   channel: number;
-  /** The name it has of its own, which is the automatic one where nobody has named it. */
-  label: string;
-  /** The interface's name and the channel's number from one, always. */
-  auto: string;
-  /** What to call it in a sentence: the name, with the automatic one after it when they differ. */
+  /** The USB channel it is, always: "USB A REC 1". */
+  usb: string;
+  /** Its whole name, as the rest of the page names it: "Vocal mic, USB A REC 1". */
   text: string;
 }
 
@@ -432,23 +703,21 @@ function phaseKept(config: Aggregate | undefined, input: boolean): Set<string> {
 /**
  * Every input, or every output, a run could be cabled to, interface by interface in the setup's
  * order: what the setup exposes, less what it keeps for the phase measurement. How many channels an
- * interface has comes from `channelCounts`, which can be wrong until a DAW has had the driver open;
- * that only changes what is offered, never which interface a chosen channel is on.
+ * interface has is its USB groups' own count, known without a DAW.
  */
-export function interfaceChannels(config: Aggregate | undefined, answer: AggregateAnswer | undefined, input: boolean): InterfaceChannel[] {
+export function interfaceChannels(config: Aggregate | undefined, naming: AggregateNaming | undefined, input: boolean): InterfaceChannel[] {
   const listed: InterfaceChannel[] = [];
   const devices = config?.devices ?? [];
   const kept = phaseKept(config, input);
   for (const [index, device] of devices.entries()) {
-    const named = deviceName(device, index);
-    const counts = channelCounts(viewFor(answer, device, index));
+    const named = naming?.[index];
+    const counts = channelCounts(named);
     const count = input ? counts.inputs : counts.outputs;
     if (count === undefined) continue;
     for (let channel = 0; channel < count; channel += 1) {
       if (!isExposed(device[input ? "inputs" : "outputs"], channel) || kept.has(`${index}:${channel}`)) continue;
-      const auto = autoChannelName(named, channel);
-      const label = channelLabel(device[input ? "input_names" : "output_names"], channel) || auto;
-      listed.push({ device: named, index, channel, label, auto, text: label === auto ? auto : `${label} (${auto})` });
+      const name = channelName(device, named, input, channel);
+      listed.push({ device: interfaceName(naming, index, device), index, channel, usb: name.usb, text: name.text });
     }
   }
   return listed;
@@ -459,10 +728,17 @@ export function channelsOf(channels: InterfaceChannel[], device: string): Interf
   return channels.filter((one) => one.device === device);
 }
 
-/** How one interface's channel reads in a sentence, including one that is no longer in the list. */
-export function channelText(channels: InterfaceChannel[], device: string, channel: number | undefined): string {
+/**
+ * How one interface's channel reads in a sentence, including one that is no longer in the list: it
+ * is still named, from the interface's own naming.
+ */
+export function channelText(channels: InterfaceChannel[], device: string, channel: number | undefined, config?: Aggregate, naming?: AggregateNaming, input = true): string {
   if (channel === undefined) return "not chosen";
-  return channels.find((one) => one.device === device && one.channel === channel)?.text ?? autoChannelName(device, channel);
+  const listed = channels.find((one) => one.device === device && one.channel === channel);
+  if (listed !== undefined) return listed.text;
+  const index = interfaceNames(config, naming).indexOf(device);
+  if (index < 0) return `${device} ${channel + 1}`;
+  return channelName(config?.devices?.[index], naming?.[index], input, channel).text;
 }
 
 /** The clicks and the level the measurement is offered with, and what it starts at. */
@@ -481,7 +757,7 @@ export const DEFAULT_LEVEL_DBFS = -20;
  */
 export interface CalibratePicks {
   direction: AggregateCalibrateDirection;
-  /** The one interface every cable has an end on, by the name the setup gives it. */
+  /** The one interface every cable has an end on, by Gazelle's name for it. */
   reference: string;
   outputs: (number | undefined)[];
   inputs: (number | undefined)[];
@@ -489,9 +765,9 @@ export interface CalibratePicks {
   level_dbfs: number;
 }
 
-/** The interfaces a run is over, by the names the setup gives them, in their own order. */
-export function calibrateDevices(config: Aggregate | undefined): string[] {
-  return (config?.devices ?? []).map((device, index) => deviceName(device, index));
+/** The interfaces a run is over, by Gazelle's names for them, in the setup's order. */
+export function calibrateDevices(config: Aggregate | undefined, naming?: AggregateNaming): string[] {
+  return interfaceNames(config, naming);
 }
 
 /** Which side of the cabling is all on one interface: the outputs play them all, or one records them all. */
@@ -515,13 +791,13 @@ export function slotDevice(direction: AggregateCalibrateDirection, reference: st
  */
 export function defaultPicks(
   config: Aggregate | undefined,
-  answer: AggregateAnswer | undefined,
+  naming: AggregateNaming | undefined,
   direction: AggregateCalibrateDirection = "inputs",
   reference?: string,
 ): CalibratePicks {
-  const devices = calibrateDevices(config);
+  const devices = calibrateDevices(config, naming);
   const against = reference !== undefined && devices.includes(reference) ? reference : (devices[0] ?? "");
-  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
+  const lists = { outputs: interfaceChannels(config, naming, false), inputs: interfaceChannels(config, naming, true) };
   const pick = (side: "outputs" | "inputs", at: number) => {
     const offered = channelsOf(lists[side], slotDevice(direction, against, side, at, devices));
     return offered[side === sharedSide(direction) ? at : 0]?.channel;
@@ -544,11 +820,11 @@ export function defaultPicks(
  * offers is kept exactly as it was; everything else falls back to where the defaults would have put
  * it, so a poll landing never moves a menu somebody has just set.
  */
-export function reconcilePicks(stored: CalibratePicks | undefined, config: Aggregate | undefined, answer: AggregateAnswer | undefined): CalibratePicks {
-  const base = defaultPicks(config, answer, stored?.direction, stored?.reference);
+export function reconcilePicks(stored: CalibratePicks | undefined, config: Aggregate | undefined, naming: AggregateNaming | undefined): CalibratePicks {
+  const base = defaultPicks(config, naming, stored?.direction, stored?.reference);
   if (stored === undefined) return base;
-  const devices = calibrateDevices(config);
-  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
+  const devices = calibrateDevices(config, naming);
+  const lists = { outputs: interfaceChannels(config, naming, false), inputs: interfaceChannels(config, naming, true) };
   const keep = (side: "outputs" | "inputs", at: number): number | undefined => {
     const chosen = stored[side][at];
     const wanted = slotDevice(base.direction, base.reference, side, at, devices);
@@ -571,11 +847,11 @@ export function reconcilePicks(stored: CalibratePicks | undefined, config: Aggre
 export function withPass(
   picks: CalibratePicks,
   config: Aggregate | undefined,
-  answer: AggregateAnswer | undefined,
+  naming: AggregateNaming | undefined,
   direction: AggregateCalibrateDirection,
   reference: string,
 ): CalibratePicks {
-  return { ...defaultPicks(config, answer, direction, reference), clicks: picks.clicks, level_dbfs: picks.level_dbfs };
+  return { ...defaultPicks(config, naming, direction, reference), clicks: picks.clicks, level_dbfs: picks.level_dbfs };
 }
 
 /** One cable to patch, in the words of the channels the pickers name. */
@@ -589,13 +865,15 @@ export interface CalibrateCable {
  * What to plug in, named channel by channel, so a person with cables in hand can just patch it.
  * One line per interface: the output that carries the click, and the input that records it.
  */
-export function cablingSteps(picks: CalibratePicks, config: Aggregate | undefined, answer: AggregateAnswer | undefined): CalibrateCable[] {
-  const outputs = interfaceChannels(config, answer, false);
-  const inputs = interfaceChannels(config, answer, true);
-  const devices = calibrateDevices(config);
+export function cablingSteps(picks: CalibratePicks, config: Aggregate | undefined, naming: AggregateNaming | undefined): CalibrateCable[] {
+  const outputs = interfaceChannels(config, naming, false);
+  const inputs = interfaceChannels(config, naming, true);
+  const devices = calibrateDevices(config, naming);
   return devices.map((_, at) => {
-    const from = channelText(outputs, slotDevice(picks.direction, picks.reference, "outputs", at, devices), picks.outputs[at]);
-    const to = channelText(inputs, slotDevice(picks.direction, picks.reference, "inputs", at, devices), picks.inputs[at]);
+    const leaves = slotDevice(picks.direction, picks.reference, "outputs", at, devices);
+    const arrives = slotDevice(picks.direction, picks.reference, "inputs", at, devices);
+    const from = `${channelText(outputs, leaves, picks.outputs[at], config, naming, false)} on ${leaves}`;
+    const to = `${channelText(inputs, arrives, picks.inputs[at], config, naming, true)} on ${arrives}`;
     return { from, to, text: `${from} into ${to}` };
   });
 }
@@ -609,13 +887,13 @@ export function cablingSteps(picks: CalibratePicks, config: Aggregate | undefine
  * cabling means: every pick made, a channel its interface is offering, and no one channel of the
  * shared interface carrying two cables.
  */
-export function calibrateProblem(picks: CalibratePicks, config: Aggregate | undefined, answer: AggregateAnswer | undefined): string | undefined {
-  const devices = calibrateDevices(config);
+export function calibrateProblem(picks: CalibratePicks, config: Aggregate | undefined, naming: AggregateNaming | undefined): string | undefined {
+  const devices = calibrateDevices(config, naming);
   if (devices.length < 2) return "The aggregate needs at least two interfaces before there is anything to line up.";
   if (picks.outputs.length !== devices.length || picks.inputs.length !== devices.length) return "Every interface needs one output and one input chosen.";
   if (picks.outputs.includes(undefined) || picks.inputs.includes(undefined)) return "Every interface needs one output and one input chosen.";
   if (!devices.includes(picks.reference)) return "Choose the interface every cable has an end on.";
-  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
+  const lists = { outputs: interfaceChannels(config, naming, false), inputs: interfaceChannels(config, naming, true) };
   for (const side of ["outputs", "inputs"] as const) {
     const offered = (at: number) => channelsOf(lists[side], slotDevice(picks.direction, picks.reference, side, at, devices)).some((one) => one.channel === picks[side][at]);
     if (!devices.every((_, at) => offered(at))) return "Every interface needs one output and one input chosen.";
@@ -644,11 +922,11 @@ export function calibrateProblem(picks: CalibratePicks, config: Aggregate | unde
 export function calibrateRequest(
   picks: CalibratePicks,
   config: Aggregate | undefined,
-  answer: AggregateAnswer | undefined,
+  naming: AggregateNaming | undefined,
   options: { check?: boolean } = {},
 ): AggregateCalibrateRequest | undefined {
-  if (calibrateProblem(picks, config, answer) !== undefined) return undefined;
-  const devices = calibrateDevices(config);
+  if (calibrateProblem(picks, config, naming) !== undefined) return undefined;
+  const devices = calibrateDevices(config, naming);
   // The shared side is all on the reference, and the other side is each row's own interface.
   const reference = devices.indexOf(picks.reference);
   const ends = (side: "outputs" | "inputs"): AggregateCalibrateChannel[] =>
@@ -875,7 +1153,9 @@ export function trimsToApply(outcome: AggregateCalibrateOutcome | undefined): Ag
 }
 
 /**
- * The setup with the measured trims written into it, by the name the setup gives each interface.
+ * The setup with the measured trims written into it, each to the interface the run named. A run
+ * names each interface as the driver's file does, which is Gazelle's name for it, so `names` is the
+ * page's names for the setup's interfaces, in order.
  *
  * Zero is written as the field being absent, as everything else on this page writes a trim; an
  * interface the measurement names that the setup no longer has is passed over rather than added,
@@ -886,11 +1166,12 @@ export function trimsToApply(outcome: AggregateCalibrateOutcome | undefined): Ag
  * from another session. An interface whose phase setting has gone since the run keeps no reference:
  * a reference with no path to measure on means nothing.
  */
-export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrateOutcome | undefined): Aggregate {
+export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrateOutcome | undefined, names?: readonly string[]): Aggregate {
   const trims = trimsToApply(outcome);
   if (trims.length === 0) return config;
+  const called = names ?? interfaceNames(config, undefined);
   const devices = (config.devices ?? []).map((device, index) => {
-    const trim = trims.find((one) => one.device === deviceName(device, index));
+    const trim = trims.find((one) => one.device === called[index]);
     if (trim === undefined) return device;
     const field = trimField(trim);
     const next = { ...device };
@@ -968,11 +1249,11 @@ export interface WitnessView extends ReadingView {
   channel: string;
 }
 
-/** The channels a run listened in on, each named by its interface and that interface's own number for it. */
-export function witnessViews(outcome: AggregateCalibrateOutcome | undefined, inputs: InterfaceChannel[]): WitnessView[] {
+/** The channels a run listened in on, each named as every other channel on the page is. */
+export function witnessViews(outcome: AggregateCalibrateOutcome | undefined, inputs: InterfaceChannel[], config?: Aggregate, naming?: AggregateNaming): WitnessView[] {
   return (outcome?.witnesses ?? []).map((witness) => ({
     ...readingView({ ...witness, is_reference: false }),
-    channel: channelText(inputs, witness.device, witness.channel),
+    channel: channelText(inputs, witness.device, witness.channel, config, naming, true),
   }));
 }
 
@@ -1010,9 +1291,10 @@ export function phaseReference(device: AggregateDevice | undefined): number | un
 /**
  * Which interface in the setup drives the callback, by its place in the list.
  *
- * The setup names it by name, registry key or class id, and the first interface when it names none,
- * which is what the driver does. A name the setup gives that matches nothing falls back to whichever
- * one the answer says is the master, and then to the first.
+ * The setup names it by registry key or class id, which a rename cannot change, or, in a setup an
+ * older Gazelle wrote, by the name it gave the device; the first interface when it names none, which
+ * is what the driver does. One that matches nothing falls back to whichever one the answer says is
+ * the master, and then to the first.
  */
 export function masterIndex(config: Aggregate | undefined, answer?: AggregateAnswer): number | undefined {
   const devices = config?.devices ?? [];
@@ -1020,11 +1302,11 @@ export function masterIndex(config: Aggregate | undefined, answer?: AggregateAns
   const named = config?.callback_master;
   if (typeof named === "string" && named.trim() !== "") {
     const wanted = named.trim().toLowerCase();
-    const found = devices.findIndex((device, index) => [deviceName(device, index), device.key, device.clsid].some((one) => typeof one === "string" && one.toLowerCase() === wanted));
+    const found = devices.findIndex((device) => [device.key, device.clsid, device.name].some((one) => typeof one === "string" && one.trim().toLowerCase() === wanted));
     if (found >= 0) return found;
-    const reported = answer?.devices.find((report) => report.is_master)?.name;
-    const byReport = reported === undefined ? -1 : devices.findIndex((device, index) => deviceName(device, index) === reported);
-    if (byReport >= 0) return byReport;
+    const reported = answer?.devices.findIndex((report) => report.is_master) ?? -1;
+    const at = reported < 0 ? -1 : (answer?.devices[reported]?.index ?? reported);
+    if (at >= 0 && at < devices.length) return at;
   }
   return 0;
 }
@@ -1037,9 +1319,9 @@ export interface PhaseChoice {
 
 /** What the two phase pickers on one follower's card offer, or nothing on the callback master's. */
 export interface PhaseChoices {
-  /** The callback master, by the name the setup gives it. */
+  /** The callback master, by Gazelle's name for it. */
   master: string;
-  /** This interface, by the name the setup gives it. */
+  /** This interface, by Gazelle's name for it. */
   own: string;
   /** The master's own outputs, or undefined while how many it has is not known. */
   outputs: PhaseChoice[] | undefined;
@@ -1048,42 +1330,34 @@ export interface PhaseChoices {
 }
 
 /**
- * How a phase channel reads: the interface's name and the channel's number from one, as the rest of
- * the page counts, with its own name or Gazelle's after it. These are the device's own channels, not
- * the aggregate's list, and every one is offered, exposed or not: the driver opens these two itself.
+ * What the two phase pickers offer: the callback master's own outputs and this interface's own
+ * inputs, each named as every channel on the page is. These are the devices' own channels, not the
+ * aggregate's list, and every one is offered, exposed or not: the driver opens these two itself.
  */
-function phaseChannelText(named: string, device: AggregateDevice, names: AggregateChannelNames | undefined, input: boolean, channel: number): string {
-  const auto = autoChannelName(named, channel);
-  const label = channelLabel(device[input ? "input_names" : "output_names"], channel);
-  const extra = label !== "" ? label : suggestedChannelName(names, input, channel);
-  return extra === undefined ? auto : `${auto} (${extra})`;
-}
-
-export function phaseChoices(config: Aggregate | undefined, answer: AggregateAnswer | undefined, index: number): PhaseChoices | undefined {
+export function phaseChoices(config: Aggregate | undefined, answer: AggregateAnswer | undefined, naming: AggregateNaming | undefined, index: number): PhaseChoices | undefined {
   const devices = config?.devices ?? [];
   const device = devices[index];
   const at = masterIndex(config, answer);
   if (device === undefined || at === undefined || at === index) return undefined;
   const master = devices[at] as AggregateDevice;
   const list = (of: AggregateDevice, place: number, input: boolean): PhaseChoice[] | undefined => {
-    const view = viewFor(answer, of, place);
-    const counts = channelCounts(view);
+    const counts = channelCounts(naming?.[place]);
     const count = input ? counts.inputs : counts.outputs;
     if (count === undefined) return undefined;
-    const named = deviceName(of, place);
-    return Array.from({ length: count }, (_, channel) => ({ value: channel, text: phaseChannelText(named, of, view?.report?.channels, input, channel) }));
+    return Array.from({ length: count }, (_, channel) => ({ value: channel, text: channelName(of, naming?.[place], input, channel).text }));
   };
-  return { master: deviceName(master, at), own: deviceName(device, index), outputs: list(master, at, false), inputs: list(device, index, true) };
+  return { master: interfaceName(naming, at, master), own: interfaceName(naming, index, device), outputs: list(master, at, false), inputs: list(device, index, true) };
 }
 
 /**
  * The choices a picker shows, with the one chosen kept even when the list does not have it, so a
- * setting made while more channels were known is shown as it is rather than as nothing.
+ * setting made while more channels were known is shown as it is rather than as nothing. `named`
+ * says what that channel is called.
  */
-export function choicesWith(choices: PhaseChoice[] | undefined, chosen: number | undefined, named: string): PhaseChoice[] {
+export function choicesWith(choices: PhaseChoice[] | undefined, chosen: number | undefined, named: (channel: number) => string): PhaseChoice[] {
   const listed = choices ?? [];
   if (chosen === undefined || listed.some((choice) => choice.value === chosen)) return listed;
-  return [...listed, { value: chosen, text: `${autoChannelName(named, chosen)} (not listed now)` }];
+  return [...listed, { value: chosen, text: `${named(chosen)} (not listed now)` }];
 }
 
 /** What the two pickers hold: a channel each, or undefined for one not chosen yet. */
@@ -1305,10 +1579,16 @@ export function reasonHint(reason: AggregateReason): string | undefined {
   return `The phase setup is under Phase on ${which}. A trim does not answer this: the trim is a constant, and this moves every session.`;
 }
 
-/** The card a reason is about, by its place in the setup, for a button that goes to it. */
-export function reasonCard(reason: AggregateReason, config: Aggregate | undefined): number | undefined {
-  if (reason.code !== "phase_not_measured" || reason.device === undefined) return undefined;
-  const found = (config?.devices ?? []).findIndex((device, index) => deviceName(device, index) === reason.device);
+/**
+ * The card a reason is about, by its place in the setup, for a button that goes to it: the place the
+ * server gives, else the card of that name.
+ */
+export function reasonCard(reason: AggregateReason, config: Aggregate | undefined, naming?: AggregateNaming): number | undefined {
+  if (reason.code !== "phase_not_measured") return undefined;
+  const count = (config?.devices ?? []).length;
+  if (typeof reason.device_index === "number") return reason.device_index >= 0 && reason.device_index < count ? reason.device_index : undefined;
+  if (reason.device === undefined) return undefined;
+  const found = interfaceNames(config, naming).indexOf(reason.device);
   return found >= 0 ? found : undefined;
 }
 

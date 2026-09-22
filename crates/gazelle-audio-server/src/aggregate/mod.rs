@@ -19,6 +19,8 @@ pub mod calibrate;
 pub mod config;
 pub mod elevate;
 pub mod export;
+pub mod follow;
+pub mod naming;
 pub mod readiness;
 pub mod registry;
 pub mod service;
@@ -90,31 +92,29 @@ pub enum MatchedBy {
     None,
 }
 
-/// The names Gazelle shows for a device's channels, as the Inputs and Outputs pages name them.
-///
-/// **A hint for the page, not ground truth about the audio driver.** These are Gazelle's own
-/// names, in the order its own pages show them; the vendor driver publishes its channels in
-/// whatever order it likes, and the two need not line up. They are here so a page offering the
-/// person a label for each channel can start from a name they already recognise, not so anything
-/// can be matched up by position.
+/// One interface's channels in the aggregate, which are its USB audio channels: aggregate input
+/// *k* is its USB record channel *k*, and aggregate output *k* its USB playback channel *k*. The
+/// counts are those groups' own, from the model's topology, so they are exact and known without a
+/// DAW (`crate::aggregate::naming`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct ChannelNames {
-    pub inputs: Vec<String>,
-    pub outputs: Vec<String>,
-    /// `gazelle` when they came from the matched device, `none` when there is no matched device.
-    pub source: &'static str,
-}
-
-impl Default for ChannelNames {
-    fn default() -> Self {
-        ChannelNames { inputs: Vec::new(), outputs: Vec::new(), source: "none" }
-    }
+pub struct UsbChannels {
+    /// How many inputs the aggregate has from this interface.
+    pub inputs: u32,
+    /// How many outputs.
+    pub outputs: u32,
+    /// What Gazelle calls the group its inputs are: "USB A REC" on the Quadro, "USB REC" on the Studio+.
+    pub input_group: String,
+    /// What Gazelle calls the group its outputs are: "USB 1 PLAY", "USB PLAY".
+    pub output_group: String,
 }
 
 /// One configured device, with everything known about it now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DeviceReport {
-    /// What the configuration calls it, which is what its channels are named after.
+    /// Its place in the setup, from zero, which is how a page finds its card whatever it is called.
+    pub index: usize,
+    /// Gazelle's name for the device: the person's own name for it, else its model. The same name
+    /// the driver is given, so it is what the driver's own record and log call it too.
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
@@ -137,8 +137,9 @@ pub struct DeviceReport {
     /// Only when nothing was matched: why not, and what would settle it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_note: Option<String>,
-    /// What Gazelle calls this device's channels, for a page offering to label them.
-    pub channels: ChannelNames,
+    /// Its channels in the aggregate, when its model is known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channels: Option<UsbChannels>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -86,9 +86,12 @@ pub struct Reason {
     pub code: ReasonCode,
     pub severity: Severity,
     pub message: String,
-    /// The configured device this is about, by the name the setup gives it.
+    /// The configured device this is about, by Gazelle's name for it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// That device's place in the setup, from zero, which is how a page finds its card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_index: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<DeviceId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,11 +100,12 @@ pub struct Reason {
 
 impl Reason {
     fn new(code: ReasonCode, severity: Severity, message: impl Into<String>) -> Reason {
-        Reason { code, severity, message: message.into(), device: None, device_id: None, fix: None }
+        Reason { code, severity, message: message.into(), device: None, device_index: None, device_id: None, fix: None }
     }
 
     fn about(mut self, device: &DeviceReport) -> Reason {
         self.device = Some(device.name.clone());
+        self.device_index = Some(device.index);
         self.device_id.clone_from(&device.device_id);
         self
     }
@@ -457,6 +461,7 @@ mod tests {
 
     fn quadro() -> DeviceReport {
         DeviceReport {
+            index: 0,
             name: "Quadro".into(),
             key: Some("Zen Quadro Synergy Core".into()),
             clsid: None,
@@ -466,7 +471,7 @@ mod tests {
             attached: true,
             matched_by: crate::aggregate::MatchedBy::Chosen,
             match_note: None,
-            channels: crate::aggregate::ChannelNames::default(),
+            channels: None,
             family: Some("quadro".into()),
             clock: Some(ClockReading { source_index: 5, source: Some("USB".into()), locked: true, hz: 96000, rate_index: 4 }),
             driver: DriverSummary { sample_rate: Some(96000), buffer_size: Some(512), safe_mode: Some(true), asio_clients: Some(0), message: None },
@@ -479,6 +484,7 @@ mod tests {
 
     fn studio() -> DeviceReport {
         DeviceReport {
+            index: 1,
             name: "Studio+".into(),
             key: Some("ZenStudioTB".into()),
             device_id: Some(DeviceId::from_serial("S")),

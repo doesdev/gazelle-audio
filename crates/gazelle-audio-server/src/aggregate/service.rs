@@ -11,13 +11,15 @@ use std::sync::Arc;
 use gazelle_audio_protocol::payload::Value;
 
 use crate::aggregate::bundled;
-use crate::aggregate::config::{device_name, master_of};
+use crate::aggregate::config::master_index;
 use crate::aggregate::elevate::{command_for, dll_candidates, DllSearch, Elevator};
+use crate::aggregate::export::{with_known, Live, Seen};
+use crate::aggregate::naming::{self, interface_names, usb_groups};
 use crate::aggregate::readiness::{self, Reason};
 use crate::aggregate::registry::{self, entry_matches, AsioRegistry, AGGREGATE_CLSID, AGGREGATE_NAME};
 use crate::aggregate::status::{AggregateEvent, StatusLink, StatusReading};
 use crate::aggregate::usb::UsbTopology;
-use crate::aggregate::{AggregateAnswer, ChannelNames, ClockReading, DeviceReport, DriverSummary, MatchedBy, Registration, STATUS_REPORT};
+use crate::aggregate::{AggregateAnswer, ClockReading, DeviceReport, DriverSummary, MatchedBy, Registration, UsbChannels, STATUS_REPORT};
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::manager::DeviceManager;
 use crate::driver::{now_ms, DriverAnswer, DriverService, Reading};
@@ -72,15 +74,24 @@ impl AggregateService {
         crate::aggregate::elevate::find_dll(&self.dll_candidates, &|path| path.is_file(), &self.bundled)
     }
 
+    /// The workspace with what is known of each entry worked out from the devices as they are now,
+    /// exactly as a save works it out, so the answer and the driver's file name every interface
+    /// alike even before anything has been saved (`crate::aggregate::export`).
+    pub fn settled(&self, workspace: &Workspace) -> Workspace {
+        let seen = workspace.aggregate.as_ref().map(|config| self.seen(config)).unwrap_or_default();
+        with_known(workspace.clone(), Some(workspace), &seen)
+    }
+
     /// The whole answer. Blocking: it may load a driver's DLL and call into it.
     pub fn answer(&self, workspace: &Workspace) -> AggregateAnswer {
+        let workspace = &self.settled(workspace);
         let config = workspace.aggregate.clone();
         let (entries, drivers_error) = match self.registry.entries() {
             Ok(entries) => (entries, None),
             Err(why) => (Vec::new(), Some(format!("The audio drivers on this PC could not be listed: {why}."))),
         };
         let attached = self.devices.descriptors();
-        let devices = config.as_ref().map(|config| self.reports(config, &entries, &attached)).unwrap_or_default();
+        let devices = config.as_ref().map(|config| self.reports(config, &entries, &attached, workspace)).unwrap_or_default();
         let named: BTreeSet<String> = devices.iter().filter_map(|d| d.entry_key.clone()).collect();
         let registration = self.registration(&entries);
         let configured = config.as_ref().is_some_and(|config| !config.devices.is_empty());
@@ -153,19 +164,25 @@ impl AggregateService {
         }
     }
 
-    /// One report per configured device.
-    fn reports(&self, config: &Aggregate, entries: &[registry::RawEntry], attached: &[DeviceDescriptor]) -> Vec<DeviceReport> {
-        let master = master_of(config).map(device_name);
+    /// One report per configured device, each named by Gazelle's name for it, which is the name the
+    /// driver is given.
+    fn reports(&self, config: &Aggregate, entries: &[registry::RawEntry], attached: &[DeviceDescriptor], workspace: &Workspace) -> Vec<DeviceReport> {
+        let master = master_index(config);
+        let names = interface_names(config, workspace);
         config
             .devices
             .iter()
-            .map(|device| {
-                let name = device_name(device);
+            .enumerate()
+            .map(|(index, device)| {
+                let name = names[index].clone();
                 let entry = entries.iter().find(|entry| entry_matches(entry, device.key.as_deref(), device.clsid.as_deref()));
-                let found = match_device(device, entries, attached);
+                let found = match_device(device, &name, entries, attached);
                 let descriptor = found.descriptor;
+                // The model of the device it is now, else of the one it was last known to be.
+                let family = descriptor.as_ref().and_then(|d| d.family.clone()).or_else(|| device.known.as_ref().and_then(|known| known.family.clone()));
                 let mut report = DeviceReport {
-                    is_master: master.as_deref() == Some(name.as_str()),
+                    index,
+                    is_master: master == Some(index),
                     name,
                     key: device.key.clone(),
                     clsid: device.clsid.clone(),
@@ -175,8 +192,8 @@ impl AggregateService {
                     attached: descriptor.is_some(),
                     matched_by: found.matched_by,
                     match_note: found.note,
-                    channels: descriptor.as_ref().map(channel_names).unwrap_or_default(),
-                    family: descriptor.as_ref().and_then(|d| d.family.clone()),
+                    channels: family.as_deref().and_then(usb_channels),
+                    family,
                     clock: None,
                     driver: DriverSummary::default(),
                     controller: None,
@@ -254,8 +271,9 @@ pub struct DeviceMatch {
 /// knows was the bug this rule closes. Two of one model, or an entry whose words name no model, is
 /// where guessing would put a reading or a write against the wrong interface, so nothing is matched
 /// and the note says what would settle it.
-pub fn match_device(device: &AggregateDevice, entries: &[registry::RawEntry], attached: &[DeviceDescriptor]) -> DeviceMatch {
-    let name = device_name(device);
+///
+/// `name` is what its notes call the entry, which is Gazelle's name for it.
+pub fn match_device(device: &AggregateDevice, name: &str, entries: &[registry::RawEntry], attached: &[DeviceDescriptor]) -> DeviceMatch {
     let matched = |descriptor: DeviceDescriptor, matched_by: MatchedBy| DeviceMatch { descriptor: Some(descriptor), matched_by, note: None };
     let unmatched = |note: String| DeviceMatch { descriptor: None, matched_by: MatchedBy::None, note: Some(note) };
 
@@ -285,37 +303,39 @@ pub fn match_device(device: &AggregateDevice, entries: &[registry::RawEntry], at
 
 /// What to call a model in a message, as the rest of the app names it.
 fn family_words(family: &str) -> &str {
-    match family {
-        "quadro" => "Zen Quadro Synergy Core",
-        "studio" => "Zen Studio+",
-        other => other,
-    }
+    naming::family_words(family).unwrap_or(family)
 }
 
-/// Every input the Inputs page shows for a model, as `(what it calls them, topology type)`, in the
-/// order that page shows them. A type the model does not have has no channels and drops out.
-const INPUT_KINDS: &[(&str, &str)] = &[("Preamp", "PREAMP"), ("Line", "LINE_IN"), ("ADAT", "ADAT_IN"), ("S/PDIF", "SPDIF_IN")];
+/// An interface's channels in the aggregate, from its model's topology: its USB record and playback
+/// groups, which is what an aggregate channel is.
+fn usb_channels(family: &str) -> Option<UsbChannels> {
+    let groups = usb_groups(family)?;
+    Some(UsbChannels { inputs: groups.record.channels, outputs: groups.playback.channels, input_group: groups.record.name, output_group: groups.playback.name })
+}
 
-/// Every output the Outputs page shows, in `set_volume`'s id order. Each is a stereo pair, and a
-/// model has the first [`topology::output_ids`] of them.
-const OUTPUT_NAMES: &[&str] = &["Monitor", "HP1", "HP2", "Line out", "Reamp"];
-
-/// What Gazelle calls one device's channels, taken from the model's own topology so the Inputs and
-/// Outputs pages and this answer cannot drift apart. A hint for the page, not the audio driver's
-/// channel order: see [`ChannelNames`].
-fn channel_names(descriptor: &DeviceDescriptor) -> ChannelNames {
-    let Some(family) = descriptor.family.as_deref() else { return ChannelNames::default() };
-    let mut inputs = Vec::new();
-    for (words, kind) in INPUT_KINDS {
-        let count = topology::input_channels(family, kind).unwrap_or_default();
-        inputs.extend((1..=count).map(|at| format!("{words} {at}")));
+/// What Gazelle can see now of each entry: the device the one rule matches it to, and that device's
+/// USB record routing as the commands through this server last left it. This is what keeps the
+/// names in the driver's file following the devices (`crate::aggregate::export`).
+impl Live for AggregateService {
+    fn seen(&self, config: &Aggregate) -> Vec<Option<Seen>> {
+        // A registry that cannot be read matches nothing by model, and each entry then keeps what
+        // was known of it rather than losing it.
+        let entries = self.registry.entries().unwrap_or_default();
+        let attached = self.devices.descriptors();
+        config
+            .devices
+            .iter()
+            .map(|device| {
+                let descriptor = match_device(device, "", &entries, &attached).descriptor?;
+                let record_routing = descriptor
+                    .family
+                    .as_deref()
+                    .and_then(usb_groups)
+                    .and_then(|groups| self.devices.routing().slots(&descriptor.id, groups.record_position));
+                Some(Seen { device_id: descriptor.id, family: descriptor.family, model: descriptor.model, record_routing })
+            })
+            .collect()
     }
-    let outputs = OUTPUT_NAMES
-        .iter()
-        .take(topology::output_ids(family).unwrap_or_default() as usize)
-        .flat_map(|words| ["L", "R"].map(|side| format!("{words} {side}")))
-        .collect();
-    ChannelNames { inputs, outputs, source: "gazelle" }
 }
 
 /// The serial in a `serial:<n>` device id.
@@ -425,12 +445,12 @@ mod tests {
 
     #[test]
     fn the_interface_a_setup_names_is_the_one_it_is_matched_to_and_an_absent_one_says_so() {
-        let found = match_device(&configured("Quadro", "Zen Quadro Synergy Core", Some("Q")), &both_entries(), &one_of_each());
+        let found = match_device(&configured("Quadro", "Zen Quadro Synergy Core", Some("Q")), "Quadro", &both_entries(), &one_of_each());
         assert_eq!(found.matched_by, MatchedBy::Chosen);
         assert_eq!(found.descriptor.unwrap().id, DeviceId::from_serial("Q"));
         assert_eq!(found.note, None);
 
-        let away = match_device(&configured("Quadro", "Zen Quadro Synergy Core", Some("elsewhere")), &both_entries(), &one_of_each());
+        let away = match_device(&configured("Quadro", "Zen Quadro Synergy Core", Some("elsewhere")), "Quadro", &both_entries(), &one_of_each());
         assert_eq!(away.matched_by, MatchedBy::None);
         assert!(away.descriptor.is_none());
         assert!(away.note.unwrap().contains("is not connected to Gazelle"), "the one it names is away, and Gazelle does not then guess another");
@@ -440,7 +460,7 @@ mod tests {
     /// model plugged in, read fine on the page and was refused every write.
     #[test]
     fn a_setup_that_names_no_interface_is_matched_by_the_model_its_driver_entry_gives() {
-        let found = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), &both_entries(), &one_of_each());
+        let found = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), "Quadro", &both_entries(), &one_of_each());
         assert_eq!(found.matched_by, MatchedBy::WorkedOut);
         assert_eq!(found.descriptor.unwrap().id, DeviceId::from_serial("Q"));
         assert_eq!(found.note, None);
@@ -449,39 +469,32 @@ mod tests {
     #[test]
     fn two_of_one_model_and_an_entry_naming_no_model_are_left_unmatched_and_say_what_would_settle_it() {
         let two = [descriptor("serial:Q", "quadro", "usb"), descriptor("serial:Q2", "quadro", "usb")];
-        let crowded = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), &both_entries(), &two);
+        let crowded = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), "Quadro", &both_entries(), &two);
         assert_eq!(crowded.matched_by, MatchedBy::None);
         assert!(crowded.note.unwrap().contains("More than one Zen Quadro Synergy Core is connected"));
 
-        let unknown_model = match_device(&configured("Something", "Focusrite USB", None), &[entry("Focusrite USB", r"C:\f.dll")], &one_of_each());
+        let unknown_model = match_device(&configured("Something", "Focusrite USB", None), "Something", &[entry("Focusrite USB", r"C:\f.dll")], &one_of_each());
         assert_eq!(unknown_model.matched_by, MatchedBy::None);
         assert!(unknown_model.note.unwrap().contains("does not say which model it is"));
 
-        let none_here = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), &both_entries(), &[descriptor("serial:S", "studio", "usb")]);
+        let none_here = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), "Quadro", &both_entries(), &[descriptor("serial:S", "studio", "usb")]);
         assert!(none_here.note.unwrap().contains("no Zen Quadro Synergy Core is connected"));
 
-        let no_entry = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), &[], &one_of_each());
+        let no_entry = match_device(&configured("Quadro", "Zen Quadro Synergy Core", None), "Quadro", &[], &one_of_each());
         assert_eq!(no_entry.matched_by, MatchedBy::None, "no driver entry at all says no model either");
     }
 
+    /// An aggregate channel is one of the interface's USB channels, so what the answer says of its
+    /// channels is those groups: exact, and known without a DAW. Not fourteen for the Quadro, which is
+    /// what counting its inputs gave, and what put a check's cable on the wrong interface.
     #[test]
-    fn a_matched_device_carries_the_names_its_own_pages_give_its_channels_and_an_unmatched_one_none() {
-        let names = channel_names(&descriptor("serial:Q", "quadro", "usb"));
-        assert_eq!(names.source, "gazelle");
-        assert_eq!(names.inputs[0], "Preamp 1");
-        assert_eq!(names.inputs[3], "Preamp 4");
-        assert_eq!(names.inputs[4], "ADAT 1", "the Quadro has no line inputs, so they are not in the list");
-        assert_eq!(names.inputs.len(), 14, "four preamps, eight ADAT and a S/PDIF pair");
-        assert_eq!(names.outputs, ["Monitor L", "Monitor R", "HP1 L", "HP1 R", "HP2 L", "HP2 R", "Line out L", "Line out R"]);
-
-        let studio = channel_names(&descriptor("serial:S", "studio", "usb"));
-        assert_eq!(studio.inputs[12], "Line 1", "the Studio+ has line inputs after its twelve preamps");
-        assert_eq!(studio.inputs.len(), 38);
-        assert_eq!(studio.outputs.len(), 10, "and a reamp output of its own");
-
-        let unknown = channel_names(&DeviceDescriptor { family: None, ..descriptor("loopback-0", "quadro", "loopback") });
-        assert_eq!(ChannelNames::default(), unknown, "a device of no known model is named nothing at all");
-        assert_eq!(unknown.source, "none");
+    fn an_interfaces_channels_are_its_usb_record_and_playback_groups() {
+        assert_eq!(
+            usb_channels("quadro"),
+            Some(UsbChannels { inputs: 16, outputs: 16, input_group: "USB A REC".into(), output_group: "USB 1 PLAY".into() })
+        );
+        assert_eq!(usb_channels("studio"), Some(UsbChannels { inputs: 24, outputs: 24, input_group: "USB REC".into(), output_group: "USB PLAY".into() }));
+        assert_eq!(usb_channels("octo"), None, "a model Gazelle does not know has none to say");
     }
 
     #[test]

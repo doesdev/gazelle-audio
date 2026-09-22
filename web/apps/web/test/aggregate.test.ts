@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { GazelleError, type AggregateAnswer, type AggregateFix, type AggregateMatchBuffers, type AggregateRegistrationRun, type AggregateStatusReading } from "gazelle-audio-client";
+import { GazelleError, topologies, type Aggregate, type AggregateAnswer, type AggregateFix, type AggregateMatchBuffers, type AggregateRegistrationRun, type AggregateStatusReading, type DeviceMixer } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import {
@@ -14,7 +14,7 @@ import {
   AGGREGATE_OPEN_POLL_MS,
   AGGREGATE_POLL_MS,
   AggregateModel,
-  autoChannelName,
+  aggregateNaming,
   appliedTrimsText,
   buffersMatch,
   cablePort,
@@ -27,6 +27,7 @@ import {
   GAZELLE_MEASUREMENT,
   livePhaseView,
   masterIndex,
+  masterReference,
   phaseChoices,
   phaseFromPicks,
   phasePicks,
@@ -53,15 +54,21 @@ import {
   calibrateStepText,
   channelCounts,
   channelLabel,
+  channelName,
   channelSummary,
   CHANNEL_LABEL_MAX,
+  countCheck,
+  dawChannelName,
   defaultPicks,
-  deviceName,
   deviceViews,
+  distinctNames,
   driftFound,
+  driverOfferText,
+  fitLabel,
   fixNeedsConfirming,
   fixRequest,
   gapView,
+  interfaceName,
   isExposed,
   matchedBy,
   matchNote,
@@ -75,10 +82,11 @@ import {
   registrationText,
   resolvedDeviceId,
   slotDevice,
+  sourceName,
   trimRows,
   trimsToApply,
   statusLine,
-  suggestedChannelName,
+  usbGroups,
   viewFor,
   withChannelExposed,
   withChannelName,
@@ -89,6 +97,7 @@ import {
   type AggregateContext,
   type AggregateDevice,
   type CalibratePicks,
+  type NamingSources,
 } from "../src/store/aggregate.ts";
 import { Store } from "../src/store/store.ts";
 import { device, ends, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
@@ -293,31 +302,161 @@ test("the note saying why a device could not be told is shown only when it could
 });
 
 // ---------------------------------------------------------------------------------------------
-// The channels of one interface
+// What the aggregate calls things: Gazelle's names
 // ---------------------------------------------------------------------------------------------
 
-const gazelleNames = { inputs: ["Mic 1", "Mic 2", "Mic 3"], outputs: ["Monitor L", "Monitor R"], source: "gazelle" as const };
+/** The two devices Gazelle has, as the store lists them. */
+const attached = [
+  { id: "serial:Q", model: "Zen Quadro Synergy Core", family: "quadro" as const },
+  { id: "serial:S", model: "Zen Studio+", family: "studio" as const },
+];
 
-test("how many channels to list is the count the driver published, then Gazelle's names, then nothing", () => {
-  const published = live({ devices: [liveDevice("Quadro", { inputs: 16, outputs: 24 })] });
-  assert.deepEqual(channelCounts(viewOf({ channels: gazelleNames }, published)), { inputs: 16, outputs: 24 }, "what the driver itself said wins");
-  assert.deepEqual(channelCounts(viewOf({ channels: gazelleNames })), { inputs: 3, outputs: 2 });
-  assert.deepEqual(channelCounts(viewOf({})), { inputs: undefined, outputs: undefined }, "nothing known is not a guess");
-  assert.deepEqual(channelCounts(viewOf({ channels: { inputs: [], outputs: [], source: "none" } })), { inputs: undefined, outputs: undefined });
-  assert.deepEqual(channelCounts(undefined), { inputs: undefined, outputs: undefined });
+/** The person's own names for them, as the sidebar shows them. */
+const ownNames = { "serial:Q": "Quadro", "serial:S": "Studio+" };
+
+/**
+ * Two interfaces, the Quadro and the Studio+, as the page has them: the setup, the answer that
+ * resolves each to one of Gazelle's devices, and the naming the page works out from both.
+ */
+const twoInterfaces = (parts: Partial<AggregateDevice>[] = [{}, {}], sources: Partial<NamingSources> = {}) => {
+  const config: Aggregate = { devices: [{ key: "Q", device_id: "serial:Q", ...parts[0] }, { key: "S", device_id: "serial:S", ...parts[1] }] };
+  const read = answer({ devices: [report("Quadro", { index: 0, device_id: "serial:Q" }), report("Studio+", { index: 1, device_id: "serial:S" })] });
+  const naming = aggregateNaming(config, read, { devices: attached, aliases: ownNames, ...sources });
+  return { config, answer: read, naming };
+};
+
+/** The Quadro's topology position of a source group, by id, which is how a routing slot names it. */
+const quadroSource = (id: string) => topologies.quadro.inputs.findIndex((group) => group.id === id);
+
+test("an interface's aggregate channels are its USB record and playback groups, counted from the topology", () => {
+  const quadro = usbGroups(topologies.quadro);
+  assert.deepEqual([quadro?.record.id, quadro?.record.name, quadro?.record.channels], ["COM_REC0", "USB A REC", 16]);
+  assert.deepEqual([quadro?.playback.id, quadro?.playback.name, quadro?.playback.channels], ["COM_PLAY0", "USB 1 PLAY", 16]);
+  const studio = usbGroups(topologies.studio);
+  assert.deepEqual([studio?.record.id, studio?.record.name, studio?.record.channels], ["USB_REC0", "USB REC", 24]);
+  assert.deepEqual([studio?.playback.id, studio?.playback.name, studio?.playback.channels], ["USB_PLAY0", "USB PLAY", 24]);
+  const it = twoInterfaces();
+  assert.deepEqual(channelCounts(it.naming[0]), { inputs: 16, outputs: 16 }, "not fourteen, which counting its inputs gave");
+  assert.deepEqual(channelCounts(it.naming[1]), { inputs: 24, outputs: 24 });
+  assert.deepEqual(channelCounts(undefined), { inputs: undefined, outputs: undefined }, "nothing known is not a guess");
 });
 
-test("a channel with no name of its own is the interface's name and its number from one", () => {
-  assert.equal(autoChannelName("Quadro", 0), "Quadro 1");
-  assert.equal(autoChannelName("Zen Studio+", 15), "Zen Studio+ 16");
+test("the topology's count is the truth, and a driver that published another is said as a check", () => {
+  const published = (inputs: number, outputs: number) =>
+    aggregateNaming({ devices: [{ key: "Q", device_id: "serial:Q" }] }, answer({ devices: [report("Quadro", { index: 0, device_id: "serial:Q" })], status: live({ devices: [liveDevice("Quadro", { inputs, outputs })] }) }), { devices: attached, aliases: ownNames })[0];
+  assert.deepEqual(channelCounts(published(14, 8)), { inputs: 16, outputs: 16 }, "what the topology says wins over what a driver published");
+  assert.match(String(countCheck(published(14, 8))), /reports 14 inputs and 8 outputs for this interface, and it has 16 USB record and 16 USB playback channels/);
+  assert.equal(countCheck(published(16, 16)), undefined, "a driver that agrees is nothing to say");
+  assert.equal(countCheck(twoInterfaces().naming[0]), undefined, "and so is one that published nothing");
+  // A device of a model Gazelle does not know is counted by what its driver published, if anything.
+  const unknown = aggregateNaming({ devices: [{ key: "Other" }] }, answer({ devices: [report("Other", { index: 0 })], status: live({ devices: [liveDevice("Other", { inputs: 8, outputs: 8 })] }) }), { devices: [] })[0];
+  assert.deepEqual(channelCounts(unknown), { inputs: 8, outputs: 8 });
+  assert.equal(countCheck(unknown), undefined);
 });
 
-test("Gazelle's own name for a channel is offered only when Gazelle has one", () => {
-  assert.equal(suggestedChannelName(gazelleNames, true, 1), "Mic 2");
-  assert.equal(suggestedChannelName(gazelleNames, false, 0), "Monitor L");
-  assert.equal(suggestedChannelName(gazelleNames, true, 9), undefined, "past the end of what it knows");
-  assert.equal(suggestedChannelName({ inputs: ["Mic 1"], outputs: [], source: "none" }, true, 0), undefined, "a source of none is no suggestion");
-  assert.equal(suggestedChannelName(undefined, true, 0), undefined);
+test("an interface is called by the person's name for the device, else its model, and told apart from its twin", () => {
+  assert.deepEqual(twoInterfaces().naming.map((one) => one.name), ["Quadro", "Studio+"]);
+  assert.deepEqual(twoInterfaces([{}, {}], { aliases: {} }).naming.map((one) => one.name), ["Zen Quadro Synergy Core", "Zen Studio+"], "its model, where the person gave it no name");
+  // An older setup's own name for an interface is not a name anything is called by any more.
+  assert.equal(twoInterfaces([{ name: "Old name" }, {}]).naming[0]?.name, "Quadro");
+  // Two of one model that nobody has named are told apart by their place, as the server does it.
+  const twins = aggregateNaming(
+    { devices: [{ key: "A", device_id: "serial:Q" }, { key: "B", device_id: "serial:Q2" }] },
+    answer({ devices: [report("x", { index: 0, device_id: "serial:Q" }), report("y", { index: 1, device_id: "serial:Q2" })] }),
+    { devices: [...attached, { id: "serial:Q2", model: "Zen Quadro Synergy Core", family: "quadro" }] },
+  );
+  assert.deepEqual(twins.map((one) => one.name), ["Zen Quadro Synergy Core", "Zen Quadro Synergy Core (2)"]);
+  assert.deepEqual(distinctNames(["A", "a", "B"]), ["A", "a (2)", "B"]);
+  // A device that is not connected is named from what the server last knew of it, then its own name for it.
+  const away = aggregateNaming({ devices: [{ key: "ZenStudioTB", known: { device_id: "serial:S", family: "studio", model: "Zen Studio+" } }] }, undefined, { devices: [] });
+  assert.equal(away[0]?.name, "Zen Studio+");
+  const awayNamed = aggregateNaming({ devices: [{ key: "ZenStudioTB", known: { device_id: "serial:S", family: "studio", model: "Zen Studio+" } }] }, undefined, { devices: [], aliases: ownNames });
+  assert.equal(awayNamed[0]?.name, "Studio+", "and by the person's name for the device it was, as the server names it");
+  assert.equal(aggregateNaming({ devices: [{ key: "ZenStudioTB" }] }, answer({ devices: [report("Drum room", { index: 0 })] }), { devices: [] })[0]?.name, "Drum room");
+  assert.equal(aggregateNaming({ devices: [{ key: "ZenStudioTB" }] }, undefined, { devices: [] })[0]?.name, "ZenStudioTB", "and only then the vendor driver's key");
+  assert.equal(interfaceName(undefined, 2, {}), "Interface 3");
+});
+
+test("a card finds its part of the answer by its place in the setup, whatever the interface is called", () => {
+  const it = twoInterfaces();
+  assert.equal(viewFor(it.answer, 1)?.report?.name, "Studio+");
+  assert.equal(viewFor(answer({ devices: [report("A"), report("B")] }), 1)?.report?.name, "B", "an older server's answer, by position");
+  assert.deepEqual(calibrateDevices(it.config, it.naming), ["Quadro", "Studio+"]);
+});
+
+test("a source is named as the Routing page names it, with the person's own names first", () => {
+  const preamp = quadroSource("PREAMP0");
+  const afx = quadroSource("AFX_OUT0");
+  const mix = quadroSource("MIXER_OUT0");
+  const mute = quadroSource("MUTE0");
+  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }), "PREAMP 1");
+  assert.equal(sourceName(topologies.quadro, { source: afx, channel: 2 }), "AFX OUT 3");
+  assert.equal(sourceName(topologies.quadro, { source: mute, channel: 0 }), undefined, "MUTE is nothing");
+  const layout: DeviceMixer = {
+    mixes: [{ name: "Cue" }],
+    groups: [],
+    channels: [
+      { id: "a", name: "", slot: 6, source: { group: preamp, channel: 1 }, sends: [] },
+      { id: "b", name: "Vocal mic", slot: 7, source: { group: preamp, channel: 0 }, sends: [] },
+    ],
+  };
+  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }, layout), "Vocal mic", "a Mixer channel the person named");
+  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 1 }, layout), "PREAMP 2", "one they did not name is the source itself");
+  assert.equal(sourceName(topologies.quadro, { source: mix, channel: 1 }, layout), "Cue R", "a mix they named");
+});
+
+test("an input is named for what routing sends its record channel, and a typed name wins over both", () => {
+  const preamp = quadroSource("PREAMP0");
+  const mute = quadroSource("MUTE0");
+  const layout: DeviceMixer = { mixes: [], groups: [], channels: [{ id: "b", name: "Vocal mic", slot: 7, source: { group: preamp, channel: 0 }, sends: [] }] };
+  const record = [
+    { source: preamp, channel: 0 },
+    { source: mute, channel: 0 },
+    { source: preamp, channel: 2 },
+  ];
+  const it = twoInterfaces([{}, {}], { record: (deviceId) => (deviceId === "serial:Q" ? record : undefined), layouts: { "serial:Q": layout } });
+  const device = it.config.devices?.[0];
+  const first = channelName(device, it.naming[0], true, 0);
+  assert.deepEqual(first, { usb: "USB A REC 1", carries: "Vocal mic", text: "Vocal mic, USB A REC 1", automatic: "Vocal mic" }, "the person's name for the Mixer channel that takes its source");
+  assert.equal(channelName(device, it.naming[0], true, 1).text, "USB A REC 2", "nothing routed is the record channel alone");
+  assert.equal(channelName(device, it.naming[0], true, 1).automatic, "USB A REC 2");
+  assert.equal(channelName(device, it.naming[0], true, 2).text, "PREAMP 3, USB A REC 3", "the source as the Routing page names it");
+  assert.equal(channelName(it.config.devices?.[1], it.naming[1], true, 0).text, "USB REC 1", "a group not read yet is not known");
+  // A name the person typed wins, on the page and for the DAW, and the automatic one stays beside it.
+  const typed = channelName({ ...device, input_names: { "0": "Lead vocal" } }, it.naming[0], true, 0);
+  assert.equal(typed.text, "Lead vocal, USB A REC 1");
+  assert.equal(typed.typed, "Lead vocal");
+  assert.equal(typed.automatic, "Vocal mic", "what comes back when it is cleared");
+});
+
+test("a re-route changes the name the page shows, and leaves a typed name alone", () => {
+  const preamp = quadroSource("PREAMP0");
+  const afx = quadroSource("AFX_OUT0");
+  let record = [{ source: preamp, channel: 0 }, { source: preamp, channel: 1 }];
+  const naming = () => twoInterfaces([{ input_names: { "1": "Talkback" } }, {}], { record: () => record }).naming[0];
+  const device: AggregateDevice = { key: "Q", input_names: { "1": "Talkback" } };
+  assert.equal(channelName(device, naming(), true, 0).text, "PREAMP 1, USB A REC 1");
+  record = [{ source: afx, channel: 2 }, { source: afx, channel: 3 }];
+  assert.equal(channelName(device, naming(), true, 0).text, "AFX OUT 3, USB A REC 1", "it says what would be recorded now");
+  assert.equal(channelName(device, naming(), true, 1).text, "Talkback, USB A REC 2", "the typed one is untouched");
+});
+
+test("an output is its playback channel, named for the Mixer channel that plays it where the person named one", () => {
+  const playback = quadroSource("COM_PLAY0");
+  const layout: DeviceMixer = { mixes: [], groups: [], channels: [{ id: "c", name: "Click", slot: 10, source: { group: playback, channel: 0 }, sends: [] }] };
+  const it = twoInterfaces([{}, {}], { layouts: { "serial:Q": layout } });
+  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Click, USB 1 PLAY 1");
+  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 4).text, "USB 1 PLAY 5", "Gazelle's own name for the source where the person named none");
+  assert.equal(channelName(it.config.devices?.[1], it.naming[1], false, 23).text, "USB PLAY 24");
+});
+
+test("the name a DAW shows is built as the driver builds it, and a long device name leaves the label alone", () => {
+  assert.equal(dawChannelName("Quadro", 0, "Vocal mic"), "Vocal mic (Quadro 1)");
+  assert.equal(dawChannelName("Zen Quadro Synergy Core", 0, "Vocal mic"), "Vocal mic", "no room for the reference, so the label alone");
+  assert.equal(dawChannelName("Zen Quadro Synergy Core", 15, undefined), "Zen Quadro Synergy Core 16", "no label is the reference alone");
+  assert.equal(dawChannelName("Studio+", 3, "USB REC 4"), "USB REC 4 (Studio+ 4)");
+  for (const name of [dawChannelName("Zen Quadro Synergy Core", 9, "A label that is exactly thirty1"), dawChannelName("x".repeat(40), 99, undefined)]) assert.ok([...name].length <= CHANNEL_LABEL_MAX, name);
+  assert.equal(fitLabel("x".repeat(40)).length, CHANNEL_LABEL_MAX);
 });
 
 test("nothing chosen means every channel is exposed, which is what the field being absent means", () => {
@@ -337,7 +476,7 @@ test("the exposed channels appear as a field only while something is left out, a
   assert.equal(withChannelExposed([0, 1], 2, 1, true), undefined, "a list that is already all of them is no list");
 });
 
-test("naming a channel writes it, and clearing one takes the entry out rather than writing nothing", () => {
+test("naming a channel writes only what was typed, and clearing one takes the entry out rather than writing nothing", () => {
   assert.deepEqual(withChannelName(undefined, 0, "Vocal mic"), { "0": "Vocal mic" });
   assert.deepEqual(withChannelName({ "0": "Vocal mic" }, 1, "Room"), { "0": "Vocal mic", "1": "Room" });
   assert.deepEqual(withChannelName({ "0": "Vocal mic", "1": "Room" }, 1, ""), { "0": "Vocal mic" });
@@ -347,22 +486,19 @@ test("naming a channel writes it, and clearing one takes the entry out rather th
   assert.equal(withChannelName(undefined, 0, long)?.["0"]?.length, CHANNEL_LABEL_MAX);
 });
 
-test("the names counted are the ones on channels the interface actually has", () => {
-  assert.equal(namedCount({ "0": "Vocal mic", "9": "Talkback" }, 4), 1);
+test("the names counted are the ones typed on channels the interface actually has", () => {
+  assert.equal(namedCount({ "0": "Vocal mic", "19": "Talkback" }, 16), 1);
   assert.equal(namedCount({ "0": "Vocal mic", "9": "Talkback" }, undefined), 2, "with no count, every name counts");
   assert.equal(namedCount({ "0": "  " }, 4), 0);
   assert.equal(namedCount(undefined, 4), 0);
 });
 
-test("the Channels line says what is exposed and how many are named", () => {
+test("the Channels line says how many there are, what is exposed and how many are named", () => {
   const device = (parts: Partial<AggregateDevice>): AggregateDevice => ({ key: "Quadro", ...parts });
-  assert.equal(channelSummary(device({}), { inputs: 16, outputs: 24 }), "All in, All out");
-  assert.equal(channelSummary(device({ inputs: [0, 1] }), { inputs: 16, outputs: 24 }), "2 in, All out");
-  assert.equal(
-    channelSummary(device({ inputs: Array.from({ length: 16 }, (_, at) => at), outputs: Array.from({ length: 24 }, (_, at) => at), input_names: { "0": "Vocal mic", "1": "Room" }, output_names: { "0": "Main L" } }), { inputs: 16, outputs: 24 }),
-    "16 in, 24 out, 3 named",
-  );
-  assert.equal(channelSummary(device({ input_names: { "0": "Vocal mic" } }), { inputs: undefined, outputs: undefined }), "All in, All out, 1 named");
+  assert.equal(channelSummary(device({}), { inputs: 16, outputs: 16 }), "All 16 in, all 16 out");
+  assert.equal(channelSummary(device({ inputs: [0, 1] }), { inputs: 16, outputs: 16 }), "2 of 16 in, all 16 out");
+  assert.equal(channelSummary(device({ input_names: { "0": "Vocal mic", "1": "Room" }, output_names: { "0": "Main L" } }), { inputs: 24, outputs: 24 }), "All 24 in, all 24 out, 3 named");
+  assert.equal(channelSummary(device({ input_names: { "0": "Vocal mic" } }), { inputs: undefined, outputs: undefined }), "All in, all out, 1 named");
 });
 
 test("the label a channel shows is the workspace's, and a channel with none shows nothing", () => {
@@ -371,73 +507,66 @@ test("the label a channel shows is the workspace's, and a channel with none show
   assert.equal(channelLabel(undefined, 0), "");
 });
 
+test("the master is written by its registry key, which a rename cannot change", () => {
+  assert.equal(masterReference({ key: "Zen Quadro Synergy Core", name: "Quadro" }), "Zen Quadro Synergy Core");
+  assert.equal(masterReference({ clsid: "{AE4A4452-A316-11E5-A113-080027F6C1F4}" }), "{AE4A4452-A316-11E5-A113-080027F6C1F4}");
+  assert.equal(masterReference({}), undefined);
+});
+
+test("a driver offered for adding is named for the device it would be, with its own name as a detail", () => {
+  const usb = [{ id: "serial:Q", model: "Zen Quadro Synergy Core", family: "quadro" as const, backend: "usb" }, { id: "serial:S", model: "Zen Studio+", family: "studio" as const, backend: "usb" }];
+  assert.equal(driverOfferText({ key: "ZenStudioTB ASIO Driver" }, usb, { "serial:S": "Drum room" }), "Drum room (ZenStudioTB ASIO Driver)");
+  assert.equal(driverOfferText({ key: "Zen Quadro Synergy Core", description: "Zen Quadro Synergy Core" }, usb, {}), "Zen Quadro Synergy Core", "the same words once, not twice");
+  assert.equal(driverOfferText({ key: "Focusrite USB" }, usb, {}), "Focusrite USB", "a driver naming no model is its own name");
+  const twoQuadros = [...usb, { id: "serial:Q2", model: "Zen Quadro Synergy Core", family: "quadro" as const, backend: "usb" }];
+  assert.equal(driverOfferText({ key: "ZenQuadro ASIO" }, twoQuadros, { "serial:Q": "Desk" }), "ZenQuadro ASIO", "two of the model is not one to name it after");
+});
+
 // ---------------------------------------------------------------------------------------------
 // Lining the interfaces up: the channels, the pickers, and what to plug in
 // ---------------------------------------------------------------------------------------------
 
-/** Two interfaces, the first with four channels each way and the second with two. */
-const twoInterfaces = (parts: Partial<AggregateDevice>[] = [{}, {}]) => ({
-  config: { devices: [{ key: "Q", name: "Quadro", ...parts[0] }, { key: "S", name: "Studio+", ...parts[1] }] },
-  answer: answer({
-    devices: [
-      report("Quadro", { channels: { inputs: ["Mic 1", "Mic 2", "Mic 3", "Mic 4"], outputs: ["Main L", "Main R", "Cue L", "Cue R"], source: "gazelle" } }),
-      report("Studio+", { channels: { inputs: ["Line 1", "Line 2"], outputs: ["Out 1", "Out 2"], source: "gazelle" } }),
-    ],
-  }),
-});
-
-test("an interface is named the way every answer joins it, and found in the answer by that name", () => {
-  assert.equal(deviceName({ key: "Zen Quadro" }, 0), "Zen Quadro");
-  assert.equal(deviceName({ key: "Zen Quadro", name: "Quadro" }, 0), "Quadro");
-  assert.equal(deviceName({}, 2), "Interface 3");
-  const it = twoInterfaces();
-  assert.equal(viewFor(it.answer, it.config.devices[1] as AggregateDevice, 1)?.name, "Studio+");
-  assert.deepEqual(calibrateDevices(it.config), ["Quadro", "Studio+"]);
-});
-
 test("each interface's channels are listed by that interface and its own numbering, never the aggregate's", () => {
   const it = twoInterfaces();
-  const inputs = interfaceChannels(it.config, it.answer, true);
-  assert.deepEqual(inputs.map((one) => [one.device, one.index, one.channel, one.auto]), [
-    ["Quadro", 0, 0, "Quadro 1"],
-    ["Quadro", 0, 1, "Quadro 2"],
-    ["Quadro", 0, 2, "Quadro 3"],
-    ["Quadro", 0, 3, "Quadro 4"],
-    ["Studio+", 1, 0, "Studio+ 1"],
-    ["Studio+", 1, 1, "Studio+ 2"],
+  const inputs = interfaceChannels(it.config, it.naming, true);
+  assert.equal(inputs.length, 16 + 24, "every USB record channel of both");
+  assert.deepEqual(inputs.slice(0, 2).map((one) => [one.device, one.index, one.channel, one.text]), [
+    ["Quadro", 0, 0, "USB A REC 1"],
+    ["Quadro", 0, 1, "USB A REC 2"],
   ]);
+  assert.deepEqual(inputs[16] && [inputs[16].device, inputs[16].index, inputs[16].channel, inputs[16].text], ["Studio+", 1, 0, "USB REC 1"]);
   assert.ok(inputs.every((one) => !Object.hasOwn(one, "number")), "nothing here is a place in the aggregate's list");
-  assert.equal(interfaceChannels(it.config, it.answer, false).length, 6);
+  assert.equal(interfaceChannels(it.config, it.naming, false).length, 16 + 24);
   assert.deepEqual(interfaceChannels(undefined, undefined, true), [], "nothing set up is no list");
 });
 
 test("a channel kept out of the aggregate is not offered, and every other channel keeps its own number", () => {
-  const it = twoInterfaces([{ inputs: [0, 3] }, {}]);
-  assert.deepEqual(interfaceChannels(it.config, it.answer, true).map((one) => [one.device, one.channel, one.auto]), [
-    ["Quadro", 0, "Quadro 1"],
-    ["Quadro", 3, "Quadro 4"],
-    ["Studio+", 0, "Studio+ 1"],
-    ["Studio+", 1, "Studio+ 2"],
+  const it = twoInterfaces([{ inputs: [0, 3] }, { inputs: [1] }]);
+  assert.deepEqual(interfaceChannels(it.config, it.naming, true).map((one) => [one.device, one.channel, one.usb]), [
+    ["Quadro", 0, "USB A REC 1"],
+    ["Quadro", 3, "USB A REC 4"],
+    ["Studio+", 1, "USB REC 2"],
   ]);
 });
 
 test("the channels the phase measurement runs over are not offered, because the driver keeps them", () => {
   // The Studio+'s phase arrives on its second input, over the Quadro's fourth output.
-  const it = twoInterfaces([{}, { phase: { master_output: 3, input: 1 } }]);
-  assert.deepEqual(interfaceChannels(it.config, it.answer, true).map((one) => one.auto), ["Quadro 1", "Quadro 2", "Quadro 3", "Quadro 4", "Studio+ 1"]);
-  assert.deepEqual(interfaceChannels(it.config, it.answer, false).map((one) => one.auto), ["Quadro 1", "Quadro 2", "Quadro 3", "Studio+ 1", "Studio+ 2"]);
+  const it = twoInterfaces([{ inputs: [0, 1], outputs: [2, 3] }, { inputs: [0, 1], outputs: [0], phase: { master_output: 3, input: 1 } }]);
+  assert.deepEqual(interfaceChannels(it.config, it.naming, true).map((one) => one.text), ["USB A REC 1", "USB A REC 2", "USB REC 1"]);
+  assert.deepEqual(interfaceChannels(it.config, it.naming, false).map((one) => one.text), ["USB 1 PLAY 3", "USB PLAY 1"]);
 });
 
-test("a channel with a name of its own says both, so the cable can still be found on the box", () => {
+test("a channel with a name of its own is named by it, then by its USB channel", () => {
   const it = twoInterfaces([{ input_names: { "0": "Vocal mic" } }, {}]);
-  const inputs = interfaceChannels(it.config, it.answer, true);
-  assert.equal(inputs[0]?.text, "Vocal mic (Quadro 1)");
-  assert.equal(inputs[1]?.text, "Quadro 2", "an unnamed one is just itself");
+  const inputs = interfaceChannels(it.config, it.naming, true);
+  assert.equal(inputs[0]?.text, "Vocal mic, USB A REC 1");
+  assert.equal(inputs[1]?.text, "USB A REC 2", "an unnamed one is just itself");
 });
 
 test("an interface whose channels are not known yet offers none of them rather than guessing", () => {
-  const config = { devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+" }] };
-  assert.deepEqual(interfaceChannels(config, answer({ devices: [report("Quadro"), report("Studio+")] }), true), []);
+  const config = { devices: [{ key: "Other A" }, { key: "Other B" }] };
+  const naming = aggregateNaming(config, answer({ devices: [report("A", { index: 0 }), report("B", { index: 1 })] }), { devices: [] });
+  assert.deepEqual(interfaceChannels(config, naming, true), []);
 });
 
 test("the pass decides which side is all on one interface, and which picker offers what", () => {
@@ -450,61 +579,61 @@ test("the pass decides which side is all on one interface, and which picker offe
   assert.equal(slotDevice("outputs", "Quadro", "inputs", 1, devices), "Quadro");
 });
 
-test("the input pass starts with two outputs of the reference and one input on each interface", () => {
+test("the input pass starts with two outputs of the reference and one input on each interface, named as everywhere else", () => {
   const it = twoInterfaces();
-  const picks = defaultPicks(it.config, it.answer, "inputs");
+  const picks = defaultPicks(it.config, it.naming, "inputs");
   assert.equal(picks.reference, "Quadro", "the first interface, until somebody says otherwise");
   assert.deepEqual(picks.outputs, [0, 1], "two outputs of one interface");
-  assert.deepEqual(picks.inputs, [0, 0], "Quadro 1 in and Studio+ 1 in, each by its own interface's numbering");
-  assert.deepEqual(cablingSteps(picks, it.config, it.answer).map((cable) => cable.text), ["Quadro 1 into Quadro 1", "Quadro 2 into Studio+ 1"]);
+  assert.deepEqual(picks.inputs, [0, 0], "each interface's first input, by its own numbering");
+  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro", "USB 1 PLAY 2 on Quadro into USB REC 1 on Studio+"]);
 });
 
 test("the output pass plays one output on each interface into two inputs of the reference", () => {
   const it = twoInterfaces();
-  const picks = defaultPicks(it.config, it.answer, "outputs", "Studio+");
+  const picks = defaultPicks(it.config, it.naming, "outputs", "Studio+");
   assert.equal(picks.reference, "Studio+");
   assert.deepEqual(picks.outputs, [0, 0], "one output on each interface");
   assert.deepEqual(picks.inputs, [0, 1], "both into the Studio+");
-  assert.deepEqual(cablingSteps(picks, it.config, it.answer).map((cable) => cable.text), ["Quadro 1 into Studio+ 1", "Studio+ 1 into Studio+ 2"]);
+  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 PLAY 1 on Quadro into USB REC 1 on Studio+", "USB PLAY 1 on Studio+ into USB REC 2 on Studio+"]);
 });
 
 test("a reference nothing in the setup names falls back to the first interface", () => {
   const it = twoInterfaces();
-  assert.equal(defaultPicks(it.config, it.answer, "inputs", "A device that has gone").reference, "Quadro");
+  assert.equal(defaultPicks(it.config, it.naming, "inputs", "A device that has gone").reference, "Quadro");
   assert.equal(defaultPicks(undefined, undefined).reference, "");
 });
 
 test("what was chosen is kept across a poll, and only a choice that no longer fits falls back", () => {
   const it = twoInterfaces();
   const stored: CalibratePicks = { direction: "inputs", reference: "Quadro", outputs: [2, 3], inputs: [1, 1], clicks: 16, level_dbfs: -12 };
-  assert.deepEqual(reconcilePicks(stored, it.config, it.answer), stored, "every choice still names a channel its picker offers");
+  assert.deepEqual(reconcilePicks(stored, it.config, it.naming), stored, "every choice still names a channel its picker offers");
 
-  // An input the Studio+ is not offering: it has two, so its third is not a choice.
-  assert.deepEqual(reconcilePicks({ ...stored, inputs: [1, 2] }, it.config, it.answer).inputs, [1, 0], "the one that does not fit, and only that one");
+  // An input the Studio+ does not have: it has twenty four.
+  assert.deepEqual(reconcilePicks({ ...stored, inputs: [1, 24] }, it.config, it.naming).inputs, [1, 0], "the one that does not fit, and only that one");
   // A channel that is not there any more, and a number of clicks nothing offers.
   const gone: CalibratePicks = { ...stored, outputs: [99, 3], clicks: 7 };
-  assert.deepEqual(reconcilePicks(gone, it.config, it.answer).outputs, [0, 3]);
-  assert.equal(reconcilePicks(gone, it.config, it.answer).clicks, 8);
+  assert.deepEqual(reconcilePicks(gone, it.config, it.naming).outputs, [0, 3]);
+  assert.equal(reconcilePicks(gone, it.config, it.naming).clicks, 8);
   // Nothing chosen at all is simply where the defaults would have put it.
-  assert.deepEqual(reconcilePicks(undefined, it.config, it.answer), defaultPicks(it.config, it.answer));
+  assert.deepEqual(reconcilePicks(undefined, it.config, it.naming), defaultPicks(it.config, it.naming));
 });
 
 test("changing the pass takes the choices the other way round with it", () => {
   const it = twoInterfaces();
-  const chosen: CalibratePicks = { ...defaultPicks(it.config, it.answer, "inputs"), outputs: [2, 3], clicks: 16, level_dbfs: -12 };
-  const flipped = withPass(chosen, it.config, it.answer, "outputs", "Quadro");
+  const chosen: CalibratePicks = { ...defaultPicks(it.config, it.naming, "inputs"), outputs: [2, 3], clicks: 16, level_dbfs: -12 };
+  const flipped = withPass(chosen, it.config, it.naming, "outputs", "Quadro");
   assert.deepEqual(flipped.outputs, [0, 0], "one output on each interface");
   assert.deepEqual(flipped.inputs, [0, 1], "both into the reference");
   assert.deepEqual([flipped.clicks, flipped.level_dbfs], [16, -12], "how many clicks and how loud stay as they were");
-  const moved = withPass(chosen, it.config, it.answer, "inputs", "Studio+");
+  const moved = withPass(chosen, it.config, it.naming, "inputs", "Studio+");
   assert.deepEqual([moved.reference, moved.outputs, moved.inputs], ["Studio+", [0, 1], [0, 0]], "another reference is other cabling too");
 });
 
 test("a run that cannot be made says why, and makes no request", () => {
   const it = twoInterfaces();
-  const good = defaultPicks(it.config, it.answer);
-  assert.equal(calibrateProblem(good, it.config, it.answer), undefined);
-  assert.deepEqual(calibrateRequest(good, it.config, it.answer), {
+  const good = defaultPicks(it.config, it.naming);
+  assert.equal(calibrateProblem(good, it.config, it.naming), undefined);
+  assert.deepEqual(calibrateRequest(good, it.config, it.naming), {
     direction: "inputs",
     outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
     inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }],
@@ -512,38 +641,32 @@ test("a run that cannot be made says why, and makes no request", () => {
     level_dbfs: -20,
   });
 
-  const one = { devices: [{ key: "Q", name: "Quadro" }] };
-  assert.match(String(calibrateProblem(defaultPicks(one, it.answer), one, it.answer)), /at least two interfaces/);
-  assert.equal(calibrateRequest(defaultPicks(one, it.answer), one, it.answer), undefined);
+  const one = { devices: [{ key: "Q", device_id: "serial:Q" }] };
+  const alone = aggregateNaming(one, it.answer, { devices: attached, aliases: ownNames });
+  assert.match(String(calibrateProblem(defaultPicks(one, alone), one, alone)), /at least two interfaces/);
+  assert.equal(calibrateRequest(defaultPicks(one, alone), one, alone), undefined);
 
-  assert.match(String(calibrateProblem({ ...good, outputs: [0, undefined] }, it.config, it.answer)), /one output and one input/);
-  assert.match(String(calibrateProblem({ ...good, outputs: [1, 1] }, it.config, it.answer)), /cannot take their click from one output/);
+  assert.match(String(calibrateProblem({ ...good, outputs: [0, undefined] }, it.config, it.naming)), /one output and one input/);
+  assert.match(String(calibrateProblem({ ...good, outputs: [1, 1] }, it.config, it.naming)), /cannot take their click from one output/);
   // The same number on two interfaces is two different inputs, and a perfectly good run.
-  assert.equal(calibrateProblem({ ...good, inputs: [0, 0] }, it.config, it.answer), undefined);
-  const outputPass = defaultPicks(it.config, it.answer, "outputs");
-  assert.match(String(calibrateProblem({ ...outputPass, inputs: [2, 2] }, it.config, it.answer)), /cannot record on one input/);
+  assert.equal(calibrateProblem({ ...good, inputs: [0, 0] }, it.config, it.naming), undefined);
+  const outputPass = defaultPicks(it.config, it.naming, "outputs");
+  assert.match(String(calibrateProblem({ ...outputPass, inputs: [2, 2] }, it.config, it.naming)), /cannot record on one input/);
   // A channel the interface its picker is about is not offering.
-  assert.match(String(calibrateProblem({ ...good, outputs: [0, 4] }, it.config, it.answer)), /one output and one input/);
-  assert.match(String(calibrateProblem({ ...good, inputs: [0, 2] }, it.config, it.answer)), /one output and one input/);
-  assert.match(String(calibrateProblem({ ...good, clicks: 3 }, it.config, it.answer)), /how many clicks/);
+  assert.match(String(calibrateProblem({ ...good, outputs: [0, 16] }, it.config, it.naming)), /one output and one input/);
+  assert.match(String(calibrateProblem({ ...good, inputs: [0, 24] }, it.config, it.naming)), /one output and one input/);
+  assert.match(String(calibrateProblem({ ...good, clicks: 3 }, it.config, it.naming)), /how many clicks/);
 });
 
 /**
- * **The Check the owner pressed on 2026-09-21.** Gazelle's list has fourteen inputs for the Quadro,
- * and its driver has sixteen, so counting the aggregate's channels here put the Studio+'s first input
- * at 14, which is the Quadro's fifteenth, and the run rightly refused it. Asked for by interface, the
- * Studio+'s first input is the Studio+'s first input whatever the Quadro is counted as.
+ * **The Check the owner pressed on 2026-09-21.** Gazelle's list had fourteen inputs for the Quadro,
+ * and its driver has sixteen, so counting the aggregate's channels put the Studio+'s first input at
+ * 14, which is the Quadro's fifteenth. The count is the USB group's own now, sixteen, and the run is
+ * asked for by interface anyway, so no count can put a cable on the wrong interface.
  */
-test("a check names each channel by interface, so a wrong count cannot put a cable on the wrong interface", () => {
-  const fourteen = Array.from({ length: 14 }, (_, at) => `Mic ${at + 1}`);
-  const config = { devices: [{ key: "Zen Quadro Synergy Core", name: "Zen Quadro Synergy Core" }, { key: "ZenStudioTB ASIO Driver", name: "ZenStudioTB ASIO Driver" }] };
-  const real = answer({
-    devices: [
-      report("Zen Quadro Synergy Core", { channels: { inputs: fourteen, outputs: fourteen, source: "gazelle" } }),
-      report("ZenStudioTB ASIO Driver", { channels: { inputs: fourteen.slice(0, 8), outputs: fourteen.slice(0, 8), source: "gazelle" } }),
-    ],
-  });
-  const request = calibrateRequest(defaultPicks(config, real), config, real, { check: true });
+test("a check names each channel by interface, so no count can put a cable on the wrong interface", () => {
+  const it = twoInterfaces();
+  const request = calibrateRequest(defaultPicks(it.config, it.naming), it.config, it.naming, { check: true });
   assert.deepEqual(request, {
     direction: "inputs",
     outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
@@ -552,11 +675,10 @@ test("a check names each channel by interface, so a wrong count cannot put a cab
     level_dbfs: -20,
     check: true,
   });
-  const json = JSON.stringify(request);
-  assert.doesNotMatch(json, /14/, "no number in it depends on how many channels the Quadro was counted as");
+  assert.doesNotMatch(JSON.stringify(request), /1[46]/, "no number in it depends on how many channels the Quadro has");
 
   // The output pass the other way round: one output on each interface, both into the reference.
-  const outputs = calibrateRequest(defaultPicks(config, real, "outputs", "ZenStudioTB ASIO Driver"), config, real);
+  const outputs = calibrateRequest(defaultPicks(it.config, it.naming, "outputs", "Studio+"), it.config, it.naming);
   assert.deepEqual(outputs?.outputs, [{ device: 0, channel: 0 }, { device: 1, channel: 0 }]);
   assert.deepEqual(outputs?.inputs, [{ device: 1, channel: 0 }, { device: 1, channel: 1 }]);
 });
@@ -573,6 +695,10 @@ const heard = (parts: Partial<AggregateCalibrateReading> = {}): AggregateCalibra
   clicks_found: 8,
   ...parts,
 });
+
+/** The trims written into a setup whose interfaces the page calls by these fixtures' own names. */
+const writeTrims = (config: Aggregate, outcome: AggregateCalibrateOutcome | undefined) =>
+  withMeasuredTrims(config, outcome, (config.devices ?? []).map((device) => String(device.name ?? device.key)));
 
 const measured = (parts: Partial<AggregateCalibrateOutcome> = {}): AggregateCalibrateOutcome => ({
   direction: "inputs",
@@ -656,21 +782,23 @@ test("a trim row shows what it is now, what was measured and what it would becom
   assert.equal(trimRows(held)[1]?.changed, false);
   assert.match(String(trimRows(held)[1]?.notApplied), /not a measurement to write/);
   assert.deepEqual(trimsToApply(held), []);
-  assert.deepEqual(withMeasuredTrims({ devices: [{ key: "S", name: "Studio+" }] }, held).devices, [{ key: "S", name: "Studio+" }], "and nothing of it is written");
+  assert.deepEqual(writeTrims({ devices: [{ key: "S", name: "Studio+" }] }, held).devices, [{ key: "S", name: "Studio+" }], "and nothing of it is written");
   // The field the server names decides where it is written, whatever the pass was called.
   assert.equal(trimRows(measured({ trims: [{ device: "Studio+", direction: "inputs", field: "output_trim", was: 0, measured: 5, now: 5 }] }))[0]?.what, "Output trim");
 });
 
-test("applying the trims writes them into the setup, by the name the setup gives each interface", () => {
+test("applying the trims writes them into the setup, by the name the run gives each interface", () => {
   const config = { devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", input_trim: 4 }] };
-  const written = withMeasuredTrims(config, measured());
+  const written = writeTrims(config, measured());
   assert.deepEqual(written.devices, [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", input_trim: 28 }]);
   // Zero is the field being absent, as every other trim on this page is written.
-  const back = withMeasuredTrims(written, measured({ trims: [{ device: "Studio+", direction: "inputs", was: 28, measured: 0, now: 0 }] }));
+  const back = writeTrims(written, measured({ trims: [{ device: "Studio+", direction: "inputs", was: 28, measured: 0, now: 0 }] }));
   assert.deepEqual(back.devices, [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+" }]);
   // An interface the measurement names and the setup no longer has changes nothing.
-  assert.deepEqual(withMeasuredTrims({ devices: [{ key: "Q", name: "Quadro" }] }, measured()).devices, [{ key: "Q", name: "Quadro" }]);
-  assert.deepEqual(withMeasuredTrims(config, undefined), config);
+  assert.deepEqual(writeTrims({ devices: [{ key: "Q", name: "Quadro" }] }, measured()).devices, [{ key: "Q", name: "Quadro" }]);
+  assert.deepEqual(writeTrims(config, undefined), config);
+  // The names are the page's, which are Gazelle's: a run names the device by its name in Gazelle.
+  assert.deepEqual(withMeasuredTrims({ devices: [{ key: "Q" }, { key: "S" }] }, measured(), ["Quadro", "Studio+"]).devices, [{ key: "Q" }, { key: "S", input_trim: 28 }]);
   assert.match(appliedTrimsText(trimsToApply(measured())), /1 trim written: Studio\+ in 28\./);
   assert.match(appliedTrimsText([]), /Nothing to change/);
 });
@@ -686,20 +814,20 @@ const withReference = (reference: { was: number | null; now: number | null }, tr
 const phased = { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } };
 
 test("writing a trim writes the phase reference measured beside it", () => {
-  const written = withMeasuredTrims({ devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", phase: { master_output: 15, input: 8 } }] }, withReference({ was: null, now: -84 }));
+  const written = writeTrims({ devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", phase: { master_output: 15, input: 8 } }] }, withReference({ was: null, now: -84 }));
   assert.deepEqual(written.devices?.[1], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
   // A new reference replaces the old one, and the path it was measured on is left as it was.
-  const again = withMeasuredTrims({ devices: [phased] }, withReference({ was: -84, now: -148 }, { was: 28, measured: 30, now: 30 }));
+  const again = writeTrims({ devices: [phased] }, withReference({ was: -84, now: -148 }, { was: 28, measured: 30, now: 30 }));
   assert.deepEqual(again.devices?.[0], { key: "S", name: "Studio+", input_trim: 30, phase: { master_output: 15, input: 8, reference: -148 } });
 });
 
 test("a trim offered with nothing heard on the cable takes the old reference out", () => {
-  const written = withMeasuredTrims({ devices: [phased] }, withReference({ was: -84, now: null }, { was: 28, measured: 31, now: 31 }));
+  const written = writeTrims({ devices: [phased] }, withReference({ was: -84, now: null }, { was: 28, measured: 31, now: 31 }));
   assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 31, phase: { master_output: 15, input: 8 } });
   // Even when the trim itself comes out the same, because the old reference no longer belongs beside it.
   const same = withReference({ was: -84, now: null }, { was: 28, measured: 28, now: 28 });
   assert.equal(trimsToApply(same).length, 1);
-  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, same).devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } });
+  assert.deepEqual(writeTrims({ devices: [phased] }, same).devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } });
 });
 
 test("a first run whose trim is unchanged but whose reference is new is still there to write", () => {
@@ -708,7 +836,7 @@ test("a first run whose trim is unchanged but whose reference is new is still th
   assert.equal(referenceChanges(first.trims[0] as AggregateCalibrateOutcome["trims"][number]), true);
   assert.equal(trimsToApply(first).length, 1, "the button is offered");
   assert.equal(trimRows(first)[0]?.changed, true);
-  const written = withMeasuredTrims({ devices: [{ key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } }] }, first);
+  const written = writeTrims({ devices: [{ key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } }] }, first);
   assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
   assert.equal(appliedTrimsText(trimsToApply(first)), "1 trim written: Studio+ in 28 (phase reference -84).");
   // And nothing changing on either count is still nothing to write.
@@ -719,11 +847,11 @@ test("a first run whose trim is unchanged but whose reference is new is still th
 
 test("a reference is only written where there is a phase path to go with it", () => {
   // The phase setting was cleared after the run: the trim is written, and no half setting is made up.
-  const written = withMeasuredTrims({ devices: [{ key: "S", name: "Studio+" }] }, withReference({ was: null, now: -84 }));
+  const written = writeTrims({ devices: [{ key: "S", name: "Studio+" }] }, withReference({ was: null, now: -84 }));
   assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28 });
   // An output trim never carries one, whatever arrives beside it.
   const out = withReference({ was: null, now: -84 }, { direction: "outputs", field: "output_trim" });
-  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, out).devices?.[0], { ...phased, output_trim: 28 });
+  assert.deepEqual(writeTrims({ devices: [phased] }, out).devices?.[0], { ...phased, output_trim: 28 });
   // And one the server is not offering writes neither.
   const held = withReference({ was: null, now: -84 }, { not_applied: "Only 2 of 8 clicks were found." });
   assert.deepEqual(trimsToApply(held), []);
@@ -732,7 +860,7 @@ test("a reference is only written where there is a phase path to go with it", ()
 test("a check offers no trims, whatever its outcome carries", () => {
   const checked = { ...withReference({ was: null, now: -84 }), checking: true };
   assert.deepEqual(trimsToApply(checked), []);
-  assert.deepEqual(withMeasuredTrims({ devices: [phased] }, checked).devices, [phased]);
+  assert.deepEqual(writeTrims({ devices: [phased] }, checked).devices, [phased]);
 });
 
 test("the reference beside a trim is said as a reference, and never as a trim", () => {
@@ -750,10 +878,10 @@ test("the reference beside a trim is said as a reference, and never as a trim", 
 
 test("a check is asked for with the same cabling, and a measurement leaves the field out", () => {
   const it = twoInterfaces();
-  const picks = defaultPicks(it.config, it.answer);
-  assert.equal(Object.hasOwn(calibrateRequest(picks, it.config, it.answer) ?? {}, "check"), false);
-  assert.deepEqual(calibrateRequest(picks, it.config, it.answer, { check: true }), { ...calibrateRequest(picks, it.config, it.answer), check: true });
-  assert.equal(calibrateRequest({ ...picks, outputs: [1, 1] }, it.config, it.answer, { check: true }), undefined, "a check that cannot be made is no request either");
+  const picks = defaultPicks(it.config, it.naming);
+  assert.equal(Object.hasOwn(calibrateRequest(picks, it.config, it.naming) ?? {}, "check"), false);
+  assert.deepEqual(calibrateRequest(picks, it.config, it.naming, { check: true }), { ...calibrateRequest(picks, it.config, it.naming), check: true });
+  assert.equal(calibrateRequest({ ...picks, outputs: [1, 1] }, it.config, it.naming, { check: true }), undefined, "a check that cannot be made is no request either");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -769,35 +897,39 @@ test("a phase setting counts only when both channels are there", () => {
   assert.equal(phaseReference({ phase: { master_output: 15, input: 8 } }), undefined);
 });
 
-test("the callback master is the one the setup names, and the first when it names none", () => {
+test("the callback master is the one the setup names by key, and the first when it names none", () => {
   const it = twoInterfaces();
   assert.equal(masterIndex(it.config, it.answer), 0);
-  assert.equal(masterIndex({ ...it.config, callback_master: "Studio+" }, it.answer), 1);
   assert.equal(masterIndex({ ...it.config, callback_master: "s" }, it.answer), 1, "by registry key, without case");
+  // An older setup named it by the name it gave the device, and that still finds it.
+  assert.equal(masterIndex({ devices: [{ key: "Q" }, { key: "S", name: "Old Studio" }], callback_master: "Old Studio" }, it.answer), 1);
+  // One that names nothing falls back to the one the answer says is the master.
+  const reported = answer({ devices: [report("Quadro", { index: 0 }), report("Studio+", { index: 1, is_master: true })] });
+  assert.equal(masterIndex({ ...it.config, callback_master: "Gone" }, reported), 1);
   assert.equal(masterIndex({ devices: [] }, it.answer), undefined);
 });
 
-test("the pickers offer the master's own outputs and this interface's own inputs, counted from one", () => {
-  const it = twoInterfaces([{ output_names: { "3": "To Studio+" } }, {}]);
-  const choices = phaseChoices(it.config, it.answer, 1);
+test("the phase pickers offer the master's own USB playback channels and this interface's own USB record channels", () => {
+  const it = twoInterfaces([{ output_names: { "15": "To Studio+" } }, {}]);
+  const choices = phaseChoices(it.config, it.answer, it.naming, 1);
   assert.equal(choices?.master, "Quadro");
-  assert.deepEqual(choices?.outputs?.map((one) => [one.value, one.text]), [
-    [0, "Quadro 1 (Main L)"],
-    [1, "Quadro 2 (Main R)"],
-    [2, "Quadro 3 (Cue L)"],
-    [3, "Quadro 4 (To Studio+)"],
-  ]);
-  assert.deepEqual(choices?.inputs?.map((one) => one.text), ["Studio+ 1 (Line 1)", "Studio+ 2 (Line 2)"]);
+  assert.equal(choices?.own, "Studio+");
+  assert.equal(choices?.outputs?.length, 16);
+  assert.deepEqual(choices?.outputs?.[0], { value: 0, text: "USB 1 PLAY 1" });
+  assert.deepEqual(choices?.outputs?.[15], { value: 15, text: "To Studio+, USB 1 PLAY 16" }, "a name the person gave it first");
+  assert.equal(choices?.inputs?.length, 24);
+  assert.equal(choices?.inputs?.[7]?.text, "USB REC 8");
   // Not on the callback master's card, which the others are measured against.
-  assert.equal(phaseChoices(it.config, it.answer, 0), undefined);
+  assert.equal(phaseChoices(it.config, it.answer, it.naming, 0), undefined);
   // A channel kept out of what a DAW sees is still offered: the driver opens these two itself.
   const hidden = twoInterfaces([{}, { inputs: [0] }]);
-  assert.equal(phaseChoices(hidden.config, hidden.answer, 1)?.inputs?.length, 2);
+  assert.equal(phaseChoices(hidden.config, hidden.answer, hidden.naming, 1)?.inputs?.length, 24);
   // With no count to go on, nothing is guessed at.
-  assert.equal(phaseChoices(it.config, answer(), 1)?.inputs, undefined);
+  const unknown = aggregateNaming({ devices: [{ key: "Q" }, { key: "Other" }] }, answer(), { devices: [] });
+  assert.equal(phaseChoices({ devices: [{ key: "Q" }, { key: "Other" }] }, answer(), unknown, 1)?.inputs, undefined);
   // And a setting made while more channels were known is kept on the list.
-  assert.deepEqual(choicesWith([{ value: 0, text: "Studio+ 1" }], 9, "Studio+").map((one) => one.text), ["Studio+ 1", "Studio+ 10 (not listed now)"]);
-  assert.equal(choicesWith(undefined, undefined, "Studio+").length, 0);
+  assert.deepEqual(choicesWith([{ value: 0, text: "USB REC 1" }], 30, (channel) => `USB REC ${channel + 1}`).map((one) => one.text), ["USB REC 1", "USB REC 31 (not listed now)"]);
+  assert.equal(choicesWith(undefined, undefined, String).length, 0);
 });
 
 test("nothing is written until both channels are chosen, and a new path loses the old reference", () => {
@@ -922,14 +1054,14 @@ test("a reading says what its interface lost, and how steady it was against what
   assert.equal(wide.tone, "off");
 });
 
-test("a channel the run listened in on is named by its interface and that interface's number, and changes no trim", () => {
-  const it = twoInterfaces([{}, { input_names: { "1": "SPDIF L" } }]);
-  const inputs = interfaceChannels(it.config, it.answer, true);
+test("a channel the run listened in on is named as every other channel is, and changes no trim", () => {
+  const it = twoInterfaces([{}, { input_names: { "1": "SPDIF L" }, inputs: [0, 1] }]);
+  const inputs = interfaceChannels(it.config, it.naming, true);
   const run = measured({ witnesses: [{ channel: 1, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }] });
-  const views = witnessViews(run, inputs);
-  assert.equal(views[0]?.channel, "SPDIF L (Studio+ 2)");
+  const views = witnessViews(run, inputs, it.config, it.naming);
+  assert.equal(views[0]?.channel, "SPDIF L, USB REC 2");
   const unlisted = measured({ witnesses: [{ channel: 8, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8 }] });
-  assert.equal(witnessViews(unlisted, inputs)[0]?.channel, "Studio+ 9", "one the page does not list is still named, from one");
+  assert.equal(witnessViews(unlisted, inputs, it.config, it.naming)[0]?.channel, "USB REC 9", "one the page does not list is still named");
   assert.equal(views[0]?.lag, "3.2 samples late");
   assert.equal(views[0]?.clicks, "8 of 8 clicks found");
   assert.deepEqual(witnessViews(measured(), inputs), []);
@@ -963,8 +1095,10 @@ test("a phase not measured says where on the page to set it up", () => {
   const reason = { code: "phase_not_measured" as const, severity: "warning" as const, message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_id: "loopback-1" };
   assert.match(String(reasonHint(reason)), /Phase on Studio\+'s card/);
   assert.match(String(reasonHint(reason)), /A trim does not answer this/);
-  assert.equal(reasonCard(reason, it.config), 1);
-  assert.equal(reasonCard({ ...reason, device: "Gone" }, it.config), undefined);
+  assert.equal(reasonCard(reason, it.config, it.naming), 1, "by Gazelle's name for it");
+  assert.equal(reasonCard({ ...reason, device: "Gone" }, it.config, it.naming), undefined);
+  assert.equal(reasonCard({ ...reason, device: "Called anything", device_index: 1 }, it.config, it.naming), 1, "and by its place, where the server gives it");
+  assert.equal(reasonCard({ ...reason, device_index: 7 }, it.config, it.naming), undefined, "a place the setup does not have is no card");
   assert.equal(reasonHint({ code: "no_cable", severity: "blocking", message: "" }), undefined);
   assert.equal(reasonCard({ code: "no_cable", severity: "blocking", message: "", device: "Studio+" }, it.config), undefined);
 });
@@ -1031,8 +1165,12 @@ test("nothing this module writes carries an en or em dash", () => {
     readingView(heard({ drift: { samples_per_second: 0.6, ppm: 6.25, real: true } })).drift ?? "",
     readingView(heard()).lag,
     appliedTrimsText(trimsToApply(measured())),
-    String(calibrateProblem({ ...defaultPicks(twoInterfaces().config, twoInterfaces().answer), outputs: [1, 1] }, twoInterfaces().config, twoInterfaces().answer)),
-    cablingSteps(defaultPicks(twoInterfaces().config, twoInterfaces().answer), twoInterfaces().config, twoInterfaces().answer)[0]?.text ?? "",
+    String(calibrateProblem({ ...defaultPicks(twoInterfaces().config, twoInterfaces().naming), outputs: [1, 1] }, twoInterfaces().config, twoInterfaces().naming)),
+    cablingSteps(defaultPicks(twoInterfaces().config, twoInterfaces().naming), twoInterfaces().config, twoInterfaces().naming)[0]?.text ?? "",
+    String(countCheck(aggregateNaming({ devices: [{ key: "Q", device_id: "serial:Q" }] }, answer({ devices: [report("Quadro", { index: 0, device_id: "serial:Q" })], status: live({ devices: [liveDevice("Quadro", { inputs: 14, outputs: 8 })] }) }), { devices: attached })[0])),
+    dawChannelName("Zen Quadro Synergy Core", 0, "Vocal mic"),
+    channelName({ key: "Q" }, twoInterfaces().naming[0], true, 0).text,
+    driverOfferText({ key: "ZenStudioTB" }, [{ id: "serial:S", model: "Zen Studio+", family: "studio", backend: "usb" }], {}),
   ];
   for (const text of texts) assert.doesNotMatch(text, DASHES, text);
 });
@@ -1361,8 +1499,8 @@ test("the setup is edited in the workspace, which is what exports the driver's f
   const it = store();
   await it.store.start();
   await flush();
-  assert.equal(it.store.editAggregate((current) => ({ ...current, devices: [{ key: "Zen Quadro", name: "Quadro" }] })), true);
-  assert.deepEqual(it.store.workspace.value?.aggregate?.devices, [{ key: "Zen Quadro", name: "Quadro" }]);
+  assert.equal(it.store.editAggregate((current) => ({ ...current, devices: [{ key: "Zen Quadro" }] })), true);
+  assert.deepEqual(it.store.workspace.value?.aggregate?.devices, [{ key: "Zen Quadro" }]);
   // The rest of the workspace is untouched by an aggregate edit.
   assert.deepEqual(it.store.workspace.value?.groups, []);
 });
