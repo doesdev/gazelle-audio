@@ -19,6 +19,8 @@ struct Model {
     destination_groups: Vec<Group>,
     /// The source group each mix plays out of, by mix: `MIXER_OUT0` for mix 1 and so on.
     mix_outputs: Vec<String>,
+    /// The destination group each mix takes its channels from, by mix: `MIXER_IN0` for mix 1.
+    mix_inputs: Vec<String>,
 }
 
 /// One routing group as the topology lists it.
@@ -63,11 +65,18 @@ fn parse(json: &str) -> Model {
             })
             .unwrap_or_default()
     };
-    let mix_outputs = topology["mixers"]["outputGroups"]
-        .as_array()
-        .map(|ids| ids.iter().filter_map(|id| Some(id.as_str()?.to_owned())).collect())
-        .unwrap_or_default();
-    Model { inputs: side("inputs"), outputs: side("outputs"), output_ids, source_groups: whole("inputs"), destination_groups: whole("outputs"), mix_outputs }
+    let ids = |name: &str| -> Vec<String> {
+        topology["mixers"][name].as_array().map(|ids| ids.iter().filter_map(|id| Some(id.as_str()?.to_owned())).collect()).unwrap_or_default()
+    };
+    Model {
+        inputs: side("inputs"),
+        outputs: side("outputs"),
+        output_ids,
+        source_groups: whole("inputs"),
+        destination_groups: whole("outputs"),
+        mix_outputs: ids("outputGroups"),
+        mix_inputs: ids("inputGroups"),
+    }
 }
 
 fn model(family: &str) -> Option<&'static Model> {
@@ -114,6 +123,11 @@ pub fn destination_groups_whole(family: &str) -> Option<&'static [Group]> {
 /// The source group each of a model's mixes plays out of, by mix, as topology ids.
 pub fn mix_outputs(family: &str) -> Option<&'static [String]> {
     model(family).map(|m| m.mix_outputs.as_slice())
+}
+
+/// The destination group each of a model's mixes takes its channels from, by mix, as topology ids.
+pub fn mix_inputs(family: &str) -> Option<&'static [String]> {
+    model(family).map(|m| m.mix_inputs.as_slice())
 }
 
 /// How many outputs `set_volume` addresses: MONITOR, HP1, HP2, LINE OUT, and the Studio+'s REAMP.
@@ -228,6 +242,7 @@ mod tests {
         let destinations = destination_groups_whole("studio").expect("studio topology");
         assert!(destinations.iter().any(|g| g.id == "USB_REC0" && g.name == "USB REC" && g.channels == 24));
         assert_eq!(mix_outputs("quadro").expect("quadro mixes"), ["MIXER_OUT0", "MIXER_OUT1", "MIXER_OUT2", "MIXER_OUT3"]);
+        assert_eq!(mix_inputs("studio").expect("studio mixes"), ["MIXER_IN0", "MIXER_IN1", "MIXER_IN2", "MIXER_IN3"]);
         assert!(source_groups("zen").is_none());
     }
 

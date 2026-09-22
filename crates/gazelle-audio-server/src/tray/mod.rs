@@ -388,6 +388,7 @@ mod tests {
             pid: 0xa2f9,
             slug: None,
             model: Some("Zen Quadro".into()),
+            short_model: None,
             family: None,
             command_count: None,
             identity_stable: true,

@@ -31,6 +31,33 @@ pub const OUT_OF_SCOPE: [&str; 4] = [
     "get_assignment_status",
 ];
 
+/// What Gazelle knows about one model beyond its command schema. A model Gazelle learns to drive
+/// adds one line to [`MODELS`], and everything that names a model reads it from there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModelFacts {
+    pub pid: u16,
+    /// Stable short key clients switch on: `quadro` or `studio`.
+    pub family: &'static str,
+    /// Device slug, e.g. `zenquadrosc_usb2`.
+    pub slug: &'static str,
+    /// Human-readable model name, as the sidebar shows a device nobody has named.
+    pub model: &'static str,
+    /// The model's short form, which is what the aggregate's channels carry in a DAW for a device
+    /// nobody has named: "Quadro 3" fits the interface's 31 characters where the full name does not.
+    pub short: &'static str,
+}
+
+/// Every model Gazelle knows.
+pub const MODELS: &[ModelFacts] = &[
+    ModelFacts { pid: PID_QUADRO, family: "quadro", slug: "zenquadrosc_usb2", model: "Zen Quadro Synergy Core", short: "Quadro" },
+    ModelFacts { pid: PID_STUDIO, family: "studio", slug: "zenstudiotb", model: "Zen Studio+", short: "Studio+" },
+];
+
+/// The facts of a model, by its family key.
+pub fn model_facts(family: &str) -> Option<&'static ModelFacts> {
+    MODELS.iter().find(|facts| facts.family == family)
+}
+
 /// A named registry plus the model it belongs to.
 #[derive(Clone)]
 pub struct ModelRegistry {
@@ -40,6 +67,8 @@ pub struct ModelRegistry {
     pub slug: &'static str,
     /// Human-readable model name.
     pub model: &'static str,
+    /// The model's short form ([`ModelFacts::short`]).
+    pub short: &'static str,
     pub registry: Arc<Registry>,
 }
 
@@ -65,19 +94,19 @@ impl RegistrySet {
         ));
 
         let mut set = RegistrySet::default();
-        set.insert(PID_QUADRO, "quadro", "zenquadrosc_usb2", "Zen Quadro Synergy Core", QUADRO_JSON)?;
-        set.insert(PID_STUDIO, "studio", "zenstudiotb", "Zen Studio+", STUDIO_JSON)?;
+        for facts in MODELS {
+            let json = match facts.family {
+                "quadro" => QUADRO_JSON,
+                "studio" => STUDIO_JSON,
+                other => return Err(format!("{other}: no schema is built in for this model")),
+            };
+            set.insert(facts, json)?;
+        }
         Ok(set)
     }
 
-    fn insert(
-        &mut self,
-        pid: u16,
-        family: &'static str,
-        slug: &'static str,
-        model: &'static str,
-        json: &str,
-    ) -> Result<(), String> {
+    fn insert(&mut self, facts: &ModelFacts, json: &str) -> Result<(), String> {
+        let ModelFacts { pid, family, slug, model, short } = *facts;
         let mut doc: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| format!("{slug}: schema is not valid JSON: {e}"))?;
         if let Some(commands) = doc.get_mut("commands").and_then(|c| c.as_object_mut()) {
@@ -89,7 +118,7 @@ impl RegistrySet {
             .map_err(|e| format!("{slug}: schema could not be loaded: {e:?}"))?;
         self.by_pid.insert(
             pid,
-            ModelRegistry { family, slug, model, registry: Arc::new(registry) },
+            ModelRegistry { family, slug, model, short, registry: Arc::new(registry) },
         );
         Ok(())
     }

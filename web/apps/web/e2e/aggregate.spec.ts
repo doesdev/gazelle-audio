@@ -547,8 +547,9 @@ test("the channels are the interface's USB channels, all of them, each named by 
   await expect(page.getByTestId("device-0-in-15-name")).toHaveText("USB A REC 16");
   await expect(page.getByTestId("device-0-in-16")).toHaveCount(0, { timeout: 2000 });
   await expect(page.getByTestId("device-0-out-1-name")).toHaveText("USB 1 PLAY 2");
-  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: USB A REC 1 (Quadro 1)");
-  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "USB A REC 1");
+  // The name already says USB A REC 1, so the DAW line gives only the reference the DAW adds.
+  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
+  await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
   await expect(page.getByTestId("device-0-channels-note")).toContainText("USB channels");
   await expect(page.getByTestId("device-0-channels-check")).toBeHidden();
   await expect(page.getByTestId("aggregate-names-note")).toContainText("a short name for the device in Gazelle keeps that part");
@@ -605,7 +606,7 @@ test("naming a channel writes the name, and clearing it takes the entry out rath
   await expect(page.getByTestId("device-0-in-0-label")).toHaveValue("Vocal mic");
   // The typed name is the channel's name now, on the page and in the DAW.
   await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
-  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: Vocal mic (Quadro 1)");
+  await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
   // A label is at most 31 characters, and the field will not take more.
   await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("maxlength", "31");
 
@@ -1296,8 +1297,14 @@ test.describe("with the routing read from the interfaces", () => {
     await expect(page.getByTestId("device-1-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
     await expect(page.getByTestId("device-1-in-1-name")).toHaveText("PREAMP 2, USB A REC 2");
     await expect(page.getByTestId("device-1-in-4-name")).toHaveText("USB A REC 5", { timeout: 2000 });
-    await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: Vocal mic (Quadro 1)");
-    await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Vocal mic");
+    await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
+    await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
+    // Each output is named for where the routing sends it: the loopback's first USB playback channel
+    // goes to the line outs, the monitors and S/PDIF, and through Mixes 1 and 2 to the headphones,
+    // and it sits in Mixes 3 and 4, which go nowhere. The third goes nowhere at all.
+    await expect(page.getByTestId("device-1-out-0-name")).toHaveText("Line out L +6, USB 1 PLAY 1");
+    await expect(page.getByTestId("device-1-out-2-name")).toHaveText("USB 1 PLAY 3, not routed");
+    await expect(page.getByTestId("device-1-out-2-daw")).toHaveText("In a DAW: Not routed (Quadro 3)");
 
     // The calibration's pickers and its cabling name the same channels the same way.
     await page.getByTestId("calibrate-direction").selectOption("outputs");
@@ -1309,7 +1316,7 @@ test.describe("with the routing read from the interfaces", () => {
     // And the phase setup on the follower's card.
     await page.getByTestId("device-1-phase-open").click();
     await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(1)).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("USB PLAY 1");
+    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("Line out 1 +6, USB PLAY 1");
   });
 
   test("renaming the device in Gazelle renames it on the page, and the callback master stays the same device", async ({ page }) => {
@@ -1318,7 +1325,8 @@ test.describe("with the routing read from the interfaces", () => {
     await page.goto(`${reading.url}/#/aggregate`);
     await expect(page.getByTestId("device-0-name")).toHaveText("Zen Quadro Synergy Core");
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: PREAMP 1", { timeout: 5000 });
+    // Nobody has named it, so in a DAW it goes by its model's short form, and the reference fits.
+    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)", { timeout: 5000 });
 
     // Renamed where every device is renamed, on the Workspace page.
     await page.goto(`${reading.url}/#/workspace`);
@@ -1332,10 +1340,43 @@ test.describe("with the routing read from the interfaces", () => {
     await expect(page.getByTestId("aggregate-master").locator("option:checked")).toHaveText("Desk");
     // A short name keeps the driver's own part of the channel's name in the DAW.
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: PREAMP 1 (Desk 1)");
+    await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Desk 1)");
     // And the setup itself never changed: the master is still written as the device's driver.
     const saved = (await (await fetch(`${reading.url}/api/v1/workspace`)).json()) as { aggregate: { callback_master: string } };
     expect(saved.aggregate.callback_master).toBe("Zen Quadro Synergy Core");
+  });
+});
+
+test.describe("each name said once", () => {
+  let reading: RunningServer;
+
+  test.beforeAll(async () => {
+    reading = await startServer(["--backend", "loopback"], { webUi: true });
+  });
+
+  test.afterAll(async () => {
+    await reading?.stop();
+  });
+
+  test("every row of the Channels part says its name once, with an empty field and the DAW line only where it adds something", async ({ page }) => {
+    await putWorkspace(reading, { aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Zen Quadro Synergy Core", { is_master: true })] }));
+    await page.goto(`${reading.url}/#/aggregate`);
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("USB 1 PLAY 3, not routed", { timeout: 5000 });
+    for (const side of ["in", "out"]) {
+      for (let channel = 0; channel < 16; channel += 1) {
+        const row = page.getByTestId(`device-0-${side}-${channel}`);
+        const name = (await page.getByTestId(`device-0-${side}-${channel}-name`).textContent()) ?? "";
+        const label = page.getByTestId(`device-0-${side}-${channel}-label`);
+        await expect(label).toHaveValue("");
+        await expect(label).toHaveAttribute("placeholder", "Your name for it");
+        const said = (await row.innerText()).split(name).length - 1;
+        expect(said, `${side} ${channel}: "${name}" is said ${said} times in "${await row.innerText()}"`).toBe(1);
+        const daw = page.getByTestId(`device-0-${side}-${channel}-daw`);
+        if ((await daw.count()) > 0) expect(await daw.textContent()).not.toBe(`In a DAW: ${name}`);
+      }
+    }
   });
 });
 

@@ -5,8 +5,9 @@
 //! routing change itself, whichever client asked for it, and remembers it
 //! (`crate::device::routing_memory`); this waits on that, and on devices coming and going, and asks
 //! the exporting store to look again. It does not depend on any page being open, and it never polls
-//! a device: the only thing it ever asks one is its USB record routing, once, when an interface of
-//! the aggregate is there and Gazelle has not seen that group since it was attached.
+//! a device: the only thing it ever asks one is a routing group the names come from (its USB record
+//! group, its outputs and its mix inputs), each once, when an interface of the aggregate is there
+//! and Gazelle has not seen that group since it was attached.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -15,14 +16,15 @@ use gazelle_audio_protocol::payload::PayloadValues;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::aggregate::export::ExportingStore;
-use crate::aggregate::naming::{device_of, usb_groups};
+use crate::aggregate::naming::{device_of, naming_groups};
 use crate::device::descriptor::DeviceId;
 use crate::device::manager::{DeviceManager, ServerEvent};
 use crate::workspace::model::Workspace;
 use crate::workspace::store::WorkspaceStore;
 
-/// The record groups worth reading now: every interface of the aggregate that is connected, whose
-/// model is known and whose USB record routing Gazelle has not seen, as `(device, wire position)`.
+/// The routing groups worth reading now: for every interface of the aggregate that is connected and
+/// of a known model, each group its names come from that Gazelle has not seen, as `(device, wire
+/// position)`.
 pub fn wanted_reads(workspace: &Workspace, devices: &DeviceManager) -> Vec<(DeviceId, u32)> {
     let Some(config) = &workspace.aggregate else { return Vec::new() };
     let attached = devices.descriptors();
@@ -32,8 +34,10 @@ pub fn wanted_reads(workspace: &Workspace, devices: &DeviceManager) -> Vec<(Devi
         .filter_map(|device| {
             let id = device_of(device)?;
             let descriptor = attached.iter().find(|d| &d.id == id)?;
-            let groups = usb_groups(descriptor.family.as_deref()?)?;
-            devices.routing().slots(id, groups.record_position).is_none().then(|| (id.clone(), groups.record_position))
+            Some((id.clone(), naming_groups(descriptor.family.as_deref()?)))
+        })
+        .flat_map(|(id, groups)| {
+            groups.into_iter().filter(|(_, position)| devices.routing().slots(&id, *position).is_none()).map(|(_, position)| (id.clone(), position)).collect::<Vec<_>>()
         })
         .collect()
 }
@@ -45,7 +49,7 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
     let mut events = devices.subscribe();
     // A group asked for once is not asked for again until its device has been away and come back,
     // so a device that will not answer is not asked over and over.
-    let mut asked: BTreeSet<DeviceId> = BTreeSet::new();
+    let mut asked: BTreeSet<(DeviceId, u32)> = BTreeSet::new();
     loop {
         let refreshing = store.clone();
         match tokio::task::spawn_blocking(move || refreshing.refresh()).await {
@@ -56,13 +60,13 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
         if reads {
             if let Ok(workspace) = store.load() {
                 for (id, group) in wanted_reads(&workspace, &devices) {
-                    if !asked.insert(id.clone()) {
+                    if !asked.insert((id.clone(), group)) {
                         continue;
                     }
                     let Ok(handle) = devices.handle(&id) else { continue };
                     // What it answers is remembered on the way back, which wakes this loop again.
                     if let Err(why) = handle.request("get_routing", PayloadValues::default(), Some(group), false).await {
-                        tracing::info!("{id} did not say what its USB record channels are routed from, so the aggregate names them by channel: {why}");
+                        tracing::info!("{id} did not say how routing group {group} is routed, so the aggregate names those channels by their USB channel: {why}");
                     }
                 }
             }
@@ -81,7 +85,7 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
                 event = events.recv() => match event {
                     Ok(ServerEvent::DeviceAdded(_)) => break,
                     Ok(ServerEvent::DeviceRemoved(id)) => {
-                        asked.remove(&id);
+                        asked.retain(|(device, _)| *device != id);
                         break;
                     }
                     Ok(ServerEvent::Device(_)) => continue,
@@ -97,6 +101,7 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aggregate::naming::usb_groups;
     use crate::device::manager::loopback_stack;
     use crate::registry_set::{RegistrySet, PID_QUADRO};
     use crate::workspace::model::{Aggregate, AggregateDevice};
@@ -127,10 +132,14 @@ mod tests {
         let devices = attached_quadro();
         let workspace = setup(&["Q", "elsewhere"]);
         let position = usb_groups("quadro").unwrap().record_position;
-        assert_eq!(wanted_reads(&workspace, &devices), vec![(DeviceId::from_serial("Q"), position)], "only the connected one");
+        let wanted = wanted_reads(&workspace, &devices);
+        assert_eq!(wanted.len(), 10, "its record group, five outputs and four mix inputs: {wanted:?}");
+        assert!(wanted.iter().all(|(id, _)| id == &DeviceId::from_serial("Q")), "only the connected one");
 
         let handle = devices.handle(&DeviceId::from_serial("Q")).unwrap();
-        handle.request("get_routing", PayloadValues::default(), Some(position), false).await.expect("the loopback answers");
+        for (_, group) in &wanted {
+            handle.request("get_routing", PayloadValues::default(), Some(*group), false).await.expect("the loopback answers");
+        }
         let slots = devices.routing().slots(&DeviceId::from_serial("Q"), position).expect("remembered on the way back");
         assert_eq!(&slots[..4], &[[0, 0], [0, 1], [0, 2], [0, 3]], "the loopback's USB A REC takes the four preamps");
         assert!(wanted_reads(&workspace, &devices).is_empty(), "and nothing more is wanted");

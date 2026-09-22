@@ -14,7 +14,7 @@ use crate::aggregate::bundled;
 use crate::aggregate::config::master_index;
 use crate::aggregate::elevate::{command_for, dll_candidates, DllSearch, Elevator};
 use crate::aggregate::export::{with_known, Live, Seen};
-use crate::aggregate::naming::{self, interface_names, usb_groups};
+use crate::aggregate::naming::{self, daw_names, interface_names, naming_groups, usb_groups};
 use crate::aggregate::readiness::{self, Reason};
 use crate::aggregate::registry::{self, entry_matches, AsioRegistry, AGGREGATE_CLSID, AGGREGATE_NAME};
 use crate::aggregate::status::{AggregateEvent, StatusLink, StatusReading};
@@ -169,6 +169,7 @@ impl AggregateService {
     fn reports(&self, config: &Aggregate, entries: &[registry::RawEntry], attached: &[DeviceDescriptor], workspace: &Workspace) -> Vec<DeviceReport> {
         let master = master_index(config);
         let names = interface_names(config, workspace);
+        let daw = daw_names(config, workspace);
         config
             .devices
             .iter()
@@ -182,6 +183,7 @@ impl AggregateService {
                 let family = descriptor.as_ref().and_then(|d| d.family.clone()).or_else(|| device.known.as_ref().and_then(|known| known.family.clone()));
                 let mut report = DeviceReport {
                     index,
+                    daw_name: daw[index].clone(),
                     is_master: master == Some(index),
                     name,
                     key: device.key.clone(),
@@ -313,8 +315,8 @@ fn usb_channels(family: &str) -> Option<UsbChannels> {
     Some(UsbChannels { inputs: groups.record.channels, outputs: groups.playback.channels, input_group: groups.record.name, output_group: groups.playback.name })
 }
 
-/// What Gazelle can see now of each entry: the device the one rule matches it to, and that device's
-/// USB record routing as the commands through this server last left it. This is what keeps the
+/// What Gazelle can see now of each entry: the device the one rule matches it to, and the routing
+/// groups its names come from as the commands through this server last left them. This is what keeps the
 /// names in the driver's file following the devices (`crate::aggregate::export`).
 impl Live for AggregateService {
     fn seen(&self, config: &Aggregate) -> Vec<Option<Seen>> {
@@ -327,12 +329,11 @@ impl Live for AggregateService {
             .iter()
             .map(|device| {
                 let descriptor = match_device(device, "", &entries, &attached).descriptor?;
-                let record_routing = descriptor
-                    .family
-                    .as_deref()
-                    .and_then(usb_groups)
-                    .and_then(|groups| self.devices.routing().slots(&descriptor.id, groups.record_position));
-                Some(Seen { device_id: descriptor.id, family: descriptor.family, model: descriptor.model, record_routing })
+                let routing = naming_groups(descriptor.family.as_deref().unwrap_or_default())
+                    .into_iter()
+                    .filter_map(|(id, position)| Some((id, self.devices.routing().slots(&descriptor.id, position)?)))
+                    .collect();
+                Some(Seen { device_id: descriptor.id, family: descriptor.family, model: descriptor.model, routing })
             })
             .collect()
     }
@@ -411,6 +412,7 @@ mod tests {
             pid: 0xa2f9,
             slug: None,
             model: None,
+            short_model: None,
             family: Some(family.into()),
             command_count: None,
             identity_stable: true,

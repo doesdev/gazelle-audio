@@ -136,8 +136,11 @@ export interface AggregateKnown {
   device_id?: string;
   family?: string;
   model?: string;
-  /** What its routing sends to each of its USB record channels, as `[source group, channel]`. */
-  record_routing?: [number, number][];
+  /**
+   * The routing groups its channel names come from, by topology id: its USB record group, its
+   * outputs and its mix inputs, each as its slots, `[source group, channel]`.
+   */
+  routing?: Record<string, [number, number][]>;
 }
 
 /** One interface the aggregate opens. It needs a `key` or a `clsid`. */

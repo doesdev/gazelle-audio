@@ -91,6 +91,12 @@ export interface AggregateDeviceReport {
    * driver is given, so the driver's own record and log call it the same.
    */
   name: string;
+  /**
+   * What the driver is given for it, and so what the driver's record, its log and a measurement
+   * call it: the person's own name for the device, else its model's short form. Older servers
+   * leave it out.
+   */
+  daw_name?: string;
   key?: string;
   clsid?: string;
   /** Whether a driver on this PC registers it. */

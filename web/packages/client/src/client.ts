@@ -27,6 +27,8 @@ export interface DeviceDescriptor {
   pid: number;
   slug: string | null;
   model: string | null;
+  /** The model's short form, "Quadro" or "Studio+". Older servers leave it out. */
+  short_model?: string | null;
   family: Family | null;
   command_count: number | null;
   identity_stable: boolean;

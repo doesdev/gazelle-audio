@@ -51,7 +51,7 @@ import {
   CHANNEL_LABEL_MAX,
   CLICKS,
   countCheck,
-  dawChannelName,
+  dawLine,
   deviceViews,
   driftFound,
   driverOfferText,
@@ -67,6 +67,8 @@ import {
   masterIndex,
   masterReference,
   matchedBy,
+  namingGroups,
+  pageNameOf,
   matchNote,
   matchTarget,
   outcomeSummary,
@@ -93,6 +95,7 @@ import {
   withChannelExposed,
   withChannelName,
   withMeasuredTrims,
+  withPageNames,
   withPass,
   withPhase,
   witnessViews,
@@ -383,20 +386,21 @@ export class GaAggregate extends GaElement {
       readAt.textContent = `Read at ${new Date(answer.read_at_ms).toLocaleTimeString()}.`;
       this.#showReasons(store, reasons, noReasons, answer);
       this.#showRegistration(registration, command, registerButton, unregisterButton, answer);
-      this.#showPlan(plan, live, liveNote, answer);
+      this.#showPlan(plan, live, liveNote, answer, untracked(() => this.#naming(store)));
       this.#showEvents(events, eventsNote, answer);
       matchButton.hidden = answer.devices.length < 2;
       matchButton.title = buffersMatch(answer) ? "Every interface is already on one buffer size" : `Put every interface on ${matchTarget(answer) ?? "one"} samples: ${RESTARTS}`;
     });
 
-    // Each interface's USB record channels are named for what its routing sends them, so that one
-    // group is read, once, as the Routing page reads it, and again only once the device has been
+    // Each interface's channels are named from its routing: its USB record group for what feeds each
+    // input, and its outputs and mix inputs for where each USB playback channel ends up. Each of those
+    // groups is read once, as the Routing page reads it, and again only once the device has been
     // away. Nothing is read for an interface Gazelle does not know the model of.
     this.watch(() => {
       for (const named of this.#naming(store)) {
-        const groups = usbGroups(named.topology);
+        const groups = namingGroups(named.topology);
         const id = named.deviceId;
-        if (id !== undefined && groups !== undefined && store.routesToRead(id, [groups.recordPosition])) untracked(() => void store.readRoutes(id, [groups.recordPosition]));
+        if (id !== undefined && groups.length > 0 && store.routesToRead(id, groups)) untracked(() => void store.readRoutes(id, groups));
       }
     });
 
@@ -437,7 +441,7 @@ export class GaAggregate extends GaElement {
       devices: store.devices.value,
       aliases: workspace?.aliases,
       layouts: workspace?.mixers,
-      record: (deviceId, destination) => (store.topology(deviceId) === undefined ? undefined : store.routing(deviceId).destination(destination).value),
+      routing: (deviceId, destination) => (store.topology(deviceId) === undefined ? undefined : store.routing(deviceId).destination(destination).value),
     });
   }
 
@@ -765,7 +769,7 @@ export class GaAggregate extends GaElement {
       channelsCheck.hidden = check === undefined;
       channelsCheck.textContent = check ?? "";
       const texts = (input: boolean, count: number | undefined) => Array.from({ length: count ?? 0 }, (_, channel) => channelName(device, naming, input, channel));
-      const shape = JSON.stringify([counts, named, texts(true, counts.inputs), texts(false, counts.outputs)]);
+      const shape = JSON.stringify([counts, named, naming?.dawName, texts(true, counts.inputs), texts(false, counts.outputs)]);
       if (shape !== built) {
         built = shape;
         untracked(() => {
@@ -896,8 +900,10 @@ export class GaAggregate extends GaElement {
   }
 
   /**
-   * One channel: whether the aggregate exposes it, its name, a name of the person's own for it, and
-   * what a DAW will show for it.
+   * One channel: whether the aggregate exposes it, its name, a field for a name of the person's own,
+   * and what a DAW will show for it where that says something the name does not. The automatic name
+   * is said once: the field is empty until somebody types, and the DAW line is left out when it would
+   * only repeat the name.
    */
   #channelRow(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, channel: number, count: number, naming: InterfaceNaming | undefined): HTMLElement {
     const side = input ? "in" : "out";
@@ -922,11 +928,10 @@ export class GaAggregate extends GaElement {
       exposed ? "On" : "Off",
     );
 
-    // The automatic label is the placeholder, so an empty field says what the channel will be called.
     const label = h("input", {
       class: "field",
       maxlength: String(CHANNEL_LABEL_MAX),
-      placeholder: called.automatic ?? called.usb,
+      placeholder: "Your name for it",
       "aria-label": `Name of your own for ${called.usb}`,
       "data-testid": `${testid}-label`,
       "data-explain": "aggregate.channel-label",
@@ -939,14 +944,15 @@ export class GaAggregate extends GaElement {
     );
     showLabel(channelLabel(device[nameKey], channel));
 
-    const daw = dawChannelName(named, channel, called.typed ?? called.automatic);
+    // The DAW's reference is the device's DAW name, its model's short form where nobody named it.
+    const daw = dawLine(naming?.dawName ?? named, channel, called);
     return h(
       "div",
       { class: "channel-row", "data-testid": testid },
       expose,
       h("span", { class: "channel-name readout", "data-testid": `${testid}-name`, "data-explain": "aggregate.channel-name" }, called.text),
       label,
-      h("span", { class: "daw readout", "data-testid": `${testid}-daw`, "data-explain": "aggregate.channel-daw" }, `In a DAW: ${daw}`),
+      ...(daw === undefined ? [] : [h("span", { class: "daw readout", "data-testid": `${testid}-daw`, "data-explain": "aggregate.channel-daw" }, `In a DAW: ${daw}`)]),
     );
   }
 
@@ -1258,7 +1264,8 @@ export class GaAggregate extends GaElement {
       refusal.textContent = said ?? "";
 
       // What it measured, rebuilt only when the outcome itself changes.
-      const outcome = state?.state === "done" ? state.outcome : undefined;
+      // A run names each interface by its DAW name; the page goes by Gazelle's.
+      const outcome = withPageNames(state?.state === "done" ? state.outcome : undefined, named);
       const shown = JSON.stringify(outcome ?? null);
       if (shown !== shownOutcome) {
         shownOutcome = shown;
@@ -1425,9 +1432,9 @@ export class GaAggregate extends GaElement {
    * run names each interface by Gazelle's name for it, which is what finds its entry.
    */
   #applyTrims(store: Store): void {
-    const outcome = store.aggregate.calibration.peek()?.outcome;
-    const changing = trimsToApply(outcome);
     const naming = untracked(() => this.#naming(store));
+    const outcome = withPageNames(store.aggregate.calibration.peek()?.outcome, naming);
+    const changing = trimsToApply(outcome);
     store.editAggregate((current) => withMeasuredTrims(current, outcome, interfaceNames(current, naming)));
     store.view<string | undefined>("aggregate:calibrate:applied", undefined).value = appliedTrimsText(changing);
   }
@@ -1436,7 +1443,7 @@ export class GaAggregate extends GaElement {
   // Live, while a DAW has it open
   // -------------------------------------------------------------------------------------------
 
-  #showPlan(fields: HTMLElement, rows: HTMLElement, note: HTMLElement, answer: AggregateAnswer): void {
+  #showPlan(fields: HTMLElement, rows: HTMLElement, note: HTMLElement, answer: AggregateAnswer, naming: AggregateNaming): void {
     const status = answer.status;
     if (status.state !== "read") {
       note.textContent = status.message;
@@ -1450,7 +1457,7 @@ export class GaAggregate extends GaElement {
     if (plan !== undefined) {
       const row = (label: string, value: string, key: string, testid: string) => [h("dt", {}, label), h("dd", {}, h("span", { class: "readout", "data-testid": `plan-${testid}`, "data-explain": key }, value))];
       fields.replaceChildren(
-        ...row("Master", plan.master, "aggregate.plan-master", "master"),
+        ...row("Master", pageNameOf(plan.master, naming), "aggregate.plan-master", "master"),
         ...row("Rate", `${Number((plan.rate / 1000).toFixed(3))} kHz`, "aggregate.plan-rate", "rate"),
         ...row("Buffer", `${plan.buffer_size} samples`, "aggregate.plan-buffer", "buffer"),
         ...row("Channels", `${plan.inputs} in, ${plan.outputs} out`, "aggregate.plan-channels", "channels"),
@@ -1467,7 +1474,7 @@ export class GaAggregate extends GaElement {
         return h(
           "div",
           { class: "live-row field-line", "data-testid": `live-${device.name}` },
-          h("span", {}, device.name, device.is_master ? " (master)" : ""),
+          h("span", {}, pageNameOf(device.name, naming), device.is_master ? " (master)" : ""),
           h("span", { class: "readout gap", "data-tone": reading.tone, "data-testid": `live-gap-${device.name}`, "data-explain": "aggregate.live-gap" }, reading.text),
           h("span", { class: "readout", "data-testid": `live-callbacks-${device.name}`, "data-explain": "aggregate.live-callbacks" }, `${device.callbacks} blocks`),
           h("span", { class: "readout", "data-testid": `live-dropped-${device.name}`, "data-explain": "aggregate.live-dropped" }, `${device.dropped} dropped`),

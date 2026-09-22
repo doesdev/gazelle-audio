@@ -208,8 +208,10 @@ export function deviceViews(answer: AggregateAnswer | undefined): AggregateDevic
   if (answer === undefined) return [];
   const live = new Map((answer.status.state === "read" ? answer.status.devices : []).map((device) => [device.name, device]));
   const views: AggregateDeviceView[] = answer.devices.map((report) => {
-    const found = live.get(report.name);
-    live.delete(report.name);
+    // The driver knows each interface by the name it was given, which is the DAW's name for it.
+    const called = report.daw_name ?? report.name;
+    const found = live.get(called);
+    live.delete(called);
     return found === undefined ? { name: report.name, report } : { name: report.name, report, live: found };
   });
   for (const [name, device] of live) views.push({ name, live: device });
@@ -302,15 +304,52 @@ export function usbGroups(topology: Topology | undefined): UsbGroups | undefined
 /** What to call a model when nothing better is known, as the rest of the app names it. */
 const FAMILY_WORDS: Readonly<Record<string, string>> = { quadro: "Zen Quadro Synergy Core", studio: "Zen Studio+" };
 
+/**
+ * The destination group kinds that are sockets on the interface, which is where an output's audio
+ * ends up, with what Gazelle calls each (undefined is the group's own name, as with HP1 and HP2).
+ * The server names them from the same list.
+ */
+const HARDWARE_OUTPUTS: Readonly<Record<string, string | undefined>> = {
+  MONITOR: "Monitor",
+  HEADPHONES: undefined,
+  LINE_OUT: "Line out",
+  REAMP: "Reamp",
+  SPDIF_OUT: "S/PDIF out",
+  ADAT_OUT: "ADAT out",
+};
+
+/** What Gazelle calls a hardware output group, or nothing for a group that is not one. */
+function hardwareName(group: TopologyGroup): string | undefined {
+  return Object.hasOwn(HARDWARE_OUTPUTS, group.type) ? (HARDWARE_OUTPUTS[group.type] ?? group.name) : undefined;
+}
+
+/** A channel of a stereo pair as L or R, and of anything else as its number from one. */
+const side = (channel: number, channels: number): string => (channels === 2 ? (channel === 0 ? "L" : "R") : String(channel + 1));
+
+/**
+ * Every routing group an interface's channel names come from, by place among the destinations: its
+ * USB record group, its hardware outputs and its mix inputs. Each is read once, when first needed.
+ */
+export function namingGroups(topology: Topology | undefined): number[] {
+  const groups = usbGroups(topology);
+  if (topology === undefined || groups === undefined) return [];
+  return topology.outputs.flatMap((group, at) => (at === groups.recordPosition || hardwareName(group) !== undefined || topology.mixers.inputGroups.includes(group.id) ? [at] : []));
+}
+
 /** Everything one interface's names are worked out from, as the page has it now. */
 export interface InterfaceNaming {
   /** Gazelle's name for the device, told apart from the others in the setup. */
   name: string;
+  /**
+   * What a DAW calls it, which is also what the driver's record, its log and a measurement call it:
+   * the person's own name for the device, else its model's short form.
+   */
+  dawName: string;
   /** The Gazelle device it is, when that is known. */
   deviceId?: string;
   topology?: Topology;
-  /** What its routing sends to each of its USB record channels, once that group has been read. */
-  record?: readonly RouteSlot[];
+  /** The routing groups its names come from that have been read, by place among the destinations. */
+  routing?: Readonly<Record<number, readonly RouteSlot[]>>;
   /** Its Mixer layout, where the person's own names for channels and mixes are. */
   layout?: DeviceMixer;
   /** How many channels it has each way: its USB groups' own counts, else what a running driver said. */
@@ -325,13 +364,24 @@ export type AggregateNaming = readonly InterfaceNaming[];
 
 /** Where the naming comes from: the store's devices, the workspace, and the routing it has read. */
 export interface NamingSources {
-  devices: readonly { id: string; model: string | null; family: string | null }[];
+  devices: readonly { id: string; model: string | null; family: string | null; short_model?: string | null }[];
   aliases?: Readonly<Record<string, string>> | undefined;
   layouts?: Readonly<Record<string, DeviceMixer>> | undefined;
   /** Every model's topology; the client's own when not given. */
   topologies?: Readonly<Record<string, Topology>>;
   /** One routing group of one device as read, or nothing while it has not been. */
-  record?: (deviceId: string, destination: number) => readonly RouteSlot[] | undefined;
+  routing?: (deviceId: string, destination: number) => readonly RouteSlot[] | undefined;
+}
+
+/**
+ * Names made distinct without case by a count, as the server makes the names a DAW sees: the second
+ * of a name is "{name} 2".
+ */
+export function countedNames(names: readonly string[]): string[] {
+  return names.map((name, at) => {
+    const before = names.slice(0, at).filter((earlier) => earlier.toLowerCase() === name.toLowerCase()).length;
+    return before === 0 ? name : `${name} ${before + 1}`;
+  });
 }
 
 /**
@@ -375,15 +425,26 @@ export function aggregateNaming(config: Aggregate | undefined, answer: Aggregate
     const groups = usbGroups(topology);
     const live = view?.live;
     const reported = view?.report?.channels;
-    const record = groups !== undefined && id !== undefined ? sources.record?.(id, groups.recordPosition) : undefined;
+    const routing: Record<number, readonly RouteSlot[]> = {};
+    if (id !== undefined) {
+      for (const at of namingGroups(topology)) {
+        const slots = sources.routing?.(id, at);
+        if (slots !== undefined) routing[at] = slots;
+      }
+    }
     const layout = id === undefined ? undefined : sources.layouts?.[id];
+    // In a DAW a device nobody has named goes by its model's short form, which leaves room for the
+    // driver's reference; the server's own answer says it for a device that is not here.
+    const short = attached?.short_model ?? undefined;
+    const dawBase = (alias === undefined || alias === "" ? undefined : alias) ?? short ?? view?.report?.daw_name ?? name;
     const inputs = groups?.record.channels ?? positive(live?.inputs) ?? positive(reported?.inputs);
     const outputs = groups?.playback.channels ?? positive(live?.outputs) ?? positive(reported?.outputs);
     return {
       name,
+      dawName: dawBase,
       ...(id === undefined ? {} : { deviceId: id }),
       ...(topology === undefined ? {} : { topology }),
-      ...(record === undefined ? {} : { record }),
+      ...(Object.keys(routing).length === 0 ? {} : { routing }),
       ...(layout === undefined ? {} : { layout }),
       ...(inputs === undefined ? {} : { inputs }),
       ...(outputs === undefined ? {} : { outputs }),
@@ -391,7 +452,8 @@ export function aggregateNaming(config: Aggregate | undefined, answer: Aggregate
     };
   });
   const names = distinctNames(built.map((one) => one.name));
-  return built.map((one, at) => ({ ...one, name: names[at] as string }));
+  const daw = countedNames(built.map((one) => one.dawName));
+  return built.map((one, at) => ({ ...one, name: names[at] as string, dawName: daw[at] as string }));
 }
 
 /** What one interface is called: Gazelle's name for it, else what little the setup says. */
@@ -436,9 +498,9 @@ export function fitLabel(text: string): string {
 export interface ChannelName {
   /** The USB channel it is: "USB A REC 1", "USB 1 PLAY 5". */
   usb: string;
-  /** What it carries: the name the person typed, else what routing sends it or the Mixer channel that plays it. */
+  /** What it carries: the name the person typed, else what routing sends it or where an output ends up. */
   carries?: string;
-  /** The whole name, as the page shows it everywhere: "Vocal mic, USB A REC 1". */
+  /** The whole name, as the page shows it everywhere: "Vocal mic, USB A REC 1", "USB 1 PLAY 5, not routed". */
   text: string;
   /** The label the driver is given when nobody has typed one, or nothing while the model is not known. */
   automatic?: string;
@@ -446,10 +508,71 @@ export interface ChannelName {
   typed?: string;
 }
 
+/** Where the routing sends an output, as `routed`, or `unrouted` once everything it could reach is known to take none of it. */
+interface OutputPlaces {
+  routed?: string;
+  unrouted: boolean;
+}
+
+/** A mix channel as a person names it: their name for the channel and the mix, where they gave them. */
+function mixChannel(layout: DeviceMixer | undefined, mix: number, slot: number): string {
+  const channel = layout?.channels.find((one) => one.slot === slot && one.name.trim() !== "");
+  const mixName = layout?.mixes[mix]?.name?.trim();
+  return `${channel === undefined ? `Ch ${slot + 1}` : plain(channel.name)} in ${mixName === undefined || mixName === "" ? `Mix ${mix + 1}` : plain(mixName)}`;
+}
+
+/**
+ * Where the routing sends one USB playback channel, as the server works it out for the driver: a
+ * hardware output it reaches, directly or through a mix, first ("Monitor L"; through a mix the side
+ * is the channel's own within its pair); else the mix channel it lands in ("Click in Cue"); several
+ * places are the first and a count of the rest ("Monitor L +2"); nowhere is said only once every
+ * group it could reach has been read.
+ */
+function outputPlaces(topology: Topology, groups: UsbGroups, naming: InterfaceNaming, channel: number): OutputPlaces {
+  const routing = naming.routing ?? {};
+  const taking = (source: number, from: number): [TopologyGroup, number, number][] =>
+    topology.outputs.flatMap((group, at) => {
+      const slots = routing[at];
+      if (slots === undefined) return [];
+      return Array.from({ length: group.channels }, (_, c) => c).filter((c) => slots[c]?.source === source && slots[c]?.channel === from).map((c): [TopologyGroup, number, number] => [group, at, c]);
+    });
+  const hardware: string[] = [];
+  const mixed: string[] = [];
+  const add = (list: string[], name: string) => {
+    if (!list.includes(name)) list.push(name);
+  };
+  for (const [group, , at] of taking(groups.playbackPosition, channel)) {
+    const socket = hardwareName(group);
+    if (socket !== undefined) {
+      add(hardware, `${socket} ${side(at, group.channels)}`);
+      continue;
+    }
+    const mix = topology.mixers.inputGroups.indexOf(group.id);
+    if (mix < 0) continue;
+    const outId = topology.mixers.outputGroups[mix];
+    const out = topology.inputs.findIndex((one) => one.id === outId);
+    const outGroup = topology.inputs[out];
+    const beyond =
+      outGroup === undefined
+        ? []
+        : taking(out, outGroup.channels >= 2 ? channel % 2 : 0).flatMap(([g, , c]) => {
+            const name = hardwareName(g);
+            return name === undefined ? [] : [`${name} ${side(c, g.channels)}`];
+          });
+    if (beyond.length === 0) add(mixed, mixChannel(naming.layout, mix, at));
+    for (const name of beyond) add(hardware, name);
+  }
+  const places = [...hardware, ...mixed];
+  const first = places[0];
+  if (first !== undefined) return { routed: places.length > 1 ? `${first} +${places.length - 1}` : first, unrouted: false };
+  const allRead = namingGroups(topology).every((at) => at === groups.recordPosition || routing[at] !== undefined);
+  return { unrouted: allRead };
+}
+
 /**
  * One channel of one interface, named: first for what it carries, then by its USB channel. An input
  * is named for what the routing sends to its USB record channel, once that routing has been read;
- * an output for the Mixer channel that plays its USB playback channel, when the person named one.
+ * an output for where the routing sends its USB playback channel. A name the person typed wins.
  */
 export function channelName(device: AggregateDevice | undefined, naming: InterfaceNaming | undefined, input: boolean, channel: number): ChannelName {
   const topology = naming?.topology;
@@ -457,25 +580,66 @@ export function channelName(device: AggregateDevice | undefined, naming: Interfa
   const group = input ? groups?.record : groups?.playback;
   const usb = group === undefined ? `${input ? "Input" : "Output"} ${channel + 1}` : group.channels > 1 ? `${group.name} ${channel + 1}` : group.name;
   let routed: string | undefined;
-  if (topology !== undefined && groups !== undefined) {
+  let unrouted = false;
+  if (topology !== undefined && groups !== undefined && naming !== undefined) {
     if (input) {
-      const slot = naming?.record?.[channel];
-      routed = slot === undefined ? undefined : sourceName(topology, slot, naming?.layout);
+      const slot = naming.routing?.[groups.recordPosition]?.[channel];
+      routed = slot === undefined ? undefined : sourceName(topology, slot, naming.layout);
     } else {
-      const named = naming?.layout?.channels.find((one) => one.source?.group === groups.playbackPosition && one.source.channel === channel && one.name.trim() !== "");
-      routed = named === undefined ? undefined : plain(named.name);
+      ({ routed, unrouted } = outputPlaces(topology, groups, naming, channel));
     }
   }
   const typedRaw = channelLabel(device?.[input ? "input_names" : "output_names"], channel).trim();
   const typed = typedRaw === "" ? undefined : typedRaw;
   const carries = typed ?? routed;
+  const text = carries !== undefined ? `${carries}, ${usb}` : unrouted ? `${usb}, not routed` : usb;
+  const automatic = routed ?? (unrouted ? "Not routed" : usb);
   return {
     usb,
     ...(carries === undefined ? {} : { carries }),
-    text: carries === undefined ? usb : `${carries}, ${usb}`,
-    ...(groups === undefined ? {} : { automatic: fitLabel(routed ?? usb) }),
+    text,
+    ...(groups === undefined ? {} : { automatic: fitLabel(automatic) }),
     ...(typed === undefined ? {} : { typed }),
   };
+}
+
+/**
+ * What a DAW will show for a channel, said only as far as the page's own name for the channel does
+ * not already say it. A label the name already carries is not said again: the line is then the
+ * driver's reference alone, "... (Quadro 3)", and nothing at all when the reference did not fit and
+ * the DAW shows only that label. A label the name does not carry ("Not routed") is said whole.
+ */
+export function dawLine(interface_: string, channel: number, name: ChannelName): string | undefined {
+  const label = name.typed ?? name.automatic;
+  const daw = dawChannelName(interface_, channel, label);
+  if (daw === name.text) return undefined;
+  if (label === undefined || !name.text.includes(label)) return daw;
+  if (daw === label) return undefined;
+  return daw.startsWith(`${label} (`) ? `... ${daw.slice(label.length + 1)}` : daw;
+}
+
+/**
+ * A run's outcome with every interface named as the page names it. The driver, and so a run, knows
+ * each interface by its DAW name; everything on the page goes by Gazelle's name, so the two are put
+ * together here once, and whatever the page does with the outcome (a trim written to the right
+ * card, most of all) goes by the one naming.
+ */
+export function withPageNames(outcome: AggregateCalibrateOutcome | undefined, naming: AggregateNaming | undefined): AggregateCalibrateOutcome | undefined {
+  if (outcome === undefined || naming === undefined) return outcome;
+  const page = (called: string) => naming.find((one) => one.dawName === called)?.name ?? called;
+  return {
+    ...outcome,
+    reference: page(outcome.reference),
+    readings: outcome.readings.map((one) => ({ ...one, device: page(one.device) })),
+    trims: outcome.trims.map((one) => ({ ...one, device: page(one.device) })),
+    ...(outcome.phases === undefined ? {} : { phases: outcome.phases.map((one) => ({ ...one, device: page(one.device) })) }),
+    ...(outcome.witnesses === undefined ? {} : { witnesses: outcome.witnesses.map((one) => ({ ...one, device: page(one.device) })) }),
+  };
+}
+
+/** The page's name for an interface the driver names, for its live rows and its plan. */
+export function pageNameOf(called: string, naming: AggregateNaming | undefined): string {
+  return naming?.find((one) => one.dawName === called)?.name ?? called;
 }
 
 const bytes = (text: string): number => new TextEncoder().encode(text).length;

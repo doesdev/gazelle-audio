@@ -44,6 +44,10 @@ pub struct DeviceDescriptor {
     pub slug: Option<String>,
     /// Human-readable model name. `None` when the model is unknown.
     pub model: Option<String>,
+    /// The model's short form, "Quadro" or "Studio+", which the aggregate's channels carry in a DAW
+    /// for a device nobody has named. `None` when the model is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_model: Option<String>,
     /// Stable model key (`quadro`, `studio`) for clients to switch on. `None` when unknown.
     pub family: Option<String>,
     /// How many commands this device's registry exposes. `None` when unknown.

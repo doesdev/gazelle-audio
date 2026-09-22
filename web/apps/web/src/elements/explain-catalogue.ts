@@ -919,18 +919,18 @@ export const CATALOGUE: Catalogue = {
   },
   "aggregate.channel-name": {
     title: "Channel",
-    what: "What this channel is called: what it carries first, then the USB channel it is. An input carries what the routing sends to its USB record channel, named as the Routing page and the Mixer name it; an output is its USB playback channel, named for the Mixer channel that plays it when you named one.",
+    what: "What this channel is called: what it carries first, then the USB channel it is. An input is named for what the routing sends to its USB record channel, as the Routing page and the Mixer name it; an output for where the routing sends its USB playback channel: the output it reaches, directly or through a mix, else the mix channel it lands in, else not routed.",
     effect: "Nothing to press. Re-routing the channel renames it, here and in the DAW, because it says what would be recorded.",
   },
   "aggregate.channel-label": {
     title: "A name of your own",
-    what: "A name for this channel that wins over the one from the routing, here and in the DAW. Empty takes the automatic one, which is shown in the field. Up to 31 characters.",
+    what: "A name for this channel that wins over the one from the routing, here and in the DAW. Empty takes the automatic one, shown beside it. Up to 31 characters.",
     effect: "Saved in the workspace and written out for the driver when you press Enter or leave the field. Clear it and the name from the routing comes back.",
   },
   "aggregate.channel-daw": {
     title: "In a DAW",
-    what: "The name a DAW will show for this channel: its name, with the interface's name and the channel's number after it, all in 31 characters.",
-    watch: "When that does not fit, the DAW shows the channel's name alone. A short name for the device in Gazelle keeps the rest.",
+    what: "The name a DAW will show for this channel: its name, with the interface's name and the channel's number after it, all in 31 characters. A device you have not named goes by its model's short form here, Quadro or Studio+. Shown only when it says something the channel's name does not.",
+    watch: "When that does not fit, the DAW shows the channel's name alone. A short name for the device keeps the rest.",
   },
   "aggregate.device-clock": {
     title: "Clock source",

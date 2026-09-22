@@ -56,6 +56,12 @@ import {
   channelLabel,
   channelName,
   channelSummary,
+  countedNames,
+  dawLine,
+  interfaceNames,
+  namingGroups,
+  pageNameOf,
+  withPageNames,
   CHANNEL_LABEL_MAX,
   countCheck,
   dawChannelName,
@@ -99,6 +105,7 @@ import {
   type CalibratePicks,
   type NamingSources,
 } from "../src/store/aggregate.ts";
+import type { RouteSlot } from "../src/store/routing.ts";
 import { Store } from "../src/store/store.ts";
 import { device, ends, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
@@ -307,8 +314,8 @@ test("the note saying why a device could not be told is shown only when it could
 
 /** The two devices Gazelle has, as the store lists them. */
 const attached = [
-  { id: "serial:Q", model: "Zen Quadro Synergy Core", family: "quadro" as const },
-  { id: "serial:S", model: "Zen Studio+", family: "studio" as const },
+  { id: "serial:Q", model: "Zen Quadro Synergy Core", family: "quadro" as const, short_model: "Quadro" },
+  { id: "serial:S", model: "Zen Studio+", family: "studio" as const, short_model: "Studio+" },
 ];
 
 /** The person's own names for them, as the sidebar shows them. */
@@ -363,7 +370,7 @@ test("an interface is called by the person's name for the device, else its model
   const twins = aggregateNaming(
     { devices: [{ key: "A", device_id: "serial:Q" }, { key: "B", device_id: "serial:Q2" }] },
     answer({ devices: [report("x", { index: 0, device_id: "serial:Q" }), report("y", { index: 1, device_id: "serial:Q2" })] }),
-    { devices: [...attached, { id: "serial:Q2", model: "Zen Quadro Synergy Core", family: "quadro" }] },
+    { devices: [...attached, { id: "serial:Q2", model: "Zen Quadro Synergy Core", family: "quadro", short_model: "Quadro" }] },
   );
   assert.deepEqual(twins.map((one) => one.name), ["Zen Quadro Synergy Core", "Zen Quadro Synergy Core (2)"]);
   assert.deepEqual(distinctNames(["A", "a", "B"]), ["A", "a (2)", "B"]);
@@ -414,7 +421,8 @@ test("an input is named for what routing sends its record channel, and a typed n
     { source: mute, channel: 0 },
     { source: preamp, channel: 2 },
   ];
-  const it = twoInterfaces([{}, {}], { record: (deviceId) => (deviceId === "serial:Q" ? record : undefined), layouts: { "serial:Q": layout } });
+  const recordAt = usbGroups(topologies.quadro)?.recordPosition;
+  const it = twoInterfaces([{}, {}], { routing: (deviceId, at) => (deviceId === "serial:Q" && at === recordAt ? record : undefined), layouts: { "serial:Q": layout } });
   const device = it.config.devices?.[0];
   const first = channelName(device, it.naming[0], true, 0);
   assert.deepEqual(first, { usb: "USB A REC 1", carries: "Vocal mic", text: "Vocal mic, USB A REC 1", automatic: "Vocal mic" }, "the person's name for the Mixer channel that takes its source");
@@ -433,7 +441,8 @@ test("a re-route changes the name the page shows, and leaves a typed name alone"
   const preamp = quadroSource("PREAMP0");
   const afx = quadroSource("AFX_OUT0");
   let record = [{ source: preamp, channel: 0 }, { source: preamp, channel: 1 }];
-  const naming = () => twoInterfaces([{ input_names: { "1": "Talkback" } }, {}], { record: () => record }).naming[0];
+  const recordAt = usbGroups(topologies.quadro)?.recordPosition;
+  const naming = () => twoInterfaces([{ input_names: { "1": "Talkback" } }, {}], { routing: (_, at) => (at === recordAt ? record : undefined) }).naming[0];
   const device: AggregateDevice = { key: "Q", input_names: { "1": "Talkback" } };
   assert.equal(channelName(device, naming(), true, 0).text, "PREAMP 1, USB A REC 1");
   record = [{ source: afx, channel: 2 }, { source: afx, channel: 3 }];
@@ -441,13 +450,121 @@ test("a re-route changes the name the page shows, and leaves a typed name alone"
   assert.equal(channelName(device, naming(), true, 1).text, "Talkback, USB A REC 2", "the typed one is untouched");
 });
 
-test("an output is its playback channel, named for the Mixer channel that plays it where the person named one", () => {
-  const playback = quadroSource("COM_PLAY0");
-  const layout: DeviceMixer = { mixes: [], groups: [], channels: [{ id: "c", name: "Click", slot: 10, source: { group: playback, channel: 0 }, sends: [] }] };
-  const it = twoInterfaces([{}, {}], { layouts: { "serial:Q": layout } });
-  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Click, USB 1 PLAY 1");
-  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 4).text, "USB 1 PLAY 5", "Gazelle's own name for the source where the person named none");
-  assert.equal(channelName(it.config.devices?.[1], it.naming[1], false, 23).text, "USB PLAY 24");
+/** The Quadro's destination groups by id, and a routing where every group an output could reach is read. */
+const quadroDestination = (id: string) => topologies.quadro.outputs.findIndex((group) => group.id === id);
+
+/** Every group the Quadro's names come from, read, and routed to MUTE unless `routes` says otherwise. */
+function quadroRouting(routes: [destination: string, channel: number, source: string, from: number][]): (deviceId: string, at: number) => RouteSlot[] | undefined {
+  const mute = quadroSource("MUTE0");
+  const groups = new Map(namingGroups(topologies.quadro).map((at) => [at, Array.from({ length: topologies.quadro.outputs[at]?.channels ?? 0 }, () => ({ source: mute, channel: 0 }))]));
+  for (const [destination, channel, source, from] of routes) {
+    const slots = groups.get(quadroDestination(destination));
+    if (slots !== undefined) slots[channel] = { source: quadroSource(source), channel: from };
+  }
+  return (deviceId, at) => (deviceId === "serial:Q" ? groups.get(at) : undefined);
+}
+
+const quadroOutput = (routing: ReturnType<typeof quadroRouting>, channel: number, layout?: DeviceMixer) => {
+  const it = twoInterfaces([{}, {}], { routing, ...(layout === undefined ? {} : { layouts: { "serial:Q": layout } }) });
+  return channelName(it.config.devices?.[0], it.naming[0], false, channel);
+};
+
+test("the groups an interface's names come from are its record group, its outputs and its mix inputs", () => {
+  assert.deepEqual(namingGroups(topologies.quadro).map((at) => topologies.quadro.outputs[at]?.id), ["LINE_OUT0", "HEADPHONES0", "HEADPHONES1", "MONITOR0", "COM_REC0", "SPDIF_OUT0", "MIXER_IN0", "MIXER_IN1", "MIXER_IN2", "MIXER_IN3"]);
+  assert.ok(!namingGroups(topologies.studio).map((at) => topologies.studio.outputs[at]?.id).includes("TB_REC0"));
+  assert.deepEqual(namingGroups(undefined), []);
+});
+
+test("an output reaching Monitor L through Mix 1 is called Monitor L, with its USB channel after it", () => {
+  const routing = quadroRouting([
+    ["MIXER_IN0", 6, "COM_PLAY0", 0],
+    ["MIXER_IN0", 7, "COM_PLAY0", 1],
+    ["MONITOR0", 0, "MIXER_OUT0", 0],
+    ["MONITOR0", 1, "MIXER_OUT0", 1],
+  ]);
+  assert.deepEqual(quadroOutput(routing, 0), { usb: "USB 1 PLAY 1", carries: "Monitor L", text: "Monitor L, USB 1 PLAY 1", automatic: "Monitor L" });
+  assert.equal(quadroOutput(routing, 1).text, "Monitor R, USB 1 PLAY 2", "the second of a pair is the right side");
+  // Straight to a socket, with no mix between.
+  assert.equal(quadroOutput(quadroRouting([["LINE_OUT0", 1, "COM_PLAY0", 4]]), 4).text, "Line out R, USB 1 PLAY 5");
+});
+
+test("an output landing only in a mix is named for the mix channel, in the person's words where they gave them", () => {
+  const routing = quadroRouting([["MIXER_IN1", 9, "COM_PLAY0", 2]]);
+  assert.equal(quadroOutput(routing, 2).text, "Ch 10 in Mix 2, USB 1 PLAY 3");
+  const layout: DeviceMixer = { mixes: [{}, { name: "Cue" }], groups: [], channels: [{ id: "k", name: "Click", slot: 9, source: { group: quadroSource("COM_PLAY0"), channel: 2 }, sends: [] }] };
+  assert.equal(quadroOutput(routing, 2, layout).text, "Click in Cue, USB 1 PLAY 3");
+});
+
+test("an output routed nowhere says so, once everything it could reach has been read", () => {
+  const nowhere = quadroOutput(quadroRouting([]), 4);
+  assert.equal(nowhere.text, "USB 1 PLAY 5, not routed");
+  assert.equal(nowhere.automatic, "Not routed");
+  // A group not read yet leaves where it goes unknown, which is the USB channel alone.
+  const full = quadroRouting([]);
+  const partial = (deviceId: string, at: number) => (at === quadroDestination("MIXER_IN3") ? undefined : full(deviceId, at));
+  assert.equal(quadroOutput(partial, 4).text, "USB 1 PLAY 5");
+});
+
+test("an output reaching several places is the first hardware output and a count of the rest", () => {
+  const routing = quadroRouting([
+    ["HEADPHONES0", 0, "COM_PLAY0", 0],
+    ["MONITOR0", 0, "COM_PLAY0", 0],
+  ]);
+  assert.equal(quadroOutput(routing, 0).text, "HP1 L +1, USB 1 PLAY 1");
+  // A typed name still wins.
+  const it = twoInterfaces([{ output_names: { "0": "Talkback" } }, {}], { routing });
+  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Talkback, USB 1 PLAY 1");
+});
+
+test("a re-route changes an output's name", () => {
+  const before = quadroRouting([["MIXER_IN0", 6, "COM_PLAY0", 0], ["MONITOR0", 0, "MIXER_OUT0", 0]]);
+  const after = quadroRouting([["MIXER_IN0", 6, "COM_PLAY0", 0], ["HEADPHONES1", 0, "MIXER_OUT0", 0]]);
+  assert.equal(quadroOutput(before, 0).text, "Monitor L, USB 1 PLAY 1");
+  assert.equal(quadroOutput(after, 0).text, "HP2 L, USB 1 PLAY 1");
+});
+
+test("a row says each name once: the DAW line only when it says something the name does not", () => {
+  const routing = quadroRouting([]);
+  const it = twoInterfaces([{}, {}], { routing, aliases: {} });
+  const unrouted = channelName(it.config.devices?.[0], it.naming[0], false, 0);
+  assert.equal(it.naming[0]?.dawName, "Quadro", "unnamed, the DAW's reference is the model's short form");
+  assert.equal(dawLine("Quadro", 0, unrouted), "Not routed (Quadro 1)", "a label the name does not carry is said whole");
+  // A label the name carries is not said again: only the reference the DAW adds.
+  const routed = channelName(it.config.devices?.[0], twoInterfaces([{}, {}], { routing: quadroRouting([["MONITOR0", 0, "COM_PLAY0", 2]]), aliases: {} }).naming[0], false, 2);
+  assert.equal(routed.text, "Monitor L, USB 1 PLAY 3");
+  assert.equal(dawLine("Quadro", 2, routed), "... (Quadro 3)");
+  // A long reference that does not fit leaves the label alone, which is the name again: no line.
+  const plainUsb = channelName(it.config.devices?.[0], twoInterfaces([{}, {}], { aliases: {} }).naming[0], false, 4);
+  assert.equal(plainUsb.text, "USB 1 PLAY 5");
+  assert.equal(dawLine("A device name far too long to leave room", 4, plainUsb), undefined);
+});
+
+test("a device nobody named goes by its model's short form in a DAW, and a name of their own replaces it", () => {
+  const shorts = [
+    { id: "serial:Q", model: "Zen Quadro Synergy Core", family: "quadro" as const, short_model: "Quadro" },
+    { id: "serial:S", model: "Zen Studio+", family: "studio" as const, short_model: "Studio+" },
+  ];
+  const unnamed = twoInterfaces([{}, {}], { devices: shorts, aliases: {} }).naming;
+  assert.deepEqual(unnamed.map((one) => [one.name, one.dawName]), [["Zen Quadro Synergy Core", "Quadro"], ["Zen Studio+", "Studio+"]]);
+  assert.deepEqual(twoInterfaces([{}, {}], { devices: shorts }).naming.map((one) => one.dawName), ["Quadro", "Studio+"], "the person's names replace the short forms");
+  assert.deepEqual(countedNames(["Quadro", "quadro", "Studio+"]), ["Quadro", "quadro 2", "Studio+"]);
+  // Two of one model nobody named: the tags differ.
+  const twins = aggregateNaming(
+    { devices: [{ key: "A", device_id: "serial:Q" }, { key: "B", device_id: "serial:Q2" }] },
+    answer({ devices: [report("x", { index: 0, device_id: "serial:Q" }), report("y", { index: 1, device_id: "serial:Q2" })] }),
+    { devices: [shorts[0] as (typeof shorts)[number], { id: "serial:Q2", model: "Zen Quadro Synergy Core", family: "quadro", short_model: "Quadro" }] },
+  );
+  assert.deepEqual(twins.map((one) => one.dawName), ["Quadro", "Quadro 2"]);
+});
+
+test("a run's outcome is put in the page's names, so its trims reach the right card", () => {
+  const it = twoInterfaces([{}, {}], { aliases: {}, devices: attached.map((one) => ({ ...one, short_model: one.family === "quadro" ? "Quadro" : "Studio+" })) });
+  const run = withPageNames(measured({ reference: "Quadro", readings: [heard({ device: "Quadro", is_reference: true }), heard({ device: "Studio+" })], trims: [{ device: "Studio+", direction: "inputs", was: 0, measured: 28, now: 28 }] }), it.naming);
+  assert.equal(run?.reference, "Zen Quadro Synergy Core");
+  assert.deepEqual(run?.readings.map((one) => one.device), ["Zen Quadro Synergy Core", "Zen Studio+"]);
+  assert.deepEqual(withMeasuredTrims(it.config, run, interfaceNames(it.config, it.naming)).devices?.[1]?.input_trim, 28);
+  assert.equal(pageNameOf("Studio+", it.naming), "Zen Studio+");
+  assert.equal(pageNameOf("Someone else", it.naming), "Someone else");
 });
 
 test("the name a DAW shows is built as the driver builds it, and a long device name leaves the label alone", () => {

@@ -107,10 +107,11 @@ device does not expose is simply unused, and a name that is empty or only spaces
 giving one.
 
 **Gazelle writes these names, and keeps them in step.** When Gazelle writes this file, every name in
-it is Gazelle's: each device's `name` is Gazelle's name for the device (the person's own name for it,
-else its model), `callback_master` is that same name, and every channel has a label, taken from what
-Gazelle's routing sends to that USB record channel (or, for an output, the Mixer channel that plays
-it), with a name the person typed on the Aggregate page put over it. When the routing changes
+it is Gazelle's: each device's `name` is the person's own name for the device in Gazelle, else its
+model's short form ("Quadro", "Studio+", and "Quadro 2" for a second one), `callback_master` is that
+same name, and every channel has a label: an input's is what Gazelle's routing sends to its USB record
+channel, and an output's is where the routing sends its USB playback channel ("Monitor L", "Click in
+Cue", "Not routed"), with a name the person typed on the Aggregate page put over it. When the routing changes
 through Gazelle, it writes the file again and the driver takes the new names at its next reset, as
 it takes any other change. A long device name leaves no room for the bracketed part, and the DAW
 then shows the label alone; a short name for the device in Gazelle keeps it.

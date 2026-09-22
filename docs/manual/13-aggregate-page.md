@@ -89,17 +89,26 @@ One card per interface, in the order their channels appear to a DAW. The order i
 
 So the count is known as soon as Gazelle knows which device an interface is, without a DAW. If the driver of a running DAW reports another number, the card says so.
 
-**A channel is named for what it carries, then by its USB channel.** An input takes the name of whatever the routing sends to its USB record channel, in Gazelle's words: your name for a Mixer channel or a mix that takes that source, where you gave one, or else the source as the Routing page shows it. So with Preamp 1 routed to USB A REC 1 and a Mixer channel for Preamp 1 that you called Vocal mic, the first input is **Vocal mic, USB A REC 1**. Change the routing and the name changes with it, because it says what would be recorded. A channel nothing is routed to is just its USB channel, **USB A REC 5**. An output is named for the Mixer channel that plays its USB playback channel, where you named one, and is otherwise just that channel, **USB 1 PLAY 5**.
+**A channel is named for what it carries, then by its USB channel.** An input takes the name of whatever the routing sends to its USB record channel, in Gazelle's words: your name for a Mixer channel or a mix that takes that source, where you gave one, or else the source as the Routing page shows it. So with Preamp 1 routed to USB A REC 1 and a Mixer channel for Preamp 1 that you called Vocal mic, the first input is **Vocal mic, USB A REC 1**. Change the routing and the name changes with it, because it says what would be recorded. A channel nothing is routed to is just its USB channel, **USB A REC 5**.
 
-**Channels** on a card opens the list, inputs and then outputs. Each row is one channel: whether the aggregate exposes it, its name, a field for a name of your own, and what a DAW will show for it.
+**An output is named for where the routing sends it**, the other way round from an input: its USB playback channel is a source on the Routing page, and the name says where that source ends up.
 
-**A name you type wins**, on this page and in the DAW, over the one from the routing, and the two are kept apart: clear your name and the one from the routing comes back. A name is at most 31 characters, which is all the audio driver carries. The field shows the automatic name while it is empty.
+- It reaches an output socket, directly or through a mix: that output and side, **Monitor L, USB 1 PLAY 1**. Through a mix, the first channel of a pair is the left side and the second the right, which is how a DAW's stereo pairs land in a stereo mix.
+- It lands in a mix whose output goes nowhere: the mix channel, with your names for the channel and the mix where you gave them, **Click in Cue, USB 1 PLAY 3**, else **Ch 11 in Mix 3, USB 1 PLAY 3**.
+- It reaches several places: the first output socket and how many more, **Monitor L +2, USB 1 PLAY 1**.
+- It goes nowhere: **USB 1 PLAY 5, not routed**.
 
-**What the DAW sees.** Gazelle writes each channel's name into the driver's setup, and keeps it in step with the routing whenever the routing changes through Gazelle, whether or not this page is open; the driver takes the new names at its next reset. The DAW shows the short part, what the channel carries, with the driver's own reference after it, the interface's name and the channel's number: **Vocal mic (Quadro 1)**. All of that has to fit in 31 characters, so with a long name like Zen Quadro Synergy Core there is no room and the DAW shows **Vocal mic** alone. A short name for the device in Gazelle keeps the reference.
+Until Gazelle has read the routing the name depends on, a channel is just its USB channel. Gazelle reads each routing group it needs once, when it first needs it.
+
+**Channels** on a card opens the list, inputs and then outputs. Each row is one channel and says its name once: whether the aggregate exposes it, its name, a field for a name of your own (empty until you type), and what a DAW adds to that name, where it adds anything.
+
+**A name you type wins**, on this page and in the DAW, over the one from the routing, and the two are kept apart: clear your name and the one from the routing comes back. A name is at most 31 characters, which is all the audio driver carries.
+
+**What the DAW sees.** Gazelle writes each channel's name into the driver's setup, and keeps it in step with the routing whenever the routing changes through Gazelle, whether or not this page is open; the driver takes the new names at its next reset. The DAW shows the short part, what the channel carries, with the driver's own reference after it, the interface's name and the channel's number: **Monitor L (Quadro 3)**. All of that has to fit in 31 characters, so in the DAW a device you have not named goes by its model's short form, **Quadro** or **Studio+**, rather than its full name; the page still shows the full name. A name you give the device in Gazelle replaces the short form, and if it is too long to leave room, the DAW shows the channel's name alone. The row's DAW line gives only what the DAW adds, **... (Quadro 3)**, and nothing where it adds nothing.
 
 Turning a channel off keeps it out of the aggregate altogether, so a DAW never lists it. While every channel is exposed, nothing is recorded in the setup, which is what "all of them" means, and turning everything back on takes it out again.
 
-Two interfaces of one model that you have not named come out with the same name, so the second is told apart by its place, **Zen Quadro Synergy Core (2)**. Naming the devices is the better answer.
+Two interfaces of one model that you have not named come out with the same name, so the second is told apart by its place, **Zen Quadro Synergy Core (2)**, and in the DAW by a count, **Quadro 2**. Naming the devices is the better answer.
 
 ## Setup
 

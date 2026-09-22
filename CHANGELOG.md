@@ -51,11 +51,13 @@ version that has not been published yet.
   called by its name in Gazelle, the one in the sidebar, so renaming the device renames it on the
   page and in the DAW, and the vendor driver's own name appears once, as a detail. Each channel is
   one of the interface's USB channels (sixteen each way on the Quadro, twenty four on the Studio+,
-  known without opening a DAW) and is named for what it carries, then by that USB channel:
-  "Vocal mic, USB A REC 1", from what the routing sends it and your names on the Mixer. Re-routing
-  renames it, and Gazelle keeps the names the DAW sees in step whenever the routing changes, whether
-  or not the page is open. Any channel can be given a name of your own, which wins over the one from
-  the routing until you clear it, or be kept out of the aggregate altogether.
+  known without opening a DAW) and is named for what it carries, then by that USB channel: an input
+  for what the routing sends it, "Vocal mic, USB A REC 1", and an output for where the routing sends
+  it, "Monitor L, USB 1 PLAY 1", or "USB 1 PLAY 5, not routed". Re-routing renames it, and Gazelle
+  keeps the names the DAW sees in step whenever the routing changes, whether or not the page is
+  open. In the DAW a device you have not named goes by its model's short form, so a channel reads
+  "Monitor L (Quadro 3)" and fits. Any channel can be given a name of your own, which wins over the
+  one from the routing until you clear it, or be kept out of the aggregate altogether.
 - **See whether it is holding, while the DAW plays.** The page shows the plan the driver is
   running and, for every interface, the gap in samples between it and the one driving the
   callback: in step is what you want, and a gap that keeps growing is two clocks rather than one.

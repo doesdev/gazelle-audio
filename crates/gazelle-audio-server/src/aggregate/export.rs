@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use crate::aggregate::config::export_document;
+use crate::aggregate::naming::Routing;
 use crate::aggregate::status::StatusLink;
 use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
@@ -78,8 +79,8 @@ pub struct Seen {
     pub device_id: DeviceId,
     pub family: Option<String>,
     pub model: Option<String>,
-    /// What its routing sends to each USB record channel, when that is known now.
-    pub record_routing: Option<Vec<[u8; 2]>>,
+    /// The routing groups its names come from that are known now, by topology id.
+    pub routing: Routing,
 }
 
 /// Where [`Seen`] comes from: the connected devices and the routing the server has seen. Behind a
@@ -115,7 +116,12 @@ pub fn known_for(device: &AggregateDevice, before: Option<&AggregateKnown>, seen
                 device_id: Some(seen.device_id.clone()),
                 family: seen.family.clone().or_else(|| same.and_then(|known| known.family.clone())),
                 model: seen.model.clone().or_else(|| same.and_then(|known| known.model.clone())),
-                record_routing: seen.record_routing.clone().or_else(|| same.and_then(|known| known.record_routing.clone())),
+                // Group by group: what is seen now, and what was known of the rest.
+                routing: {
+                    let mut routing = same.map(|known| known.routing.clone()).unwrap_or_default();
+                    routing.extend(seen.routing.clone());
+                    routing
+                },
             })
         }
         None => match (&device.device_id, before) {
@@ -303,8 +309,9 @@ mod tests {
         }
     }
 
-    fn quadro(routing: Option<Vec<[u8; 2]>>) -> Seen {
-        Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), record_routing: routing }
+    fn quadro(record: Option<Vec<[u8; 2]>>) -> Seen {
+        let routing = record.map(|slots| [("COM_REC0".to_string(), slots)].into_iter().collect()).unwrap_or_default();
+        Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing }
     }
 
     fn read(path: &Path) -> serde_json::Value {
@@ -440,7 +447,7 @@ mod tests {
         store.save(&with_device("Zen Quadro Synergy Core")).unwrap();
         let known = store.load().unwrap().aggregate.unwrap().devices[0].known.clone().expect("what was seen");
         assert_eq!(known.device_id, Some(DeviceId::from_serial("Q")));
-        assert_eq!(known.record_routing, Some(vec![[0, 0]]));
+        assert_eq!(known.routing.get("COM_REC0"), Some(&vec![[0, 0]]));
 
         // A client sends a stale copy, and the device cannot be seen now: what was known stays.
         *live.seen.lock().unwrap() = Vec::new();
@@ -449,7 +456,7 @@ mod tests {
         store.save(&stale).unwrap();
         assert_eq!(store.load().unwrap().aggregate.unwrap().devices[0].known, Some(known), "the client's copy counts for nothing");
         // And the file still names the device and its channels from what was known.
-        assert_eq!(read(&path)["devices"][0]["name"], "Zen Quadro Synergy Core");
+        assert_eq!(read(&path)["devices"][0]["name"], "Quadro");
         assert_eq!(read(&path)["devices"][0]["input_names"]["0"], "PREAMP 1");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -503,8 +510,8 @@ mod tests {
         let mut workspace = with_device("Zen Quadro Synergy Core");
         workspace.aggregate.as_mut().unwrap().callback_master = Some("Zen Quadro Synergy Core".into());
         store.save(&workspace).unwrap();
-        assert_eq!(read(&path)["devices"][0]["name"], "Zen Quadro Synergy Core");
-        assert_eq!(read(&path)["callback_master"], "Zen Quadro Synergy Core");
+        assert_eq!(read(&path)["devices"][0]["name"], "Quadro", "unnamed, it is its model's short form in a DAW");
+        assert_eq!(read(&path)["callback_master"], "Quadro");
 
         workspace.aliases.insert(DeviceId::from_serial("Q"), "Desk".into());
         store.save(&workspace).unwrap();
@@ -515,13 +522,15 @@ mod tests {
 
     #[test]
     fn a_device_chosen_as_another_forgets_what_was_known_of_the_first() {
-        let before = AggregateKnown { device_id: Some(DeviceId::from_serial("Q")), family: Some("quadro".into()), model: None, record_routing: Some(vec![[0, 0]]) };
+        let before = AggregateKnown { device_id: Some(DeviceId::from_serial("Q")), family: Some("quadro".into()), model: None, routing: [("COM_REC0".to_string(), vec![[0, 0]]), ("MONITOR0".to_string(), vec![[1, 0]])].into_iter().collect() };
         let chosen = AggregateDevice { key: Some("k".into()), device_id: Some(DeviceId::from_serial("Q2")), ..AggregateDevice::default() };
         assert_eq!(known_for(&chosen, Some(&before), None), Some(AggregateKnown { device_id: Some(DeviceId::from_serial("Q2")), ..AggregateKnown::default() }));
         let same = AggregateDevice { device_id: Some(DeviceId::from_serial("Q")), ..chosen.clone() };
         assert_eq!(known_for(&same, Some(&before), None), Some(before.clone()), "the same device keeps what was known");
         // Seen now, with its routing not read since it came back: what was known of it fills in.
-        let seen = Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), record_routing: None };
-        assert_eq!(known_for(&same, Some(&before), Some(&seen)).unwrap().record_routing, Some(vec![[0, 0]]));
+        let seen = Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing: [("MONITOR0".to_string(), vec![[1, 1]])].into_iter().collect() };
+        let merged = known_for(&same, Some(&before), Some(&seen)).unwrap().routing;
+        assert_eq!(merged.get("COM_REC0"), Some(&vec![[0, 0]]), "a group not seen since it came back is what was known");
+        assert_eq!(merged.get("MONITOR0"), Some(&vec![[1, 1]]), "and one seen now is what is seen");
     }
 }

@@ -191,8 +191,8 @@ pub struct AggregateDevice {
 /// than falling back to the vendor driver's until the interface is back. It is a record of facts,
 /// never of names: the names are worked out from it, with the person's own names as they are now.
 ///
-/// It records one routing group, the one the aggregate's inputs are, and that for naming only: a
-/// device's state is otherwise never kept in the workspace.
+/// It records the routing groups the names are worked out from, and that for naming only: a device's
+/// state is otherwise never kept in the workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregateKnown {
     /// The device it was, whether the person chose it or Gazelle worked it out.
@@ -204,11 +204,13 @@ pub struct AggregateKnown {
     /// Its model's name, as the sidebar shows it when the person has not named the device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// What its routing sends to each of its USB record channels, by channel from zero, as
-    /// `[source group position, channel]`, which is the pair a routing slot is. Absent until the
-    /// group has been read or written through Gazelle.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub record_routing: Option<Vec<[u8; 2]>>,
+    /// The routing groups its channels are named from, by topology id (`COM_REC0`, `MONITOR0`,
+    /// `MIXER_IN0`, ...), each as its slots by channel from zero, `[source group position, channel]`,
+    /// which is the pair a routing slot is: its USB record group, for what feeds each input, and its
+    /// outputs and mix inputs, for where each USB playback channel ends up. A group is here once it
+    /// has been read or written through Gazelle.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub routing: BTreeMap<String, Vec<[u8; 2]>>,
 }
 
 /// The digital path the driver measures one interface's capture phase over: which output of the

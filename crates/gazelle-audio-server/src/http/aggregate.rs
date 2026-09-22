@@ -563,6 +563,7 @@ mod tests {
         h.store.save(&workspace).unwrap();
         let (_, body) = get(&h.app, "/api/v1/aggregate").await;
         assert_eq!(body["devices"][0]["name"], "Zen Quadro Synergy Core", "its model, where the person has not named it");
+        assert_eq!(body["devices"][0]["daw_name"], "Quadro", "and its model's short form in a DAW");
         assert_eq!(body["devices"][1]["name"], "Zen Studio+");
         assert_eq!(body["devices"][0]["index"], 0);
         assert_eq!(body["devices"][0]["is_master"], true);
@@ -571,6 +572,7 @@ mod tests {
         h.store.save(&workspace).unwrap();
         let (_, body) = get(&h.app, "/api/v1/aggregate").await;
         assert_eq!(body["devices"][0]["name"], "Desk");
+        assert_eq!(body["devices"][0]["daw_name"], "Desk", "the person's name replaces the short form");
         assert_eq!(body["devices"][0]["is_master"], true, "the master is found by its key, which a rename does not touch");
         let (_, matched) = post(&h.app, "/api/v1/aggregate/match-buffers", r#"{"buffer_size":256}"#).await;
         assert_eq!(matched["devices"][0]["device"], "Desk", "and every other answer names it the same way");

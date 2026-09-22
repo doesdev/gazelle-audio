@@ -113,9 +113,11 @@ pub struct UsbChannels {
 pub struct DeviceReport {
     /// Its place in the setup, from zero, which is how a page finds its card whatever it is called.
     pub index: usize,
-    /// Gazelle's name for the device: the person's own name for it, else its model. The same name
-    /// the driver is given, so it is what the driver's own record and log call it too.
+    /// Gazelle's name for the device: the person's own name for it, else its model.
     pub name: String,
+    /// What the driver is given for it, and so what the driver's own record, its log and a
+    /// measurement call it: the person's own name for the device, else its model's short form.
+    pub daw_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -463,6 +463,7 @@ mod tests {
         DeviceReport {
             index: 0,
             name: "Quadro".into(),
+            daw_name: "Quadro".into(),
             key: Some("Zen Quadro Synergy Core".into()),
             clsid: None,
             registered: true,

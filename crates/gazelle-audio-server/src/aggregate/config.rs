@@ -11,8 +11,9 @@
 //! Gazelle.
 //!
 //! **Every name in the file is Gazelle's** (`crate::aggregate::naming`): each interface is called
-//! by Gazelle's name for its device, the callback master by that same name, and each channel by
-//! what it carries, with the names the person typed put over the automatic ones. So the file is an
+//! by the person's name for its device, else its model's short form, the callback master by that
+//! same name, and each channel by what it carries, with the names the person typed put over the
+//! automatic ones. So the file is an
 //! export of the whole workspace, not of the section alone: renaming a device, naming a Mixer
 //! channel or changing the routing all change what the driver is given.
 
@@ -20,7 +21,7 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
-use crate::aggregate::naming::{driver_labels, interface_names};
+use crate::aggregate::naming::{daw_names, driver_labels, interface_names};
 use crate::aggregate::{rate_index, RATES};
 use crate::workspace::model::{Aggregate, AggregateDevice, Workspace, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, PHASE_REFERENCE_MAX, TRIM_MAX};
 
@@ -194,13 +195,14 @@ pub fn looks_like_clsid(text: &str) -> bool {
 ///
 /// Built by hand rather than by deriving a second set of structures, because the shapes differ in
 /// the ways that matter: `device_id` and `known` are Gazelle's own and the file must not carry
-/// them, each interface's `name` is Gazelle's name for its device rather than anything the section
-/// holds, `callback_master` is turned into that same name, and each channel's label is the
+/// them, each interface's `name` is what the DAW calls it (the person's name for the device, else
+/// its model's short form, [`daw_names`]) rather than anything the section holds, `callback_master`
+/// is turned into that same name, and each channel's label is the
 /// automatic one with the person's typed one over it. A field that is not set is left out, so the
 /// file says only what was chosen.
 pub fn export_document(config: &Aggregate, workspace: &Workspace) -> Value {
     let mut document = Map::new();
-    let names = interface_names(config, workspace);
+    let names = daw_names(config, workspace);
     if !config.devices.is_empty() {
         document.insert("devices".into(), Value::Array(config.devices.iter().zip(&names).map(|(device, name)| export_device(device, name, workspace)).collect()));
     }
@@ -279,7 +281,7 @@ mod tests {
         AggregateDevice {
             key: Some(key.into()),
             device_id: Some(DeviceId::from_serial(serial)),
-            known: Some(AggregateKnown { device_id: Some(DeviceId::from_serial(serial)), family: Some(family.into()), model: None, record_routing: None }),
+            known: Some(AggregateKnown { device_id: Some(DeviceId::from_serial(serial)), family: Some(family.into()), model: None, routing: Default::default() }),
             ..AggregateDevice::default()
         }
     }
@@ -340,8 +342,9 @@ mod tests {
         let workspace = Workspace::default();
         check(&config, &workspace).expect("the names are Gazelle's, and naming the devices is how to tell them apart");
         let document = export_document(&config, &workspace);
-        assert_eq!(document["devices"][0]["name"], "Zen Quadro Synergy Core");
-        assert_eq!(document["devices"][1]["name"], "Zen Quadro Synergy Core (2)");
+        assert_eq!(document["devices"][0]["name"], "Quadro", "the model's short form, in a DAW");
+        assert_eq!(document["devices"][1]["name"], "Quadro 2");
+        assert_eq!(interface_names(&config, &workspace), ["Zen Quadro Synergy Core", "Zen Quadro Synergy Core (2)"], "and the full name everywhere else");
     }
 
     #[test]
@@ -422,6 +425,32 @@ mod tests {
         assert_eq!(document["devices"][0]["name"], "Zen Quadro", "with nothing else known, the vendor driver's key");
     }
 
+    /// The owner's case for outputs: re-routing a USB playback channel renames it in the file.
+    #[test]
+    fn a_reroute_changes_an_outputs_name_in_the_file() {
+        let mut config = pair();
+        let family = "quadro";
+        let groups = crate::aggregate::naming::naming_groups(family);
+        let destinations = crate::workspace::topology::destination_groups_whole(family).unwrap();
+        let sources = crate::workspace::topology::source_groups(family).unwrap();
+        let at = |id: &str| sources.iter().position(|g| g.id == id).unwrap() as u8;
+        let mut routing: crate::aggregate::naming::Routing = groups
+            .iter()
+            .map(|(id, _)| (id.clone(), vec![[at("MUTE0"), 0]; destinations.iter().find(|g| &g.id == id).unwrap().channels as usize]))
+            .collect();
+        routing.get_mut("MIXER_IN0").unwrap()[6] = [at("COM_PLAY0"), 2];
+        routing.get_mut("MONITOR0").unwrap()[0] = [at("MIXER_OUT0"), 0];
+        config.devices[0].known.as_mut().unwrap().routing = routing.clone();
+        let workspace = Workspace::default();
+        assert_eq!(export_document(&config, &workspace)["devices"][0]["output_names"]["2"], "Monitor L");
+        assert_eq!(export_document(&config, &workspace)["devices"][0]["output_names"]["3"], "Not routed");
+        // Mix 1 goes to the headphones instead of the monitors.
+        routing.get_mut("MONITOR0").unwrap()[0] = [at("MUTE0"), 0];
+        routing.get_mut("HEADPHONES0").unwrap()[0] = [at("MIXER_OUT0"), 0];
+        config.devices[0].known.as_mut().unwrap().routing = routing;
+        assert_eq!(export_document(&config, &workspace)["devices"][0]["output_names"]["2"], "HP1 L");
+    }
+
     /// The owner's case: an input named for what the routing sends it, changing with the routing,
     /// and a typed name left exactly where it was.
     #[test]
@@ -437,12 +466,12 @@ mod tests {
         );
         config.devices[0].input_names = [(1, "Talkback".to_string())].into_iter().collect();
         // USB A REC 1 takes PREAMP 1, which the person's Mixer channel calls Vocal mic.
-        config.devices[0].known.as_mut().unwrap().record_routing = Some(vec![[0, 0], [0, 1]]);
+        config.devices[0].known.as_mut().unwrap().routing = [("COM_REC0".to_string(), vec![[0, 0], [0, 1]])].into_iter().collect();
         let before = export_document(&config, &workspace);
         assert_eq!(before["devices"][0]["input_names"]["0"], "Vocal mic");
         assert_eq!(before["devices"][0]["input_names"]["1"], "Talkback");
         // Routed from AFX OUT 3 instead.
-        config.devices[0].known.as_mut().unwrap().record_routing = Some(vec![[5, 2], [0, 1]]);
+        config.devices[0].known.as_mut().unwrap().routing = [("COM_REC0".to_string(), vec![[5, 2], [0, 1]])].into_iter().collect();
         let after = export_document(&config, &workspace);
         assert_eq!(after["devices"][0]["input_names"]["0"], "AFX OUT 3");
         assert_eq!(after["devices"][0]["input_names"]["1"], "Talkback", "the typed name is untouched");
@@ -463,11 +492,11 @@ mod tests {
         assert_eq!(renamed["devices"][0]["name"], "Desk");
         assert_eq!(renamed["callback_master"], "Desk", "the master is the same device, under its new name");
         assert_eq!(config.callback_master.as_deref(), Some("Zen Quadro Synergy Core"), "and the section itself never had to change");
-        // With the name taken off, it is its model again.
+        // With the name taken off, it is its model's short form again, which leaves the reference room.
         workspace.aliases.remove(&DeviceId::from_serial("Q"));
         let model = export_document(&config, &workspace);
-        assert_eq!(model["devices"][0]["name"], "Zen Quadro Synergy Core");
-        assert_eq!(model["callback_master"], "Zen Quadro Synergy Core");
+        assert_eq!(model["devices"][0]["name"], "Quadro");
+        assert_eq!(model["callback_master"], "Quadro");
     }
 
     /// A setup an older Gazelle wrote names its master by the name it gave the device; that is still
