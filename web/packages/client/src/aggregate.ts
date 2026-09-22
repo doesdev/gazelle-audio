@@ -336,11 +336,12 @@ export interface AggregateCalibrateReading {
 
 /**
  * An extra input channel a run listened in on. It is an observation, never an interface's
- * measurement, and it changes no trim. `channel` is the aggregate's own input numbering from zero.
+ * measurement, and it changes no trim. `channel` is that interface's own input number from zero,
+ * exactly as it was asked for.
  */
 export interface AggregateCalibrateWitness {
   channel: number;
-  /** The interface that channel belongs to. */
+  /** The interface that channel belongs to, by the name the setup gives it. */
   device: string;
   lag_samples: number;
   spread_samples: number;
@@ -431,14 +432,26 @@ export interface AggregateCalibration {
 }
 
 /**
- * What starting a run takes. `outputs` and `inputs` are channel numbers in the aggregate's own
- * list, counted from zero over the channels it exposes, in the order the interfaces are in: one
- * output and one input per interface, so `outputs[n]` is cabled into `inputs[n]`.
+ * One channel of one interface, as a run is asked for it: `device` is the interface's place in the
+ * setup and `channel` is that interface's own channel number, both from zero. It is never a number
+ * in the aggregate's own list, which depends on how many channels each driver really has; the run
+ * opens the drivers and works out where each one is, and refuses one it cannot place.
+ */
+export interface AggregateCalibrateChannel {
+  device: number;
+  channel: number;
+}
+
+/**
+ * What starting a run takes: one output and one input per interface, in the order the interfaces
+ * are in, so `outputs[n]` is cabled into `inputs[n]`. Every entry names its own interface.
  */
 export interface AggregateCalibrateRequest {
   direction: AggregateCalibrateDirection;
-  outputs: number[];
-  inputs: number[];
+  outputs: AggregateCalibrateChannel[];
+  inputs: AggregateCalibrateChannel[];
+  /** Extra inputs to record and report, which take no part in any trim. Left out means none. */
+  witnesses?: AggregateCalibrateChannel[];
   clicks: number;
   /** How loud the click is, in dBFS. Modest: it comes out of a real output. */
   level_dbfs: number;

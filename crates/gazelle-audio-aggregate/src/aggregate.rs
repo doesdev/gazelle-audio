@@ -156,6 +156,13 @@ impl Aggregate {
         self.stream.as_ref()
     }
 
+    /// What each device's own driver said about itself at `init`, in the plan's order. The plan
+    /// only has the channels the setup exposes; this is how many each driver actually has, which is
+    /// what somebody naming a channel the driver has not got needs to be told.
+    pub fn descriptions(&self) -> &[Description] {
+        &self.descriptions
+    }
+
     /// Open every configured device and work out what the aggregate looks like. This is where the
     /// configuration file first turns into a plan.
     pub fn init(&mut self, config: Config, source: String) -> Result<(), String> {

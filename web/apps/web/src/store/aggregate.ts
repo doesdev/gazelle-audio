@@ -18,6 +18,7 @@ import { signal, type ReadonlySignal } from "../core/signal.ts";
 import type {
   Aggregate,
   AggregateAnswer,
+  AggregateCalibrateChannel,
   AggregateCalibrateDirection,
   AggregateCalibrateOutcome,
   AggregateCalibratePhase,
@@ -48,6 +49,7 @@ import type {
 export type {
   Aggregate,
   AggregateAnswer,
+  AggregateCalibrateChannel,
   AggregateCalibrateDirection,
   AggregateCalibrateOutcome,
   AggregateCalibratePhase,
@@ -386,16 +388,19 @@ export function viewFor(answer: AggregateAnswer | undefined, device: AggregateDe
 }
 
 /**
- * One channel of the aggregate's own list: the number a DAW sees it at, and what it is called.
+ * One channel a run can be cabled to: the interface it is on and that interface's own number for
+ * it, and what it is called.
  *
- * The number counts from zero over the channels the aggregate actually exposes, in the order the
- * interfaces are in, inputs and outputs counted separately. It is what the measurement is asked
- * for, because the run happens through the aggregate and not through one interface's own driver.
+ * **Never a number in the aggregate's own list.** That numbering depends on how many channels each
+ * interface's driver really has, which this page cannot know until a DAW has had the driver open,
+ * and a count that is two short puts every cable on the next interface along. So a run is asked for
+ * by interface and channel, and the run, which opens the drivers, finds where each one really is.
  */
-export interface AggregateChannel {
-  number: number;
+export interface InterfaceChannel {
   /** The interface it is on, by the name the setup gives it. */
   device: string;
+  /** That interface's place in the setup, from zero, which is how a request names it. */
+  index: number;
   /** Its number on that interface, from zero. */
   channel: number;
   /** The name it has of its own, which is the automatic one where nobody has named it. */
@@ -406,34 +411,58 @@ export interface AggregateChannel {
   text: string;
 }
 
-/** Every input, or every output, the aggregate exposes, in the order a DAW sees them. */
-export function aggregateChannels(config: Aggregate | undefined, answer: AggregateAnswer | undefined, input: boolean): AggregateChannel[] {
-  const listed: AggregateChannel[] = [];
+/**
+ * The channels the setup keeps for the phase measurement, by interface: each follower's own input
+ * the measurement arrives on, and the callback master's outputs it leaves from. The driver keeps
+ * them out of the aggregate, so a run cannot be cabled to them and the pickers do not offer them.
+ */
+function phaseKept(config: Aggregate | undefined, input: boolean): Set<string> {
+  const kept = new Set<string>();
   const devices = config?.devices ?? [];
+  const master = masterIndex(config);
+  for (const [index, device] of devices.entries()) {
+    const phase = phaseSetting(device);
+    if (phase === undefined || index === master) continue;
+    if (input) kept.add(`${index}:${phase.input}`);
+    else if (master !== undefined) kept.add(`${master}:${phase.master_output}`);
+  }
+  return kept;
+}
+
+/**
+ * Every input, or every output, a run could be cabled to, interface by interface in the setup's
+ * order: what the setup exposes, less what it keeps for the phase measurement. How many channels an
+ * interface has comes from `channelCounts`, which can be wrong until a DAW has had the driver open;
+ * that only changes what is offered, never which interface a chosen channel is on.
+ */
+export function interfaceChannels(config: Aggregate | undefined, answer: AggregateAnswer | undefined, input: boolean): InterfaceChannel[] {
+  const listed: InterfaceChannel[] = [];
+  const devices = config?.devices ?? [];
+  const kept = phaseKept(config, input);
   for (const [index, device] of devices.entries()) {
     const named = deviceName(device, index);
     const counts = channelCounts(viewFor(answer, device, index));
     const count = input ? counts.inputs : counts.outputs;
     if (count === undefined) continue;
     for (let channel = 0; channel < count; channel += 1) {
-      if (!isExposed(device[input ? "inputs" : "outputs"], channel)) continue;
+      if (!isExposed(device[input ? "inputs" : "outputs"], channel) || kept.has(`${index}:${channel}`)) continue;
       const auto = autoChannelName(named, channel);
       const label = channelLabel(device[input ? "input_names" : "output_names"], channel) || auto;
-      listed.push({ number: listed.length, device: named, channel, label, auto, text: label === auto ? auto : `${label} (${auto})` });
+      listed.push({ device: named, index, channel, label, auto, text: label === auto ? auto : `${label} (${auto})` });
     }
   }
   return listed;
 }
 
-/** The channels of the aggregate's list that are on one interface. */
-export function channelsOf(channels: AggregateChannel[], device: string): AggregateChannel[] {
+/** The channels of that list that are on one interface. */
+export function channelsOf(channels: InterfaceChannel[], device: string): InterfaceChannel[] {
   return channels.filter((one) => one.device === device);
 }
 
-/** How a channel number reads in a sentence, for a channel that is no longer in the list. */
-export function channelText(channels: AggregateChannel[], number: number | undefined): string {
-  if (number === undefined) return "not chosen";
-  return channels.find((one) => one.number === number)?.text ?? `channel ${number + 1}`;
+/** How one interface's channel reads in a sentence, including one that is no longer in the list. */
+export function channelText(channels: InterfaceChannel[], device: string, channel: number | undefined): string {
+  if (channel === undefined) return "not chosen";
+  return channels.find((one) => one.device === device && one.channel === channel)?.text ?? autoChannelName(device, channel);
 }
 
 /** The clicks and the level the measurement is offered with, and what it starts at. */
@@ -446,8 +475,9 @@ export const DEFAULT_LEVEL_DBFS = -20;
  * What the person has chosen for a run.
  *
  * `outputs` and `inputs` are one per interface, in the order the interfaces are in, so
- * `outputs[n]` is the channel cabled into `inputs[n]`. A channel not chosen yet is `undefined`
- * rather than a guess, and a run with one of those in it is not offered.
+ * `outputs[n]` is the channel cabled into `inputs[n]`. Each is that interface's own channel number
+ * from zero, on the interface its picker offers (`slotDevice`). A channel not chosen yet is
+ * `undefined` rather than a guess, and a run with one of those in it is not offered.
  */
 export interface CalibratePicks {
   direction: AggregateCalibrateDirection;
@@ -491,10 +521,10 @@ export function defaultPicks(
 ): CalibratePicks {
   const devices = calibrateDevices(config);
   const against = reference !== undefined && devices.includes(reference) ? reference : (devices[0] ?? "");
-  const lists = { outputs: aggregateChannels(config, answer, false), inputs: aggregateChannels(config, answer, true) };
+  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
   const pick = (side: "outputs" | "inputs", at: number) => {
     const offered = channelsOf(lists[side], slotDevice(direction, against, side, at, devices));
-    return offered[side === sharedSide(direction) ? at : 0]?.number;
+    return offered[side === sharedSide(direction) ? at : 0]?.channel;
   };
   return {
     direction,
@@ -510,20 +540,19 @@ export function defaultPicks(
  * What was chosen, made to fit what the aggregate is now.
  *
  * The picks are kept for the tab rather than saved, so an interface added or a channel no longer
- * exposed can leave a choice pointing at nothing. Every choice that still names a channel on the
- * interface its picker offers is kept exactly as it was; everything else falls back to where the
- * defaults would have put it, so a poll landing never moves a menu somebody has just set.
+ * exposed can leave a choice pointing at nothing. Every choice that is still a channel its picker
+ * offers is kept exactly as it was; everything else falls back to where the defaults would have put
+ * it, so a poll landing never moves a menu somebody has just set.
  */
 export function reconcilePicks(stored: CalibratePicks | undefined, config: Aggregate | undefined, answer: AggregateAnswer | undefined): CalibratePicks {
   const base = defaultPicks(config, answer, stored?.direction, stored?.reference);
   if (stored === undefined) return base;
   const devices = calibrateDevices(config);
-  const lists = { outputs: aggregateChannels(config, answer, false), inputs: aggregateChannels(config, answer, true) };
+  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
   const keep = (side: "outputs" | "inputs", at: number): number | undefined => {
     const chosen = stored[side][at];
-    const found = lists[side].find((one) => one.number === chosen);
     const wanted = slotDevice(base.direction, base.reference, side, at, devices);
-    return found !== undefined && found.device === wanted ? found.number : base[side][at];
+    return channelsOf(lists[side], wanted).some((one) => one.channel === chosen) ? chosen : base[side][at];
   };
   return {
     ...base,
@@ -532,6 +561,21 @@ export function reconcilePicks(stored: CalibratePicks | undefined, config: Aggre
     clicks: CLICKS.includes(stored.clicks) ? stored.clicks : base.clicks,
     level_dbfs: LEVELS_DBFS.includes(stored.level_dbfs) ? stored.level_dbfs : base.level_dbfs,
   };
+}
+
+/**
+ * The picks for another pass or another reference: the cabling starts again from the defaults,
+ * because a channel number chosen on one interface means nothing on the next, and only how many
+ * clicks and how loud are carried over.
+ */
+export function withPass(
+  picks: CalibratePicks,
+  config: Aggregate | undefined,
+  answer: AggregateAnswer | undefined,
+  direction: AggregateCalibrateDirection,
+  reference: string,
+): CalibratePicks {
+  return { ...defaultPicks(config, answer, direction, reference), clicks: picks.clicks, level_dbfs: picks.level_dbfs };
 }
 
 /** One cable to patch, in the words of the channels the pickers name. */
@@ -546,11 +590,12 @@ export interface CalibrateCable {
  * One line per interface: the output that carries the click, and the input that records it.
  */
 export function cablingSteps(picks: CalibratePicks, config: Aggregate | undefined, answer: AggregateAnswer | undefined): CalibrateCable[] {
-  const outputs = aggregateChannels(config, answer, false);
-  const inputs = aggregateChannels(config, answer, true);
-  return calibrateDevices(config).map((_, at) => {
-    const from = channelText(outputs, picks.outputs[at]);
-    const to = channelText(inputs, picks.inputs[at]);
+  const outputs = interfaceChannels(config, answer, false);
+  const inputs = interfaceChannels(config, answer, true);
+  const devices = calibrateDevices(config);
+  return devices.map((_, at) => {
+    const from = channelText(outputs, slotDevice(picks.direction, picks.reference, "outputs", at, devices), picks.outputs[at]);
+    const to = channelText(inputs, slotDevice(picks.direction, picks.reference, "inputs", at, devices), picks.inputs[at]);
     return { from, to, text: `${from} into ${to}` };
   });
 }
@@ -558,26 +603,28 @@ export function cablingSteps(picks: CalibratePicks, config: Aggregate | undefine
 /**
  * Why this run cannot be made, in words, or nothing when it can. It is the one place that decides
  * whether the button does anything, so the element asks and does not work it out again.
+ *
+ * Which interface each pick is on is never in question here, because each picker only offers the
+ * channels of one interface and the request names that interface. What is checked is what the
+ * cabling means: every pick made, a channel its interface is offering, and no one channel of the
+ * shared interface carrying two cables.
  */
 export function calibrateProblem(picks: CalibratePicks, config: Aggregate | undefined, answer: AggregateAnswer | undefined): string | undefined {
   const devices = calibrateDevices(config);
   if (devices.length < 2) return "The aggregate needs at least two interfaces before there is anything to line up.";
   if (picks.outputs.length !== devices.length || picks.inputs.length !== devices.length) return "Every interface needs one output and one input chosen.";
   if (picks.outputs.includes(undefined) || picks.inputs.includes(undefined)) return "Every interface needs one output and one input chosen.";
-  if (new Set(picks.outputs).size !== picks.outputs.length) return "Two interfaces cannot take their click from one output. Choose a different output for each.";
-  if (new Set(picks.inputs).size !== picks.inputs.length) return "Two interfaces cannot record on one input. Choose a different input for each.";
-  const outputs = aggregateChannels(config, answer, false);
-  const inputs = aggregateChannels(config, answer, true);
-  const on = (list: AggregateChannel[], number: number | undefined) => list.find((one) => one.number === number)?.device;
-  const shared = picks.direction === "inputs" ? picks.outputs.map((number) => on(outputs, number)) : picks.inputs.map((number) => on(inputs, number));
-  const spread = picks.direction === "inputs" ? picks.inputs.map((number) => on(inputs, number)) : picks.outputs.map((number) => on(outputs, number));
-  if (shared.some((device) => device !== picks.reference)) {
-    return picks.direction === "inputs"
-      ? `Every click has to be played by one interface. Choose outputs on ${picks.reference}.`
-      : `Every click has to be recorded by one interface. Choose inputs on ${picks.reference}.`;
+  if (!devices.includes(picks.reference)) return "Choose the interface every cable has an end on.";
+  const lists = { outputs: interfaceChannels(config, answer, false), inputs: interfaceChannels(config, answer, true) };
+  for (const side of ["outputs", "inputs"] as const) {
+    const offered = (at: number) => channelsOf(lists[side], slotDevice(picks.direction, picks.reference, side, at, devices)).some((one) => one.channel === picks[side][at]);
+    if (!devices.every((_, at) => offered(at))) return "Every interface needs one output and one input chosen.";
   }
-  if (spread.some((device, at) => device !== devices[at])) {
-    return picks.direction === "inputs" ? "Each interface records on its own input." : "Each interface plays from its own output.";
+  const shared = picks[sharedSide(picks.direction)];
+  if (new Set(shared).size !== shared.length) {
+    return picks.direction === "inputs"
+      ? "Two interfaces cannot take their click from one output. Choose a different output for each."
+      : "Two interfaces cannot record on one input. Choose a different input for each.";
   }
   if (!CLICKS.includes(picks.clicks)) return "Choose how many clicks to play.";
   return undefined;
@@ -585,6 +632,10 @@ export function calibrateProblem(picks: CalibratePicks, config: Aggregate | unde
 
 /**
  * The request that starts this run, or nothing when the picks do not make one.
+ *
+ * Every channel goes as `{ device, channel }`: the interface by its place in the setup and that
+ * interface's own channel number, both from zero. The run works out where that is in the
+ * aggregate once it has the drivers open, which is the only place it can be known for sure.
  *
  * `check` asks for a check rather than a measurement: the same cabling and the same clicks, with
  * the session lined up as a DAW's would be, so what it hears is how far apart a recording would
@@ -597,10 +648,15 @@ export function calibrateRequest(
   options: { check?: boolean } = {},
 ): AggregateCalibrateRequest | undefined {
   if (calibrateProblem(picks, config, answer) !== undefined) return undefined;
+  const devices = calibrateDevices(config);
+  // The shared side is all on the reference, and the other side is each row's own interface.
+  const reference = devices.indexOf(picks.reference);
+  const ends = (side: "outputs" | "inputs"): AggregateCalibrateChannel[] =>
+    devices.map((_, at) => ({ device: side === sharedSide(picks.direction) ? reference : at, channel: picks[side][at] as number }));
   return {
     direction: picks.direction,
-    outputs: picks.outputs.filter((number): number is number => number !== undefined),
-    inputs: picks.inputs.filter((number): number is number => number !== undefined),
+    outputs: ends("outputs"),
+    inputs: ends("inputs"),
     clicks: picks.clicks,
     level_dbfs: picks.level_dbfs,
     ...(options.check === true ? { check: true } : {}),
@@ -912,11 +968,11 @@ export interface WitnessView extends ReadingView {
   channel: string;
 }
 
-/** The channels a run listened in on, named as the aggregate's own list names them. */
-export function witnessViews(outcome: AggregateCalibrateOutcome | undefined, inputs: AggregateChannel[]): WitnessView[] {
+/** The channels a run listened in on, each named by its interface and that interface's own number for it. */
+export function witnessViews(outcome: AggregateCalibrateOutcome | undefined, inputs: InterfaceChannel[]): WitnessView[] {
   return (outcome?.witnesses ?? []).map((witness) => ({
     ...readingView({ ...witness, is_reference: false }),
-    channel: channelText(inputs, witness.channel),
+    channel: channelText(inputs, witness.device, witness.channel),
   }));
 }
 

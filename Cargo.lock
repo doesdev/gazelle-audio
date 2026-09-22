@@ -1047,6 +1047,7 @@ dependencies = [
  "gazelle-audio-aggregate-status",
  "gazelle-audio-stream-abi",
  "serde",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 

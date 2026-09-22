@@ -40,18 +40,18 @@ use std::cell::UnsafeCell;
 
 use crate::click;
 use crate::measure::{self, Glitches, Reading};
-use crate::rig::{Direction, Rig, Settings};
+use crate::rig::{Direction, Layout, Rig, Settings, Wired};
 use crate::trim::{self, PhaseAtRun, TrimChange};
 
 /// An extra input channel the run recorded and reported, which took no part in any trim.
 ///
 /// A witness has no device of its own to be named by, because an interface may have several of
-/// them, so it carries the channel number it was and the name of the interface that channel
-/// belongs to. It is measured exactly as every reading is: against the reference channel, across
+/// them, so it carries the interface it is on and that interface's own number for it, exactly as
+/// it was asked for. It is measured exactly as every reading is: against the reference channel, across
 /// all of the clicks.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Witness {
-    /// The aggregate input channel this was, counted as a DAW counts them.
+    /// Which of that interface's own inputs this was, from zero, as the rig named it.
     pub channel: i32,
     /// The interface that channel belongs to, as `aggregate.json` names it.
     pub device: String,
@@ -676,11 +676,14 @@ pub fn measure_reporting(
             names.len()
         ));
     }
-    let on_input = |channel: i32| plan.inputs.get(usize::try_from(channel).ok()?).map(|reference| reference.device);
-    let on_output = |channel: i32| plan.outputs.get(usize::try_from(channel).ok()?).map(|reference| reference.device);
-    if let Some(why) = rig.refusal_against(on_input, on_output, &names) {
-        return refuse(why);
-    }
+    // The rig names each channel by interface and that interface's own number, and this is where
+    // they become the aggregate's: the drivers are open, so how many channels each really has,
+    // which the setup keeps out and which it keeps for the phase are all known, and nothing that
+    // counted them without opening anything can put a cable on the wrong interface.
+    let wired: Wired = match rig.wired(&Layout::of(&plan, aggregate.descriptions())) {
+        Ok(wired) => wired,
+        Err(why) => return refuse(why),
+    };
 
     let rate = aggregate.rate();
     if !(rate.is_finite() && rate > 0.0) {
@@ -693,7 +696,7 @@ pub fn measure_reporting(
     let emits = click::schedule(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);
     // Every interface's own channel, and then the witnesses, in one arena: a witness is recorded
     // exactly as a measured channel is, and only what is done with it afterwards differs.
-    let witness_devices = rig.witness_devices(on_input);
+    let witness_devices: Vec<usize> = rig.witnesses.iter().map(|pick| pick.device as usize).collect();
     let mut arena = Box::new(Arena::new(
         block.max(0) as usize,
         rig.devices() + rig.witnesses.len(),
@@ -702,12 +705,12 @@ pub fn measure_reporting(
         emits,
     ));
 
-    let wanted: Vec<Wanted> = rig
+    let wanted: Vec<Wanted> = wired
         .inputs
         .iter()
-        .chain(rig.witnesses.iter())
+        .chain(wired.witnesses.iter())
         .map(|&channel| Wanted { is_input: true, channel })
-        .chain(rig.outputs.iter().map(|&channel| Wanted { is_input: false, channel }))
+        .chain(wired.outputs.iter().map(|&channel| Wanted { is_input: false, channel }))
         .collect();
     let pairs = match aggregate.create_buffers(&wanted, block, callbacks()) {
         Ok(pairs) => pairs,
@@ -885,9 +888,9 @@ fn read_arena(
             rig.direction,
             format!(
                 "the click never came back on {name}, which is the interface everything else is measured against, so \
-                 there is nothing to measure against: check that cable first, and that input channel {} is the one \
-                 it is plugged into",
-                rig.inputs.get(rig.reference).copied().unwrap_or_default()
+                 there is nothing to measure against: check that cable first, and that {name} input {} is the one it \
+                 is plugged into",
+                rig.inputs.get(rig.reference).map_or(0, |pick| pick.channel) + 1
             ),
         );
     }
@@ -912,13 +915,15 @@ fn read_arena(
     // a reading out or move a trim, because a witness is something heard and not something
     // measured against.
     let mut witnesses = Vec::new();
-    for (index, &channel) in rig.witnesses.iter().enumerate() {
+    for (index, pick) in rig.witnesses.iter().enumerate() {
+        let channel = pick.channel;
         let on = witness_devices.get(index).copied().unwrap_or(rig.reference);
         let device = names.get(on).cloned().unwrap_or_else(|| format!("interface {on}"));
         let capture = arena.channel(rig.devices() + index);
         let lags = measure::lags_of_channel(&reference, &capture, &click, &emits, horizon, settings.search_samples);
-        // A witness has no name of its own, so it is called what it is: a channel, and whose.
-        let called = format!("input channel {channel} on {device}");
+        // A witness has no name of its own, so it is called what it is: a channel, and whose,
+        // counted from one as a person counts them.
+        let called = format!("input {} on {device}", channel + 1);
         let lost = glitches.get(on).copied().unwrap_or_default();
         let reading = measure::summarise(&called, &lags, emits.len(), rate, block, lost);
         witnesses.push(Witness { channel, device, reading });
@@ -977,7 +982,7 @@ mod tests {
     #[test]
     fn a_cabling_mistake_is_refused_before_a_single_device_is_opened() {
         // No host is handed over at all, so a refusal that reached the aggregate would panic here.
-        let rig = Rig::new(Direction::Inputs, vec![0], vec![0]);
+        let rig = Rig::new(Direction::Inputs, vec![crate::rig::Pick::new(0, 0)], vec![crate::rig::Pick::new(0, 0)]);
         assert!(rig.refusal().is_some());
         let settings = Settings { clicks: 1, ..Settings::default() };
         assert!(settings.refusal().is_some());

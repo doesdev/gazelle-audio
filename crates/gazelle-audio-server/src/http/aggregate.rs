@@ -19,8 +19,11 @@
 //!   One run at a time, on a thread of its own, followed while it goes and given up on when the
 //!   person says so. It makes a noise in the room and holds both audio drivers while it runs, so
 //!   everything that could stop it is refused before anything is opened
-//!   (`crate::aggregate::calibrate`). The body may also name `witnesses`: extra input channels to
-//!   record and report, which take no part in any trim.
+//!   (`crate::aggregate::calibrate`). Every channel in the body is `{ "device", "channel" }`: the
+//!   interface by its place in the setup and that interface's own channel number, both from zero,
+//!   never the aggregate's own numbering, which only the run can work out because only it opens
+//!   the drivers. The body may also name `witnesses`, the same way: extra input channels to record
+//!   and report, which take no part in any trim.
 //!
 //! **Loopback peers only**, like the update and window routes. Registering a driver and changing
 //! a DAW's buffer size are the machine's own business, not something a server reachable from a
@@ -441,7 +444,7 @@ mod tests {
         let mut alone = pair();
         alone.devices.truncate(1);
         h.store.save(&workspace_with(alone)).unwrap();
-        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"inputs","outputs":[0],"inputs":[0]}"#).await;
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"inputs","outputs":[{"device":0,"channel":0}],"inputs":[{"device":0,"channel":0}]}"#).await;
         assert_eq!(status, StatusCode::CONFLICT, "{body}");
         assert_eq!(body["error"]["code"], "not_configured");
     }
@@ -450,7 +453,7 @@ mod tests {
     async fn a_pass_that_is_not_one_is_refused_before_anything_is_opened() {
         let h = harness();
         h.store.save(&workspace_with(pair())).unwrap();
-        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"sideways","outputs":[0,1],"inputs":[0,16]}"#).await;
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"sideways","outputs":[{"device":0,"channel":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}]}"#).await;
         assert_eq!(status, StatusCode::CONFLICT, "{body}");
         assert_eq!(body["error"]["code"], "not_started");
         assert!(body["error"]["message"].as_str().unwrap().contains("inputs or outputs"), "{body}");
@@ -465,13 +468,27 @@ mod tests {
     async fn a_witness_that_is_already_being_measured_is_refused_by_the_route() {
         let h = harness();
         h.store.save(&workspace_with(pair())).unwrap();
-        let body = r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,16],"witnesses":[16]}"#;
+        let body = r#"{"direction":"inputs","outputs":[{"device":0,"channel":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}],"witnesses":[{"device":1,"channel":0}]}"#;
         let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", body).await;
         assert_eq!(status, StatusCode::CONFLICT, "{body}");
         assert_eq!(body["error"]["code"], "not_started");
-        assert!(body["error"]["message"].as_str().unwrap().contains("already"), "{body}");
+        let said = body["error"]["message"].as_str().unwrap();
+        assert!(said.starts_with("Input 1 of the second interface is already"), "{body}");
         let (_, state) = get(&h.app, "/api/v1/aggregate/calibrate").await;
         assert_eq!(state["state"], "idle");
+    }
+
+    /// The aggregate's own channel numbers are not a request: a page that still counted them would
+    /// be told so at once, rather than have its numbers read as something they are not.
+    #[tokio::test]
+    async fn channels_given_as_the_aggregates_own_numbers_are_not_a_request() {
+        let h = harness();
+        h.store.save(&workspace_with(pair())).unwrap();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/calibrate", r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,14]}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"]["message"].as_str().unwrap().contains("device"), "it says what a channel is: {body}");
+        let (_, state) = get(&h.app, "/api/v1/aggregate/calibrate").await;
+        assert_eq!(state["state"], "idle", "and nothing was started");
     }
 
     /// Stopping is answered whether or not anything was going, because the point of it is the

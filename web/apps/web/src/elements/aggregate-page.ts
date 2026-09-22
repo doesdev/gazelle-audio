@@ -25,7 +25,6 @@
 import { h } from "../core/dom.ts";
 import { effect } from "../core/signal.ts";
 import {
-  aggregateChannels,
   appliedTrimsText,
   autoChannelName,
   buffersMatch,
@@ -52,6 +51,7 @@ import {
   eventView,
   fixNeedsConfirming,
   gapView,
+  interfaceChannels,
   isExposed,
   LEVELS_DBFS,
   livePhaseView,
@@ -83,6 +83,7 @@ import {
   withChannelExposed,
   withChannelName,
   withMeasuredTrims,
+  withPass,
   withPhase,
   witnessViews,
   type Aggregate,
@@ -1024,10 +1025,12 @@ export class GaAggregate extends GaElement {
       h("option", { value: "inputs" }, "Inputs: line up what the interfaces record"),
       h("option", { value: "outputs" }, "Outputs: line up what the interfaces play"),
     );
-    direction.addEventListener("change", () => change({ ...picksNow(), direction: direction.value === "outputs" ? "outputs" : "inputs" }));
+    // Another pass or another reference is other cabling, so it starts from its own defaults.
+    const setup = () => store.workspace.peek()?.aggregate;
+    direction.addEventListener("change", () => change(withPass(picksNow(), setup(), model.answer.peek(), direction.value === "outputs" ? "outputs" : "inputs", picksNow().reference)));
 
     const reference = menu("Which interface every cable has an end on", "calibrate-reference", "aggregate.calibrate-reference");
-    reference.addEventListener("change", () => change({ ...picksNow(), reference: reference.value }));
+    reference.addEventListener("change", () => change(withPass(picksNow(), setup(), model.answer.peek(), picksNow().direction, reference.value)));
 
     const clicks = menu("How many clicks to play", "calibrate-clicks", "aggregate.calibrate-clicks");
     clicks.replaceChildren(...CLICKS.map((count) => h("option", { value: String(count) }, `${count} clicks`)));
@@ -1133,8 +1136,8 @@ export class GaAggregate extends GaElement {
       const answer = model.answer.value;
       const picks = reconcilePicks(chosen.value, config, answer);
       const devices = calibrateDevices(config);
-      const outputs = aggregateChannels(config, answer, false);
-      const inputs = aggregateChannels(config, answer, true);
+      const outputs = interfaceChannels(config, answer, false);
+      const inputs = interfaceChannels(config, answer, true);
 
       // The interfaces menu, and one row per interface. Rebuilt only when what they offer changes.
       const shape = JSON.stringify([devices, picks.direction, picks.reference, outputs.map((one) => one.text), inputs.map((one) => one.text)]);
@@ -1212,7 +1215,7 @@ export class GaAggregate extends GaElement {
         );
         const phaseViews = runPhaseViews(outcome);
         phases.replaceChildren(...(phaseViews.length === 0 ? [] : [h("p", { class: "side-head" }, "THE PHASE"), ...phaseViews.map((phase) => this.#runPhaseRow(phase))]));
-        const witnessed = witnessViews(outcome, aggregateChannels(store.workspace.peek()?.aggregate, model.answer.peek(), true));
+        const witnessed = witnessViews(outcome, interfaceChannels(store.workspace.peek()?.aggregate, model.answer.peek(), true));
         witnesses.replaceChildren(...(witnessed.length === 0 ? [] : [h("p", { class: "side-head" }, "LISTENED IN ON"), ...witnessed.map((witness, at) => this.#witnessRow(witness, at))]));
         trims.replaceChildren(...(checking ? [] : trimRows(outcome).map((trim, at) => this.#trimRow(trim, at))));
         apply.hidden = trimsToApply(outcome).length === 0;
@@ -1234,10 +1237,10 @@ export class GaAggregate extends GaElement {
     device: string,
     at: number,
     devices: string[],
-    outputs: ReturnType<typeof aggregateChannels>,
-    inputs: ReturnType<typeof aggregateChannels>,
+    outputs: ReturnType<typeof interfaceChannels>,
+    inputs: ReturnType<typeof interfaceChannels>,
   ): { row: HTMLElement; output: HTMLSelectElement; input: HTMLSelectElement } {
-    const pick = (side: "outputs" | "inputs", list: ReturnType<typeof aggregateChannels>, label: string, explain: string) => {
+    const pick = (side: "outputs" | "inputs", list: ReturnType<typeof interfaceChannels>, label: string, explain: string) => {
       const on = slotDevice(picks.direction, picks.reference, side, at, devices);
       const offered = channelsOf(list, on);
       const select = h("select", {
@@ -1249,7 +1252,7 @@ export class GaAggregate extends GaElement {
       select.replaceChildren(
         ...(offered.length === 0
           ? [h("option", { value: "" }, `No channel of ${on} is known yet`)]
-          : offered.map((channel) => h("option", { value: String(channel.number) }, channel.text))),
+          : offered.map((channel) => h("option", { value: String(channel.channel) }, channel.text))),
       );
       return select;
     };

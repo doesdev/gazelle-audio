@@ -807,7 +807,59 @@ test("measuring asks twice, then sends exactly the channels the pickers name", a
   captured.calibration = [{ state: "running", step: "Playing the clicks", progress: 0.42 }, done()];
   await measure.click();
   await expect.poll(() => captured.posts).toEqual([
-    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [0, 1], inputs: [0, 4], clicks: 8, level_dbfs: -20 } },
+    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20 } },
+  ]);
+});
+
+/**
+ * **The Check that was refused on the owner's rig.** Gazelle's own list has fourteen inputs for the
+ * Quadro while its driver has sixteen, so a page that counted the aggregate's channels itself sent
+ * the Studio+'s first input as 14, which is the Quadro's fifteenth. A Check now names every cable end
+ * by interface and that interface's own channel, so no count on this page can move a cable.
+ */
+test("a check sends each cable end as an interface and that interface's own channel", async ({ page }) => {
+  await putWorkspace(server, {
+    aggregate: {
+      devices: [
+        { key: "Zen Quadro Synergy Core", name: "Zen Quadro Synergy Core", device_id: "loopback-0" },
+        { key: "ZenStudioTB ASIO Driver", name: "ZenStudioTB ASIO Driver", device_id: "loopback-1" },
+      ],
+      callback_master: "Zen Quadro Synergy Core",
+    },
+  });
+  const fourteen = Array.from({ length: 14 }, (_, at) => `Mic ${at + 1}`);
+  const captured = await fakeAggregate(
+    page,
+    answer({
+      devices: [
+        deviceReport("Zen Quadro Synergy Core", { is_master: true, channels: { inputs: fourteen, outputs: fourteen, source: "gazelle" } }),
+        deviceReport("ZenStudioTB ASIO Driver", { device_id: "loopback-1", channels: { inputs: fourteen.slice(0, 8), outputs: fourteen.slice(0, 8), source: "gazelle" } }),
+      ],
+    }),
+  );
+  await open(page);
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Zen Quadro Synergy Core 2 into ZenStudioTB ASIO Driver 1");
+
+  // The Studio+'s second input, which is its own channel 1 however many the Quadro is counted as.
+  await page.getByTestId("calibrate-records-1").selectOption({ label: "ZenStudioTB ASIO Driver 2" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("Zen Quadro Synergy Core 2 into ZenStudioTB ASIO Driver 2");
+
+  captured.calibration = [done({ checking: true })];
+  const check = page.getByTestId("calibrate-check");
+  await check.click();
+  await check.click();
+  await expect.poll(() => captured.posts).toEqual([
+    {
+      route: "aggregate/calibrate",
+      body: {
+        direction: "inputs",
+        outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
+        inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 1 }],
+        clicks: 8,
+        level_dbfs: -20,
+        check: true,
+      },
+    },
   ]);
 });
 
@@ -1041,7 +1093,7 @@ test("checking asks twice, sends a check, and reads as a verdict with no trims t
   ];
   await check.click();
   await expect.poll(() => captured.posts).toEqual([
-    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [0, 1], inputs: [0, 4], clicks: 8, level_dbfs: -20, check: true } },
+    { route: "aggregate/calibrate", body: { direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20, check: true } },
   ]);
   await expect(page.getByTestId("calibrate-summary")).toContainText("Checked what the interfaces record");
   await expect(page.getByTestId("calibrate-verdict-text-Studio+")).toHaveText("Lined up: a recording would land 0.02 samples late against Quadro.");
@@ -1112,7 +1164,7 @@ test("a run that was not clean, or whose phase was refused, reads as such", asyn
         blocks_lost: 4,
         trims: [{ device: "Studio+", direction: "inputs", field: "input_trim", was: 28, measured: 31, now: 31, is_reference: false, phase_reference: { was: -84, now: null } }],
         phases: [{ device: "Studio+", state: "not_heard", measured_samples: 0, applied_samples: 0, note: "Nothing arrived on its measurement channel." }],
-        witnesses: [{ channel: 5, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Channel 6 recorded it 3.2 samples late." }],
+        witnesses: [{ channel: 1, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }],
       },
       [
         { device: "Quadro", is_reference: true, lag_samples: 0, spread_samples: 0, clicks_found: 8, clicks_expected: 8 },

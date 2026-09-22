@@ -22,7 +22,7 @@ use gazelle_audio_aggregate_status::map::Scratch;
 use gazelle_audio_aggregate_status::record::phase as codes;
 use gazelle_audio_aggregate_status::{Publisher, Reader, Snapshot};
 
-use crate::rig::{Direction, Rig, Settings};
+use crate::rig::{Direction, Pick, Rig, Settings};
 use crate::session::{measure_reporting, Outcome, RunLog, MARK};
 use crate::trim::PhaseReference;
 
@@ -74,7 +74,7 @@ fn config(phased: bool) -> Config {
 
 /// A's two outputs, one into A's first input and one into B's first input.
 fn rig() -> Rig {
-    Rig::new(Direction::Inputs, vec![0, 1], vec![0, 2])
+    Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 0)])
 }
 
 /// Long enough to settle for longer than the driver listens for its phase signal, so that every
@@ -289,7 +289,7 @@ fn a_run_that_is_refused_says_so_in_the_record_and_the_log() {
     let (reporter, reader, written) = published();
     let pc = two_interfaces();
     let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let spread = Rig::new(Direction::Inputs, vec![0, 2], vec![0, 2]);
+    let spread = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(1, 0)], vec![Pick::new(0, 0), Pick::new(1, 0)]);
     let mut pump = |_: usize| panic!("a refused rig never runs a block");
     let outcome = measure_reporting(host, config(false), "a test".to_string(), &spread, &settings(), reporter, &mut pump);
     let refusal = outcome.refusal.expect("the outputs are on two interfaces");

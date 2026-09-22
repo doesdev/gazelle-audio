@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use gazelle_calibrate::{Direction, Outcome, Rig, Settings};
+use gazelle_calibrate::{Direction, Outcome, Pick, Rig, Settings};
 use serde::{Deserialize, Serialize};
 
 /// The most clicks a run may be asked for. Eight is the default and plenty; this only catches a
@@ -24,20 +24,26 @@ use serde::{Deserialize, Serialize};
 pub const CLICKS_MAX: u32 = 64;
 
 /// What the page asks for: the cabling, and how hard to measure it.
+///
+/// Every channel is `{ "device": n, "channel": c }`: the interface by its place in the setup and
+/// that interface's own channel number, both from zero. **Never the aggregate's own numbering**,
+/// which depends on how many channels each driver really has, and only the run, which opens the
+/// drivers, knows that. The run translates, and refuses a channel it cannot place before anything
+/// plays.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ask {
     /// `inputs` or `outputs`: which side of the interfaces this pass measures.
     pub direction: String,
-    /// The aggregate output channel the click leaves on, one per interface, in the setup's order.
-    pub outputs: Vec<i32>,
-    /// The aggregate input channel it comes back on, one per interface.
-    pub inputs: Vec<i32>,
+    /// The output the click leaves on, one per interface, in the setup's order.
+    pub outputs: Vec<Pick>,
+    /// The input it comes back on, one per interface, in the setup's order.
+    pub inputs: Vec<Pick>,
     /// Extra input channels to record and report, which take no part in any trim. Any input
-    /// channel the aggregate has, including a second one on an interface that is already being
-    /// measured. Left out means none.
+    /// the aggregate has, including a second one on an interface that is already being measured.
+    /// Left out means none.
     #[serde(default)]
-    pub witnesses: Option<Vec<i32>>,
+    pub witnesses: Option<Vec<Pick>>,
     #[serde(default)]
     pub clicks: Option<u32>,
     #[serde(default)]
@@ -169,7 +175,7 @@ pub struct Reading {
 /// and it never stands in the way of one.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Witness {
-    /// The aggregate input channel this was.
+    /// Which of its interface's own inputs this was, from zero, exactly as it was asked for.
     pub channel: i32,
     /// The interface that channel belongs to.
     pub device: String,
@@ -611,11 +617,15 @@ mod tests {
         gazelle_calibrate::PhaseHeard::from_record(device, code, measured, applied)
     }
 
+    fn at(device: i32, channel: i32) -> Pick {
+        Pick::new(device, channel)
+    }
+
     fn ask() -> Ask {
         Ask {
             direction: "inputs".into(),
-            outputs: vec![0, 1],
-            inputs: vec![0, 16],
+            outputs: vec![at(0, 0), at(0, 1)],
+            inputs: vec![at(0, 0), at(1, 0)],
             witnesses: None,
             clicks: Some(2),
             level_dbfs: None,
@@ -645,7 +655,7 @@ mod tests {
     fn an_ask_that_is_not_a_pass_or_not_a_rig_is_refused_in_a_sentence() {
         let sideways = Ask { direction: "sideways".into(), ..ask() };
         assert_eq!(sideways.taken().unwrap_err(), "A pass is inputs or outputs, not \"sideways\".");
-        let lopsided = Ask { inputs: vec![0], ..ask() };
+        let lopsided = Ask { inputs: vec![at(0, 0)], ..ask() };
         assert!(lopsided.taken().unwrap_err().ends_with('.'), "a refusal from below is still a sentence");
         let none = Ask { clicks: Some(0), ..ask() };
         assert_eq!(none.taken().unwrap_err(), "A run plays between 1 and 64 clicks, not 0.");
@@ -698,37 +708,85 @@ mod tests {
 
     #[test]
     fn an_ask_carries_the_extra_channels_to_listen_in_on_and_none_means_none() {
-        let watching = Ask { witnesses: Some(vec![17]), ..ask() };
+        let watching = Ask { witnesses: Some(vec![at(1, 1)]), ..ask() };
         let (rig, _) = watching.taken().expect("a second input on the Studio+ is an observation");
-        assert_eq!(rig.witnesses, vec![17]);
+        assert_eq!(rig.witnesses, vec![at(1, 1)]);
         // Left out of the body altogether is a run with nothing carried along.
-        let plain: Ask = serde_json::from_str(r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,16]}"#).unwrap();
-        assert_eq!(plain.taken().expect("a rig").0.witnesses, Vec::<i32>::new());
+        let plain: Ask = serde_json::from_str(PLAIN).unwrap();
+        assert_eq!(plain.taken().expect("a rig").0.witnesses, Vec::<Pick>::new());
         // And one that is already being measured is refused in a sentence, before anything opens.
-        let clash = Ask { witnesses: Some(vec![16]), ..ask() };
+        let clash = Ask { witnesses: Some(vec![at(1, 0)]), ..ask() };
         let refusal = clash.taken().unwrap_err();
-        assert!(refusal.starts_with("Input channel 16 is already"), "{refusal}");
+        assert!(refusal.starts_with("Input 1 of the second interface is already"), "{refusal}");
         assert!(refusal.ends_with('.'), "{refusal}");
+    }
+
+    /// The request, exactly as the page sends it: every cable end and every witness is an interface
+    /// and that interface's own channel.
+    const PLAIN: &str = r#"{"direction":"inputs","outputs":[{"device":0,"channel":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}]}"#;
+
+    #[test]
+    fn an_ask_names_every_channel_by_interface_and_its_own_number() {
+        let body = r#"{
+            "direction": "inputs",
+            "outputs": [{ "device": 0, "channel": 0 }, { "device": 0, "channel": 1 }],
+            "inputs": [{ "device": 0, "channel": 0 }, { "device": 1, "channel": 0 }],
+            "witnesses": [{ "device": 1, "channel": 8 }],
+            "clicks": 8,
+            "level_dbfs": -20,
+            "check": true
+        }"#;
+        let ask: Ask = serde_json::from_str(body).expect("the page's request");
+        let (rig, settings) = ask.taken().expect("a rig");
+        assert_eq!(rig.outputs, vec![at(0, 0), at(0, 1)]);
+        assert_eq!(rig.inputs, vec![at(0, 0), at(1, 0)], "the Studio+'s first input, whatever the Quadro has");
+        assert_eq!(rig.witnesses, vec![at(1, 8)]);
+        assert!(settings.checking);
+        // The aggregate's own numbering is not a request any more, and neither is a pick with
+        // anything else in it.
+        assert!(serde_json::from_str::<Ask>(r#"{"direction":"inputs","outputs":[0,1],"inputs":[0,16]}"#).is_err());
+        assert!(serde_json::from_str::<Ask>(
+            r#"{"direction":"inputs","outputs":[{"device":0,"channel":0,"number":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}]}"#
+        )
+        .is_err());
+    }
+
+    /// What the run refuses once it has the drivers open, which is where a channel an interface has
+    /// not got is found, reaches the page as the run's own sentence with the true count in it.
+    #[test]
+    fn a_channel_the_run_could_not_place_is_passed_on_with_the_count_the_driver_gave() {
+        let refused = Outcome::refused(
+            Direction::Inputs,
+            "Zen Quadro Synergy Core has 16 inputs, numbered 1 to 16, so there is no input 17 on it to record the click on (a request counts them from zero, 0 to 15)",
+        );
+        let job = Arc::new(Calibration::new(Fake::new(refused, 2)));
+        job.start(&Ask { inputs: vec![at(0, 16), at(1, 0)], ..ask() }).expect("nothing about the request on its own is wrong");
+        let state = settled(&job);
+        assert_eq!(state.state, "failed");
+        let said = state.refusal.expect("the run's reason");
+        assert!(said.starts_with("Zen Quadro Synergy Core has 16 inputs, numbered 1 to 16"), "{said}");
+        assert!(said.ends_with('.'), "{said}");
+        assert!(state.outcome.is_none());
     }
 
     #[test]
     fn what_was_listened_in_on_is_reported_apart_from_the_interfaces_and_moves_no_trim() {
         let mut answer = outcome();
-        let mut heard = reading("input channel 17 on Studio+", 3.2);
-        heard.note = "input channel 17 on Studio+ recorded 3.20 samples behind the reference".into();
+        let mut heard = reading("input 2 on Studio+", 3.2);
+        heard.note = "input 2 on Studio+ recorded 3.20 samples behind the reference".into();
         answer.witnesses = vec![gazelle_calibrate::Witness {
-            channel: 17,
+            channel: 1,
             device: "Studio+".into(),
             reading: heard,
         }];
         let job = Arc::new(Calibration::new(Fake::new(answer, 2)));
-        job.start(&Ask { witnesses: Some(vec![17]), ..ask() }).expect("it starts");
+        job.start(&Ask { witnesses: Some(vec![at(1, 1)]), ..ask() }).expect("it starts");
         let measured = settled(&job).outcome.expect("an outcome");
         assert_eq!(measured.readings.len(), 2, "a witness is not an interface");
         assert_eq!(measured.witnesses.len(), 1);
-        assert_eq!((measured.witnesses[0].channel, measured.witnesses[0].device.as_str()), (17, "Studio+"));
+        assert_eq!((measured.witnesses[0].channel, measured.witnesses[0].device.as_str()), (1, "Studio+"));
         assert_eq!(measured.witnesses[0].lag_samples, 3.2);
-        assert!(measured.witnesses[0].note.contains("channel 17"));
+        assert!(measured.witnesses[0].note.contains("input 2 on Studio+"));
         assert_eq!(measured.trims[1].now, 28, "the trims are what the interfaces measured, and nothing else");
         assert!(measured.warnings.is_empty());
     }

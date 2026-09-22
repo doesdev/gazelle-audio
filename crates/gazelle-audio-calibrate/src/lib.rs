@@ -19,7 +19,9 @@
 //!
 //! # How it is put together
 //!
-//! - [`rig`] is the cabling written down, and everything that can be refused about it.
+//! - [`rig`] is the cabling written down, and everything that can be refused about it. Every
+//!   channel is named by interface and that interface's own number, and the run turns those into
+//!   the aggregate's numbers once the drivers are open, because only the drivers know the layout.
 //! - [`click`] is what is played: a short shaped sweep, not a single sample.
 //! - [`measure`] is the arithmetic, and has no hardware anywhere in it: cross correlation between
 //!   the captured channels, a parabola through the peak for a fraction of a sample, a median and a
@@ -80,7 +82,7 @@ mod end_to_end;
 mod published;
 
 pub use measure::{ClickLag, Drift, Reading};
-pub use rig::{Direction, Rig, Settings, LOUDEST_DBFS};
+pub use rig::{Direction, Interface, Layout, Pick, Rig, Settings, Wired, LOUDEST_DBFS};
 pub use session::{Outcome, PhaseHeard, Witness, NO_HARDWARE};
 pub use trim::{PhaseReference, TrimChange};
 

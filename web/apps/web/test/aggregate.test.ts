@@ -9,7 +9,7 @@ import { GazelleError, type AggregateAnswer, type AggregateFix, type AggregateMa
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import {
-  aggregateChannels,
+  interfaceChannels,
   AGGREGATE_LIVE_POLL_MS,
   AGGREGATE_OPEN_POLL_MS,
   AGGREGATE_POLL_MS,
@@ -41,6 +41,7 @@ import {
   referenceText,
   runCleanText,
   runPhaseViews,
+  withPass,
   withPhase,
   witnessViews,
   CALIBRATE_POLL_MS,
@@ -90,7 +91,7 @@ import {
   type CalibratePicks,
 } from "../src/store/aggregate.ts";
 import { Store } from "../src/store/store.ts";
-import { device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
+import { device, ends, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
 /** An en dash and an em dash, by code point, so this file carries neither. */
 const DASHES = new RegExp(`[${String.fromCodePoint(0x2013, 0x2014)}]`, "u");
@@ -394,41 +395,49 @@ test("an interface is named the way every answer joins it, and found in the answ
   assert.deepEqual(calibrateDevices(it.config), ["Quadro", "Studio+"]);
 });
 
-test("the aggregate's own channel list is numbered straight through the interfaces, in their order", () => {
+test("each interface's channels are listed by that interface and its own numbering, never the aggregate's", () => {
   const it = twoInterfaces();
-  const inputs = aggregateChannels(it.config, it.answer, true);
-  assert.deepEqual(inputs.map((one) => [one.number, one.device, one.channel, one.auto]), [
-    [0, "Quadro", 0, "Quadro 1"],
-    [1, "Quadro", 1, "Quadro 2"],
-    [2, "Quadro", 2, "Quadro 3"],
-    [3, "Quadro", 3, "Quadro 4"],
-    [4, "Studio+", 0, "Studio+ 1"],
-    [5, "Studio+", 1, "Studio+ 2"],
+  const inputs = interfaceChannels(it.config, it.answer, true);
+  assert.deepEqual(inputs.map((one) => [one.device, one.index, one.channel, one.auto]), [
+    ["Quadro", 0, 0, "Quadro 1"],
+    ["Quadro", 0, 1, "Quadro 2"],
+    ["Quadro", 0, 2, "Quadro 3"],
+    ["Quadro", 0, 3, "Quadro 4"],
+    ["Studio+", 1, 0, "Studio+ 1"],
+    ["Studio+", 1, 1, "Studio+ 2"],
   ]);
-  assert.equal(aggregateChannels(it.config, it.answer, false).length, 6);
-  assert.deepEqual(aggregateChannels(undefined, undefined, true), [], "nothing set up is no list");
+  assert.ok(inputs.every((one) => !Object.hasOwn(one, "number")), "nothing here is a place in the aggregate's list");
+  assert.equal(interfaceChannels(it.config, it.answer, false).length, 6);
+  assert.deepEqual(interfaceChannels(undefined, undefined, true), [], "nothing set up is no list");
 });
 
-test("a channel kept out of the aggregate is out of its list, and moves the numbering after it", () => {
+test("a channel kept out of the aggregate is not offered, and every other channel keeps its own number", () => {
   const it = twoInterfaces([{ inputs: [0, 3] }, {}]);
-  assert.deepEqual(aggregateChannels(it.config, it.answer, true).map((one) => [one.number, one.auto]), [
-    [0, "Quadro 1"],
-    [1, "Quadro 4"],
-    [2, "Studio+ 1"],
-    [3, "Studio+ 2"],
+  assert.deepEqual(interfaceChannels(it.config, it.answer, true).map((one) => [one.device, one.channel, one.auto]), [
+    ["Quadro", 0, "Quadro 1"],
+    ["Quadro", 3, "Quadro 4"],
+    ["Studio+", 0, "Studio+ 1"],
+    ["Studio+", 1, "Studio+ 2"],
   ]);
+});
+
+test("the channels the phase measurement runs over are not offered, because the driver keeps them", () => {
+  // The Studio+'s phase arrives on its second input, over the Quadro's fourth output.
+  const it = twoInterfaces([{}, { phase: { master_output: 3, input: 1 } }]);
+  assert.deepEqual(interfaceChannels(it.config, it.answer, true).map((one) => one.auto), ["Quadro 1", "Quadro 2", "Quadro 3", "Quadro 4", "Studio+ 1"]);
+  assert.deepEqual(interfaceChannels(it.config, it.answer, false).map((one) => one.auto), ["Quadro 1", "Quadro 2", "Quadro 3", "Studio+ 1", "Studio+ 2"]);
 });
 
 test("a channel with a name of its own says both, so the cable can still be found on the box", () => {
   const it = twoInterfaces([{ input_names: { "0": "Vocal mic" } }, {}]);
-  const inputs = aggregateChannels(it.config, it.answer, true);
+  const inputs = interfaceChannels(it.config, it.answer, true);
   assert.equal(inputs[0]?.text, "Vocal mic (Quadro 1)");
   assert.equal(inputs[1]?.text, "Quadro 2", "an unnamed one is just itself");
 });
 
 test("an interface whose channels are not known yet offers none of them rather than guessing", () => {
   const config = { devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+" }] };
-  assert.deepEqual(aggregateChannels(config, answer({ devices: [report("Quadro"), report("Studio+")] }), true), []);
+  assert.deepEqual(interfaceChannels(config, answer({ devices: [report("Quadro"), report("Studio+")] }), true), []);
 });
 
 test("the pass decides which side is all on one interface, and which picker offers what", () => {
@@ -446,7 +455,7 @@ test("the input pass starts with two outputs of the reference and one input on e
   const picks = defaultPicks(it.config, it.answer, "inputs");
   assert.equal(picks.reference, "Quadro", "the first interface, until somebody says otherwise");
   assert.deepEqual(picks.outputs, [0, 1], "two outputs of one interface");
-  assert.deepEqual(picks.inputs, [0, 4], "Quadro 1 in and Studio+ 1 in");
+  assert.deepEqual(picks.inputs, [0, 0], "Quadro 1 in and Studio+ 1 in, each by its own interface's numbering");
   assert.deepEqual(cablingSteps(picks, it.config, it.answer).map((cable) => cable.text), ["Quadro 1 into Quadro 1", "Quadro 2 into Studio+ 1"]);
 });
 
@@ -454,8 +463,8 @@ test("the output pass plays one output on each interface into two inputs of the 
   const it = twoInterfaces();
   const picks = defaultPicks(it.config, it.answer, "outputs", "Studio+");
   assert.equal(picks.reference, "Studio+");
-  assert.deepEqual(picks.outputs, [0, 4], "one output on each interface");
-  assert.deepEqual(picks.inputs, [4, 5], "both into the Studio+");
+  assert.deepEqual(picks.outputs, [0, 0], "one output on each interface");
+  assert.deepEqual(picks.inputs, [0, 1], "both into the Studio+");
   assert.deepEqual(cablingSteps(picks, it.config, it.answer).map((cable) => cable.text), ["Quadro 1 into Studio+ 1", "Studio+ 1 into Studio+ 2"]);
 });
 
@@ -467,11 +476,11 @@ test("a reference nothing in the setup names falls back to the first interface",
 
 test("what was chosen is kept across a poll, and only a choice that no longer fits falls back", () => {
   const it = twoInterfaces();
-  const stored: CalibratePicks = { direction: "inputs", reference: "Quadro", outputs: [2, 3], inputs: [1, 5], clicks: 16, level_dbfs: -12 };
+  const stored: CalibratePicks = { direction: "inputs", reference: "Quadro", outputs: [2, 3], inputs: [1, 1], clicks: 16, level_dbfs: -12 };
   assert.deepEqual(reconcilePicks(stored, it.config, it.answer), stored, "every choice still names a channel its picker offers");
 
-  // An input on the wrong interface: the input pass records each interface on its own input.
-  assert.deepEqual(reconcilePicks({ ...stored, inputs: [1, 2] }, it.config, it.answer).inputs, [1, 4], "the one that does not fit, and only that one");
+  // An input the Studio+ is not offering: it has two, so its third is not a choice.
+  assert.deepEqual(reconcilePicks({ ...stored, inputs: [1, 2] }, it.config, it.answer).inputs, [1, 0], "the one that does not fit, and only that one");
   // A channel that is not there any more, and a number of clicks nothing offers.
   const gone: CalibratePicks = { ...stored, outputs: [99, 3], clicks: 7 };
   assert.deepEqual(reconcilePicks(gone, it.config, it.answer).outputs, [0, 3]);
@@ -482,16 +491,26 @@ test("what was chosen is kept across a poll, and only a choice that no longer fi
 
 test("changing the pass takes the choices the other way round with it", () => {
   const it = twoInterfaces();
-  const flipped = reconcilePicks({ ...defaultPicks(it.config, it.answer, "inputs"), direction: "outputs" }, it.config, it.answer);
-  assert.deepEqual(flipped.outputs, [0, 4], "one output on each interface");
+  const chosen: CalibratePicks = { ...defaultPicks(it.config, it.answer, "inputs"), outputs: [2, 3], clicks: 16, level_dbfs: -12 };
+  const flipped = withPass(chosen, it.config, it.answer, "outputs", "Quadro");
+  assert.deepEqual(flipped.outputs, [0, 0], "one output on each interface");
   assert.deepEqual(flipped.inputs, [0, 1], "both into the reference");
+  assert.deepEqual([flipped.clicks, flipped.level_dbfs], [16, -12], "how many clicks and how loud stay as they were");
+  const moved = withPass(chosen, it.config, it.answer, "inputs", "Studio+");
+  assert.deepEqual([moved.reference, moved.outputs, moved.inputs], ["Studio+", [0, 1], [0, 0]], "another reference is other cabling too");
 });
 
 test("a run that cannot be made says why, and makes no request", () => {
   const it = twoInterfaces();
   const good = defaultPicks(it.config, it.answer);
   assert.equal(calibrateProblem(good, it.config, it.answer), undefined);
-  assert.deepEqual(calibrateRequest(good, it.config, it.answer), { direction: "inputs", outputs: [0, 1], inputs: [0, 4], clicks: 8, level_dbfs: -20 });
+  assert.deepEqual(calibrateRequest(good, it.config, it.answer), {
+    direction: "inputs",
+    outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
+    inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }],
+    clicks: 8,
+    level_dbfs: -20,
+  });
 
   const one = { devices: [{ key: "Q", name: "Quadro" }] };
   assert.match(String(calibrateProblem(defaultPicks(one, it.answer), one, it.answer)), /at least two interfaces/);
@@ -499,11 +518,47 @@ test("a run that cannot be made says why, and makes no request", () => {
 
   assert.match(String(calibrateProblem({ ...good, outputs: [0, undefined] }, it.config, it.answer)), /one output and one input/);
   assert.match(String(calibrateProblem({ ...good, outputs: [1, 1] }, it.config, it.answer)), /cannot take their click from one output/);
-  assert.match(String(calibrateProblem({ ...good, inputs: [4, 4] }, it.config, it.answer)), /cannot record on one input/);
-  // An output on the interface that is not playing: the whole point is that both copies leave one device.
-  assert.match(String(calibrateProblem({ ...good, outputs: [0, 4] }, it.config, it.answer)), /played by one interface. Choose outputs on Quadro/);
-  assert.match(String(calibrateProblem({ ...good, inputs: [0, 1] }, it.config, it.answer)), /records on its own input/);
+  // The same number on two interfaces is two different inputs, and a perfectly good run.
+  assert.equal(calibrateProblem({ ...good, inputs: [0, 0] }, it.config, it.answer), undefined);
+  const outputPass = defaultPicks(it.config, it.answer, "outputs");
+  assert.match(String(calibrateProblem({ ...outputPass, inputs: [2, 2] }, it.config, it.answer)), /cannot record on one input/);
+  // A channel the interface its picker is about is not offering.
+  assert.match(String(calibrateProblem({ ...good, outputs: [0, 4] }, it.config, it.answer)), /one output and one input/);
+  assert.match(String(calibrateProblem({ ...good, inputs: [0, 2] }, it.config, it.answer)), /one output and one input/);
   assert.match(String(calibrateProblem({ ...good, clicks: 3 }, it.config, it.answer)), /how many clicks/);
+});
+
+/**
+ * **The Check the owner pressed on 2026-09-21.** Gazelle's list has fourteen inputs for the Quadro,
+ * and its driver has sixteen, so counting the aggregate's channels here put the Studio+'s first input
+ * at 14, which is the Quadro's fifteenth, and the run rightly refused it. Asked for by interface, the
+ * Studio+'s first input is the Studio+'s first input whatever the Quadro is counted as.
+ */
+test("a check names each channel by interface, so a wrong count cannot put a cable on the wrong interface", () => {
+  const fourteen = Array.from({ length: 14 }, (_, at) => `Mic ${at + 1}`);
+  const config = { devices: [{ key: "Zen Quadro Synergy Core", name: "Zen Quadro Synergy Core" }, { key: "ZenStudioTB ASIO Driver", name: "ZenStudioTB ASIO Driver" }] };
+  const real = answer({
+    devices: [
+      report("Zen Quadro Synergy Core", { channels: { inputs: fourteen, outputs: fourteen, source: "gazelle" } }),
+      report("ZenStudioTB ASIO Driver", { channels: { inputs: fourteen.slice(0, 8), outputs: fourteen.slice(0, 8), source: "gazelle" } }),
+    ],
+  });
+  const request = calibrateRequest(defaultPicks(config, real), config, real, { check: true });
+  assert.deepEqual(request, {
+    direction: "inputs",
+    outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
+    inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }],
+    clicks: 8,
+    level_dbfs: -20,
+    check: true,
+  });
+  const json = JSON.stringify(request);
+  assert.doesNotMatch(json, /14/, "no number in it depends on how many channels the Quadro was counted as");
+
+  // The output pass the other way round: one output on each interface, both into the reference.
+  const outputs = calibrateRequest(defaultPicks(config, real, "outputs", "ZenStudioTB ASIO Driver"), config, real);
+  assert.deepEqual(outputs?.outputs, [{ device: 0, channel: 0 }, { device: 1, channel: 0 }]);
+  assert.deepEqual(outputs?.inputs, [{ device: 1, channel: 0 }, { device: 1, channel: 1 }]);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -867,12 +922,14 @@ test("a reading says what its interface lost, and how steady it was against what
   assert.equal(wide.tone, "off");
 });
 
-test("a channel the run listened in on is named as the aggregate names it, and changes no trim", () => {
-  const it = twoInterfaces();
-  const inputs = aggregateChannels(it.config, it.answer, true);
-  const run = measured({ witnesses: [{ channel: 5, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }] });
+test("a channel the run listened in on is named by its interface and that interface's number, and changes no trim", () => {
+  const it = twoInterfaces([{}, { input_names: { "1": "SPDIF L" } }]);
+  const inputs = interfaceChannels(it.config, it.answer, true);
+  const run = measured({ witnesses: [{ channel: 1, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }] });
   const views = witnessViews(run, inputs);
-  assert.equal(views[0]?.channel, "Studio+ 2");
+  assert.equal(views[0]?.channel, "SPDIF L (Studio+ 2)");
+  const unlisted = measured({ witnesses: [{ channel: 8, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8 }] });
+  assert.equal(witnessViews(unlisted, inputs)[0]?.channel, "Studio+ 9", "one the page does not list is still named, from one");
   assert.equal(views[0]?.lag, "3.2 samples late");
   assert.equal(views[0]?.clicks, "8 of 8 clicks found");
   assert.deepEqual(witnessViews(measured(), inputs), []);
@@ -1025,7 +1082,7 @@ function model(first: AggregateAnswer = answer()): Recorded {
       return recorded.calibration.state;
     },
     calibrate: async (request) => {
-      recorded.calls.push(`calibrate:${request.direction}:${request.outputs.join("/")}:${request.inputs.join("/")}:${request.clicks}:${request.level_dbfs}`);
+      recorded.calls.push(`calibrate:${request.direction}:${ends(request.outputs)}:${ends(request.inputs)}:${request.clicks}:${request.level_dbfs}`);
       if (recorded.calibration.refuse !== undefined) throw recorded.calibration.refuse;
       recorded.calibration.state = { state: "running", step: "Playing the clicks", progress: 0.25 };
       return { started: true };
@@ -1212,9 +1269,9 @@ test("starting a run sends it and then follows it, and a page that has gone foll
   const stop = it.model.activate();
   await flush();
   it.calls.length = 0;
-  await it.model.startCalibration({ direction: "inputs", outputs: [0, 1], inputs: [0, 16], clicks: 8, level_dbfs: -20 });
+  await it.model.startCalibration({ direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20 });
   await flush();
-  assert.deepEqual(calibrateCalls(it), ["calibrate:inputs:0/1:0/16:8:-20", "calibration"]);
+  assert.deepEqual(calibrateCalls(it), ["calibrate:inputs:0.0/0.1:0.0/1.0:8:-20", "calibration"]);
   assert.equal(it.model.calibration.value?.state, "running");
   assert.equal(it.model.calibrationProblem.value, undefined);
 
@@ -1228,7 +1285,7 @@ test("starting a run sends it and then follows it, and a page that has gone foll
 test("a run the server will not start says why, and nothing is left saying it is running", async () => {
   const it = model();
   it.calibration.refuse = new GazelleError("asio_in_use", "A DAW has the drivers open. Close it and try again.");
-  await it.model.startCalibration({ direction: "inputs", outputs: [0, 1], inputs: [0, 16], clicks: 8, level_dbfs: -20 });
+  await it.model.startCalibration({ direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20 });
   await flush();
   assert.match(String(it.model.calibrationProblem.value), /did not start: A DAW has the drivers open/);
   assert.equal(it.model.calibration.value?.state, "idle");
@@ -1294,9 +1351,9 @@ test("a measurement started through the store sends exactly what was asked for",
   it.client.calibration = { state: "idle" };
   await it.store.start();
   await flush();
-  await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [0, 1], inputs: [0, 16], clicks: 8, level_dbfs: -20 });
+  await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20 });
   await flush();
-  assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0/1:0/16"), true);
+  assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0.0/0.1:0.0/1.0"), true);
   assert.equal(it.store.aggregate.calibration.value?.state, "running");
 });
 
@@ -1316,7 +1373,7 @@ test("a check started through the store is sent as a check", async () => {
   it.client.calibration = { state: "idle" };
   await it.store.start();
   await flush();
-  await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [0, 1], inputs: [0, 16], clicks: 8, level_dbfs: -20, check: true });
+  await it.store.aggregate.startCalibration({ direction: "inputs", outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }], inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }], clicks: 8, level_dbfs: -20, check: true });
   await flush();
-  assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0/1:0/16:check"), true);
+  assert.equal(it.client.aggregateCalls.includes("calibrate:inputs:0.0/0.1:0.0/1.0:check"), true);
 });

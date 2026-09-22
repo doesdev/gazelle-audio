@@ -40,6 +40,15 @@ third cable, from a third output of the same interface. Nothing here assumes two
 Both copies of the click leave the same interface on the same sample, so the difference between
 where they land is the difference between the interfaces and nothing else.
 
+**Every cable end is named by interface and that interface's own channel number**, both counted
+from zero: `Pick::new(1, 0)` is the second interface's first input. It is never the aggregate's own
+channel number, because that depends on how many channels each interface's driver really has and on
+which of them the setup keeps out or keeps for the phase measurement, and only the drivers know the
+first of those. The run opens the drivers anyway, so it is the run that translates, once they are
+open and before a buffer is made, and a count made anywhere else can no longer put a cable on the
+wrong interface. (The Zen Quadro Synergy Core's driver has 16 inputs and 16 outputs, and the Zen
+Studio+'s 24 and 24, measured at the hardware on 2026-09-20.)
+
 ### Measuring the inputs
 
 One interface plays, every interface records:
@@ -69,8 +78,8 @@ of arithmetic: only the direction changes.
 
 ## Witnesses: extra channels to listen in on
 
-A run may carry **witnesses**: extra aggregate input channels that are recorded and reported
-alongside everything else, and that **take no part in any trim**.
+A run may carry **witnesses**: extra input channels, named the same way as the cables, that are
+recorded and reported alongside everything else, and that **take no part in any trim**.
 
 A witness may be any input channel the aggregate has, *including a second input on an interface
 that is already being measured*, which is the whole reason it exists. One input per interface is
@@ -80,14 +89,14 @@ interfaces, so it can never be a trim. It can be an observation, and that is wha
 
 Each witness is measured exactly as a reading is: its lag against the channel everything is measured against, the
 spread across the clicks, how many clicks were found, and what its interface's audio lost while it
-was going. It carries the channel number it was, because it has no interface of its own to be named
-by, and the name of the interface that channel belongs to. It is reported separately from the
+was going. It carries the name of the interface it is on and that interface's own number for it,
+exactly as it was asked for, because an interface can have several. It is reported separately from the
 readings, so nothing downstream can mistake one for an interface.
 
 **A witness never changes anything.** It produces no trim, it never stops a trim being offered, and
-a witness with nothing on it is reported as an empty channel rather than refused. The only two
-things refused about one are a channel the aggregate has not got, and a channel this run is already
-measuring, and both are refused before anything is opened.
+a witness with nothing on it is reported as an empty channel rather than refused. The only things
+refused about one are a channel the aggregate has not got, and a channel this run is already
+measuring, and both are refused before anything is played.
 
 ### Comparing one interface's analogue and digital inputs in a single run
 
@@ -100,16 +109,17 @@ Answering it needs one run that records two inputs of the same interface at once
 inputs as usual, and carry the interface's other input along as a witness:
 
 ```rust
-use gazelle_calibrate::{Direction, Rig, Settings};
+use gazelle_calibrate::{Direction, Pick, Rig, Settings};
 
 // The usual two cables: Quadro out 1 into Quadro in 1, Quadro out 2 into the Studio+'s analogue
-// in 1 (aggregate channel 16). A split of that second output also goes into the Studio+'s S/PDIF
-// input, which is aggregate channel 24, and that channel comes along as a witness.
-let rig = Rig::new(Direction::Inputs, vec![0, 1], vec![0, 16]).watching(vec![24]);
+// in 1. A split of that second output also goes into the Studio+'s S/PDIF input, its own input 9,
+// and that channel comes along as a witness.
+let rig = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 0)])
+    .watching(vec![Pick::new(1, 8)]);
 let outcome = gazelle_calibrate::session::measure(&rig, &Settings::default());
 
 for witness in &outcome.witnesses {
-    println!("channel {} on {}: {}", witness.channel, witness.device, witness.reading.note);
+    println!("{} input {}: {}", witness.device, witness.channel + 1, witness.reading.note);
 }
 ```
 
@@ -217,7 +227,7 @@ a drift would send somebody looking for a fault that is not there.
 
 ## What it refuses
 
-Every refusal names what is wrong and what would put it right, and **nothing is opened and no
+Every refusal names what is wrong and what would put it right, and **no buffer is made and no
 sample is played until all of them have passed**.
 
 - **`GAZELLE_NO_HARDWARE` is set.** This crate drives real converters, so it refuses outright
@@ -226,8 +236,12 @@ sample is played until all of them have passed**.
   the DAW and start again.
 - **The cabling could not measure what it claims to:** outputs spread across two interfaces when
   the inputs are what is being measured (or the other way round), an input and output count that do
-  not match, one channel named for two interfaces, a channel listed for the wrong interface, or a
-  channel the aggregate has not got.
+  not match, one channel named for two interfaces, or a channel listed for the wrong interface.
+- **A cable end the aggregate has nowhere for**, each said with what would have been right: an
+  interface that is not one of them (and which ones there are), a channel the interface has not got
+  (and how many it has, from its own driver), a channel the setup keeps out of the aggregate (and
+  which it does expose), and a channel the setup keeps for the phase measurement (and that this is
+  why).
 - **Fewer than two interfaces.** A lag is the difference between two of them.
 - **Nothing arrived on a channel.** That is a cable, not a measurement, and the trim in the file is
   left exactly where it was. A witness with nothing on it is not a refusal: it is an observation

@@ -10,7 +10,9 @@
 //! and an observation is how a question about one interface's own inputs gets answered in a single
 //! run.
 
-use serde::Serialize;
+use gazelle_aggregate::plan::{ChannelRef, Plan};
+use gazelle_aggregate::sub::Description;
+use serde::{Deserialize, Serialize};
 
 /// Which side of the interfaces this pass measures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -51,7 +53,60 @@ impl Direction {
     }
 }
 
-/// The cabling, in device order: entry `n` of each list belongs to device `n` of the aggregate.
+/// One channel of one interface, named the way the interface itself numbers it: which interface,
+/// by its place in `aggregate.json` counted from zero, and which of that interface's own channels,
+/// counted from zero.
+///
+/// **Why not the aggregate's own channel number.** The aggregate's numbering is worked out from how
+/// many channels each interface's driver really has, which only the drivers know, and from which of
+/// them the setup keeps out or keeps for the phase measurement. Anything that counts them without
+/// opening the drivers can be wrong, and a count that is two short puts every cable on the next
+/// interface along. The run opens the drivers anyway, so it is the run that translates, and nothing
+/// upstream of it has to know the layout at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, expecting = "an interface and one of its channels, as {\"device\": n, \"channel\": c}")]
+pub struct Pick {
+    /// The interface, by its place in `aggregate.json`, from zero.
+    pub device: i32,
+    /// That interface's own channel number, from zero.
+    pub channel: i32,
+}
+
+impl Pick {
+    pub fn new(device: i32, channel: i32) -> Pick {
+        Pick { device, channel }
+    }
+
+    /// The interface this names, once it is known to be one of them.
+    fn index(self) -> usize {
+        usize::try_from(self.device).unwrap_or(usize::MAX)
+    }
+
+    /// What to call this channel in a sentence before anything is open: there are no names yet,
+    /// so the interface is called by its place in the list. Channels are counted from one here,
+    /// as a person counts them.
+    fn unnamed(self, what: &str) -> String {
+        format!("{what} {} of {}", self.channel.saturating_add(1), ordinal(self.device))
+    }
+
+    /// What to call this channel once the interfaces are known: "Studio+ input 3".
+    fn named(self, what: &str, names: &[String]) -> String {
+        let name = names.get(self.index()).map(String::as_str).unwrap_or("that interface");
+        format!("{name} {what} {}", self.channel.saturating_add(1))
+    }
+}
+
+/// An interface by its place in the list, in words.
+fn ordinal(device: i32) -> String {
+    const WORDS: [&str; 8] = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"];
+    match usize::try_from(device).ok().and_then(|index| WORDS.get(index)) {
+        Some(word) => format!("the {word} interface"),
+        None => format!("interface {device}"),
+    }
+}
+
+/// The cabling, in device order: entry `n` of `inputs` and `outputs` is the cable for device `n`
+/// of the aggregate.
 ///
 /// For [`Direction::Inputs`] every entry of `outputs` is a channel of the **same** device, fanned
 /// out to one input of each device. For [`Direction::Outputs`] it is the other way round: one
@@ -59,30 +114,107 @@ impl Direction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Rig {
     pub direction: Direction,
-    /// The aggregate output channel the click leaves on, per device.
-    pub outputs: Vec<i32>,
-    /// The aggregate input channel the click comes back on, per device.
-    pub inputs: Vec<i32>,
-    /// Extra aggregate input channels to record and report, which take no part in any trim.
+    /// The output channel the click leaves on, per device.
+    pub outputs: Vec<Pick>,
+    /// The input channel the click comes back on, per device.
+    pub inputs: Vec<Pick>,
+    /// Extra input channels to record and report, which take no part in any trim.
     ///
     /// A witness may be any input channel the aggregate has, **including a second one on an
     /// interface that is already being measured**, which is the only way to see what an
     /// interface's own inputs do against each other in one run. It may not be a channel this rig
     /// is already measuring, because that channel is already a reading.
-    pub witnesses: Vec<i32>,
+    pub witnesses: Vec<Pick>,
     /// Which device everything is measured against. Its lag is zero by definition and its trim is
     /// left alone, so this is the interface the others are moved to meet.
     pub reference: usize,
 }
 
+/// One interface as the opened aggregate has it: what its driver really has, and which of its
+/// channels the setup keeps for the driver's phase measurement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Interface {
+    /// What `aggregate.json` calls it.
+    pub name: String,
+    /// How many inputs its driver has, whether or not the setup exposes them.
+    pub inputs: i32,
+    pub outputs: i32,
+    /// Its own input its phase is measured on, when the setup measures one.
+    pub phase_input: Option<i32>,
+    /// Its own outputs another interface's phase is measured from, each with the interface whose
+    /// phase that is.
+    pub phase_outputs: Vec<(i32, String)>,
+}
+
+/// The aggregate's layout, as the run finds it once the drivers are open: every interface, and the
+/// aggregate's own inputs and outputs as `(interface, that interface's own channel)`, in the order a
+/// DAW is given them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Layout {
+    pub interfaces: Vec<Interface>,
+    pub inputs: Vec<(usize, i32)>,
+    pub outputs: Vec<(usize, i32)>,
+}
+
+impl Layout {
+    /// The layout of an opened aggregate, from its plan and from what each driver said it has.
+    pub fn of(plan: &Plan, drivers: &[Description]) -> Layout {
+        let mut interfaces: Vec<Interface> = plan
+            .devices
+            .iter()
+            .enumerate()
+            .map(|(index, device)| {
+                // The plan only has the channels the setup exposes. Should a driver's own answer be
+                // missing, the most that can honestly be said is the highest channel it opened.
+                let opened = |list: &[i32]| list.iter().copied().max().map_or(0, |top| top + 1);
+                let driver = drivers.get(index);
+                Interface {
+                    name: device.name.clone(),
+                    inputs: driver.map_or_else(|| opened(&device.inputs), |driver| driver.inputs),
+                    outputs: driver.map_or_else(|| opened(&device.outputs), |driver| driver.outputs),
+                    phase_input: device.phase.map(|phase| phase.input),
+                    phase_outputs: Vec::new(),
+                }
+            })
+            .collect();
+        for device in &plan.devices {
+            if let (Some(phase), Some(master)) = (device.phase, interfaces.get_mut(plan.master)) {
+                master.phase_outputs.push((phase.master_output, device.name.clone()));
+            }
+        }
+        let own = |list: &[ChannelRef], input: bool| -> Vec<(usize, i32)> {
+            list.iter()
+                .filter_map(|at| {
+                    let device = plan.devices.get(at.device)?;
+                    let channels = if input { &device.inputs } else { &device.outputs };
+                    Some((at.device, *channels.get(at.slot)?))
+                })
+                .collect()
+        };
+        Layout { inputs: own(&plan.inputs, true), outputs: own(&plan.outputs, false), interfaces }
+    }
+
+    fn names(&self) -> Vec<String> {
+        self.interfaces.iter().map(|interface| interface.name.clone()).collect()
+    }
+}
+
+/// The rig in the aggregate's own channel numbers, which is what its buffers are asked for by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Wired {
+    pub outputs: Vec<i32>,
+    pub inputs: Vec<i32>,
+    pub witnesses: Vec<i32>,
+}
+
 impl Rig {
     /// The two cable rig of the README: device order, reference first, nothing carried along.
-    pub fn new(direction: Direction, outputs: Vec<i32>, inputs: Vec<i32>) -> Rig {
+    pub fn new(direction: Direction, outputs: Vec<Pick>, inputs: Vec<Pick>) -> Rig {
         Rig { direction, outputs, inputs, witnesses: Vec::new(), reference: 0 }
     }
 
     /// The same rig, listening in on these input channels as well.
-    pub fn watching(mut self, witnesses: Vec<i32>) -> Rig {
+    pub fn watching(mut self, witnesses: Vec<Pick>) -> Rig {
         self.witnesses = witnesses;
         self
     }
@@ -93,7 +225,8 @@ impl Rig {
     }
 
     /// Everything that is wrong with the cabling itself, decided without opening anything. What
-    /// needs a device to answer is checked later, and still before a sample is played.
+    /// needs the drivers to answer is checked by [`Rig::wired`], and still before a sample is
+    /// played.
     pub fn refusal(&self) -> Option<String> {
         if self.inputs.len() != self.outputs.len() {
             return Some(format!(
@@ -119,12 +252,22 @@ impl Rig {
                 self.devices()
             ));
         }
-        for (what, list) in [("input", &self.inputs), ("output", &self.outputs)] {
-            if let Some(channel) = list.iter().find(|&&channel| channel < 0) {
-                return Some(format!(
-                    "{channel} is not a channel: the aggregate's {what} channels are counted from zero, in the order \
-                     a DAW lists them"
-                ));
+        for (what, list) in [("input", &self.inputs), ("output", &self.outputs), ("input", &self.witnesses)] {
+            for pick in list.iter() {
+                if pick.device < 0 {
+                    return Some(format!(
+                        "interface {} is not one of them: a request counts the interfaces from zero, in the order \
+                         aggregate.json lists them",
+                        pick.device
+                    ));
+                }
+                if pick.channel < 0 {
+                    return Some(format!(
+                        "{} is not a channel: a request counts each interface's own {what}s from zero, so its first \
+                         {what} is 0",
+                        pick.channel
+                    ));
+                }
             }
         }
         let common = match self.direction {
@@ -133,130 +276,206 @@ impl Rig {
         };
         if let Some(repeated) = first_repeat(common) {
             return Some(format!(
-                "{} channel {repeated} is cabled twice, and every cable needs a channel of its own so that the two \
-                 copies of the click can be told apart",
-                self.direction.common_side()
+                "{} is cabled twice, and every cable needs a channel of its own so that the two copies of the click \
+                 can be told apart",
+                repeated.unnamed(self.direction.common_side())
             ));
         }
-        let separate = match self.direction {
-            Direction::Inputs => &self.inputs,
-            Direction::Outputs => &self.outputs,
+        let (separate, side) = match self.direction {
+            Direction::Inputs => (&self.inputs, "input"),
+            Direction::Outputs => (&self.outputs, "output"),
         };
         if let Some(repeated) = first_repeat(separate) {
             return Some(format!(
-                "channel {repeated} is named for two interfaces at once, and each interface needs its own cable: \
-                 check the channel numbers against the order the interfaces appear in aggregate.json"
-            ));
-        }
-        if let Some(&channel) = self.witnesses.iter().find(|&&channel| channel < 0) {
-            return Some(format!(
-                "{channel} is not a channel to listen in on: the aggregate's input channels are counted from zero, in \
-                 the order a DAW lists them"
+                "{} is named for two interfaces at once, and each interface needs its own cable",
+                repeated.unnamed(side)
             ));
         }
         if let Some(repeated) = first_repeat(&self.witnesses) {
             return Some(format!(
-                "input channel {repeated} is listened in on twice, and one channel is one recording: name it once and \
-                 it is carried along once"
+                "{} is listened in on twice, and one channel is one recording: name it once and it is carried along \
+                 once",
+                repeated.unnamed("input")
             ));
         }
-        if let Some(&clash) = self.witnesses.iter().find(|channel| self.inputs.contains(channel)) {
+        if let Some(clash) = self.witnesses.iter().find(|pick| self.inputs.contains(pick)) {
             return Some(format!(
-                "input channel {clash} is already one of the channels this run measures, so it cannot also be carried \
-                 along as a witness: a witness is an extra channel to listen in on, and this one is already a reading"
+                "{} is already one of the channels this run measures, so it cannot also be carried along as a \
+                 witness: a witness is an extra channel to listen in on, and this one is already a reading",
+                clash.unnamed("input")
             ));
         }
         None
     }
 
-    /// Whether every channel that has to be on one device is, given which device each aggregate
-    /// channel belongs to. `on_input` and `on_output` answer with the device index of a channel,
-    /// or `None` when the aggregate has no such channel.
-    pub fn refusal_against(
-        &self,
-        on_input: impl Fn(i32) -> Option<usize>,
-        on_output: impl Fn(i32) -> Option<usize>,
-        names: &[String],
-    ) -> Option<String> {
+    /// **The rig in the aggregate's own channel numbers**, now that the drivers are open and the
+    /// layout is known, or the sentence that says what is wrong with it and what would be right.
+    ///
+    /// This is the one place the interface's own numbering meets the aggregate's, so every way a
+    /// name can miss is refused here, before a buffer is made: an interface that is not one of
+    /// them, a channel the interface has not got, one the setup keeps out of the aggregate, and
+    /// one the setup keeps for the phase measurement.
+    pub fn wired(&self, layout: &Layout) -> Result<Wired, String> {
+        let names = layout.names();
         if names.len() != self.devices() {
-            return Some(format!(
-                "this rig is written for {} interfaces and the aggregate has {}: every interface in aggregate.json \
-                 needs a cable, and nothing else may be in the list",
+            return Err(format!(
+                "this rig is written for {} interfaces and the aggregate has {} ({}): every interface in \
+                 aggregate.json needs a cable, and nothing else may be in the list",
                 self.devices(),
-                names.len()
+                names.len(),
+                names.join(", ")
             ));
         }
-        let mut input_devices = Vec::new();
-        let mut output_devices = Vec::new();
-        for (index, (&input, &output)) in self.inputs.iter().zip(self.outputs.iter()).enumerate() {
-            let name = names.get(index).map(String::as_str).unwrap_or("that interface");
-            let Some(on) = on_input(input) else {
-                return Some(format!(
-                    "there is no input channel {input} on the aggregate, so {name}'s cable has nowhere to arrive"
+        for pick in self.outputs.iter().chain(&self.inputs).chain(&self.witnesses) {
+            if pick.index() >= names.len() {
+                let counted: Vec<String> =
+                    names.iter().enumerate().map(|(index, name)| format!("{index} is {name}")).collect();
+                return Err(format!(
+                    "interface {} is not one of them: a request counts the interfaces from zero, in the order \
+                     aggregate.json lists them, and there are {} ({})",
+                    pick.device,
+                    names.len(),
+                    counted.join(", ")
                 ));
-            };
-            input_devices.push(on);
-            let Some(on) = on_output(output) else {
-                return Some(format!(
-                    "there is no output channel {output} on the aggregate, so {name}'s cable has nowhere to leave from"
-                ));
-            };
-            output_devices.push(on);
+            }
         }
 
         // The side the click has in common must be one device, or the measurement is the
         // difference between two devices' clocks and two devices' converters at once.
         let (common, side) = match self.direction {
-            Direction::Inputs => (&output_devices, "outputs"),
-            Direction::Outputs => (&input_devices, "inputs"),
+            Direction::Inputs => (&self.outputs, "outputs"),
+            Direction::Outputs => (&self.inputs, "inputs"),
         };
-        let first = common[0];
-        if let Some(stray) = common.iter().position(|&device| device != first) {
-            let here = names.get(first).map(String::as_str).unwrap_or("one interface");
-            let there = names.get(common[stray]).map(String::as_str).unwrap_or("another");
-            return Some(format!(
-                "the {side} this rig names are spread across {here} and {there}, and they all have to be on one \
-                 interface: that is what makes both copies of the click leave on the same sample"
+        let first = common[0].index();
+        if let Some(stray) = common.iter().find(|pick| pick.index() != first) {
+            return Err(format!(
+                "the {side} this rig names are spread across {} and {}, and they all have to be on one interface: \
+                 that is what makes both copies of the click leave on the same sample",
+                names[first],
+                names[stray.index()]
             ));
         }
 
         // And the side being measured must be one channel per device, on its own device.
-        let (separate, side, which) = match self.direction {
-            Direction::Inputs => (&input_devices, "input", &self.inputs),
-            Direction::Outputs => (&output_devices, "output", &self.outputs),
+        let (separate, side) = match self.direction {
+            Direction::Inputs => (&self.inputs, "input"),
+            Direction::Outputs => (&self.outputs, "output"),
         };
-        for (index, (&device, &channel)) in separate.iter().zip(which.iter()).enumerate() {
-            if device != index {
-                let name = names.get(index).map(String::as_str).unwrap_or("that interface");
-                let actually = names.get(device).map(String::as_str).unwrap_or("another interface");
-                return Some(format!(
-                    "{side} channel {channel} was given as {name}'s, but it belongs to {actually}: the cables are \
-                     listed in the order the interfaces appear in aggregate.json"
+        for (index, pick) in separate.iter().enumerate() {
+            if pick.index() != index {
+                return Err(format!(
+                    "{} was given as {}'s cable, and it has to be one of {}'s own {side}s: the cables are listed one \
+                     per interface, in the order the interfaces appear in aggregate.json",
+                    pick.named(side, &names),
+                    names[index],
+                    names[index]
                 ));
             }
         }
 
-        // A witness is under no rule about which interface it is on, because it is not part of any
-        // difference. It still has to be a channel that exists, or there is nothing to record.
-        for &channel in &self.witnesses {
-            if on_input(channel).is_none() {
-                return Some(format!(
-                    "there is no input channel {channel} on the aggregate, so there is nothing there to listen in on"
-                ));
-            }
-        }
-        None
-    }
-
-    /// Which device each witness channel is on, in the order the witnesses were given. A channel
-    /// the aggregate has not got is left out, and [`Rig::refusal_against`] has already refused that
-    /// before this is ever asked.
-    pub fn witness_devices(&self, on_input: impl Fn(i32) -> Option<usize>) -> Vec<usize> {
-        self.witnesses.iter().filter_map(|&channel| on_input(channel)).collect()
+        let outputs = self
+            .outputs
+            .iter()
+            .map(|&pick| locate(layout, &names, pick, false, "play the click from"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let inputs = self
+            .inputs
+            .iter()
+            .map(|&pick| locate(layout, &names, pick, true, "record the click on"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let witnesses = self
+            .witnesses
+            .iter()
+            .map(|&pick| locate(layout, &names, pick, true, "listen in on"))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Wired { outputs, inputs, witnesses })
     }
 }
 
-fn first_repeat(list: &[i32]) -> Option<i32> {
+/// Where one interface's own channel is in the aggregate's list, or why it is not there.
+fn locate(layout: &Layout, names: &[String], pick: Pick, input: bool, purpose: &str) -> Result<i32, String> {
+    let what = if input { "input" } else { "output" };
+    let interface = &layout.interfaces[pick.index()];
+    let name = &interface.name;
+    let has = if input { interface.inputs } else { interface.outputs };
+    if pick.channel >= has {
+        return Err(if has <= 0 {
+            format!("{name} has no {what}s at all, so there is no {what} {} on it to {purpose}", pick.channel + 1)
+        } else {
+            format!(
+                "{name} has {has} {what}s, numbered 1 to {has}, so there is no {what} {} on it to {purpose} (a \
+                 request counts them from zero, 0 to {})",
+                pick.channel + 1,
+                has - 1
+            )
+        });
+    }
+
+    // Kept for the driver's phase measurement: opened at the interface and never given to anyone,
+    // so that nothing played can land on the measurement and the measurement is never heard.
+    let this = pick.named(what, names);
+    if input && interface.phase_input == Some(pick.channel) {
+        return Err(format!(
+            "{this} is where {name}'s phase measurement arrives, so the setup keeps it for the driver and out of \
+             the aggregate, and there is nothing there to {purpose}: choose another input, or move the phase cable \
+             under Phase setup on {name}'s card"
+        ));
+    }
+    if !input {
+        if let Some((_, whose)) = interface.phase_outputs.iter().find(|(channel, _)| *channel == pick.channel) {
+            return Err(format!(
+                "{this} carries the signal {whose}'s phase is measured with, so the setup keeps it for the driver \
+                 and out of the aggregate, and there is nothing there to {purpose}: choose another output, or move \
+                 the phase cable under Phase setup on {whose}'s card"
+            ));
+        }
+    }
+
+    let list = if input { &layout.inputs } else { &layout.outputs };
+    if let Some(at) = list.iter().position(|&(device, channel)| device == pick.index() && channel == pick.channel) {
+        return Ok(at as i32);
+    }
+    let exposed: Vec<i32> =
+        list.iter().filter(|&&(device, _)| device == pick.index()).map(|&(_, channel)| channel).collect();
+    Err(if exposed.is_empty() {
+        format!(
+            "{this} is kept out of the aggregate by the setup, and so is every other {what} {name} has, so there is \
+             nothing there to {purpose}: expose it on {name}'s card"
+        )
+    } else {
+        format!(
+            "{this} is kept out of the aggregate by the setup, so there is nothing there to {purpose}: choose one of \
+             the {what}s {name} does expose ({}), or expose this one on {name}'s card",
+            numbered(&exposed)
+        )
+    })
+}
+
+/// A set of channel numbers from zero, said as a person counts them: "1 to 4, 7 and 9".
+fn numbered(channels: &[i32]) -> String {
+    let mut sorted = channels.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut runs: Vec<String> = Vec::new();
+    let mut at = 0;
+    while at < sorted.len() {
+        let start = sorted[at];
+        let mut end = start;
+        while at + 1 < sorted.len() && sorted[at + 1] == end + 1 {
+            at += 1;
+            end = sorted[at];
+        }
+        runs.push(if end > start { format!("{} to {}", start + 1, end + 1) } else { format!("{}", start + 1) });
+        at += 1;
+    }
+    match runs.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        Some((last, _)) => last.clone(),
+        None => String::new(),
+    }
+}
+
+fn first_repeat(list: &[Pick]) -> Option<Pick> {
     for (index, &value) in list.iter().enumerate() {
         if list[index + 1..].contains(&value) {
             return Some(value);
@@ -370,61 +589,78 @@ impl Settings {
 mod tests {
     use super::*;
 
-    /// The rig of the README: the Quadro plays out of two outputs, one into each interface.
-    fn two_cables() -> Rig {
-        Rig::new(Direction::Inputs, vec![0, 1], vec![0, 16])
+    fn at(device: i32, channel: i32) -> Pick {
+        Pick::new(device, channel)
     }
 
-    /// Which device each channel is on, for the two interface aggregate: sixteen Quadro channels
-    /// and then the Studio+'s.
-    fn on_device(channel: i32) -> Option<usize> {
-        match channel {
-            0..=15 => Some(0),
-            16..=39 => Some(1),
-            _ => None,
+    /// The rig of the README: the Quadro plays out of two outputs, one into each interface.
+    fn two_cables() -> Rig {
+        Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 0)])
+    }
+
+    /// Interfaces with every channel exposed, in the order given.
+    fn layout(interfaces: &[(&str, i32, i32)]) -> Layout {
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        for (index, &(_, ins, outs)) in interfaces.iter().enumerate() {
+            inputs.extend((0..ins).map(|channel| (index, channel)));
+            outputs.extend((0..outs).map(|channel| (index, channel)));
+        }
+        Layout {
+            interfaces: interfaces
+                .iter()
+                .map(|&(name, ins, outs)| Interface {
+                    name: name.to_string(),
+                    inputs: ins,
+                    outputs: outs,
+                    phase_input: None,
+                    phase_outputs: Vec::new(),
+                })
+                .collect(),
+            inputs,
+            outputs,
         }
     }
 
-    fn names() -> Vec<String> {
-        vec!["Quadro".to_string(), "Studio+".to_string()]
+    /// The rig as it is at the hardware: the Quadro's driver has sixteen channels each way, and the
+    /// Studio+'s twenty four.
+    fn quadro_and_studio() -> Layout {
+        layout(&[("Quadro", 16, 16), ("Studio+", 24, 24)])
     }
 
     #[test]
-    fn the_two_cable_rig_from_the_readme_is_accepted_as_written() {
+    fn the_two_cable_rig_from_the_readme_is_accepted_and_put_into_the_aggregates_numbers() {
         let rig = two_cables();
         assert_eq!(rig.refusal(), None);
-        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
+        let wired = rig.wired(&quadro_and_studio()).expect("a good rig");
+        // The Studio+'s first input comes after all sixteen of the Quadro's.
+        assert_eq!(wired, Wired { outputs: vec![0, 1], inputs: vec![0, 16], witnesses: vec![] });
         assert_eq!(rig.devices(), 2);
     }
 
     #[test]
     fn a_third_interface_is_a_third_cable_and_nothing_else() {
-        let rig = Rig::new(Direction::Inputs, vec![0, 1, 2], vec![0, 16, 40]);
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1), at(0, 2)], vec![at(0, 0), at(1, 0), at(2, 0)]);
         assert_eq!(rig.refusal(), None);
-        let on = |channel: i32| match channel {
-            0..=15 => Some(0),
-            16..=39 => Some(1),
-            40..=71 => Some(2),
-            _ => None,
-        };
-        let three = vec!["Quadro".to_string(), "Studio+".to_string(), "Orion".to_string()];
-        assert_eq!(rig.refusal_against(on, on, &three), None);
+        let three = layout(&[("Quadro", 16, 16), ("Studio+", 24, 24), ("Orion", 32, 32)]);
+        assert_eq!(rig.wired(&three).expect("three cables").inputs, vec![0, 16, 40]);
     }
 
     #[test]
     fn measuring_the_outputs_is_the_same_rig_with_the_cabling_turned_round() {
         // One output on each interface, all of them into inputs of the first.
-        let rig = Rig::new(Direction::Outputs, vec![0, 16], vec![0, 1]);
+        let rig = Rig::new(Direction::Outputs, vec![at(0, 0), at(1, 0)], vec![at(0, 0), at(0, 1)]);
         assert_eq!(rig.refusal(), None);
-        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
+        let wired = rig.wired(&quadro_and_studio()).expect("a good rig");
+        assert_eq!((wired.outputs, wired.inputs), (vec![0, 16], vec![0, 1]));
     }
 
     #[test]
     fn outputs_spread_over_two_interfaces_are_refused_when_the_inputs_are_being_measured() {
         // Both copies of the click must leave the same device on the same sample, or the number
         // that comes out is not the inputs.
-        let rig = Rig::new(Direction::Inputs, vec![0, 16], vec![0, 16]);
-        let refusal = rig.refusal_against(on_device, on_device, &names()).expect("the outputs are on two devices");
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(1, 0)], vec![at(0, 0), at(1, 0)]);
+        let refusal = rig.wired(&quadro_and_studio()).expect_err("the outputs are on two devices");
         assert!(refusal.contains("Quadro") && refusal.contains("Studio+"), "{refusal}");
         assert!(refusal.contains("one interface"), "{refusal}");
     }
@@ -432,37 +668,102 @@ mod tests {
     #[test]
     fn an_input_that_is_not_on_the_interface_it_was_listed_for_is_refused_by_name() {
         // Both cables arrive on the Quadro, so the second interface is not being measured at all.
-        let rig = Rig::new(Direction::Inputs, vec![0, 1], vec![0, 2]);
-        let refusal = rig.refusal_against(on_device, on_device, &names()).expect("the second cable is on the Quadro");
-        assert!(refusal.contains("Studio+") && refusal.contains("Quadro"), "{refusal}");
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(0, 2)]);
+        let refusal = rig.wired(&quadro_and_studio()).expect_err("the second cable is on the Quadro");
+        assert!(refusal.starts_with("Quadro input 3 was given as Studio+'s cable"), "{refusal}");
     }
 
     #[test]
-    fn a_channel_the_aggregate_has_not_got_is_refused_and_the_interface_is_named() {
-        let rig = Rig::new(Direction::Inputs, vec![0, 1], vec![0, 99]);
-        let refusal = rig.refusal_against(on_device, on_device, &names()).expect("there is no channel 99");
-        assert!(refusal.contains("99") && refusal.contains("Studio+"), "{refusal}");
+    fn a_channel_the_interface_has_not_got_is_refused_with_how_many_it_has() {
+        // Input 17 of a sixteen input interface, which is exactly the channel a count of the
+        // interface's channels that was two short would never have offered.
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 16), at(1, 0)]);
+        let refusal = rig.wired(&quadro_and_studio()).expect_err("the Quadro has sixteen inputs");
+        assert!(refusal.contains("Quadro has 16 inputs, numbered 1 to 16"), "{refusal}");
+        assert!(refusal.contains("no input 17"), "{refusal}");
+        assert!(refusal.contains("0 to 15"), "and how a request counts them: {refusal}");
+
+        let far = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 30)], vec![at(0, 0), at(1, 0)]);
+        let refusal = far.wired(&quadro_and_studio()).expect_err("the Quadro has sixteen outputs");
+        assert!(refusal.contains("Quadro has 16 outputs, numbered 1 to 16"), "{refusal}");
+    }
+
+    #[test]
+    fn an_interface_that_is_not_one_of_them_is_refused_and_the_ones_there_are_are_named() {
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 0)]).watching(vec![at(2, 0)]);
+        assert_eq!(rig.refusal(), None, "nothing about the request on its own says there is no third interface");
+        let refusal = rig.wired(&quadro_and_studio()).expect_err("there are two interfaces");
+        assert!(refusal.starts_with("interface 2 is not one of them"), "{refusal}");
+        assert!(refusal.contains("0 is Quadro, 1 is Studio+"), "{refusal}");
+
+        let negative = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(-1, 0)]);
+        assert!(negative.refusal().expect("minus one is no interface").contains("interface -1 is not one of them"));
+    }
+
+    #[test]
+    fn a_channel_the_setup_keeps_out_of_the_aggregate_is_refused_and_the_ones_it_exposes_are_listed() {
+        let mut kept = quadro_and_studio();
+        // The Studio+ exposes its first four inputs and its seventh, and nothing else.
+        kept.inputs.retain(|&(device, channel)| device == 0 || channel < 4 || channel == 6);
+        let rig = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 4)]);
+        let refusal = rig.wired(&kept).expect_err("Studio+ input 5 is not exposed");
+        assert!(refusal.starts_with("Studio+ input 5 is kept out of the aggregate"), "{refusal}");
+        assert!(refusal.contains("(1 to 4 and 7)"), "{refusal}");
+        // And the ones it does expose are where the Quadro's sixteen leave them.
+        let fine = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 6)]);
+        assert_eq!(fine.wired(&kept).expect("Studio+ input 7 is exposed").inputs, vec![0, 20]);
+    }
+
+    #[test]
+    fn a_channel_kept_for_the_phase_measurement_is_refused_and_says_that_is_why() {
+        let mut phased = quadro_and_studio();
+        phased.interfaces[1].phase_input = Some(2);
+        phased.interfaces[0].phase_outputs = vec![(2, "Studio+".to_string())];
+        phased.inputs.retain(|&at| at != (1, 2));
+        phased.outputs.retain(|&at| at != (0, 2));
+
+        let on_input = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 2)]);
+        let refusal = on_input.wired(&phased).expect_err("Studio+ input 3 carries the phase");
+        assert!(refusal.starts_with("Studio+ input 3 is where Studio+'s phase measurement arrives"), "{refusal}");
+        assert!(refusal.contains("Phase setup"), "{refusal}");
+
+        let on_output = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 2)], vec![at(0, 0), at(1, 0)]);
+        let refusal = on_output.wired(&phased).expect_err("Quadro output 3 carries the phase");
+        assert!(refusal.starts_with("Quadro output 3 carries the signal Studio+'s phase is measured with"), "{refusal}");
+
+        let witness = two_cables().watching(vec![at(1, 2)]);
+        let refusal = witness.wired(&phased).expect_err("and it is not there to listen in on either");
+        assert!(refusal.contains("phase measurement") && refusal.contains("listen in on"), "{refusal}");
+
+        // The Studio+'s fourth input is its third channel in the aggregate now.
+        let beside = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, 3)]);
+        assert_eq!(beside.wired(&phased).expect("input 4 is exposed").inputs, vec![0, 18]);
     }
 
     #[test]
     fn a_rig_that_does_not_cover_every_interface_is_refused_before_anything_is_opened() {
-        let one = Rig::new(Direction::Inputs, vec![0], vec![0]);
+        let one = Rig::new(Direction::Inputs, vec![at(0, 0)], vec![at(0, 0)]);
         let refusal = one.refusal().expect("one interface is nothing to compare");
         assert!(refusal.contains("two"), "{refusal}");
-        let lopsided = Rig::new(Direction::Inputs, vec![0, 1, 2], vec![0, 16]);
+        let lopsided = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1), at(0, 2)], vec![at(0, 0), at(1, 0)]);
         assert!(lopsided.refusal().expect("the two lists differ").contains("one of each"));
-        let missing = two_cables().refusal_against(on_device, on_device, &["Quadro".to_string()]);
-        assert!(missing.expect("the aggregate has one device").contains("2"));
+        let missing = two_cables().wired(&layout(&[("Quadro", 16, 16)]));
+        assert!(missing.expect_err("the aggregate has one device").contains("aggregate has 1 (Quadro)"));
     }
 
     #[test]
     fn one_cable_named_twice_is_refused_rather_than_measured() {
-        let same_output = Rig::new(Direction::Inputs, vec![0, 0], vec![0, 16]);
-        assert!(same_output.refusal().expect("one output, two cables").contains("twice"));
-        let same_input = Rig::new(Direction::Inputs, vec![0, 1], vec![0, 0]);
+        let same_output = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 0)], vec![at(0, 0), at(1, 0)]);
+        let refusal = same_output.refusal().expect("one output, two cables");
+        assert_eq!(
+            refusal,
+            "output 1 of the first interface is cabled twice, and every cable needs a channel of its own so that the \
+             two copies of the click can be told apart"
+        );
+        let same_input = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(0, 0)]);
         assert!(same_input.refusal().expect("one input for two interfaces").contains("two interfaces"));
-        let negative = Rig::new(Direction::Inputs, vec![0, 1], vec![0, -3]);
-        assert!(negative.refusal().is_some());
+        let negative = Rig::new(Direction::Inputs, vec![at(0, 0), at(0, 1)], vec![at(0, 0), at(1, -3)]);
+        assert!(negative.refusal().expect("minus three is no channel").contains("counts each interface's own inputs from zero"));
     }
 
     #[test]
@@ -470,44 +771,59 @@ mod tests {
         // Studio+ input 1 is the measured channel, and Studio+ input 2 is carried along beside it.
         // One run, two of the same interface's inputs, which is what answers whether they move
         // together.
-        let rig = two_cables().watching(vec![17]);
+        let rig = two_cables().watching(vec![at(1, 1)]);
         assert_eq!(rig.refusal(), None);
-        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
-        assert_eq!(rig.witness_devices(on_device), vec![1]);
+        assert_eq!(rig.wired(&quadro_and_studio()).expect("a good rig").witnesses, vec![17]);
     }
 
     #[test]
     fn a_witness_on_the_reference_interface_is_allowed_just_the_same() {
-        let rig = two_cables().watching(vec![4]);
+        let rig = two_cables().watching(vec![at(0, 4)]);
         assert_eq!(rig.refusal(), None);
-        assert_eq!(rig.refusal_against(on_device, on_device, &names()), None);
-        assert_eq!(rig.witness_devices(on_device), vec![0], "it belongs to the Quadro, and it is only an observation");
+        assert_eq!(rig.wired(&quadro_and_studio()).expect("a good rig").witnesses, vec![4]);
     }
 
     #[test]
     fn a_witness_that_is_not_a_channel_is_refused_before_anything_is_opened() {
-        let negative = two_cables().watching(vec![-1]);
-        let refusal = negative.refusal().expect("minus one is not a channel");
-        assert!(refusal.contains("listen in on"), "{refusal}");
-        // A number the aggregate has no channel for needs the aggregate to say so, and it says so
-        // before a buffer is made or a sample is played.
-        let missing = two_cables().watching(vec![99]);
+        let negative = two_cables().watching(vec![at(1, -1)]);
+        assert!(negative.refusal().is_some(), "minus one is not a channel");
+        // A channel the interface has not got needs its driver to say so, and it is said before
+        // a buffer is made or a sample is played.
+        let missing = two_cables().watching(vec![at(1, 99)]);
         assert_eq!(missing.refusal(), None, "nothing about the cabling itself is wrong");
-        let refusal = missing.refusal_against(on_device, on_device, &names()).expect("there is no channel 99");
-        assert!(refusal.contains("99") && refusal.contains("listen in on"), "{refusal}");
+        let refusal = missing.wired(&quadro_and_studio()).expect_err("the Studio+ has 24 inputs");
+        assert!(refusal.contains("Studio+ has 24 inputs, numbered 1 to 24"), "{refusal}");
+        assert!(refusal.contains("listen in on"), "{refusal}");
     }
 
     #[test]
     fn a_witness_that_is_already_being_measured_is_refused_rather_than_recorded_twice() {
-        let clash = two_cables().watching(vec![16]);
-        let refusal = clash.refusal().expect("channel 16 is the Studio+'s measured input");
-        assert!(refusal.contains("16") && refusal.contains("already"), "{refusal}");
+        let clash = two_cables().watching(vec![at(1, 0)]);
+        let refusal = clash.refusal().expect("the Studio+'s first input is its measured input");
+        assert!(refusal.starts_with("input 1 of the second interface is already"), "{refusal}");
         assert!(refusal.contains("witness"), "and it says what a witness is for: {refusal}");
         // The reference's own input is a measured channel too.
-        assert!(two_cables().watching(vec![0]).refusal().is_some());
+        assert!(two_cables().watching(vec![at(0, 0)]).refusal().is_some());
+        // The same channel number on another interface is another channel.
+        assert_eq!(two_cables().watching(vec![at(0, 16)]).refusal(), None);
         // And naming one twice is the same mistake said the other way round.
-        let twice = two_cables().watching(vec![17, 17]);
+        let twice = two_cables().watching(vec![at(1, 1), at(1, 1)]);
         assert!(twice.refusal().expect("named twice").contains("twice"));
+    }
+
+    #[test]
+    fn a_pick_is_read_from_exactly_the_interface_and_its_channel_and_nothing_else() {
+        let pick: Pick = serde_json::from_str(r#"{"device":1,"channel":0}"#).expect("a pick");
+        assert_eq!(pick, at(1, 0));
+        assert!(serde_json::from_str::<Pick>(r#"{"device":1,"channel":0,"number":16}"#).is_err());
+        assert!(serde_json::from_str::<Pick>("16").is_err(), "an aggregate channel number on its own is not a pick");
+    }
+
+    #[test]
+    fn channel_numbers_are_said_as_a_person_counts_them() {
+        assert_eq!(numbered(&[0, 1, 2, 3, 6]), "1 to 4 and 7");
+        assert_eq!(numbered(&[8, 0, 1, 4]), "1 to 2, 5 and 9");
+        assert_eq!(numbered(&[5]), "6");
     }
 
     #[test]

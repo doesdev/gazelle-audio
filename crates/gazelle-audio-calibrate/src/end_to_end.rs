@@ -12,12 +12,12 @@
 
 use std::sync::Arc;
 
-use gazelle_aggregate::config::{Alignment, Config, DeviceConfig};
+use gazelle_aggregate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
 use gazelle_aggregate::delay::Delay;
 use gazelle_aggregate::fake::{FakeDevice, FakeHost, FakePc, Spec};
 use gazelle_aggregate::sub::Host;
 
-use crate::rig::{Direction, Rig, Settings};
+use crate::rig::{Direction, Pick, Rig, Settings};
 use crate::session::{measure_against, Outcome};
 
 const BLOCK: i32 = 64;
@@ -75,10 +75,10 @@ fn config(trims: [i32; 2]) -> Config {
     }
 }
 
-/// The cabling of the README, in aggregate channels: A's two outputs, one into A's first input and
-/// one into B's first input. A's channels are 0 and 1, B's are 2 and 3.
+/// The cabling of the README, each end named by interface and that interface's own channel: A's two
+/// outputs, one into A's first input and one into B's first input.
 fn rig() -> Rig {
-    Rig::new(Direction::Inputs, vec![0, 1], vec![0, 2])
+    Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 0)])
 }
 
 fn settings() -> Settings {
@@ -178,8 +178,8 @@ fn measured_watching(late: usize, witness_late: Option<usize>) -> Outcome {
         true
     };
 
-    // B's inputs are aggregate channels 2 and 3, and 2 is the one being measured.
-    let rig = rig().watching(vec![3]);
+    // B's first input is the one being measured, and its second is carried along.
+    let rig = rig().watching(vec![Pick::new(1, 1)]);
     measure_against(host, config([0, 0]), "a test".to_string(), &rig, &settings(), &mut pump)
 }
 
@@ -201,7 +201,7 @@ fn two_inputs_of_one_interface_are_measured_in_one_run_and_reported_apart() {
 
     assert_eq!(outcome.witnesses.len(), 1);
     let witness = &outcome.witnesses[0];
-    assert_eq!(witness.channel, 3, "it carries the channel it was");
+    assert_eq!(witness.channel, 1, "it carries the channel it was, as B numbers it");
     assert_eq!(witness.device, "B", "and which interface that channel is on");
     assert!(
         (witness.reading.lag_samples - WITNESS_LATE as f64).abs() < 0.5,
@@ -210,7 +210,7 @@ fn two_inputs_of_one_interface_are_measured_in_one_run_and_reported_apart() {
     );
     assert_eq!(witness.reading.clicks_found, 4);
     assert!(witness.reading.spread_samples < 0.5);
-    assert!(witness.reading.note.contains("input channel 3 on B"), "{}", witness.reading.note);
+    assert!(witness.reading.note.contains("input 2 on B"), "{}", witness.reading.note);
 
     // And nothing about the witness reached the trims.
     let plain = measured([0, 0], CABLED_LATE as usize, [true, true]);
@@ -239,12 +239,12 @@ fn a_witness_with_nothing_on_it_says_so_and_spoils_nothing() {
 fn a_witness_the_aggregate_has_no_channel_for_is_refused_and_nothing_is_played() {
     let pc = two_interfaces();
     let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let watching_nothing = rig().watching(vec![9]);
+    let watching_nothing = rig().watching(vec![Pick::new(1, 9)]);
     let mut pump = |_: usize| panic!("a refused rig never runs a block");
     let outcome =
         measure_against(host, config([0, 0]), "a test".to_string(), &watching_nothing, &settings(), &mut pump);
-    let refusal = outcome.refusal.expect("this aggregate has four input channels");
-    assert!(refusal.contains("9") && refusal.contains("listen in on"), "{refusal}");
+    let refusal = outcome.refusal.expect("B has two inputs");
+    assert!(refusal.contains("B has 2 inputs, numbered 1 to 2") && refusal.contains("listen in on"), "{refusal}");
     assert!(!pc.device("Device A").is_started(), "nothing was started");
     assert!(!pc.device("Device B").has_buffers(), "and no buffers were made");
 }
@@ -442,7 +442,7 @@ fn a_reference_cable_that_is_not_plugged_in_is_a_refusal_rather_than_four_wrong_
 fn a_rig_that_spreads_the_outputs_over_both_interfaces_is_refused_and_nothing_is_played() {
     let pc = two_interfaces();
     let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let spread = Rig::new(Direction::Inputs, vec![0, 2], vec![0, 2]);
+    let spread = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(1, 0)], vec![Pick::new(0, 0), Pick::new(1, 0)]);
     let mut pump = |_: usize| panic!("a refused rig never runs a block");
     let outcome = measure_against(host, config([0, 0]), "a test".to_string(), &spread, &settings(), &mut pump);
     let refusal = outcome.refusal.expect("the outputs are on two interfaces");
@@ -510,4 +510,192 @@ fn a_run_that_is_stopped_gives_up_at_once_and_lets_the_interfaces_go() {
         assert!(!device.is_started(), "{key} was left running");
         assert!(!device.has_buffers(), "{key} was left holding its buffers");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Naming a channel by interface, against the rig as it really is.
+// ---------------------------------------------------------------------------------------------
+
+/// The pair as their drivers really are: the Quadro's has sixteen channels each way and the
+/// Studio+'s twenty four. Gazelle's own channel list for the Quadro has fourteen inputs, which is
+/// the count a page working the aggregate's numbering out for itself used to go by.
+fn quadro_and_studio() -> Arc<FakePc> {
+    let spec = |latency_in: i32, channels: i32| {
+        Spec { min: 8, max: 4096, preferred: BLOCK, rate: RATE, rates: vec![RATE], ..Spec::default() }
+            .with_channels(channels, channels)
+            .with_latency(latency_in, 700)
+    };
+    Arc::new(
+        FakePc::new()
+            .with("Quadro", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\q.dll", spec(600 + BLOCK, 16))
+            .with("Studio+", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\s.dll", spec(600, 24)),
+    )
+}
+
+/// What the Quadro's channel list in Gazelle has, and so what a count made without the drivers made
+/// of it. Studio+'s first input was offered at this number, and the Quadro's fifteenth input is.
+const COUNTED_WITHOUT_THE_DRIVERS: usize = 14;
+
+fn studio_setup(tweak: impl FnOnce(&mut DeviceConfig, &mut DeviceConfig)) -> Config {
+    let mut quadro = DeviceConfig { key: Some("Quadro".into()), name: Some("Quadro".into()), ..DeviceConfig::default() };
+    let mut studio = DeviceConfig { key: Some("Studio+".into()), name: Some("Studio+".into()), ..DeviceConfig::default() };
+    tweak(&mut quadro, &mut studio);
+    Config { devices: vec![quadro, studio], alignment: Alignment::Aligned, ..Config::default() }
+}
+
+/// A run over the real pair's channel counts, with the cable into the Studio+'s first input made
+/// `late` samples long, and a decoy: the same click, a different length of cable, on the Quadro's
+/// input 15, which is aggregate input 14 and so exactly where a count of fourteen would have put
+/// the Studio+'s cable.
+fn measured_on_the_real_counts(rig: &Rig, late: usize, decoy_late: usize) -> Outcome {
+    let pc = quadro_and_studio();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (quadro, studio) = (pc.device("Quadro"), pc.device("Studio+"));
+    let mut to_quadro = Cable::new(0);
+    let mut to_studio = Cable::new(late);
+    let mut to_decoy = Cable::new(decoy_late);
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        quadro.set_input(0, half, &to_quadro.carrying);
+        quadro.set_input(COUNTED_WITHOUT_THE_DRIVERS, half, &to_decoy.carrying);
+        studio.set_input(0, half, &to_studio.carrying);
+        studio.fire(half);
+        quadro.fire(half);
+        to_quadro.carry(quadro.output(0, half));
+        let played = quadro.output(1, half);
+        to_studio.carry(played.clone());
+        to_decoy.carry(played);
+        true
+    };
+    measure_against(host, studio_setup(|_, _| {}), "a test".to_string(), rig, &settings(), &mut pump)
+}
+
+/// **The bug the owner hit, and why it cannot happen now.** The Studio+'s cable is named as the
+/// Studio+'s first input, and the run finds where that is from the drivers: after all sixteen of
+/// the Quadro's inputs, not after the fourteen Gazelle's list has. The Quadro's fifteenth input is
+/// carrying a click on a cable of its own, so a run that had recorded the wrong channel would
+/// report that cable's length instead of the Studio+'s.
+#[test]
+fn a_studio_cable_named_by_interface_lands_on_the_studio_whatever_the_quadro_was_counted_as() {
+    const DECOY_LATE: usize = 5;
+    let outcome = measured_on_the_real_counts(&quadro_studio_rig(), CABLED_LATE as usize, DECOY_LATE);
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+    let studio = &outcome.readings[1];
+    assert_eq!(studio.device, "Studio+");
+    assert!(
+        (studio.lag_samples - CABLED_LATE as f64).abs() < 0.5,
+        "the Studio+'s own cable, not the Quadro's input 15: {studio:?}"
+    );
+    assert_eq!(outcome.trims[1].measured, CABLED_LATE);
+    assert!(outcome.is_measured() && outcome.was_clean());
+
+    // And the Quadro's input 15 is still there to be named, on the Quadro, as the witness it is.
+    let watching = quadro_studio_rig().watching(vec![Pick::new(0, COUNTED_WITHOUT_THE_DRIVERS as i32)]);
+    let outcome = measured_on_the_real_counts(&watching, CABLED_LATE as usize, DECOY_LATE);
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+    let witness = &outcome.witnesses[0];
+    assert_eq!((witness.device.as_str(), witness.channel), ("Quadro", 14));
+    assert!((witness.reading.lag_samples - DECOY_LATE as f64).abs() < 0.5, "{:?}", witness.reading);
+    assert!(witness.reading.note.contains("input 15 on Quadro"), "{}", witness.reading.note);
+}
+
+/// The Quadro plays out of its first two outputs, one into its own first input and one into the
+/// Studio+'s first input.
+fn quadro_studio_rig() -> Rig {
+    Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 0)])
+}
+
+/// A rig the drivers have to answer for, refused before a buffer is made or a block is played, with
+/// what was refused.
+fn refused_on_the_real_counts(config: Config, rig: &Rig) -> String {
+    let pc = quadro_and_studio();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let mut pump = |_: usize| panic!("a refused rig never runs a block");
+    let outcome = measure_against(host, config, "a test".to_string(), rig, &settings(), &mut pump);
+    for key in ["Quadro", "Studio+"] {
+        assert!(!pc.device(key).is_started(), "{key} was started");
+        assert!(!pc.device(key).has_buffers(), "{key} was given buffers");
+    }
+    outcome.refusal.expect("a refusal")
+}
+
+#[test]
+fn a_channel_the_interface_has_not_got_is_refused_with_the_count_its_driver_gave() {
+    // Input 17 of the Quadro, which the driver says has sixteen.
+    let rig = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 16), Pick::new(1, 0)]);
+    let refusal = refused_on_the_real_counts(studio_setup(|_, _| {}), &rig);
+    assert!(refusal.contains("Quadro has 16 inputs, numbered 1 to 16"), "{refusal}");
+    assert!(refusal.contains("no input 17"), "{refusal}");
+
+    // The count is the driver's even when the setup exposes fewer, because the setup is not what
+    // decides what the interface has.
+    let fewer = studio_setup(|quadro, _| quadro.outputs = Some(vec![0, 1]));
+    let past = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 20)], vec![Pick::new(0, 0), Pick::new(1, 0)]);
+    let refusal = refused_on_the_real_counts(fewer, &past);
+    assert!(refusal.contains("Quadro has 16 outputs, numbered 1 to 16"), "{refusal}");
+}
+
+#[test]
+fn an_interface_that_is_not_one_of_them_is_refused_and_the_ones_there_are_are_named() {
+    let rig = quadro_studio_rig().watching(vec![Pick::new(2, 0)]);
+    let refusal = refused_on_the_real_counts(studio_setup(|_, _| {}), &rig);
+    assert!(refusal.starts_with("interface 2 is not one of them"), "{refusal}");
+    assert!(refusal.contains("0 is Quadro, 1 is Studio+"), "{refusal}");
+}
+
+#[test]
+fn a_channel_the_setup_keeps_out_of_the_aggregate_is_refused_with_the_ones_it_does_expose() {
+    let kept = studio_setup(|_, studio| studio.inputs = Some(vec![0, 1, 2, 3]));
+    let rig = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 5)]);
+    let refusal = refused_on_the_real_counts(kept, &rig);
+    assert!(refusal.starts_with("Studio+ input 6 is kept out of the aggregate"), "{refusal}");
+    assert!(refusal.contains("(1 to 4)"), "{refusal}");
+}
+
+/// **A channel the phase measurement runs over is the driver's**, and the run says that is why it
+/// cannot be cabled, rather than calling it missing or letting a cable land on the next channel.
+#[test]
+fn a_channel_kept_for_the_phase_measurement_is_refused_by_name_and_says_why() {
+    let phased = || {
+        studio_setup(|_, studio| {
+            studio.phase = Some(PhaseConfig { master_output: Some(2), input: Some(2), reference: None });
+        })
+    };
+    let on_input = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 2)]);
+    let refusal = refused_on_the_real_counts(phased(), &on_input);
+    assert!(refusal.starts_with("Studio+ input 3 is where Studio+'s phase measurement arrives"), "{refusal}");
+    assert!(refusal.contains("Phase setup"), "{refusal}");
+
+    let on_output = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 2)], vec![Pick::new(0, 0), Pick::new(1, 0)]);
+    let refusal = refused_on_the_real_counts(phased(), &on_output);
+    assert!(refusal.starts_with("Quadro output 3 carries the signal Studio+'s phase is measured with"), "{refusal}");
+}
+
+/// And a channel beside the one the phase keeps is still found where the driver really put it:
+/// the Studio+'s fourth input, with its third kept for the phase, is the aggregate's input 18.
+#[test]
+fn a_channel_beside_the_phase_is_found_where_the_driver_put_it() {
+    let pc = quadro_and_studio();
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (quadro, studio) = (pc.device("Quadro"), pc.device("Studio+"));
+    let mut to_quadro = Cable::new(0);
+    let mut to_studio = Cable::new(CABLED_LATE as usize);
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        quadro.set_input(0, half, &to_quadro.carrying);
+        studio.set_input(3, half, &to_studio.carrying);
+        studio.fire(half);
+        quadro.fire(half);
+        to_quadro.carry(quadro.output(0, half));
+        to_studio.carry(quadro.output(1, half));
+        true
+    };
+    let config = studio_setup(|_, studio| {
+        studio.phase = Some(PhaseConfig { master_output: Some(2), input: Some(2), reference: None });
+    });
+    let rig = Rig::new(Direction::Inputs, vec![Pick::new(0, 0), Pick::new(0, 1)], vec![Pick::new(0, 0), Pick::new(1, 3)]);
+    let settling = Settings { settle_seconds: 0.3, ..settings() };
+    let outcome = measure_against(host, config, "a test".to_string(), &rig, &settling, &mut pump);
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+    assert!((outcome.readings[1].lag_samples - CABLED_LATE as f64).abs() < 0.5, "{:?}", outcome.readings[1]);
 }
