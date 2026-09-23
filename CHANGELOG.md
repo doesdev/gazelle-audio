@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-23
+
+Gazelle Aggregate now opens at the rate your interfaces are really on, even when an interface's
+own driver remembers another one.
+
 ### Added
 
 - **The Aggregate page warns when an interface's driver remembers another rate.** An interface's

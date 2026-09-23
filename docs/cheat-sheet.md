@@ -1,6 +1,6 @@
 # Gazelle cheat sheet
 
-Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent software, not affiliated with Antelope Audio. Version 1.3.0, Windows. Tested on one person's two units: go carefully.
+Control for the Antelope Zen Quadro Synergy Core and Zen Studio+. Independent software, not affiliated with Antelope Audio. Version 1.4.0, Windows. Tested on one person's two units: go carefully.
 
 ## Safety first
 
