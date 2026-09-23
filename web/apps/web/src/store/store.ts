@@ -914,6 +914,7 @@ export class Store {
     calibrate: (request) => this.#client.aggregate.calibrate(request),
     stopCalibrate: () => this.#client.aggregate.stopCalibrate(),
     command: (deviceId, command, args) => this.#invokeCommand(deviceId, command, args, {}),
+    setupRate: (rate) => this.editAggregate((current) => ({ ...current, rate })),
     // Through `this`, not `this.#timers` itself: a field's value is worked out before the
     // constructor's body has put the timers in place.
     timers: { setTimeout: (callback, ms) => this.#timers.setTimeout(callback, ms), clearTimeout: (handle) => this.#timers.clearTimeout(handle) },

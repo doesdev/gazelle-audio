@@ -113,7 +113,8 @@ pub struct Aggregate {
     /// One of [`ALIGNMENTS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alignment: Option<String>,
-    /// The rate to put every device at, in Hz.
+    /// The rate to put every device at, in Hz. None is "whatever the interfaces are on", which the
+    /// exported file turns into the rate they are all running at, when they agree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate: Option<u32>,
     /// The buffer size to offer a DAW as preferred, in samples.
@@ -211,6 +212,11 @@ pub struct AggregateKnown {
     /// has been read or written through Gazelle.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub routing: BTreeMap<String, Vec<[u8; 2]>>,
+    /// The sample rate it was last seen running at, in Hz, as the interface itself reports it (not
+    /// what its driver remembers). With no rate chosen in the setup, the aggregate runs at this when
+    /// every interface agrees on it (`crate::aggregate::config::rate_in_force`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<u32>,
 }
 
 /// The digital path the driver measures one interface's capture phase over: which output of the

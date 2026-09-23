@@ -165,9 +165,19 @@ const AGGREGATE_ANSWER = {
     { index: 1, name: "Studio+", key: "Zen Studio+", registered: true, entry_key: "Zen Studio+", device_id: STUDIO, matched_by: "worked_out", channels: { inputs: 24, outputs: 24, input_group: "USB REC", output_group: "USB PLAY" }, attached: true, family: "studio", clock: { source_index: 0, source: "Internal", locked: false, hz: 48000, rate_index: 2 }, driver: { sample_rate: 48000, buffer_size: 128, safe_mode: true, asio_clients: 0 }, is_master: false },
   ],
   ready: false,
+  rate_in_force: { hz: 96000, from: "interfaces" },
   reasons: [
     { code: "buffers_differ", severity: "blocking", message: "The drivers are on different buffer sizes (256 and 128).", fix: { kind: "match_buffers", method: "POST", route: "aggregate/match-buffers", body: { buffer_size: 256 }, label: "Put them all on 256 samples" } },
     { code: "controller_unknown", severity: "warning", message: "Quadro's USB host controller could not be found." },
+    {
+      code: "driver_rate_differs",
+      severity: "blocking",
+      message: "Studio+'s driver says 44.1 kHz while the interface runs at 48 kHz: opening the aggregate would move the interface to 44.1 kHz.",
+      device: "Studio+",
+      device_index: 1,
+      device_id: STUDIO,
+      fix: { kind: "set_setup_rate", method: "PUT", route: "workspace", body: { rate: 48000 }, label: "Put the aggregate at 48 kHz" },
+    },
     { code: "phase_not_measured", severity: "warning", message: "Studio+ has a S/PDIF cable from Quadro and has not been set up for phase measurement.", device: "Studio+", device_index: 1, device_id: STUDIO },
   ],
   status: {

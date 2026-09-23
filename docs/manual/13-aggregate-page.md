@@ -35,7 +35,8 @@ Each reason is marked **STOPS IT** or **WORTH KNOWING**. Only a reason that stop
 | Its driver could not be read | Antelope's driver would not answer. See [Troubleshooting](17-troubleshooting.md) |
 | Two interfaces on one USB host controller | The one that cannot be worked around in software. Move one to another controller |
 | A host controller could not be found | Gazelle could not tell which controller an interface is on, so it cannot check this. A warning |
-| The rates differ | Put them all on one rate |
+| The rates differ | The interfaces are not all running at one rate, as they report it themselves. Put them all on one rate |
+| A driver remembers another rate | An interface's own driver remembers a rate other than the one the interface is running at, and puts the interface back to it when a DAW opens it. With no rate in force this stops it, and **Put the aggregate at 96 kHz** puts the interface's rate into the setup, after a confirming click. When the aggregate already puts the interface at the rate it runs at, it is only a warning. See [The rate](#the-rate) |
 | The buffer sizes differ | Press the fix, or **Match buffer sizes** |
 | No cable declared | Nothing says the interfaces share a clock. Declare it on the Workspace page |
 | Clocked from the wrong place | An interface is not clocked from the input its cable arrives on. **This is the trap**: an interface left on Internal quietly becomes USB clocked the moment a DAW opens it, and then it drifts |
@@ -132,10 +133,18 @@ Two interfaces of one model that you have not named come out with the same name,
 |---|---|
 | **Callback master** | Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable. It is kept by the interface's audio driver, which renaming the device does not change, so a rename never loses it |
 | **Alignment** | **Aligned** pads every interface so they all line up, at the cost of a little latency; **lowest latency** pads nothing, so interfaces of different latencies end up offset from each other. Aligned unless you are counting samples |
-| **Sample rate** | The rate to put every interface at. Left alone, the aggregate takes whatever they are already on |
+| **Sample rate** | The rate to put every interface at. Left on **Whatever the interfaces are on**, it is the rate they are all running at. See [The rate](#the-rate) |
 | **Buffer size** | The buffer size the aggregate offers a DAW as its preferred one |
 
 The setup is kept in the workspace, so it travels with a [workspace backup](15-snapshots-and-backup.md), and Gazelle writes it out for the driver at the path shown under the section. The driver takes a change at once when nothing is streaming, and at the next buffer change when a DAW is running, which drops audio for a moment exactly as a buffer size change does.
+
+### The rate
+
+Under the setup, a line says which rate the aggregate runs at and where that comes from: **In force: 96 kHz, chosen here**, or **In force: 96 kHz, the rate every interface is running at**. The aggregate puts every interface at that rate when a DAW opens it.
+
+**Whatever the interfaces are on** means the rate the interfaces themselves say they are running at, not what their drivers remember. The two can differ: an interface's driver can remember 44.1 kHz while the interface runs at 96 kHz, and put the interface back to 44.1 kHz the moment a DAW opens it, with every interface clocked from it following. So Gazelle writes the rate the interfaces are actually on into the file the driver reads, and keeps it in step when an interface's rate changes, whether or not this page is open. It does this only while every interface in the aggregate is on one rate; if they differ, or one cannot be read, there is no rate in force and **Ready to use** says what is wrong. While a DAW has the aggregate open, the rate is left as it was, so a session cannot change the next session's rate.
+
+The setup itself still says **Whatever the interfaces are on**: choose a rate there when you want the aggregate to move the interfaces to it.
 
 ### Trims
 

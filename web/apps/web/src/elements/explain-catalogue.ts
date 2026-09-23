@@ -1044,7 +1044,12 @@ export const CATALOGUE: Catalogue = {
     what: "Aligned pads every interface so they all line up, at the cost of a little latency. Lowest latency pads nothing, so interfaces of different latencies are offset from each other.",
     effect: "Aligned is what you want unless you are counting samples of latency and can live with the offset.",
   },
-  "aggregate.rate": { title: "Sample rate", what: "The rate to put every interface at. Left as it is, the aggregate takes whatever the interfaces are already on.", effect: "Saved in the workspace and written out for the driver." },
+  "aggregate.rate-in-force": {
+    title: "Rate in force",
+    what: "The rate the aggregate puts every interface at when it opens, and where it comes from: the rate chosen here, or with Whatever the interfaces are on, the rate every interface is running at now, as the interfaces themselves report it.",
+    watch: "An interface's driver can remember another rate and put the interface back to it when a DAW opens it. The rate in force is what stops that. With none in force, each interface keeps what its driver says.",
+  },
+  "aggregate.rate": { title: "Sample rate", what: "The rate to put every interface at. Left on Whatever the interfaces are on, the aggregate runs at the rate every interface is running at now, when they all agree, whatever their drivers remember.", effect: "Saved in the workspace and written out for the driver." },
   "aggregate.buffer": { title: "Buffer size", what: "The buffer size the aggregate offers a DAW as its preferred one. Left as it is, it offers what the drivers are already on." },
   "aggregate.calibrate": {
     title: "Line the interfaces up",

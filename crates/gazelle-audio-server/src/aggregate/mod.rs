@@ -43,6 +43,29 @@ pub fn rate_index(hz: u32) -> Option<u32> {
     RATES.iter().position(|&rate| rate == hz).map(|at| at as u32)
 }
 
+/// Where the rate the aggregate runs at comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RateFrom {
+    /// The setup names a rate.
+    Setup,
+    /// The setup leaves it to the interfaces, and every one of them is running at this rate.
+    Interfaces,
+}
+
+/// The rate the aggregate puts every interface at when it opens, and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct RateInForce {
+    pub hz: u32,
+    pub from: RateFrom,
+}
+
+/// A rate in words, as the page writes one: "96 kHz", "44.1 kHz".
+pub fn khz(hz: u32) -> String {
+    let text = format!("{:.3}", f64::from(hz) / 1000.0);
+    format!("{} kHz", text.trim_end_matches('0').trim_end_matches('.'))
+}
+
 /// What a device says about its clock **now**, while it is streaming, which is the only reading
 /// that means anything: a device set to internal silently becomes USB clocked once a DAW opens it
 /// (Antelope support article 42000096748, and phase 0 measured it).
@@ -58,6 +81,14 @@ pub struct ClockReading {
     pub hz: u32,
     /// `set_samp_rate`'s index, as the device reports it.
     pub rate_index: u32,
+}
+
+impl ClockReading {
+    /// The rate the interface is running at: the rate its own report names, else the frequency it
+    /// measures. This is the interface, not its driver, which can remember another rate.
+    pub fn running_rate(&self) -> Option<u32> {
+        RATES.get(self.rate_index as usize).copied().or_else(|| (self.hz > 0).then_some(self.hz))
+    }
 }
 
 /// What the audio driver says about one device, as much of it as the aggregate cares about.
@@ -203,6 +234,11 @@ pub struct AggregateAnswer {
     pub drivers_error: Option<String>,
     pub registration: Registration,
     pub devices: Vec<DeviceReport>,
+    /// The rate the aggregate puts every interface at when it opens, and where that comes from, or
+    /// nothing when none is in force: the setup names none and the interfaces are not all running
+    /// at one rate Gazelle can read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_in_force: Option<RateInForce>,
     pub ready: bool,
     pub reasons: Vec<readiness::Reason>,
     pub status: status::StatusReading,

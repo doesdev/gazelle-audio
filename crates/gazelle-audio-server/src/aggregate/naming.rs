@@ -431,7 +431,7 @@ mod tests {
     use crate::workspace::model::{AggregateKnown, MixConfig, MixerChannel};
 
     fn known(family: &str, id: &str) -> AggregateKnown {
-        AggregateKnown { device_id: Some(DeviceId::from_serial(id)), family: Some(family.into()), model: family_words(family).map(str::to_string), routing: Routing::new() }
+        AggregateKnown { device_id: Some(DeviceId::from_serial(id)), family: Some(family.into()), model: family_words(family).map(str::to_string), routing: Routing::new(), rate: None }
     }
 
     fn entry(key: &str, family: &str, id: &str) -> AggregateDevice {

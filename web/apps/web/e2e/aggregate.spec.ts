@@ -318,6 +318,59 @@ test("a rate and a clock fix each send exactly the command the server prepared",
   expect(captured.posts, "a device command is not an aggregate route").toEqual([]);
 });
 
+/**
+ * The owner's other PC: the Quadro's driver remembered 44.1 kHz while the Quadro ran at 96 kHz, and
+ * nothing set a rate, so opening the aggregate moved the interface. The fix is the setup's rate,
+ * which the page writes into the workspace after a confirming click.
+ */
+test("a driver remembering another rate stops it, and its fix puts the rate into the setup after two clicks", async ({ page }) => {
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
+  const captured = await fakeAggregate(
+    page,
+    answer({
+      ready: false,
+      devices: [deviceReport("Quadro", { is_master: true, driver: { sample_rate: 44100, buffer_size: 256 } })],
+      reasons: [
+        {
+          code: "driver_rate_differs",
+          severity: "blocking",
+          message: "Quadro's driver says 44.1 kHz while the interface runs at 96 kHz: opening the aggregate would move the interface to 44.1 kHz.",
+          device: "Quadro",
+          device_index: 0,
+          device_id: "loopback-0",
+          fix: { kind: "set_setup_rate", method: "PUT", route: "workspace", body: { rate: 96000 }, label: "Put the aggregate at 96 kHz" },
+        },
+      ],
+    }),
+    answer({ rate_in_force: { hz: 96000, from: "setup" }, devices: [deviceReport("Quadro", { is_master: true })] }),
+  );
+  await open(page);
+  await expect(page.getByTestId("reason-severity-driver_rate_differs")).toHaveText("STOPS IT");
+  await expect(page.getByTestId("reason-driver_rate_differs")).toContainText("opening the aggregate would move the interface to 44.1 kHz");
+  await expect(page.getByTestId("aggregate-rate-in-force")).toContainText("No rate is in force");
+  const fix = page.getByTestId("reason-fix-driver_rate_differs");
+  await expect(fix).toHaveText("Put the aggregate at 96 kHz");
+  await fix.click();
+  await expect(fix).toHaveText("Confirm");
+  await page.waitForTimeout(300);
+  const rate = async () => (await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.rate;
+  expect(await rate(), "one click writes nothing").toBeUndefined();
+  await fix.click();
+  await expect.poll(rate).toBe(96000);
+  expect(captured.posts, "it is the setup, not a request to the server's aggregate routes").toEqual([]);
+  await expect(page.getByTestId("aggregate-outcome")).toHaveText("The aggregate's rate is 96 kHz now, in the setup.");
+  await expect(page.getByTestId("aggregate-rate")).toHaveValue("96000");
+  await expect(page.getByTestId("aggregate-rate-in-force")).toHaveText("In force: 96 kHz, chosen here. The aggregate puts every interface there when it opens.");
+});
+
+test("with no rate chosen the setup says the rate in force is the one the interfaces are running at", async ({ page }) => {
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }] });
+  await fakeAggregate(page, answer({ rate_in_force: { hz: 96000, from: "interfaces" }, devices: [deviceReport("Quadro", { is_master: true })] }));
+  await open(page);
+  await expect(page.getByTestId("aggregate-rate")).toHaveValue("");
+  await expect(page.getByTestId("aggregate-rate-in-force")).toContainText("In force: 96 kHz, the rate every interface is running at");
+});
+
 test("a warning is marked as one, and the page is still ready", async ({ page }) => {
   await fakeAggregate(
     page,

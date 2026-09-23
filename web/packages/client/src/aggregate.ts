@@ -154,6 +154,7 @@ export type AggregateReasonCode =
   | "one_usb_controller"
   | "controller_unknown"
   | "rates_differ"
+  | "driver_rate_differs"
   | "buffers_differ"
   | "no_cable"
   | "clock_not_cabled"
@@ -162,8 +163,12 @@ export type AggregateReasonCode =
 
 /** A request the page can make to put one reason right, already addressed and filled in. */
 export interface AggregateFix {
-  kind: "match_buffers" | "set_clock_source" | "set_sample_rate" | "register";
-  method: "POST";
+  /**
+   * `set_setup_rate` is made by the page itself: it puts `body.rate` into the aggregate's setup in
+   * the workspace, which is where the setup is edited. Every other kind is the request it names.
+   */
+  kind: "match_buffers" | "set_clock_source" | "set_sample_rate" | "register" | "set_setup_rate";
+  method: "POST" | "PUT";
   /** Relative to the API root, as `Client` takes it. */
   route: string;
   body: unknown;
@@ -284,6 +289,12 @@ export interface AggregateEvent {
 }
 
 /** Everything `GET /aggregate` answers. */
+/** The rate the aggregate runs at, and where it comes from. */
+export interface AggregateRateInForce {
+  hz: number;
+  from: "setup" | "interfaces";
+}
+
 export interface AggregateAnswer {
   read_at_ms: number;
   /** Whether the workspace names at least one interface for the aggregate. */
@@ -295,6 +306,11 @@ export interface AggregateAnswer {
   drivers_error?: string;
   registration: AggregateRegistration;
   devices: AggregateDeviceReport[];
+  /**
+   * The rate the aggregate puts every interface at when it opens: the setup's, or with none there
+   * the rate every interface is running at. Absent when neither is known. Older servers leave it out.
+   */
+  rate_in_force?: AggregateRateInForce;
   ready: boolean;
   reasons: AggregateReason[];
   status: AggregateStatusReading;

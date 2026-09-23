@@ -81,6 +81,9 @@ pub struct Seen {
     pub model: Option<String>,
     /// The routing groups its names come from that are known now, by topology id.
     pub routing: Routing,
+    /// The rate it is running at now, as the interface reports it, when that can be read and may be
+    /// taken: not while a DAW has the aggregate open (`crate::aggregate::service`).
+    pub rate: Option<u32>,
 }
 
 /// Where [`Seen`] comes from: the connected devices and the routing the server has seen. Behind a
@@ -122,6 +125,7 @@ pub fn known_for(device: &AggregateDevice, before: Option<&AggregateKnown>, seen
                     routing.extend(seen.routing.clone());
                     routing
                 },
+                rate: seen.rate.or_else(|| same.and_then(|known| known.rate)),
             })
         }
         None => match (&device.device_id, before) {
@@ -311,7 +315,7 @@ mod tests {
 
     fn quadro(record: Option<Vec<[u8; 2]>>) -> Seen {
         let routing = record.map(|slots| [("COM_REC0".to_string(), slots)].into_iter().collect()).unwrap_or_default();
-        Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing }
+        Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing, rate: None }
     }
 
     fn read(path: &Path) -> serde_json::Value {
@@ -520,15 +524,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The owner's case: the Quadro's driver remembers 44.1 kHz while the interface runs at 96 kHz.
+    /// With no rate in the setup the file carries 96 kHz, which the aggregate puts every interface at
+    /// when it opens, and a change of the interfaces' rate reaches the file through a refresh.
+    #[test]
+    fn with_no_rate_in_the_setup_the_file_follows_the_rate_the_interface_runs_at() {
+        let dir = temp_dir("rate");
+        let path = dir.join("aggregate.json");
+        let live = Arc::new(FakeLive::default());
+        let store = ExportingStore::new(Arc::new(MemoryStore::default()), &path, Arc::new(FakeLink::default())).with_live(live.clone());
+        live.set("Zen Quadro Synergy Core", Seen { rate: Some(96000), ..quadro(None) });
+        store.save(&with_device("Zen Quadro Synergy Core")).unwrap();
+        assert_eq!(read(&path)["rate"], 96000);
+        assert_eq!(read(&path)["rate_from"], "interfaces");
+        assert_eq!(store.load().unwrap().aggregate.unwrap().rate, None, "the setup still leaves it to the interfaces");
+
+        live.set("Zen Quadro Synergy Core", Seen { rate: Some(48000), ..quadro(None) });
+        assert!(store.refresh().unwrap());
+        assert_eq!(read(&path)["rate"], 48000, "the interface moved, and the file with it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_device_chosen_as_another_forgets_what_was_known_of_the_first() {
-        let before = AggregateKnown { device_id: Some(DeviceId::from_serial("Q")), family: Some("quadro".into()), model: None, routing: [("COM_REC0".to_string(), vec![[0, 0]]), ("MONITOR0".to_string(), vec![[1, 0]])].into_iter().collect() };
+        let before = AggregateKnown { device_id: Some(DeviceId::from_serial("Q")), family: Some("quadro".into()), model: None, routing: [("COM_REC0".to_string(), vec![[0, 0]]), ("MONITOR0".to_string(), vec![[1, 0]])].into_iter().collect(), rate: Some(96000) };
         let chosen = AggregateDevice { key: Some("k".into()), device_id: Some(DeviceId::from_serial("Q2")), ..AggregateDevice::default() };
         assert_eq!(known_for(&chosen, Some(&before), None), Some(AggregateKnown { device_id: Some(DeviceId::from_serial("Q2")), ..AggregateKnown::default() }));
         let same = AggregateDevice { device_id: Some(DeviceId::from_serial("Q")), ..chosen.clone() };
         assert_eq!(known_for(&same, Some(&before), None), Some(before.clone()), "the same device keeps what was known");
         // Seen now, with its routing not read since it came back: what was known of it fills in.
-        let seen = Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing: [("MONITOR0".to_string(), vec![[1, 1]])].into_iter().collect() };
+        let seen = Seen { device_id: DeviceId::from_serial("Q"), family: Some("quadro".into()), model: Some("Zen Quadro Synergy Core".into()), routing: [("MONITOR0".to_string(), vec![[1, 1]])].into_iter().collect(), rate: None };
+        assert_eq!(known_for(&same, Some(&before), Some(&seen)).unwrap().rate, Some(96000), "a rate not read now is the one last known");
+        assert_eq!(known_for(&same, Some(&before), Some(&Seen { rate: Some(48000), ..seen.clone() })).unwrap().rate, Some(48000));
         let merged = known_for(&same, Some(&before), Some(&seen)).unwrap().routing;
         assert_eq!(merged.get("COM_REC0"), Some(&vec![[0, 0]]), "a group not seen since it came back is what was known");
         assert_eq!(merged.get("MONITOR0"), Some(&vec![[1, 1]]), "and one seen now is what is seen");

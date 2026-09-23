@@ -22,11 +22,28 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::aggregate::naming::{daw_names, driver_labels, interface_names};
-use crate::aggregate::{rate_index, RATES};
+use crate::aggregate::{rate_index, RateFrom, RateInForce, RATES};
 use crate::workspace::model::{Aggregate, AggregateDevice, Workspace, AGGREGATE_CHANNEL_MAX, ALIGNMENTS, CHANNEL_NAME_MAX, PHASE_REFERENCE_MAX, TRIM_MAX};
 
 /// The buffer sizes a configuration may ask for: powers of two the drivers offer.
 pub const BUFFER_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192];
+
+/// The rate the aggregate puts every interface at when it opens, and where it comes from.
+///
+/// The setup's own rate, when it names one. When it leaves the rate to the interfaces ("whatever the
+/// interfaces are on"), the rate every configured interface was last seen running at, as the
+/// interface reports it, provided they all agree and each has been seen: an interface's driver can
+/// remember another rate, and put the interface back to it when a DAW opens the driver, so the
+/// aggregate has to be told the rate the interfaces are actually on. With interfaces that disagree,
+/// or one never seen, there is no rate in force, and each interface keeps what its driver says.
+pub fn rate_in_force(config: &Aggregate) -> Option<RateInForce> {
+    if let Some(hz) = config.rate {
+        return Some(RateInForce { hz, from: RateFrom::Setup });
+    }
+    let mut seen = config.devices.iter().map(|device| device.known.as_ref().and_then(|known| known.rate));
+    let first = seen.next()??;
+    seen.all(|rate| rate == Some(first)).then_some(RateInForce { hz: first, from: RateFrom::Interfaces })
+}
 
 /// Which device drives the callback, by its place in the setup: the one `callback_master` names,
 /// else the first.
@@ -212,10 +229,19 @@ pub fn export_document(config: &Aggregate, workspace: &Workspace) -> Value {
         Some(at) => names[at].clone(),
         None => asked.clone(),
     });
+    // The rate in force, the setup's or the one every interface is running at, so the driver puts
+    // every interface there when it opens rather than wherever its driver last was. `rate_from`
+    // says which, for a person reading the file; the driver passes over a field it does not know.
+    let rate = rate_in_force(config);
+    let from = rate.map(|rate| match rate.from {
+        RateFrom::Setup => "setup",
+        RateFrom::Interfaces => "interfaces",
+    });
     for (name, value) in [
         ("callback_master", master.map(Value::from)),
         ("alignment", config.alignment.clone().map(Value::from)),
-        ("rate", config.rate.map(Value::from)),
+        ("rate", rate.map(|rate| Value::from(rate.hz))),
+        ("rate_from", from.map(Value::from)),
         ("buffer_size", config.buffer_size.map(Value::from)),
     ] {
         if let Some(value) = value {
@@ -281,7 +307,7 @@ mod tests {
         AggregateDevice {
             key: Some(key.into()),
             device_id: Some(DeviceId::from_serial(serial)),
-            known: Some(AggregateKnown { device_id: Some(DeviceId::from_serial(serial)), family: Some(family.into()), model: None, routing: Default::default() }),
+            known: Some(AggregateKnown { device_id: Some(DeviceId::from_serial(serial)), family: Some(family.into()), model: None, routing: Default::default(), rate: None }),
             ..AggregateDevice::default()
         }
     }
@@ -633,6 +659,7 @@ mod tests {
                 "callback_master": "Quadro",
                 "alignment": "aligned",
                 "rate": 96000,
+                "rate_from": "setup",
                 "buffer_size": 512
             })
         );
@@ -654,6 +681,39 @@ mod tests {
         assert_eq!(document["ring_buffers"], 8);
         assert_eq!(document["devices"][0]["resample"], true);
         assert_eq!(serde_json::to_value(&config).unwrap()["ring_buffers"], 8, "and it is written back to the workspace");
+    }
+
+    /// "Whatever the interfaces are on" is the rate they are actually running at, when they all
+    /// agree, so a driver that remembers another rate cannot move them when the aggregate opens.
+    #[test]
+    fn with_no_rate_chosen_the_file_carries_the_rate_every_interface_runs_at() {
+        let mut config = pair();
+        config.rate = None;
+        let seen = |config: &mut Aggregate, rates: [Option<u32>; 2]| {
+            for (device, rate) in config.devices.iter_mut().zip(rates) {
+                device.known.as_mut().unwrap().rate = rate;
+            }
+        };
+        seen(&mut config, [Some(96000), Some(96000)]);
+        assert_eq!(rate_in_force(&config), Some(RateInForce { hz: 96000, from: RateFrom::Interfaces }));
+        let document = export_document(&config, &named());
+        assert_eq!((document["rate"].clone(), document["rate_from"].clone()), (serde_json::json!(96000), serde_json::json!("interfaces")));
+        assert_eq!(config.rate, None, "and the setup itself still names no rate");
+
+        // Interfaces that disagree, or one never seen, leave the rate out, as before.
+        seen(&mut config, [Some(96000), Some(44100)]);
+        assert_eq!(rate_in_force(&config), None);
+        assert!(export_document(&config, &named()).get("rate").is_none());
+        seen(&mut config, [Some(96000), None]);
+        assert!(export_document(&config, &named()).get("rate").is_none());
+
+        // A rate the setup names wins, and says so.
+        config.rate = Some(48000);
+        assert_eq!(rate_in_force(&config), Some(RateInForce { hz: 48000, from: RateFrom::Setup }));
+        assert_eq!(export_document(&config, &named())["rate_from"], "setup");
+        assert_eq!(crate::aggregate::khz(44100), "44.1 kHz");
+        assert_eq!(crate::aggregate::khz(96000), "96 kHz");
+        assert_eq!(crate::aggregate::khz(88200), "88.2 kHz");
     }
 
     #[test]

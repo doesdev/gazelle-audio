@@ -10,6 +10,25 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **The Aggregate page warns when an interface's driver remembers another rate.** An interface's
+  own driver can remember 44.1 kHz while the interface runs at 96 kHz, and put it back to 44.1 kHz
+  when a DAW opens the aggregate. The page now says so, and where nothing would stop it, a button
+  puts the right rate into the aggregate's setup after a confirming click.
+- **The Aggregate page says which rate is in force.** Under the setup's rate, a line says what the
+  aggregate will run at and whether that is the rate you chose or the one your interfaces are on.
+
+### Fixed
+
+- **"Whatever the interfaces are on" now means the rate the interfaces are running at.** Before,
+  opening the aggregate left each interface to its driver, so a driver remembering another rate
+  moved the interface, and the others followed it over the cable. The aggregate now puts every
+  interface at the rate they are all on, and follows it when that changes.
+- **An aggregate that cannot move every interface to a rate puts each back where it was.** When one
+  interface refused a new rate, the ones already moved were not put back, or were put back to the
+  wrong rate.
+
 ## [1.3.0] - 2026-09-22
 
 Gazelle Aggregate: record from both interfaces at once, in one DAW session, lined up to the

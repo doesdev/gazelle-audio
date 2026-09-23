@@ -484,6 +484,45 @@ fn a_device_that_carries_a_different_sample_type_is_converted_on_the_way_past() 
 // Rates, buffer sizes and refusals.
 // ---------------------------------------------------------------------------------------------
 
+/// Three devices that were not on one rate, and the last refuses to move: each of the others goes
+/// back to the rate it was on itself, not to the first one's.
+#[test]
+fn a_refused_rate_puts_every_device_that_moved_back_on_its_own_rate() {
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(2, 2, 600, 700))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(2, 2, 600, 700))
+            .with("Device C", "{CCCCCCCC-0000-0000-0000-000000000003}", r"c:\antelope\c.dll", spec(2, 2, 600, 700)),
+    );
+    pc.device("Device B").spec.lock().unwrap().rate = 88_200.0;
+    let three = Config {
+        devices: ["A", "B", "C"].iter().map(|name| DeviceConfig { key: Some(format!("Device {name}")), name: Some((*name).into()), ..DeviceConfig::default() }).collect(),
+        ..Config::default()
+    };
+    let mut aggregate = open(&pc, three);
+    pc.device("Device C").spec.lock().unwrap().fails_at = Some((Step::SetRate, "no".into()));
+    aggregate.set_rate(48_000.0).expect_err("the third refused");
+    assert_eq!(pc.device("Device A").spec.lock().unwrap().rate, 96_000.0, "A is back on its own rate");
+    assert_eq!(pc.device("Device B").spec.lock().unwrap().rate, 88_200.0, "and B on its own, not on A's");
+}
+
+/// The same at `init`, where the aggregate has no rate of its own yet: a rate in the file that the
+/// second device refuses leaves the first where it was, rather than at the rate nobody got to.
+#[test]
+fn a_rate_in_the_file_the_second_device_refuses_puts_the_first_back_on_its_own_rate() {
+    let _order = daw::session();
+    let pc = two_devices();
+    pc.device("Device A").spec.lock().unwrap().rate = 44_100.0;
+    pc.device("Device B").spec.lock().unwrap().fails_at = Some((Step::SetRate, "no".into()));
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let mut aggregate = Aggregate::new(host);
+    let error = aggregate.init(Config { rate: Some(96_000.0), ..both(Alignment::Aligned) }, "a test".into()).expect_err("B refused");
+    assert!(error.contains("refused 96000"), "{error}");
+    assert_eq!(pc.device("Device A").spec.lock().unwrap().rate, 44_100.0, "A is put back where it was, which nothing did before");
+    assert!(pc.device("Device A").calls().iter().any(|call| call == "set_rate 44100"), "{:?}", pc.device("Device A").calls());
+}
+
 #[test]
 fn a_rate_is_set_on_every_device_or_on_none() {
     let _order = daw::session();

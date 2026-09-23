@@ -12,7 +12,8 @@
 
 use serde::Serialize;
 
-use crate::aggregate::{rate_index, DeviceReport};
+use crate::aggregate::config::rate_in_force;
+use crate::aggregate::{khz, rate_index, DeviceReport, RateFrom, RateInForce};
 use crate::device::descriptor::DeviceId;
 use crate::workspace::model::{Cable, Workspace};
 use crate::workspace::topology;
@@ -44,6 +45,9 @@ pub enum ReasonCode {
     ControllerUnknown,
     /// The devices are not all at one sample rate.
     RatesDiffer,
+    /// An interface's driver remembers a rate other than the one the interface runs at, which it
+    /// puts the interface back to when a DAW opens it.
+    DriverRateDiffers,
     /// Their driver buffer sizes are not all the same.
     BuffersDiffer,
     /// No digital cable is declared between two of the devices, so nothing says they share a clock.
@@ -71,7 +75,9 @@ pub enum Severity {
 /// A request the page can make to put one reason right.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Fix {
-    /// What it does: `match_buffers`, `set_clock_source`, `set_sample_rate` or `register`.
+    /// What it does: `match_buffers`, `set_clock_source`, `set_sample_rate`, `register`, or
+    /// `set_setup_rate`, which the page makes itself, by putting the rate into the setup it keeps in
+    /// the workspace: that is where the setup is edited, and the page's copy of it stays the truth.
     pub kind: &'static str,
     pub method: &'static str,
     /// The route, relative to `/api/v1/`.
@@ -155,6 +161,7 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
     reasons.extend(per_device(devices));
     reasons.extend(controllers(devices));
     reasons.extend(rates(devices));
+    reasons.extend(driver_rates(devices, workspace.aggregate.as_ref().and_then(rate_in_force)));
     reasons.extend(buffers(devices));
     reasons.extend(clocks(devices, &workspace.cables));
     reasons.extend(phases(devices, &workspace.cables));
@@ -322,13 +329,21 @@ fn wanted<'a, T: PartialEq>(devices: &'a [DeviceReport], of: impl Fn(&'a DeviceR
     devices.iter().find(|d| d.is_master).and_then(&of).or_else(|| devices.iter().find_map(of))
 }
 
+/// The rate an interface is running at: what the interface itself reports, and where it has not
+/// reported, what its driver says.
+fn running(device: &DeviceReport) -> Option<u32> {
+    device.clock.as_ref().and_then(|clock| clock.running_rate()).or(device.driver.sample_rate)
+}
+
+/// Interfaces not all running at one rate. The interface's own report is what is compared, not the
+/// rate its driver remembers: the driver's is a reason of its own ([`driver_rates`]).
 fn rates(devices: &[DeviceReport]) -> Vec<Reason> {
-    let Some(wanted_rate) = wanted(devices, |d| d.driver.sample_rate) else { return Vec::new() };
+    let Some(wanted_rate) = wanted(devices, running) else { return Vec::new() };
     devices
         .iter()
-        .filter(|d| d.driver.sample_rate.is_some_and(|rate| rate != wanted_rate))
+        .filter(|d| running(d).is_some_and(|rate| rate != wanted_rate))
         .map(|device| {
-            let at = device.driver.sample_rate.unwrap_or_default();
+            let at = running(device).unwrap_or_default();
             let reason = Reason::new(
                 ReasonCode::RatesDiffer,
                 Severity::Blocking,
@@ -347,6 +362,67 @@ fn rates(devices: &[DeviceReport]) -> Vec<Reason> {
                     label: format!("Put {} at {wanted_rate} Hz", device.name),
                 }),
                 _ => reason,
+            }
+        })
+        .collect()
+}
+
+/// An interface whose driver remembers another rate than the one the interface runs at.
+///
+/// The Quadro's driver was found remembering 44.1 kHz while the interface ran at 96 kHz, and it puts
+/// the interface back to its own rate when a DAW opens it, with every interface clocked from it
+/// following. What that does depends on the rate in force:
+///
+/// - none: nothing tells the drivers otherwise, so opening the aggregate moves the interface. That
+///   stops it, and the fix puts the rate the interface runs at into the setup.
+/// - the rate the interface runs at: the aggregate puts every interface there when it opens, so it
+///   stays where it is, and it is only worth knowing.
+/// - another rate, from the setup: opening moves every interface there anyway, which is what the
+///   setup asks for, so the driver's own rate changes nothing and is not said.
+///
+/// The fix is the setup's rate rather than the driver's own: the aggregate setting the rate when it
+/// opens is the supported way to set an interface driver's rate, and Gazelle has no other.
+fn driver_rates(devices: &[DeviceReport], in_force: Option<RateInForce>) -> Vec<Reason> {
+    devices
+        .iter()
+        .filter_map(|device| {
+            let remembers = device.driver.sample_rate?;
+            let runs = device.clock.as_ref().and_then(|clock| clock.running_rate())?;
+            if remembers == runs {
+                return None;
+            }
+            let says = format!("{}'s driver says {} while the interface runs at {}", device.name, khz(remembers), khz(runs));
+            match in_force {
+                Some(force) if force.hz == runs => {
+                    let why = match force.from {
+                        RateFrom::Setup => "the setup asks for it",
+                        RateFrom::Interfaces => "it is the rate the interfaces are on",
+                    };
+                    Some(
+                        Reason::new(
+                            ReasonCode::DriverRateDiffers,
+                            Severity::Warning,
+                            format!("{says}. The aggregate puts it at {} when it opens, because {why}, so nothing moves.", khz(runs)),
+                        )
+                        .about(device),
+                    )
+                }
+                Some(_) => None,
+                None => Some(
+                    Reason::new(
+                        ReasonCode::DriverRateDiffers,
+                        Severity::Blocking,
+                        format!("{says}: opening the aggregate would move the interface to {}.", khz(remembers)),
+                    )
+                    .about(device)
+                    .with(Fix {
+                        kind: "set_setup_rate",
+                        method: "PUT",
+                        route: "workspace".into(),
+                        body: serde_json::json!({ "rate": runs }),
+                        label: format!("Put the aggregate at {}", khz(runs)),
+                    }),
+                ),
             }
         })
         .collect()
@@ -637,13 +713,60 @@ mod tests {
 
     #[test]
     fn a_rate_that_differs_names_the_device_and_the_rate_to_send() {
-        let slow = DeviceReport { driver: DriverSummary { sample_rate: Some(44100), ..studio().driver }, ..studio() };
+        // The interface itself is at 44.1 kHz, and so is its driver.
+        let slow = DeviceReport {
+            clock: Some(ClockReading { source_index: 5, source: Some("S/PDIF".into()), locked: true, hz: 44100, rate_index: 1 }),
+            driver: DriverSummary { sample_rate: Some(44100), ..studio().driver },
+            ..studio()
+        };
         let reasons = reasons(true, true, true, &[quadro(), slow], &cabled());
         assert_eq!(codes(&reasons), [ReasonCode::RatesDiffer]);
         let fix = reasons[0].fix.as_ref().expect("a rate has a route already");
         assert_eq!(fix.route, "devices/serial:S/command/set_samp_rate");
         assert_eq!(fix.body, serde_json::json!({ "srate_idx": 4 }), "96000 is index 4");
         assert!(reasons[0].message.contains("will not resample"));
+    }
+
+    /// The owner's other PC: the Quadro's driver remembers 44.1 kHz while the Quadro runs at 96 kHz.
+    /// With nothing in force, opening the aggregate would move it, and the fix is the setup's rate.
+    #[test]
+    fn a_driver_remembering_another_rate_stops_it_when_nothing_would_put_the_interface_back() {
+        let remembers = DeviceReport { driver: DriverSummary { sample_rate: Some(44100), ..quadro().driver }, ..quadro() };
+        let reasons = reasons(true, true, true, &[remembers.clone(), studio()], &cabled());
+        assert_eq!(codes(&reasons), [ReasonCode::DriverRateDiffers], "the interfaces are both at 96 kHz, so their rates do not differ");
+        assert_eq!(reasons[0].severity, Severity::Blocking);
+        assert_eq!(reasons[0].message, "Quadro's driver says 44.1 kHz while the interface runs at 96 kHz: opening the aggregate would move the interface to 44.1 kHz.");
+        let fix = reasons[0].fix.as_ref().expect("the setup's rate puts it right");
+        assert_eq!((fix.kind, fix.method, fix.route.as_str()), ("set_setup_rate", "PUT", "workspace"));
+        assert_eq!(fix.body, serde_json::json!({ "rate": 96000 }));
+        assert_eq!(fix.label, "Put the aggregate at 96 kHz");
+    }
+
+    #[test]
+    fn a_driver_remembering_another_rate_is_only_worth_knowing_when_the_aggregate_puts_the_interface_back() {
+        let remembers = DeviceReport { driver: DriverSummary { sample_rate: Some(44100), ..quadro().driver }, ..quadro() };
+        let mut workspace = cabled();
+        let seen = |rate| crate::workspace::model::AggregateKnown { rate: Some(rate), ..Default::default() };
+        workspace.aggregate = Some(crate::workspace::model::Aggregate {
+            devices: vec![
+                crate::workspace::model::AggregateDevice { key: Some("Q".into()), known: Some(seen(96000)), ..Default::default() },
+                crate::workspace::model::AggregateDevice { key: Some("S".into()), known: Some(seen(96000)), ..Default::default() },
+            ],
+            ..Default::default()
+        });
+        let following = reasons(true, true, true, &[remembers.clone(), studio()], &workspace);
+        assert_eq!(codes(&following), [ReasonCode::DriverRateDiffers]);
+        assert_eq!(following[0].severity, Severity::Warning);
+        assert!(following[0].message.ends_with("The aggregate puts it at 96 kHz when it opens, because it is the rate the interfaces are on, so nothing moves."), "{}", following[0].message);
+        assert!(following[0].fix.is_none());
+        assert!(ready(&following));
+
+        // A setup that asks for the rate the interface is on says so.
+        workspace.aggregate.as_mut().unwrap().rate = Some(96000);
+        assert!(reasons(true, true, true, &[remembers.clone(), studio()], &workspace)[0].message.contains("because the setup asks for it"));
+        // A setup that asks for another rate moves every interface anyway: the driver's own rate changes nothing.
+        workspace.aggregate.as_mut().unwrap().rate = Some(48000);
+        assert!(codes(&reasons(true, true, true, &[remembers, studio()], &workspace)).is_empty());
     }
 
     #[test]

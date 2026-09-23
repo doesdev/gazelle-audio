@@ -5,11 +5,13 @@
 //! routing change itself, whichever client asked for it, and remembers it
 //! (`crate::device::routing_memory`); this waits on that, and on devices coming and going, and asks
 //! the exporting store to look again. It does not depend on any page being open, and it never polls
-//! a device: the only thing it ever asks one is a routing group the names come from (its USB record
+//! a device. It also follows each device's own status reports for the rate it runs at, which the
+//! file carries when the setup leaves the rate to the interfaces, waking only when that rate
+//! changes. The only thing it ever asks a device is a routing group the names come from (its USB record
 //! group, its outputs and its mix inputs), each once, when an interface of the aggregate is there
 //! and Gazelle has not seen that group since it was attached.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use gazelle_audio_protocol::payload::PayloadValues;
@@ -18,7 +20,9 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::aggregate::export::ExportingStore;
 use crate::aggregate::naming::{device_of, naming_groups};
 use crate::device::descriptor::DeviceId;
+use crate::aggregate::STATUS_REPORT;
 use crate::device::manager::{DeviceManager, ServerEvent};
+use crate::device::worker::DeviceEvent;
 use crate::workspace::model::Workspace;
 use crate::workspace::store::WorkspaceStore;
 
@@ -50,6 +54,9 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
     // A group asked for once is not asked for again until its device has been away and come back,
     // so a device that will not answer is not asked over and over.
     let mut asked: BTreeSet<(DeviceId, u32)> = BTreeSet::new();
+    // The rate each device last reported, so that its own status reports, which come many times a
+    // second, wake this only when the rate in them is not what it was.
+    let mut rates: BTreeMap<DeviceId, u64> = BTreeMap::new();
     loop {
         let refreshing = store.clone();
         match tokio::task::spawn_blocking(move || refreshing.refresh()).await {
@@ -86,6 +93,16 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
                     Ok(ServerEvent::DeviceAdded(_)) => break,
                     Ok(ServerEvent::DeviceRemoved(id)) => {
                         asked.retain(|(device, _)| *device != id);
+                        rates.remove(&id);
+                        break;
+                    }
+                    // A device's own report of the rate it runs at, which the file follows when the
+                    // setup leaves the rate to the interfaces.
+                    Ok(ServerEvent::Device(DeviceEvent::Cyclic { device_id, report_id, fields })) if report_id == STATUS_REPORT => {
+                        let Some(rate) = rate_index_of(&fields) else { continue };
+                        if rates.insert(device_id, rate) == Some(rate) {
+                            continue;
+                        }
                         break;
                     }
                     Ok(ServerEvent::Device(_)) => continue,
@@ -95,6 +112,15 @@ pub async fn follow(store: Arc<ExportingStore>, devices: Arc<DeviceManager>, rea
                 },
             }
         }
+    }
+}
+
+/// The rate index a status report carries, however it was decoded.
+fn rate_index_of(fields: &std::collections::HashMap<String, gazelle_audio_protocol::payload::Value>) -> Option<u64> {
+    match fields.get("base_index")? {
+        gazelle_audio_protocol::payload::Value::U64(n) => Some(*n),
+        gazelle_audio_protocol::payload::Value::I64(n) => u64::try_from(*n).ok(),
+        _ => None,
     }
 }
 
@@ -123,6 +149,16 @@ mod tests {
             }),
             ..Workspace::default()
         }
+    }
+
+    #[test]
+    fn a_status_report_gives_its_rate_index_however_it_was_decoded() {
+        use gazelle_audio_protocol::payload::Value;
+        let report = |value: Value| [("base_index".to_string(), value)].into_iter().collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(rate_index_of(&report(Value::U64(4))), Some(4));
+        assert_eq!(rate_index_of(&report(Value::I64(1))), Some(1));
+        assert_eq!(rate_index_of(&report(Value::Bytes(vec![4]))), None);
+        assert_eq!(rate_index_of(&std::collections::HashMap::new()), None);
     }
 
     /// Reading the group once is what the server does, and after it nothing more is wanted: the

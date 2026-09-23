@@ -442,6 +442,14 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Gazelle writes where the rate in the file came from beside it; the driver takes the rate and
+    /// passes over the note, as it does any field it does not know.
+    #[test]
+    fn a_rate_with_gazelles_note_of_where_it_came_from_is_read_as_the_rate() {
+        let config = Config::parse(r#"{"devices": [{"key": "Zen Quadro"}], "rate": 96000, "rate_from": "interfaces"}"#).expect("the note is not a refusal");
+        assert_eq!(config.rate, Some(96_000.0));
+    }
+
     #[test]
     fn a_device_that_names_no_channels_has_none_rather_than_a_refusal() {
         let config = Config::parse(r#"{"devices": [{"key": "Zen Quadro"}]}"#).expect("channel names are optional");

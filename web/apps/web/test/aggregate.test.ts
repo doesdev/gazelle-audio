@@ -79,6 +79,8 @@ import {
   fitLabel,
   fixNeedsConfirming,
   fixRequest,
+  khz,
+  rateInForceText,
   gapView,
   interfaceName,
   isExposed,
@@ -224,9 +226,36 @@ test("a route or a body this page does not know is no button at all, rather than
   assert.equal(fixRequest(fix({ method: "GET" as AggregateFix["method"] })), undefined);
 });
 
+test("the setup's rate is a fix the page makes itself, and asks twice", () => {
+  const rate = fix({ kind: "set_setup_rate", method: "PUT", route: "workspace", body: { rate: 96000 }, label: "Put the aggregate at 96 kHz" });
+  assert.deepEqual(fixRequest(rate), { call: "setup-rate", rate: 96000 });
+  assert.equal(fixNeedsConfirming(rate), true);
+  assert.equal(fixRequest({ ...rate, body: { rate: "fast" } }), undefined, "a rate that is not one is no button");
+  assert.equal(fixRequest({ ...rate, kind: "register" }), undefined, "and a PUT of anything else is not a request this page sends");
+});
+
+test("the rate in force is said under the setup's rate, with where it comes from", () => {
+  assert.equal(khz(44100), "44.1 kHz");
+  assert.equal(khz(96000), "96 kHz");
+  assert.match(String(rateInForceText(answer({ rate_in_force: { hz: 96000, from: "interfaces" } }))), /^In force: 96 kHz, the rate every interface is running at\./);
+  assert.match(String(rateInForceText(answer({ rate_in_force: { hz: 48000, from: "setup" } }))), /^In force: 48 kHz, chosen here\./);
+  assert.match(String(rateInForceText(answer())), /No rate is in force/);
+  assert.equal(rateInForceText(answer({ configured: false })), undefined, "nothing set up is nothing to say");
+  assert.equal(rateInForceText(undefined), undefined);
+  for (const text of [rateInForceText(answer()), rateInForceText(answer({ rate_in_force: { hz: 96000, from: "interfaces" } }))]) assert.doesNotMatch(String(text), DASHES);
+});
+
+test("the setup's rate fix writes the rate into the setup, says so, and reads again", async () => {
+  const it = model();
+  await it.model.applyFix(fix({ kind: "set_setup_rate", method: "PUT", route: "workspace", body: { rate: 96000 }, label: "Put the aggregate at 96 kHz" }));
+  assert.deepEqual(it.calls, ["setup-rate:96000", "read"]);
+  assert.deepEqual(it.model.outcome.value, { text: "The aggregate's rate is 96 kHz now, in the setup.", problem: false });
+});
+
 test("only the fix that interrupts a DAW asks for a second click", () => {
   assert.equal(fixNeedsConfirming(fix({ kind: "match_buffers" })), true);
   for (const kind of ["register", "set_clock_source", "set_sample_rate"] as AggregateFix["kind"][]) assert.equal(fixNeedsConfirming(fix({ kind })), false, kind);
+  assert.equal(fixNeedsConfirming(fix({ kind: "set_setup_rate" })), true, "the setup's rate changes what the next session opens at");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1316,6 +1345,10 @@ function model(first: AggregateAnswer = answer()): Recorded {
   const timers = new ManualTimers();
   const recorded: Recorded = { calls: [], timers, model: undefined as unknown as AggregateModel, next: { answer: first }, calibration: { state: { state: "idle" } } };
   const context: AggregateContext = {
+    setupRate: (rate) => {
+      recorded.calls.push(`setup-rate:${rate}`);
+      return true;
+    },
     read: async () => {
       recorded.calls.push("read");
       if (recorded.next.error !== undefined) throw recorded.next.error;
@@ -1459,6 +1492,7 @@ test("a fix this page does not know sends nothing and says why", async () => {
 test("a call that threw leaves the page saying so rather than silently doing nothing", async () => {
   const it = model();
   const failing = new AggregateModel({
+    setupRate: () => false,
     read: async () => answer(),
     matchBuffers: async () => {
       throw new GazelleError("asio_in_use", "A program is using the driver's ASIO interface.");

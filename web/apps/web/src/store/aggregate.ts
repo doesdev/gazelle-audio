@@ -35,6 +35,7 @@ import type {
   AggregateMatchedBy,
   AggregatePhaseSetting,
   AggregatePlan,
+  AggregateRateInForce,
   AggregateReason,
   AggregateRegistrationRun,
   AggregateDevice,
@@ -73,6 +74,7 @@ export type {
   AggregateMatchedBy,
   AggregatePhaseSetting,
   AggregatePlan,
+  AggregateRateInForce,
   AggregateReason,
   AggregateRegistrationRun,
   AggregateStatusReading,
@@ -102,6 +104,7 @@ export function pollDelayMs(status: AggregateStatusReading | undefined): number 
  * `undefined` rather than guessed at, so a newer server's fix simply offers no button.
  */
 export type FixRequest =
+  | { call: "setup-rate"; rate: number }
   | { call: "register" }
   | { call: "unregister" }
   | { call: "match-buffers"; bufferSize: number }
@@ -110,8 +113,13 @@ export type FixRequest =
 const COMMAND_ROUTE = /^devices\/([^/]+)\/command\/([a-z0-9_]+)$/;
 
 export function fixRequest(fix: AggregateFix): FixRequest | undefined {
-  if (fix.method !== "POST") return undefined;
   const body = typeof fix.body === "object" && fix.body !== null ? (fix.body as Record<string, unknown>) : {};
+  // The one the page makes itself, in the setup it keeps in the workspace.
+  if (fix.kind === "set_setup_rate") {
+    const rate = body["rate"];
+    return typeof rate === "number" && Number.isInteger(rate) && rate > 0 ? { call: "setup-rate", rate } : undefined;
+  }
+  if (fix.method !== "POST") return undefined;
   if (fix.route === "aggregate/register") return { call: "register" };
   if (fix.route === "aggregate/unregister") return { call: "unregister" };
   if (fix.route === "aggregate/match-buffers") {
@@ -132,7 +140,27 @@ export function fixRequest(fix: AggregateFix): FixRequest | undefined {
  * is offered here as one press: it is the fix for a reason that already says what it will do.
  */
 export function fixNeedsConfirming(fix: AggregateFix): boolean {
-  return fix.kind === "match_buffers";
+  return fix.kind === "match_buffers" || fix.kind === "set_setup_rate";
+}
+
+/** A rate in words: "96 kHz", "44.1 kHz". */
+export function khz(hz: number): string {
+  return `${Number((hz / 1000).toFixed(3))} kHz`;
+}
+
+/**
+ * The line under the setup's rate: what the aggregate will actually run at and where that comes
+ * from, so "Whatever the interfaces are on" is never a mystery.
+ */
+export function rateInForceText(answer: AggregateAnswer | undefined): string | undefined {
+  if (answer === undefined) return undefined;
+  const force = answer.rate_in_force;
+  if (force === undefined) {
+    return answer.configured ? "No rate is in force: the interfaces are not all on one rate Gazelle can read, so each keeps what its driver says when the aggregate opens." : undefined;
+  }
+  return force.from === "setup"
+    ? `In force: ${khz(force.hz)}, chosen here. The aggregate puts every interface there when it opens.`
+    : `In force: ${khz(force.hz)}, the rate every interface is running at. The aggregate puts every interface there when it opens, whatever its driver remembers.`;
 }
 
 /** What a device's gap reads as. `tone` is what the page colours it by; zero is the good one. */
@@ -2065,6 +2093,8 @@ export interface AggregateContext {
   unregister(): Promise<AggregateRegistrationRun>;
   /** One command to one device, as the Devices page sends one. True when it went. */
   command(deviceId: string, command: string, args: Record<string, unknown>): Promise<boolean>;
+  /** Puts a rate into the aggregate's setup in the workspace. True when it was saved. */
+  setupRate(rate: number): boolean;
   /** The one measurement at a time that lines the interfaces up. */
   calibration(): Promise<AggregateCalibration>;
   calibrate(request: AggregateCalibrateRequest): Promise<{ started: boolean }>;
@@ -2221,6 +2251,13 @@ export class AggregateModel {
     const request = fixRequest(fix);
     if (request === undefined) {
       this.#outcome.value = { text: `Gazelle does not know how to send ${fix.route}. This server is newer than this page.`, problem: true };
+      return;
+    }
+    if (request.call === "setup-rate") {
+      this.#outcome.value = this.#context.setupRate(request.rate)
+        ? { text: `The aggregate's rate is ${khz(request.rate)} now, in the setup.`, problem: false }
+        : { text: "The setup's rate was not changed: Gazelle is not connected.", problem: true };
+      await this.refresh();
       return;
     }
     if (request.call === "register") return this.setRegistered(true);

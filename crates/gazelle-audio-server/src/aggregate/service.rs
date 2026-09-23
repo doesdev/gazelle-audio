@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gazelle_audio_protocol::payload::Value;
 
 use crate::aggregate::bundled;
-use crate::aggregate::config::master_index;
+use crate::aggregate::config::{master_index, rate_in_force};
 use crate::aggregate::elevate::{command_for, dll_candidates, DllSearch, Elevator};
 use crate::aggregate::export::{with_known, Live, Seen};
 use crate::aggregate::naming::{self, daw_names, interface_names, naming_groups, usb_groups};
@@ -96,6 +96,7 @@ impl AggregateService {
         let registration = self.registration(&entries);
         let configured = config.as_ref().is_some_and(|config| !config.devices.is_empty());
         let reasons: Vec<Reason> = readiness::reasons(configured, registration.registered, registration.dll_present, &devices, workspace);
+        let rate_in_force = config.as_ref().and_then(rate_in_force);
         let (events, events_error) = match self.link.events(EVENTS) {
             Ok(events) => (events, None),
             Err(why) => (Vec::new(), Some(why)),
@@ -108,6 +109,7 @@ impl AggregateService {
             drivers: registry::describe(self.registry.as_ref(), &named).unwrap_or_default(),
             drivers_error,
             registration,
+            rate_in_force,
             ready: readiness::ready(&reasons),
             reasons,
             devices,
@@ -324,6 +326,11 @@ impl Live for AggregateService {
         // was known of it rather than losing it.
         let entries = self.registry.entries().unwrap_or_default();
         let attached = self.devices.descriptors();
+        // While a DAW has the aggregate open, the rate the interfaces are on is the aggregate's own
+        // doing, and a driver opening can move an interface for a moment before the aggregate puts
+        // it back. Taking that rate as the one to follow would write it into the file for the next
+        // session, so it is not taken until the aggregate is closed again.
+        let open = matches!(self.link.status(), StatusReading::Read(status) if status.open);
         config
             .devices
             .iter()
@@ -333,7 +340,8 @@ impl Live for AggregateService {
                     .into_iter()
                     .filter_map(|(id, position)| Some((id, self.devices.routing().slots(&descriptor.id, position)?)))
                     .collect();
-                Some(Seen { device_id: descriptor.id, family: descriptor.family, model: descriptor.model, routing })
+                let rate = if open { None } else { self.clock(&descriptor).and_then(|clock| clock.running_rate()) };
+                Some(Seen { device_id: descriptor.id, family: descriptor.family, model: descriptor.model, routing, rate })
             })
             .collect()
     }

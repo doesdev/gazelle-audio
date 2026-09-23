@@ -367,8 +367,12 @@ impl Aggregate {
         }
     }
 
-    /// Every device to one rate. If one refuses, the ones already moved are put back, because half
-    /// an aggregate at the wrong rate is worse than none.
+    /// Every device to one rate. If one refuses, the ones already moved are put back, each to the
+    /// rate it was on itself, because half an aggregate at the wrong rate is worse than none.
+    ///
+    /// Each device's own rate, not the aggregate's: at `init` the aggregate has no rate yet, and the
+    /// devices need not have been on one rate before they were asked to move, so the aggregate's
+    /// figure would put back nothing, or the wrong thing.
     fn move_every_device_to(&mut self, hz: f64) -> Result<(), String> {
         if !(hz.is_finite() && hz > 0.0) {
             return Err(format!("{hz} is not a sample rate"));
@@ -380,19 +384,22 @@ impl Aggregate {
                 return Err(format!("{name} will not run at {hz} Hz, so neither will the aggregate"));
             }
         }
-        let was = self.rate;
+        // What each device was on, from what it said when it was read and every move since.
+        let was: Vec<f64> = self.descriptions.iter().map(|description| description.rate).collect();
         for index in 0..self.subs.len() {
             if let Err(why) = self.subs[index].set_rate(hz) {
                 let name = names.get(index).cloned().unwrap_or_else(|| format!("device {index}"));
-                // Put the ones that did move back, because half an aggregate at the wrong rate is
-                // worse than none of it.
-                if was > 0.0 {
-                    for earlier in self.subs.iter_mut().take(index) {
-                        let _ = earlier.set_rate(was);
+                // Put the ones that did move back where each of them was.
+                for (earlier, rate) in self.subs.iter_mut().zip(&was).take(index) {
+                    if *rate > 0.0 {
+                        let _ = earlier.set_rate(*rate);
                     }
                 }
                 return Err(format!("{name} refused {hz} Hz: {why}"));
             }
+        }
+        for description in &mut self.descriptions {
+            description.rate = hz;
         }
         Ok(())
     }

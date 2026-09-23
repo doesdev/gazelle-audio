@@ -69,6 +69,7 @@ import {
   matchedBy,
   pageNameOf,
   playbackOutputs,
+  rateInForceText,
   readGroups,
   recordingInputs,
   matchNote,
@@ -333,10 +334,15 @@ export class GaAggregate extends GaElement {
 
     const setup = h("div", { class: "setup field-grid pairs", "data-testid": "aggregate-setup" });
     const exportPath = h("code", { "data-testid": "aggregate-export-path" });
+    // The rate the aggregate will actually run at, and where it comes from, under the setup's own
+    // choice, which with nothing chosen is the rate the interfaces are running at.
+    const rateInForce = h("span", { class: "readout", "data-testid": "aggregate-rate-in-force", "data-explain": "aggregate.rate-in-force" });
+    const rateNote = h("p", { class: "note", hidden: true }, rateInForce);
     const setupSection = h(
       "ga-section",
       { heading: "Setup", explain: "aggregate.setup" },
       setup,
+      rateNote,
       h("p", { class: "note" }, "Saved in the workspace, and written out for the driver at ", exportPath, ". The driver picks up a change at once when nothing is streaming, and at the next buffer change when a DAW is running."),
     );
 
@@ -439,6 +445,9 @@ export class GaAggregate extends GaElement {
     this.watch(() => {
       const answer = model.answer.value;
       exportPath.textContent = answer?.export_path ?? "";
+      const inForce = rateInForceText(answer);
+      rateNote.hidden = inForce === undefined;
+      rateInForce.textContent = inForce ?? "";
       this.#fillAdd(store, addSelect, addButton, answer);
     });
   }

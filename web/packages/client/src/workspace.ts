@@ -141,6 +141,8 @@ export interface AggregateKnown {
    * outputs and its mix inputs, each as its slots, `[source group, channel]`.
    */
   routing?: Record<string, [number, number][]>;
+  /** The rate it was last seen running at, in Hz, as the interface reports it. */
+  rate?: number;
 }
 
 /** One interface the aggregate opens. It needs a `key` or a `clsid`. */
