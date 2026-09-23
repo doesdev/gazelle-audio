@@ -146,6 +146,8 @@ Under the setup, a line says which rate the aggregate runs at and where that com
 
 The setup itself still says **Whatever the interfaces are on**: choose a rate there when you want the aggregate to move the interfaces to it.
 
+**Holding the rate.** Whenever the aggregate asks an interface's driver for a rate, it reads the rate back. The Antelope drivers take a rate as soon as they are asked, so for them that is the end of it and the log says nothing. Some other drivers say yes and do not move until they are closed and opened again, or until their buffers are made, or they ask to be reset first. For those, the aggregate closes the driver and opens it again, up to twice, and looks once more after the buffers are made, before anything plays. Each of those steps is one **Rate** line in [What happened](#what-happened), such as "USB Box's driver held 44.1 kHz after being asked for 96 kHz; reopened it and it took 96 kHz". A driver that still will not move is refused, with a line saying the rate it was asked for and the rate it held, rather than letting a session run at two rates.
+
 ### Trims
 
 An interface's driver reports how many samples of latency it has, and that figure is not always right. A trim is your correction to it, in samples: an interface that records late takes a positive input trim. It moves recordings against each other and does nothing else.
@@ -244,7 +246,7 @@ Beside the gap: **blocks** handled, **dropped** (thrown away because that interf
 
 ## What happened
 
-The driver's own log, kept on disk, written only when something actually happens: **Session started** and **Session ended** (which says what the session lost), **Phase measured** (what that session's phase came to, or why it was not lined up), **Lost a block** (the first block a session lost), an interface stalling and recovering, a setup adopted, anything refused. Lines written during one of Gazelle's own measurements or checks are marked **GAZELLE**, so they are not mistaken for something that happened to a recording. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](18-command-line-and-api.md) says where Gazelle keeps its files.
+The driver's own log, kept on disk, written only when something actually happens: **Session started** and **Session ended** (which says what the session lost), **Phase measured** (what that session's phase came to, or why it was not lined up), **Rate** (a driver that did not take the rate it was asked for straight away, and what the aggregate did about it), **Lost a block** (the first block a session lost), an interface stalling and recovering, a setup adopted, anything refused. Lines written during one of Gazelle's own measurements or checks are marked **GAZELLE**, so they are not mistaken for something that happened to a recording. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](18-command-line-and-api.md) says where Gazelle keeps its files.
 
 ## When something is wrong
 
@@ -252,7 +254,7 @@ The driver's own log, kept on disk, written only when something actually happens
 |---|---|
 | The DAW does not list Gazelle Aggregate | It is not registered. Register it from this page |
 | The DAW lists it and fails to open it | The registration points at a copy that has gone: **Register it again** |
-| The session will not start | Read **Last refused** and the log. Usually one interface will not run at the rate asked for |
+| The session will not start | Read **Last refused** and the log. Usually one interface will not run at the rate asked for, or its driver held on to another rate |
 | The gap grows and grows | Two clocks. Check the cable and every interface's clock source while the DAW is playing |
 | Clicks, and starved climbing | The buffer is too small for the machine, or one interface is stalling. Raise the buffer on both |
 | One interface goes quiet mid session | It stalled. The log says when, and whether it recovered |

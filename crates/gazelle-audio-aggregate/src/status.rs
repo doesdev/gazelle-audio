@@ -387,6 +387,12 @@ impl Reporter {
         self.note(Event::Refused, why);
     }
 
+    /// A driver would not take a rate straight away, and what was done about it. Off the audio
+    /// path: this is written while the aggregate is opening, never while it runs.
+    pub fn rate(&self, detail: &str) {
+        self.note(Event::Rate, detail);
+    }
+
     /// A device has gone away, or come back. Called from the watcher thread, never the audio one:
     /// the audio path only sets the flag in the record.
     pub fn stall_changed(&self, device: &str, stalled: bool) {

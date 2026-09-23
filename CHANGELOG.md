@@ -18,6 +18,12 @@ version that has not been published yet.
   puts the right rate into the aggregate's setup after a confirming click.
 - **The Aggregate page says which rate is in force.** Under the setup's rate, a line says what the
   aggregate will run at and whether that is the rate you chose or the one your interfaces are on.
+- **Gazelle Aggregate makes sure every interface's driver really took the rate.** It reads the rate
+  back after asking for it. The Antelope drivers take it as soon as they are asked; for a driver
+  that says yes and does not move, the aggregate closes it and opens it again, up to twice, and
+  checks once more before anything plays. The log on the Aggregate page says what it had to do, and
+  a driver that still will not move is refused with the rate it held, rather than a session
+  running at two rates.
 
 ### Fixed
 

@@ -12,12 +12,17 @@ use crate::config::{Config, DeviceConfig};
 use crate::plan::{self, Found, Plan};
 use crate::status::{Glitches, Reporter};
 use crate::stream::Stream;
-use crate::sub::{Description, Host, SubDriver};
+use crate::sub::{Description, DeviceBuffers, Host, Requests, SubDriver};
 
 /// How many sub-devices one aggregate can hold. Each needs its own set of static callbacks,
 /// because the interface gives a callback nothing to say which device called it. Raise this and
 /// the table in `windows_host` together.
 pub const MAX_DEVICES: usize = 8;
+
+/// How many times the aggregate closes a driver that will not take a rate and opens it again,
+/// before it gives up on it. Each is a driver being let go of and loaded again, so it is a small
+/// number: a driver that has not moved after two is not going to.
+pub const REOPENS: usize = 2;
 
 /// What the DAW asked for, one entry per buffer: an input or an output, and which channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +50,8 @@ pub struct Aggregate {
     /// Where the configuration was read from, for anything that has to say so.
     pub config_source: String,
     subs: Vec<Box<dyn SubDriver>>,
+    /// The registry entry each device was opened from, kept so that one can be opened again.
+    entries: Vec<Entry>,
     descriptions: Vec<Description>,
     /// The configuration entry each device was found by, kept because the plan is made again at
     /// `createBuffers` from what the drivers report, which carries neither the trims nor the names
@@ -55,6 +62,13 @@ pub struct Aggregate {
     /// The channels the DAW asked for, in its own order.
     wanted: Vec<Wanted>,
     rate: f64,
+    /// The rate every device was last asked for, which is the one checked again once the buffers
+    /// are made. None when nothing has been asked, and the devices are on whatever they were on.
+    asked: Option<f64>,
+    /// Devices whose drivers still held another rate after being opened again, by index, with the
+    /// rate each held: the aggregate asks them once more when their buffers are made, because some
+    /// drivers only move then, and refuses there if they still have not.
+    unsettled: Vec<(usize, f64)>,
     started: bool,
     /// When the audio started, on the machine's own clock. Kept because how long a session ran is
     /// half of what its line in the event log is for, and nothing else remembers it once the
@@ -95,12 +109,15 @@ impl Aggregate {
             config: Config::default(),
             config_source: String::new(),
             subs: Vec::new(),
+            entries: Vec::new(),
             descriptions: Vec::new(),
             from_file: Vec::new(),
             plan: None,
             stream: None,
             wanted: Vec::new(),
             rate: 0.0,
+            asked: None,
+            unsettled: Vec::new(),
             started: false,
             session_nanos: 0,
             session_lost: Vec::new(),
@@ -227,10 +244,13 @@ impl Aggregate {
     fn let_everything_go(&mut self) {
         self.dispose_buffers();
         self.subs.clear();
+        self.entries.clear();
         self.descriptions.clear();
         self.from_file.clear();
         self.plan = None;
         self.rate = 0.0;
+        self.asked = None;
+        self.unsettled.clear();
     }
 
     /// Open every configured device and work out what the aggregate looks like.
@@ -279,6 +299,7 @@ impl Aggregate {
             self.from_file.push(wanted.clone());
             self.descriptions.push(description);
             self.subs.push(sub);
+            self.entries.push(entry.clone());
         }
 
         // A rate in the file is applied once, here, so that every device is already together
@@ -363,7 +384,14 @@ impl Aggregate {
                 self.rate = hz;
                 Ok(())
             }
-            Err(why) => self.fail(why),
+            Err(why) => {
+                // A driver that could not be opened again has left a hole where a device was, and
+                // an aggregate with a hole in it is not one to go on answering for.
+                if self.any_closed() {
+                    self.let_everything_go();
+                }
+                self.fail(why)
+            }
         }
     }
 
@@ -386,20 +414,216 @@ impl Aggregate {
         }
         // What each device was on, from what it said when it was read and every move since.
         let was: Vec<f64> = self.descriptions.iter().map(|description| description.rate).collect();
+        let mut unsettled = Vec::new();
+        let mut said = Vec::new();
         for index in 0..self.subs.len() {
-            if let Err(why) = self.subs[index].set_rate(hz) {
-                let name = names.get(index).cloned().unwrap_or_else(|| format!("device {index}"));
-                // Put the ones that did move back where each of them was.
-                for (earlier, rate) in self.subs.iter_mut().zip(&was).take(index) {
-                    if *rate > 0.0 {
-                        let _ = earlier.set_rate(*rate);
-                    }
+            match self.put_at(index, hz, true) {
+                Ok(Settled::Took(None)) => {}
+                Ok(Settled::Took(Some(how))) => said.push(how),
+                Ok(Settled::Held(rate, how)) => {
+                    unsettled.push((index, rate));
+                    said.push(how);
                 }
-                return Err(format!("{name} refused {hz} Hz: {why}"));
+                Err(why) => {
+                    // Put the ones that did move back where each of them was, holding each to it
+                    // the same way, so that a driver that needed opening again to move needs it
+                    // to move back too.
+                    for (earlier, rate) in was.iter().enumerate().take(index) {
+                        if *rate > 0.0 {
+                            let _ = self.put_at(earlier, *rate, true);
+                        }
+                    }
+                    return Err(why);
+                }
             }
+        }
+        let reporter = Arc::clone(&self.reporter);
+        for line in &said {
+            reporter.rate(line);
         }
         for description in &mut self.descriptions {
             description.rate = hz;
+        }
+        self.asked = Some(hz);
+        self.unsettled = unsettled;
+        // With buffers made nothing can be opened again under them. A driver that has not moved is
+        // the DAW's to reset, which brings it back through `createBuffers`, where it is looked at
+        // again and opened again if it has to be.
+        if !self.unsettled.is_empty() {
+            if let Some(stream) = &self.stream {
+                stream.forward(selector::RESET_REQUEST, 0);
+            }
+        }
+        Ok(())
+    }
+
+    /// **One device to one rate, held there.** A driver can answer yes to a rate and go on at the
+    /// one it had, or ask to be reset before it will move, so what it says after being asked is
+    /// read back, and one that has not moved is closed and opened again and asked again, up to
+    /// [`REOPENS`] times. That is what a DAW does to a driver that will not move, and it is the
+    /// only thing that moves some of them.
+    ///
+    /// A driver that still holds after that is not refused here: some take a rate only once their
+    /// buffers are made, so it is [`Settled::Held`] and asked again then. `reopen` is false while a
+    /// DAW has the buffers, when nothing can be closed under it.
+    ///
+    /// An error is a refusal: the driver said no, or could not be opened again.
+    fn put_at(&mut self, index: usize, hz: f64, reopen: bool) -> Result<Settled, String> {
+        let name = self.name_of(index);
+        let refused = |why: String| format!("{name} refused {hz} Hz: {why}");
+        // Anything it asked for before this was about something else.
+        self.subs[index].take_requests();
+        self.subs[index].set_rate(hz).map_err(refused)?;
+        let Some(trouble) = self.look(index, hz)? else { return Ok(Settled::Took(None)) };
+        if !(reopen && self.stream.is_none()) {
+            return Ok(Settled::Held(trouble.holding(hz), format!("{name}'s driver {}", trouble.words(hz))));
+        }
+        let mut now = trouble;
+        for time in 1..=REOPENS {
+            self.reopen(index)?;
+            self.subs[index].set_rate(hz).map_err(refused)?;
+            match self.look(index, hz)? {
+                None => {
+                    return Ok(Settled::Took(Some(format!(
+                        "{name}'s driver {}; {} and it took {}",
+                        trouble.words(hz),
+                        reopened(time),
+                        khz(hz)
+                    ))))
+                }
+                Some(still) => now = still,
+            }
+        }
+        Ok(Settled::Held(
+            now.holding(hz),
+            format!(
+                "{name}'s driver {}, and still held {} after {}; the aggregate asks again once its buffers are made",
+                trouble.words(hz),
+                khz(now.holding(hz)),
+                times(REOPENS)
+            ),
+        ))
+    }
+
+    /// What is wrong with a device that was asked for `hz`, if anything: what it asked for since,
+    /// then what it says it is at.
+    fn look(&mut self, index: usize, hz: f64) -> Result<Option<Trouble>, String> {
+        let asked: Requests = self.subs[index].take_requests();
+        if asked.reset {
+            return Ok(Some(Trouble::Reset));
+        }
+        let now = match self.subs[index].read_rate() {
+            Ok(now) => now,
+            Err(why) => return Err(format!("{} could not say what rate it is at: {why}", self.name_of(index))),
+        };
+        if let Some(moved) = asked.rate {
+            if !same_rate(moved, hz) {
+                return Ok(Some(Trouble::Moved(moved)));
+            }
+        }
+        Ok((!same_rate(now, hz)).then_some(Trouble::Held(now)))
+    }
+
+    /// Close one device's driver and open it again, in the same slot. The old one is let go of
+    /// before the new one is made, because two of one vendor's driver in one process is not a
+    /// thing to try. If it will not open again, the slot is left closed and the error says so.
+    fn reopen(&mut self, index: usize) -> Result<(), String> {
+        let name = self.name_of(index);
+        {
+            let sub = &mut self.subs[index];
+            sub.stop();
+            sub.dispose_buffers();
+            sub.detach();
+        }
+        self.subs[index] = Box::new(Closed);
+        let entry = self.entries[index].clone();
+        let mut sub = self.host.open(&entry, index).map_err(|why| format!("{name} could not be opened again: {why}"))?;
+        sub.init().map_err(|why| format!("{name} refused to start up again: {why}"))?;
+        self.subs[index] = sub;
+        Ok(())
+    }
+
+    fn any_closed(&self) -> bool {
+        self.subs.iter().any(|sub| sub.is_closed())
+    }
+
+    fn name_of(&self, index: usize) -> String {
+        self.plan_names().get(index).cloned().unwrap_or_else(|| format!("device {index}"))
+    }
+
+    /// **The last look before anything starts.** Some drivers move with their buffers, back to the
+    /// rate they remember or on to the one they were asked for, and some ask to be reset then. Each
+    /// device is read once more; one that is not at the rate asked for is asked again, and opened
+    /// again, with its buffers made again, up to [`REOPENS`] times. One that still will not is a
+    /// refusal, because a session at two rates is worse than none.
+    fn hold_after_buffers(&mut self, plan: &Plan, block: i32, buffers: &mut [DeviceBuffers]) -> Result<(), String> {
+        let Some(hz) = self.asked else {
+            self.unsettled.clear();
+            return Ok(());
+        };
+        let unsettled = std::mem::take(&mut self.unsettled);
+        let reporter = Arc::clone(&self.reporter);
+        for (index, made) in buffers.iter_mut().enumerate() {
+            let name = self.name_of(index);
+            let was_held = unsettled.iter().find(|(at, _)| *at == index).map(|(_, rate)| *rate);
+            let Some(trouble) = self.look(index, hz)? else {
+                if let Some(held) = was_held {
+                    reporter.rate(&format!("{name}'s driver held {} until its buffers were made, and then took {}", khz(held), khz(hz)));
+                }
+                continue;
+            };
+            let refused = |why: String| format!("{name} refused {hz} Hz: {why}");
+            // A driver that asked to be reset is opened again; one that only moved is asked again
+            // first, which is all some of them need.
+            if !matches!(trouble, Trouble::Reset) {
+                self.subs[index].set_rate(hz).map_err(refused)?;
+                if self.look(index, hz)?.is_none() {
+                    reporter.rate(&format!(
+                        "{name}'s driver was at {} once its buffers were made; asked it again and it took {}",
+                        khz(trouble.holding(hz)),
+                        khz(hz)
+                    ));
+                    continue;
+                }
+            }
+            let device = &plan.devices[index];
+            let mut now = trouble;
+            let mut took = false;
+            for time in 1..=REOPENS {
+                self.reopen(index)?;
+                self.subs[index].set_rate(hz).map_err(refused)?;
+                *made = self.subs[index]
+                    .create_buffers(&device.inputs, &device.outputs, block)
+                    .map_err(|why| format!("{name} would not take {block} samples a buffer once opened again: {why}"))?;
+                match self.look(index, hz)? {
+                    None => {
+                        reporter.rate(&format!(
+                            "{name}'s driver {} once its buffers were made; {} and it took {}",
+                            trouble.words(hz),
+                            reopened(time),
+                            khz(hz)
+                        ));
+                        took = true;
+                        break;
+                    }
+                    Some(still) => now = still,
+                }
+            }
+            if !took {
+                return Err(match now {
+                    Trouble::Reset => format!(
+                        "{name}'s driver still asked to be reset after being asked for {} and {}, so the aggregate did not open",
+                        khz(hz),
+                        reopened_words(REOPENS)
+                    ),
+                    _ => format!(
+                        "{name}'s driver still held {} after being asked for {} and {}, so the aggregate did not open",
+                        khz(now.holding(hz)),
+                        khz(hz),
+                        reopened_words(REOPENS)
+                    ),
+                });
+            }
         }
         Ok(())
     }
@@ -407,7 +631,20 @@ impl Aggregate {
     fn plan_names(&self) -> Vec<String> {
         match &self.plan {
             Some(plan) => plan.devices.iter().map(|d| d.name.clone()).collect(),
-            None => self.descriptions.iter().map(|d| d.name.clone()).collect(),
+            // Before there is a plan, which is while a rate in the file is being applied: the name
+            // the file gave, else the one the registry has, as the plan itself would name it.
+            None => self
+                .descriptions
+                .iter()
+                .enumerate()
+                .map(|(index, description)| {
+                    self.from_file
+                        .get(index)
+                        .and_then(|wanted| wanted.name.clone())
+                        .or_else(|| self.entries.get(index).map(|entry| entry.key.clone()))
+                        .unwrap_or_else(|| description.name.clone())
+                })
+                .collect(),
         }
     }
 
@@ -485,6 +722,17 @@ impl Aggregate {
                     return self.fail(format!("{} would not take {block} samples a buffer: {why}", device.name));
                 }
             }
+        }
+
+        // The last look at every device's rate, before anything is attached or started.
+        if let Err(why) = self.hold_after_buffers(&plan, block, &mut buffers) {
+            for sub in self.subs.iter_mut() {
+                sub.dispose_buffers();
+            }
+            if self.any_closed() {
+                self.let_everything_go();
+            }
+            return self.fail(why);
         }
 
         let time_info = asks_for_time_info(&host);
@@ -639,6 +887,122 @@ impl Aggregate {
 impl Drop for Aggregate {
     fn drop(&mut self) {
         self.dispose_buffers();
+    }
+}
+
+/// What a device's driver did with a rate it was asked for.
+enum Settled {
+    /// It took it: at once, or with what it took to get there, for the log.
+    Took(Option<String>),
+    /// It still says it is somewhere else, after everything that could be done where it was asked:
+    /// the rate it holds, and the line for the log.
+    Held(f64, String),
+}
+
+/// What is wrong with a device that was asked for a rate.
+#[derive(Clone, Copy, Debug)]
+enum Trouble {
+    /// It says it is still at this rate.
+    Held(f64),
+    /// It said its rate moved, to this one.
+    Moved(f64),
+    /// It asked to be reset.
+    Reset,
+}
+
+impl Trouble {
+    /// The rate it is on instead, as far as anything says: what it asked to be reset from is the
+    /// rate it was asked for, because it said nothing else.
+    fn holding(self, hz: f64) -> f64 {
+        match self {
+            Trouble::Held(rate) | Trouble::Moved(rate) => rate,
+            Trouble::Reset => hz,
+        }
+    }
+
+    fn words(self, hz: f64) -> String {
+        match self {
+            Trouble::Held(rate) => format!("held {} after being asked for {}", khz(rate), khz(hz)),
+            Trouble::Moved(rate) => format!("said it moved to {} after being asked for {}", khz(rate), khz(hz)),
+            Trouble::Reset => format!("asked to be reset after being asked for {}", khz(hz)),
+        }
+    }
+}
+
+/// Two rates that are the same rate. A driver hands back a double, and 96000 need not come back
+/// bit for bit.
+fn same_rate(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.5
+}
+
+/// A rate in words: "96 kHz", "44.1 kHz".
+pub fn khz(hz: f64) -> String {
+    let khz = (hz / 1000.0 * 1000.0).round() / 1000.0;
+    format!("{khz} kHz")
+}
+
+/// "reopened it", "reopened it twice".
+fn reopened(time: usize) -> String {
+    match time {
+        1 => "reopened it".to_string(),
+        2 => "reopened it twice".to_string(),
+        n => format!("reopened it {n} times"),
+    }
+}
+
+/// "reopened once", "reopened twice", as a refusal says it.
+fn reopened_words(time: usize) -> String {
+    match time {
+        1 => "reopened once".to_string(),
+        2 => "reopened twice".to_string(),
+        n => format!("reopened {n} times"),
+    }
+}
+
+/// "one reopen", "two reopens".
+fn times(time: usize) -> String {
+    match time {
+        1 => "one reopen".to_string(),
+        2 => "two reopens".to_string(),
+        n => format!("{n} reopens"),
+    }
+}
+
+/// A slot whose driver has been let go of and not opened again. It does nothing and says so,
+/// which is what an aggregate with a device missing should hear from it.
+struct Closed;
+
+impl SubDriver for Closed {
+    fn init(&mut self) -> Result<(), String> {
+        Err("its driver is closed".to_string())
+    }
+    fn describe(&mut self) -> Result<Description, String> {
+        Err("its driver is closed".to_string())
+    }
+    fn can_rate(&mut self, _hz: f64) -> bool {
+        false
+    }
+    fn set_rate(&mut self, _hz: f64) -> Result<(), String> {
+        Err("its driver is closed".to_string())
+    }
+    fn read_rate(&mut self) -> Result<f64, String> {
+        Err("its driver is closed".to_string())
+    }
+    fn take_requests(&mut self) -> Requests {
+        Requests::default()
+    }
+    fn create_buffers(&mut self, _inputs: &[i32], _outputs: &[i32], _block: i32) -> Result<DeviceBuffers, String> {
+        Err("its driver is closed".to_string())
+    }
+    fn attach(&mut self, _stream: Arc<Stream>, _device: usize) {}
+    fn detach(&mut self) {}
+    fn start(&mut self) -> Result<(), String> {
+        Err("its driver is closed".to_string())
+    }
+    fn stop(&mut self) {}
+    fn dispose_buffers(&mut self) {}
+    fn is_closed(&self) -> bool {
+        true
     }
 }
 

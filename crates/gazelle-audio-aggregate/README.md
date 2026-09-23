@@ -38,7 +38,7 @@ Windows and 64 bit only.
   were measured in, so the trims hold in every session rather than only in that one. See "The
   phase" below.
 - Runs every device at the same rate and the same buffer size, and refuses as a whole if any one of
-  them will not.
+  them will not. A driver that says yes to a rate is held to it: see "Holding a rate" below.
 - Keeps going when a device stops calling back: its inputs read as silence, its outputs are muted,
   and the rest of the aggregate carries on.
 - Publishes what it is doing into shared memory, and keeps a short log of what happened, so that
@@ -166,6 +166,46 @@ clocks it:
 Every device needs a `key` or a `clsid`. A device named in the file that is not on the PC is a
 refusal that names it, rather than a driver that quietly opens with fewer channels than the person
 expected.
+
+### Holding a rate
+
+A driver can answer yes to a rate and not move. It can keep the old one until it is closed and
+opened again, move only once its buffers are made, or ask to be reset before it will. A driver
+that remembers its rate puts the interface back to it whenever it is opened, and every interface
+clocked from that one follows, so a yes that was not meant is a session at the wrong rate.
+
+So after every rate it asks for, at opening (a `rate` in the file) and whenever a DAW or a
+calibration run asks for one, the aggregate reads the rate back:
+
+1. **It read back right**: nothing more is done, and nothing is written. This is the usual case,
+   and the Antelope drivers' case: on 2026-09-22 the Quadro's driver took a rate the first time it
+   was asked, and remembered it for the next opening. None of the steps below were needed for it.
+2. **It holds another rate, or asked to be reset**: the driver is closed, opened again in the same
+   slot, and asked again, up to two times.
+3. **It still holds it**: it is not refused yet, because some drivers only move once their buffers
+   are made. After every device's buffers are made and before anything starts, every device is
+   read once more. One that moved is asked again; one that still holds, or asked to be reset, is
+   closed and opened again with its buffers made again, up to two times.
+4. **It still holds it after that**: `createBuffers` is refused, naming the driver, the rate it was
+   asked for and the rate it holds, and every buffer is let go of.
+
+If a driver refuses a rate outright, every device that already moved is put back on the rate it
+was on itself, held there the same way. A driver that cannot be opened again at all leaves a hole,
+so the aggregate lets every device go rather than answer for one it no longer has.
+
+Before a device's buffers belong to a running stream, a reset request or a rate change it sends is
+kept for the aggregate, which is still opening and acts on it itself. Once they do, the DAW is the
+host: the request goes up to the DAW exactly as it came, and nothing is closed or opened from
+inside a callback. A rate asked for while a DAW has the buffers made cannot close anything under
+them either, so a driver that did not move then is left to the DAW: the aggregate asks the DAW to
+reset, and holds the driver to the rate when the DAW comes back for its buffers.
+
+Each step that was needed is one `rate` line in the event log, in words:
+
+```
+2026-09-22 20:41:10 rate USB Box's driver held 44.1 kHz after being asked for 96 kHz; reopened it and it took 96 kHz
+2026-09-22 20:41:12 refused USB Box's driver still held 44.1 kHz after being asked for 96 kHz and reopened twice, so the aggregate did not open
+```
 
 ### Alignment
 
@@ -422,6 +462,7 @@ timer**, so every line in the file means something:
 2026-09-20 21:47:02 glitched Studio+ dropped a block, the first this session has lost: it was handing them over faster than they could be taken
 2026-09-20 22:02:11 session-ended ran for 47 minutes 12 seconds. Quadro lost nothing; Studio+ dropped 3 blocks and missed 1 block
 2026-09-21 09:14:02 refused Studio+ will not run at 96000 Hz, so neither will the aggregate
+2026-09-22 20:41:10 rate USB Box's driver held 44.1 kHz after being asked for 96 kHz; reopened it and it took 96 kHz
 ```
 
 This is the half that survives the driver exiting, which is exactly when somebody wants to know why

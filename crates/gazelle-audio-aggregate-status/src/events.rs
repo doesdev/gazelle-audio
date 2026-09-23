@@ -35,6 +35,10 @@ pub enum Event {
     /// applied, or why nothing was. The measurement itself is gone the moment the driver is
     /// released, so this line is the only thing that survives it.
     Phase,
+    /// A device's driver would not take the rate it was asked for straight away, and what the
+    /// aggregate did about it: read it back, asked again, or closed and opened it again. A driver
+    /// that takes the rate the first time writes nothing.
+    Rate,
 }
 
 impl Event {
@@ -51,6 +55,7 @@ impl Event {
             Event::Adopted => "adopted",
             Event::ResetAsked => "reset-asked",
             Event::Phase => "phase",
+            Event::Rate => "rate",
         }
     }
 
@@ -61,7 +66,7 @@ impl Event {
 
 /// Every kind of line the log can hold. One list, so that a new event cannot be written by a
 /// driver and then read back as nothing by the same build.
-pub const ALL: [Event; 9] = [
+pub const ALL: [Event; 10] = [
     Event::Refused,
     Event::Stalled,
     Event::Recovered,
@@ -71,6 +76,7 @@ pub const ALL: [Event; 9] = [
     Event::Adopted,
     Event::ResetAsked,
     Event::Phase,
+    Event::Rate,
 ];
 
 /// One line of the log, taken apart.

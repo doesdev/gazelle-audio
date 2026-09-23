@@ -6,6 +6,9 @@
 //! conversion, the same rings, the same delays, the same stall handling. What the fakes stand in
 //! for is the vendor driver's own behaviour, which a test can then make do things no real device
 //! would do on purpose: arrive late, arrive twice, stop dead, or refuse a rate.
+//!
+//! Or hold on to one. [`Takes`] is each way a driver can say yes to a rate and not move, so the
+//! aggregate's answer to each is tested here rather than discovered at somebody's interface.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +16,8 @@ use std::sync::{Arc, Mutex};
 use gazelle_audio_stream_abi::{sample, Entry};
 
 use crate::stream::Stream;
-use crate::sub::{Description, DeviceBuffers, Host, SubDriver};
+use crate::sub::{Description, DeviceBuffers, Host, Requests, SubDriver};
+use gazelle_audio_stream_abi::raw::selector;
 
 /// A step a fake device can refuse at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +27,46 @@ pub enum Step {
     SetRate,
     CreateBuffers,
     Start,
+}
+
+/// When a fake device's driver actually takes a rate it answered yes to.
+///
+/// A driver that remembers its rate puts the device back to it whenever it is opened, so one that
+/// has not taken the rate it was asked for moves the interface, and everything clocked from it, the
+/// moment a DAW opens it. Each of these is a driver the aggregate has to see through.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Takes {
+    /// As soon as it is asked, which is what the Antelope drivers do.
+    #[default]
+    AtOnce,
+    /// It says yes and keeps the old rate until it is closed and opened again, when it opens at the
+    /// rate it was last asked for.
+    WhenReopened,
+    /// It says yes and keeps the old rate until its buffers are made.
+    WithBuffers,
+    /// It says yes and reports the new rate, but asks to be reset as soon as it has anyone to ask,
+    /// and runs at the new rate only once it has been opened again.
+    AfterReset,
+    /// It says yes and never moves.
+    Never,
+}
+
+/// What a fake device's driver keeps between one opening and the next, which is what makes a
+/// stubborn driver stubborn.
+#[derive(Debug, Default)]
+struct Held {
+    /// A rate it said yes to and opens at next time.
+    remembered: Option<f64>,
+    /// A rate it said yes to and takes when its buffers are made.
+    pending: Option<f64>,
+    /// It owes the host a reset request, which it sends once it has somewhere to send it.
+    owes_reset: bool,
+    /// What the device is really running at, where that is not what the driver reports.
+    running: Option<f64>,
+    /// How many times it has been opened.
+    opens: u32,
+    /// What it asked for with nobody to hand it to.
+    requests: Requests,
 }
 
 /// What a fake device answers.
@@ -43,6 +87,8 @@ pub struct Spec {
     pub output_type: i32,
     pub output_ready: bool,
     pub fails_at: Option<(Step, String)>,
+    /// When it takes a rate it is asked for.
+    pub takes: Takes,
 }
 
 impl Default for Spec {
@@ -63,6 +109,7 @@ impl Default for Spec {
             output_type: sample::INT32_LSB,
             output_ready: true,
             fails_at: None,
+            takes: Takes::AtOnce,
         }
     }
 }
@@ -89,6 +136,11 @@ impl Spec {
         self
     }
 
+    pub fn taking(mut self, takes: Takes) -> Spec {
+        self.takes = takes;
+        self
+    }
+
     pub fn of_type(mut self, input: i32, output: i32) -> Spec {
         self.input_type = input;
         self.output_type = output;
@@ -108,6 +160,7 @@ pub struct FakeDevice {
     pub fired: AtomicU64,
     /// What this device is called on the PC, for the journal.
     key: String,
+    held: Mutex<Held>,
     journal: Journal,
 }
 
@@ -134,6 +187,7 @@ impl FakeDevice {
             inner: Mutex::new(Inner::default()),
             fired: AtomicU64::new(0),
             key: key.to_string(),
+            held: Mutex::new(Held::default()),
             journal,
         })
     }
@@ -146,6 +200,39 @@ impl FakeDevice {
     /// Everything that was asked of this device, in order.
     pub fn calls(&self) -> Vec<String> {
         self.inner.lock().expect("not poisoned").calls.clone()
+    }
+
+    /// How many times its driver has been opened.
+    pub fn opens(&self) -> u32 {
+        self.held.lock().expect("not poisoned").opens
+    }
+
+    /// The rate the device is really running at, which is what its driver reports unless the
+    /// driver is one that says it has moved before it has.
+    pub fn running_rate(&self) -> f64 {
+        let reported = self.spec.lock().expect("not poisoned").rate;
+        self.held.lock().expect("not poisoned").running.unwrap_or(reported)
+    }
+
+    /// The driver asks to be reset: up to the DAW once its buffers belong to a stream, and kept for
+    /// the aggregate before that, as the real host does.
+    pub fn ask_for_reset(&self) {
+        let stream = self.inner.lock().expect("not poisoned").stream.clone();
+        match stream {
+            Some(stream) => {
+                stream.forward(selector::RESET_REQUEST, 0);
+            }
+            None => self.held.lock().expect("not poisoned").requests.reset = true,
+        }
+    }
+
+    /// The driver says its rate moved, the same way.
+    pub fn say_rate_moved(&self, hz: f64) {
+        let stream = self.inner.lock().expect("not poisoned").stream.clone();
+        match stream {
+            Some(stream) => stream.forward_rate(hz),
+            None => self.held.lock().expect("not poisoned").requests.rate = Some(hz),
+        }
     }
 
     pub fn is_started(&self) -> bool {
@@ -237,7 +324,18 @@ impl FakeSub {
 impl SubDriver for FakeSub {
     fn init(&mut self) -> Result<(), String> {
         self.device.note("init");
-        self.refuse(Step::Init)
+        self.refuse(Step::Init)?;
+        // A driver that remembers a rate opens at it, and whatever it was waiting to do about the
+        // last one is over.
+        let mut held = self.device.held.lock().expect("not poisoned");
+        held.opens += 1;
+        held.owes_reset = false;
+        held.running = None;
+        held.pending = None;
+        if let Some(hz) = held.remembered.take() {
+            self.device.spec.lock().expect("not poisoned").rate = hz;
+        }
+        Ok(())
     }
 
     fn describe(&mut self) -> Result<Description, String> {
@@ -269,8 +367,40 @@ impl SubDriver for FakeSub {
     fn set_rate(&mut self, hz: f64) -> Result<(), String> {
         self.device.note(&format!("set_rate {hz}"));
         self.refuse(Step::SetRate)?;
-        self.device.spec.lock().expect("not poisoned").rate = hz;
+        let (takes, was) = {
+            let spec = self.device.spec.lock().expect("not poisoned");
+            (spec.takes, spec.rate)
+        };
+        if hz == was {
+            return Ok(());
+        }
+        let has_buffers = self.device.has_buffers();
+        let mut held = self.device.held.lock().expect("not poisoned");
+        match takes {
+            Takes::AtOnce => self.device.spec.lock().expect("not poisoned").rate = hz,
+            Takes::WhenReopened => held.remembered = Some(hz),
+            Takes::WithBuffers => held.pending = Some(hz),
+            Takes::AfterReset => {
+                held.remembered = Some(hz);
+                held.running.get_or_insert(was);
+                self.device.spec.lock().expect("not poisoned").rate = hz;
+                held.owes_reset = !has_buffers;
+                drop(held);
+                if has_buffers {
+                    self.device.ask_for_reset();
+                }
+            }
+            Takes::Never => {}
+        }
         Ok(())
+    }
+
+    fn read_rate(&mut self) -> Result<f64, String> {
+        Ok(self.device.spec.lock().expect("not poisoned").rate)
+    }
+
+    fn take_requests(&mut self) -> Requests {
+        std::mem::take(&mut self.device.held.lock().expect("not poisoned").requests)
     }
 
     fn create_buffers(&mut self, inputs: &[i32], outputs: &[i32], block: i32) -> Result<DeviceBuffers, String> {
@@ -291,6 +421,18 @@ impl SubDriver for FakeSub {
         inner.output_width = output_width;
         inner.created = true;
         inner.disposed = false;
+        // A driver that takes a rate with its buffers takes it now, and one that owes a reset has
+        // somewhere to ask for it. Nothing is attached yet, so the request is kept for the
+        // aggregate, as the real host keeps it.
+        {
+            let mut held = self.device.held.lock().expect("not poisoned");
+            if let Some(hz) = held.pending.take() {
+                self.device.spec.lock().expect("not poisoned").rate = hz;
+            }
+            if std::mem::take(&mut held.owes_reset) {
+                held.requests.reset = true;
+            }
+        }
         Ok(DeviceBuffers {
             inputs: inner
                 .inputs

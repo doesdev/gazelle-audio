@@ -2035,6 +2035,7 @@ const EVENT_WORDS: Record<string, string> = {
   recovered: "Recovered",
   glitched: "Lost a block",
   phase: "Phase measured",
+  rate: "Rate",
   "session-started": "Session started",
   "session-ended": "Session ended",
   adopted: "Setup taken up",

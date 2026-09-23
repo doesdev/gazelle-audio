@@ -6,7 +6,7 @@
 
 use std::ffi::{c_void, CStr};
 use std::ptr::{null, null_mut};
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use gazelle_audio_stream_abi::raw::{
@@ -18,12 +18,19 @@ use windows_sys::Win32::System::Com::{CLSIDFromString, CoCreateInstance, CLSCTX_
 
 use crate::aggregate::MAX_DEVICES;
 use crate::stream::Stream;
-use crate::sub::{Description, DeviceBuffers, Host, SubDriver};
+use crate::sub::{Description, DeviceBuffers, Host, Requests, SubDriver};
 
 /// The stream each device's callbacks belong to. Set when its buffers are made, cleared after it
 /// is stopped, and never null while a callback can be in flight: the driver that owns the slot
 /// holds a counted reference for exactly that time.
 static STREAMS: [AtomicPtr<Stream>; MAX_DEVICES] = [const { AtomicPtr::new(null_mut()) }; MAX_DEVICES];
+
+/// A reset a device asked for before its buffers belonged to a stream, kept for the aggregate to
+/// act on: at that point there is no DAW to pass it to, and the aggregate is still opening.
+static RESET_ASKED: [AtomicBool; MAX_DEVICES] = [const { AtomicBool::new(false) }; MAX_DEVICES];
+
+/// A rate a device said it moved to at the same point, as the bits of an `f64`. Zero is none.
+static RATE_SAID: [AtomicU64; MAX_DEVICES] = [const { AtomicU64::new(0) }; MAX_DEVICES];
 
 /// One device has audio for us. This is all that happens on a vendor driver's own thread.
 ///
@@ -38,10 +45,14 @@ unsafe extern "system" fn buffer_switch<const N: usize>(index: i32, _direct: i32
     unsafe { (*stream).device_callback(N, (index as usize) & 1) };
 }
 
-/// A device saying its rate moved, on its way to the DAW.
+/// A device saying its rate moved: on its way to the DAW once there is one, and kept for the
+/// aggregate while it is still opening. Nothing here does more than store a number, because this
+/// can be called on the device's own thread.
 unsafe extern "system" fn sample_rate_did_change<const N: usize>(rate: f64) {
     let stream = STREAMS[N].load(Ordering::Acquire);
-    if !stream.is_null() {
+    if stream.is_null() {
+        RATE_SAID[N].store(rate.to_bits(), Ordering::Release);
+    } else {
         unsafe { (*stream).forward_rate(rate) };
     }
 }
@@ -66,10 +77,16 @@ unsafe extern "system" fn message<const N: usize>(which: i32, value: i32, _messa
         selector::SUPPORTS_TIME_INFO | selector::SUPPORTS_TIME_CODE => 0,
         other => {
             let stream = STREAMS[N].load(Ordering::Acquire);
-            if stream.is_null() {
-                0
-            } else {
+            if !stream.is_null() {
+                // Once the buffers belong to a stream the DAW is the host, and a reset is its to
+                // do: the aggregate never closes a driver from inside that driver's own callback.
                 unsafe { (*stream).forward(other, value) }
+            } else if other == selector::RESET_REQUEST {
+                // Still opening: the aggregate reopens this driver itself before it lets it start.
+                RESET_ASKED[N].store(true, Ordering::Release);
+                1
+            } else {
+                0
             }
         }
     }
@@ -127,6 +144,9 @@ impl Host for ThisPc {
         if hr < 0 || ptr.is_null() {
             return Err(format!("CoCreateInstance answered {hr:#010x}"));
         }
+        // Whatever the slot's last driver asked for is not this one's to answer.
+        RESET_ASKED[slot].store(false, Ordering::Release);
+        RATE_SAID[slot].store(0, Ordering::Release);
         Ok(Box::new(VendorDriver {
             object: ptr.cast(),
             slot,
@@ -251,6 +271,21 @@ impl SubDriver for VendorDriver {
     fn set_rate(&mut self, hz: f64) -> Result<(), String> {
         let code = unsafe { ((*self.vtable()).set_sample_rate)(self.object, hz) };
         self.check("setSampleRate", code)
+    }
+
+    fn read_rate(&mut self) -> Result<f64, String> {
+        let mut rate = 0f64;
+        let code = unsafe { ((*self.vtable()).get_sample_rate)(self.object, &mut rate) };
+        self.check("getSampleRate", code)?;
+        Ok(rate)
+    }
+
+    fn take_requests(&mut self) -> Requests {
+        let said = RATE_SAID[self.slot].swap(0, Ordering::AcqRel);
+        Requests {
+            reset: RESET_ASKED[self.slot].swap(false, Ordering::AcqRel),
+            rate: (said != 0).then(|| f64::from_bits(said)),
+        }
     }
 
     fn create_buffers(&mut self, inputs: &[i32], outputs: &[i32], block: i32) -> Result<DeviceBuffers, String> {

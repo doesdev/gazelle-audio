@@ -172,9 +172,12 @@ reads them:
 - The time is `YYYY-MM-DD HH:MM:SS`, **local**, because the person reading it is the person it
   happened to.
 - The second piece is one word, never two, so a line splits the same way whatever is in its detail.
-  The words are `refused`, `stalled`, `recovered`, `glitched`, `phase`, `session-started`,
-  `session-ended`, `adopted`, `reset-asked`. `events::ALL` is the list, and it is the one both
-  sides read.
+  The words are `refused`, `stalled`, `recovered`, `glitched`, `phase`, `rate`,
+  `session-started`, `session-ended`, `adopted`, `reset-asked`. `events::ALL` is the list, and it
+  is the one both sides read.
+- **`rate` is a driver that would not take a rate straight away**, and what the aggregate did about
+  it: asked again, or closed the driver and opened it again. A driver that takes the rate the first
+  time writes nothing.
 - **`phase` is what a session made of one interface's capture phase**: what was measured, what was
   applied, or why nothing was. The live record above holds it only while the DAW has the driver
   open, and the phase is a different number every session, so this line is the only thing that

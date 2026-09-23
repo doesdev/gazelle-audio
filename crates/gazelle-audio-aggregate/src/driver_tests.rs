@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::aggregate::{Aggregate, Wanted};
 use crate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
 use crate::daw;
-use crate::fake::{FakeHost, FakePc, Spec, Step};
+use crate::fake::{FakeHost, FakePc, Spec, Step, Takes};
 use crate::phase;
 use gazelle_audio_aggregate_status::record::phase as phase_state;
 use crate::status::fake::{unmapped, watched, Written};
@@ -1797,4 +1797,258 @@ fn the_hardwares_sessions_all_end_with_the_same_click_lag_once_lined_up_to_the_r
         assert_eq!(state, phase_state::NO_REFERENCE);
         assert_eq!(lag, phase - REFERENCE as i64, "a phase of {phase}");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Drivers that say yes to a rate and do not move.
+//
+// The Antelope drivers take a rate the first time they are asked, which the hardware showed on
+// 2026-09-22. These are the drivers that do not, and what the aggregate does about each: read the
+// rate back, ask again, close the driver and open it again, and refuse honestly when nothing works.
+// ---------------------------------------------------------------------------------------------
+
+/// Two devices on 44.1 kHz, "B" with a driver that takes a rate the way `takes` says.
+fn at_44k(takes: Takes) -> Arc<FakePc> {
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(2, 2, 600, 700))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(2, 2, 600, 700).taking(takes)),
+    );
+    for key in ["Device A", "Device B"] {
+        pc.device(key).spec.lock().unwrap().rate = 44_100.0;
+    }
+    pc
+}
+
+/// Both devices, with 96 kHz in the file.
+fn at_96k() -> Config {
+    Config { rate: Some(96_000.0), ..both(Alignment::Aligned) }
+}
+
+/// A driver that takes a rate the first time is asked once, read once, and says nothing.
+#[test]
+fn a_driver_that_takes_the_rate_at_once_is_not_opened_again_and_nothing_is_written() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::AtOnce);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    go(&mut aggregate);
+    for key in ["Device A", "Device B"] {
+        assert_eq!(pc.device(key).running_rate(), 96_000.0, "{key}");
+        assert_eq!(pc.device(key).opens(), 1, "{key} was opened once");
+        assert_eq!(pc.device(key).calls().iter().filter(|call| call.starts_with("set_rate")).count(), 1, "{key} was asked once");
+    }
+    assert!(written.of("rate").is_empty(), "{:?}", written.lines());
+    aggregate.dispose_buffers();
+}
+
+/// (a) It says yes and keeps the old rate until it is opened again.
+#[test]
+fn a_driver_that_holds_its_rate_until_it_is_reopened_is_reopened_and_takes_it() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::WhenReopened);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    assert_eq!(pc.device("Device B").opens(), 2, "opened once more");
+    assert_eq!(pc.device("Device A").opens(), 1, "and only B");
+    assert_eq!(pc.device("Device B").running_rate(), 96_000.0);
+    assert_eq!(
+        written.of("rate"),
+        ["2026-09-20 21:14:07 rate B's driver held 44.1 kHz after being asked for 96 kHz; reopened it and it took 96 kHz"]
+    );
+    go(&mut aggregate);
+    assert!(aggregate.is_started());
+    assert_eq!(written.of("rate").len(), 1, "one line for one step: {:?}", written.lines());
+    aggregate.dispose_buffers();
+}
+
+/// (b) It says yes and moves only once its buffers are made. Opening it again does not help, so
+/// the aggregate says it is still waiting, and looks again after the buffers.
+#[test]
+fn a_driver_that_takes_the_rate_with_its_buffers_is_held_to_it_there() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::WithBuffers);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    assert_eq!(pc.device("Device B").opens(), 3, "opened again twice, and no further");
+    assert_eq!(
+        written.of("rate"),
+        ["2026-09-20 21:14:07 rate B's driver held 44.1 kHz after being asked for 96 kHz, and still held 44.1 kHz after two reopens; the aggregate asks again once its buffers are made"]
+    );
+    go(&mut aggregate);
+    assert!(aggregate.is_started());
+    assert_eq!(pc.device("Device B").running_rate(), 96_000.0);
+    assert_eq!(pc.device("Device B").opens(), 3, "the buffers settled it without another reopen");
+    assert_eq!(
+        written.of("rate")[1],
+        "2026-09-20 21:14:07 rate B's driver held 44.1 kHz until its buffers were made, and then took 96 kHz"
+    );
+    aggregate.dispose_buffers();
+}
+
+/// (c) It says yes, reports the new rate, and asks to be reset the moment it has anyone to ask,
+/// which is once its buffers are made. The aggregate is still opening, so the request is its own to
+/// answer: the driver is opened again, its buffers made again, and nothing reaches the DAW.
+#[test]
+fn a_driver_that_asks_to_be_reset_after_a_rate_is_reopened_before_anything_starts() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::AfterReset);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    assert!(written.of("rate").is_empty(), "it said it took the rate: {:?}", written.lines());
+    assert_eq!(pc.device("Device B").running_rate(), 44_100.0, "and it has not, yet");
+    go(&mut aggregate);
+    assert!(aggregate.is_started());
+    assert_eq!(pc.device("Device B").opens(), 2);
+    assert_eq!(pc.device("Device B").running_rate(), 96_000.0);
+    assert!(pc.device("Device B").has_buffers(), "its buffers were made again");
+    assert_eq!(
+        written.of("rate"),
+        ["2026-09-20 21:14:07 rate B's driver asked to be reset after being asked for 96 kHz once its buffers were made; reopened it and it took 96 kHz"]
+    );
+    let messages = daw::with(|session| session.messages.clone());
+    assert!(!messages.contains(&(selector::RESET_REQUEST, 0)), "the DAW was not asked: {messages:?}");
+
+    // The audio runs through the buffers made the second time.
+    feed(&pc, "Device B", 0, 0, 500);
+    pc.device("Device B").fire(0);
+    pc.device("Device A").fire(0);
+    assert_eq!(daw::with(|session| session.calls), 1);
+    aggregate.dispose_buffers();
+}
+
+/// (d) It says yes and never moves. It is opened again the most times allowed, where it was asked
+/// and again after its buffers, and then the aggregate refuses to open rather than run at two rates.
+#[test]
+fn a_driver_that_never_takes_the_rate_is_refused_after_the_reopens_and_nothing_is_left_open() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::Never);
+    let (mut aggregate, reader, written) = reporting(&pc, at_96k());
+    let wanted = everything(&aggregate);
+    let why = aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect_err("B never moved");
+    assert_eq!(why, "B's driver still held 44.1 kHz after being asked for 96 kHz and reopened twice, so the aggregate did not open");
+    assert_eq!(pc.device("Device B").opens(), 5, "twice where it was asked and twice after its buffers, and no more");
+    assert_eq!(written.of("refused"), [format!("2026-09-20 21:14:07 refused {why}")]);
+    assert_eq!(reader.read().unwrap().driver.refusal.get(), why);
+    for key in ["Device A", "Device B"] {
+        assert!(!pc.device(key).has_buffers(), "{key} was left holding its buffers");
+        assert!(!pc.device(key).is_started());
+    }
+    assert!(!aggregate.has_buffers());
+    assert!(aggregate.start().is_err(), "and nothing starts");
+}
+
+/// A DAW moving the rate, rather than the file: the same holding, through `setSampleRate`.
+#[test]
+fn a_rate_a_daw_asks_for_is_held_the_same_way() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::WhenReopened);
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::Aligned));
+    aggregate.set_rate(48_000.0).expect("B moves once reopened");
+    assert_eq!(pc.device("Device B").running_rate(), 48_000.0);
+    assert_eq!(pc.device("Device B").opens(), 2);
+    assert_eq!(aggregate.rate(), 48_000.0);
+    assert_eq!(written.of("rate").len(), 1, "{:?}", written.lines());
+    go(&mut aggregate);
+    aggregate.dispose_buffers();
+}
+
+/// A rate asked for while a DAW has the buffers made: nothing can be closed under them, so a driver
+/// that did not move is the DAW's to reset, and the aggregate opens it again when the DAW comes back
+/// for its buffers.
+#[test]
+fn a_driver_that_holds_a_rate_asked_for_with_the_buffers_made_is_reset_through_the_daw() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::WhenReopened);
+    let (mut aggregate, _reader, written) = reporting(&pc, both(Alignment::Aligned));
+    let wanted = everything(&aggregate);
+    aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect("the buffers are made");
+    aggregate.set_rate(96_000.0).expect("said yes");
+    assert_eq!(pc.device("Device B").opens(), 1, "nothing was closed under the buffers");
+    let messages = daw::with(|session| session.messages.clone());
+    assert!(messages.contains(&(selector::RESET_REQUEST, 0)), "the DAW was asked to reset: {messages:?}");
+
+    // The DAW does as it was asked.
+    aggregate.dispose_buffers();
+    aggregate.create_buffers(&wanted, BLOCK, daw::callbacks()).expect("and B is opened again there");
+    assert_eq!(pc.device("Device B").opens(), 2);
+    assert_eq!(pc.device("Device B").running_rate(), 96_000.0);
+    let lines = written.of("rate");
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[1].ends_with("B's driver held 44.1 kHz after being asked for 96 kHz once its buffers were made; reopened it and it took 96 kHz"), "{lines:?}");
+    aggregate.dispose_buffers();
+}
+
+/// A driver saying its rate moved before anything starts is asked again, and one that goes back to
+/// the rate it was asked for needs nothing more.
+#[test]
+fn a_driver_that_says_its_rate_moved_before_the_start_is_asked_again() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::AtOnce);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    // Something moved it back, and it said so, with no DAW yet to tell.
+    pc.device("Device A").spec.lock().unwrap().rate = 44_100.0;
+    pc.device("Device A").say_rate_moved(44_100.0);
+    go(&mut aggregate);
+    assert_eq!(pc.device("Device A").running_rate(), 96_000.0);
+    assert_eq!(pc.device("Device A").opens(), 1, "asking again was enough");
+    assert_eq!(
+        written.of("rate"),
+        ["2026-09-20 21:14:07 rate A's driver was at 44.1 kHz once its buffers were made; asked it again and it took 96 kHz"]
+    );
+    aggregate.dispose_buffers();
+}
+
+/// While the audio runs, a driver's reset request is the DAW's to act on, as it is for any host
+/// driver: it goes up, and nothing is closed from inside a callback.
+#[test]
+fn a_reset_request_while_running_goes_to_the_daw_and_nothing_is_reopened() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::AtOnce);
+    let (mut aggregate, _reader, written) = reporting(&pc, at_96k());
+    go(&mut aggregate);
+    pc.device("Device B").ask_for_reset();
+    let messages = daw::with(|session| session.messages.clone());
+    assert!(messages.contains(&(selector::RESET_REQUEST, 0)), "{messages:?}");
+    assert_eq!(pc.device("Device B").opens(), 1);
+    assert!(aggregate.is_started());
+    assert!(written.of("rate").is_empty());
+    aggregate.dispose_buffers();
+}
+
+/// Three devices not on one rate, a stubborn one in the middle, and the last refusing: each goes
+/// back to its own rate, including the stubborn one, which needs opening again to go back as it
+/// did to move.
+#[test]
+fn a_refused_rate_puts_a_stubborn_driver_back_on_its_own_rate_too() {
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(2, 2, 600, 700))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(2, 2, 600, 700).taking(Takes::WhenReopened))
+            .with("Device C", "{CCCCCCCC-0000-0000-0000-000000000003}", r"c:\antelope\c.dll", spec(2, 2, 600, 700)),
+    );
+    pc.device("Device B").spec.lock().unwrap().rate = 88_200.0;
+    let three = Config {
+        devices: ["A", "B", "C"].iter().map(|name| DeviceConfig { key: Some(format!("Device {name}")), name: Some((*name).into()), ..DeviceConfig::default() }).collect(),
+        ..Config::default()
+    };
+    let mut aggregate = open(&pc, three);
+    pc.device("Device C").spec.lock().unwrap().fails_at = Some((Step::SetRate, "no".into()));
+    aggregate.set_rate(48_000.0).expect_err("the third refused");
+    assert_eq!(pc.device("Device A").running_rate(), 96_000.0, "A is back on its own rate");
+    assert_eq!(pc.device("Device B").running_rate(), 88_200.0, "and B on its own, having been opened again for it");
+    assert_eq!(pc.device("Device B").opens(), 3, "once to move, once to move back");
+    assert!(aggregate.is_initialised(), "every device is still open");
+}
+
+/// A stubborn driver that will not open again at all: the aggregate refuses, puts the one that
+/// moved back where it was, and lets everything go rather than answer for a device it has lost.
+#[test]
+fn a_stubborn_driver_that_will_not_open_again_is_a_refusal_and_the_rest_go_back() {
+    let _order = daw::session();
+    let pc = at_44k(Takes::WhenReopened);
+    pc.device("Device A").spec.lock().unwrap().rate = 88_200.0;
+    let mut aggregate = open(&pc, both(Alignment::Aligned));
+    pc.device("Device B").spec.lock().unwrap().fails_at = Some((Step::Init, "not now".into()));
+    let why = aggregate.set_rate(48_000.0).expect_err("B could not be opened again");
+    assert_eq!(why, "B refused to start up again: not now");
+    assert_eq!(pc.device("Device A").running_rate(), 88_200.0, "A is back on its own rate");
+    assert!(!aggregate.is_initialised(), "nothing is left pretending B is there");
 }

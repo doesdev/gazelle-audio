@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use gazelle_aggregate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
 use gazelle_aggregate::delay::Delay;
-use gazelle_aggregate::fake::{FakeDevice, FakeHost, FakePc, Spec};
+use gazelle_aggregate::fake::{FakeDevice, FakeHost, FakePc, Spec, Takes};
 use gazelle_aggregate::sub::Host;
 
 use crate::rig::{Direction, Pick, Rig, Settings};
@@ -698,4 +698,51 @@ fn a_channel_beside_the_phase_is_found_where_the_driver_put_it() {
     let outcome = measure_against(host, config, "a test".to_string(), &rig, &settling, &mut pump);
     assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
     assert!((outcome.readings[1].lag_samples - CABLED_LATE as f64).abs() < 0.5, "{:?}", outcome.readings[1]);
+}
+
+/// A run at a rate one interface's driver holds on to: the run opens the aggregate the way a DAW
+/// does, so the driver is opened again there and the measurement runs at the rate asked for. And a
+/// driver that never moves is a refusal, with nothing played.
+fn measured_at(rate: f64, takes: Takes) -> (Outcome, Arc<FakeDevice>) {
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(600 + BLOCK))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(600).taking(takes)),
+    );
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
+    let (a, b) = (pc.device("Device A"), pc.device("Device B"));
+    let mut to_a = Cable::new(0);
+    let mut to_b = Cable::new(CABLED_LATE as usize);
+    let mut pump = |index: usize| {
+        let half = index & 1;
+        a.set_input(0, half, &to_a.carrying);
+        b.set_input(0, half, &to_b.carrying);
+        b.fire(half);
+        a.fire(half);
+        to_a.carry(a.output(0, half));
+        to_b.carry(a.output(1, half));
+        true
+    };
+    let at = Settings { rate: Some(rate), ..settings() };
+    let outcome = measure_against(host, config([0, 0]), "a test".to_string(), &rig(), &at, &mut pump);
+    (outcome, pc.device("Device B"))
+}
+
+#[test]
+fn a_run_at_a_rate_a_driver_holds_on_to_opens_it_again_and_measures_at_that_rate() {
+    let (outcome, b) = measured_at(96_000.0, Takes::WhenReopened);
+    assert_eq!(outcome.refusal, None, "{:?}", outcome.refusal);
+    assert_eq!(outcome.rate, 96_000.0);
+    assert_eq!(b.running_rate(), 96_000.0);
+    assert_eq!(b.opens(), 2);
+    assert!((outcome.readings[1].lag_samples - CABLED_LATE as f64).abs() < 0.5, "{:?}", outcome.readings[1]);
+}
+
+#[test]
+fn a_run_at_a_rate_a_driver_never_takes_is_refused_and_nothing_is_played() {
+    let (outcome, b) = measured_at(96_000.0, Takes::Never);
+    let why = outcome.refusal.expect("B never moved");
+    assert!(why.contains("still held 48 kHz after being asked for 96 kHz and reopened twice"), "{why}");
+    assert!(outcome.readings.is_empty(), "nothing was measured");
+    assert!(!b.is_started());
 }
