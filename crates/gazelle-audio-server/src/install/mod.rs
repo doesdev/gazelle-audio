@@ -863,14 +863,65 @@ pub(crate) fn start_installed(launch: &Path) -> Result<(), String> {
         // Nothing of ours is listening, so there is nothing to hand over to: start one.
         Err(_) => {}
     }
-    let child = update::relaunch_command(launch, [])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("starting {}: {e}", launch.display()))?;
-    println!("Started {} as process {}.", launch.display(), child.id());
+    let pid = spawn_detached(launch).map_err(|e| format!("starting {}: {e}", launch.display()))?;
+    println!("Started {} as process {pid}.", launch.display());
     Ok(())
+}
+
+/// Start `launch` with nothing of this process's but its environment, from the install folder.
+///
+/// On Windows that means `CreateProcessW` with handle inheritance off. `std::process::Command`
+/// always turns it on, and then the child is handed every inheritable handle this process holds,
+/// not only the three standard ones it is given: a handle this process itself inherited, such as
+/// the other end of a pipe a build helper is reading, reaches the started copy that way, and
+/// keeps the helper waiting until the copy quits.
+#[cfg(windows)]
+fn spawn_detached(launch: &Path) -> std::io::Result<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessW, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, PROCESS_INFORMATION, STARTUPINFOW,
+    };
+    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let application = wide(launch.as_os_str());
+    // The command line is the program alone, quoted, as a relaunch with no arguments is.
+    let mut command_line = wide(std::ffi::OsStr::new(&format!("\"{}\"", launch.display())));
+    let directory = launch.parent().filter(|d| !d.as_os_str().is_empty()).map(|d| wide(d.as_os_str()));
+    let startup = STARTUPINFOW { cb: std::mem::size_of::<STARTUPINFOW>() as u32, ..unsafe { std::mem::zeroed() } };
+    let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: every pointer is to a live, nul terminated buffer or null, and the command line is
+    // writable as CreateProcessW requires.
+    let made = unsafe {
+        CreateProcessW(
+            application.as_ptr(),
+            command_line.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            std::ptr::null(),
+            directory.as_ref().map_or(std::ptr::null(), |d| d.as_ptr()),
+            &startup,
+            &mut info,
+        )
+    };
+    if made == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both handles were just returned to this process, and nothing else holds them.
+    unsafe {
+        CloseHandle(info.hThread);
+        CloseHandle(info.hProcess);
+    }
+    Ok(info.dwProcessId)
+}
+
+/// Elsewhere there is no handle inheritance to switch off, and null standard streams are enough.
+#[cfg(not(windows))]
+fn spawn_detached(launch: &Path) -> std::io::Result<u32> {
+    use std::process::Stdio;
+    let child = update::relaunch_command(launch, []).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    Ok(child.id())
 }
 
 /// The question about the aggregate driver's registration: in the terminal when there is one,
