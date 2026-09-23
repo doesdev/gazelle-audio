@@ -845,6 +845,10 @@ fn do_uninstall(ctx: &Context, options: &Options) -> Result<(), String> {
 /// Start the copy that has just been installed, honouring the single-instance handover:
 /// a Gazelle already listening on the default address is brought to the front rather than a
 /// second one started behind it.
+///
+/// The started copy is given no handles of this process: it outlives the install, and one that
+/// held the terminal's output would write its log there and keep anything waiting on that output,
+/// a script or a build helper, waiting until it quit. It logs to its own file.
 pub(crate) fn start_installed(launch: &Path) -> Result<(), String> {
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], crate::config::DEFAULT_PORT));
     match crate::handover::hand_over(address) {
@@ -860,6 +864,9 @@ pub(crate) fn start_installed(launch: &Path) -> Result<(), String> {
         Err(_) => {}
     }
     let child = update::relaunch_command(launch, [])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("starting {}: {e}", launch.display()))?;
     println!("Started {} as process {}.", launch.display(), child.id());

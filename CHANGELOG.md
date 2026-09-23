@@ -10,6 +10,12 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--install --start` from a terminal hands the terminal back.** The Gazelle it starts no longer
+  writes its log into that terminal or keeps a script that ran the install waiting until Gazelle
+  quits; its log is in its own file as always.
+
 ## [1.4.0] - 2026-09-23
 
 Gazelle Aggregate now opens at the rate your interfaces are really on, even when an interface's

@@ -12,12 +12,16 @@
 //! 2. the aggregate driver, on its own, **before** the server, because the server's build script
 //!    reads the driver while it compiles and one `cargo build` naming both would not promise that
 //!    order;
-//! 3. the server, `--release --features window`, with `GAZELLE_AGGREGATE_DLL` naming the driver
-//!    just built and `GAZELLE_UPDATE_PUBKEY` set when a key can be had (below);
-//! 4. any Gazelle running from the install folder is stopped, **by its process id**, found by its
+//! 3. a copy of that driver set aside in `target/install-local`, because building the server
+//!    builds the driver's crate again as a dependency, with the server's features, and rewrites the
+//!    file in `target/release` after the server has read it; the copy is what is embedded and what
+//!    the last step checks against;
+//! 4. the server, `--release --features window`, with `GAZELLE_AGGREGATE_DLL` naming that copy and
+//!    `GAZELLE_UPDATE_PUBKEY` set when a key can be had (below);
+//! 5. any Gazelle running from the install folder is stopped, **by its process id**, found by its
 //!    executable's exact path, never by name, and waited out until Windows lets go of the file;
-//! 5. the console build's `--install --start`;
-//! 6. a check that the driver the installed copy wrote beside itself is the one just built.
+//! 6. the console build's `--install --start`;
+//! 7. a check that the driver the installed copy wrote beside itself is the one just built.
 //!
 //! **The update key** is the public half of the release signing key, so there is nothing secret
 //! about it. It comes from `--pubkey`, else `GAZELLE_UPDATE_PUBKEY`, else the repository variable
@@ -64,6 +68,8 @@ pub struct Options {
 pub enum Step {
     /// Run a program in the repository root, with these variables set.
     Run { label: String, program: String, args: Vec<String>, env: Vec<(String, String)> },
+    /// Copy a built file aside, where no later build writes.
+    Stage { from: PathBuf, to: PathBuf },
     /// Stop whatever is running from the install folder.
     StopRunning { install_dir: PathBuf },
     /// Run the built console binary's `--install --start`, off the hardware backstop.
@@ -80,6 +86,7 @@ impl Step {
                 let vars: String = env.iter().map(|(k, v)| format!("{k}={v} ")).collect();
                 format!("{label}: {vars}{program} {}", args.join(" "))
             }
+            Step::Stage { from, to } => format!("set the driver aside: {} to {}", from.display(), to.display()),
             Step::StopRunning { install_dir } => format!("stop any Gazelle running from {}, by process id", install_dir.display()),
             Step::Install { exe } => format!("install: {} --install --start (with {} taken away)", exe.display(), no_hardware::VAR),
             Step::CheckDriver { installed, .. } => format!("check {} is the driver just built", installed.display()),
@@ -92,6 +99,7 @@ impl Step {
 pub fn plan(root: &Path, install_dir: &Path, cargo: &str, pubkey: Option<&str>, options: &Options) -> Vec<Step> {
     let release = root.join("target").join("release");
     let driver = release.join(DRIVER);
+    let staged = root.join("target").join("install-local").join(DRIVER);
     let run = |label: &str, program: &str, args: &[&str], env: Vec<(String, String)>| Step::Run {
         label: label.to_string(),
         program: program.to_string(),
@@ -108,14 +116,15 @@ pub fn plan(root: &Path, install_dir: &Path, cargo: &str, pubkey: Option<&str>, 
         steps.push(run("web app", shell, &with(&["pnpm", "-C", "web", "build"]), Vec::new()));
     }
     steps.push(run("aggregate driver", cargo, &["build", "--release", "-p", "gazelle-audio-aggregate"], Vec::new()));
-    let mut env = vec![(DRIVER_VAR.to_string(), driver.display().to_string())];
+    steps.push(Step::Stage { from: driver, to: staged.clone() });
+    let mut env = vec![(DRIVER_VAR.to_string(), staged.display().to_string())];
     if let Some(key) = pubkey {
         env.push((PUBKEY_VAR.to_string(), key.to_string()));
     }
     steps.push(run("server", cargo, &["build", "--release", "-p", "gazelle-audio-server", "--features", "window"], env));
     steps.push(Step::StopRunning { install_dir: install_dir.to_path_buf() });
     steps.push(Step::Install { exe: release.join(format!("{}{}", BINARIES[0], std::env::consts::EXE_SUFFIX)) });
-    steps.push(Step::CheckDriver { built: driver, installed: install_dir.join(DRIVER) });
+    steps.push(Step::CheckDriver { built: staged, installed: install_dir.join(DRIVER) });
     steps
 }
 
@@ -203,6 +212,12 @@ fn perform(step: &Step, root: &Path) -> Result<(), String> {
             } else {
                 Err(format!("{label} failed ({status}); nothing was installed"))
             }
+        }
+        Step::Stage { from, to } => {
+            if let Some(dir) = to.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("making {}: {e}", dir.display()))?;
+            }
+            std::fs::copy(from, to).map(|_| ()).map_err(|e| format!("copying {} to {}: {e}", from.display(), to.display()))
         }
         Step::StopRunning { install_dir } => stop_running(install_dir),
         Step::Install { exe } => {
@@ -303,6 +318,7 @@ mod tests {
             .iter()
             .map(|step| match step {
                 Step::Run { label, .. } => label.clone(),
+                Step::Stage { .. } => "stage".into(),
                 Step::StopRunning { .. } => "stop".into(),
                 Step::Install { .. } => "install".into(),
                 Step::CheckDriver { .. } => "check".into(),
@@ -311,31 +327,34 @@ mod tests {
     }
 
     #[test]
-    fn the_driver_is_built_on_its_own_before_the_server_which_then_carries_it() {
+    fn the_driver_is_built_on_its_own_and_set_aside_before_the_server_which_then_carries_it() {
         let steps = plan(&root(), &installed(), "cargo", Some(KEY), &Options::default());
-        assert_eq!(labels(&steps), ["web dependencies", "web app", "aggregate driver", "server", "stop", "install", "check"]);
-        let Step::Run { args, env, .. } = &steps[3] else { panic!("the server is a build") };
+        assert_eq!(labels(&steps), ["web dependencies", "web app", "aggregate driver", "stage", "server", "stop", "install", "check"]);
+        let staged = root().join("target").join("install-local").join(DRIVER);
+        let Step::Stage { from, to } = &steps[3] else { panic!("the driver is set aside") };
+        assert_eq!((from, to), (&root().join("target").join("release").join(DRIVER), &staged));
+        let Step::Run { args, env, .. } = &steps[4] else { panic!("the server is a build") };
         assert!(args.windows(2).any(|w| w == ["--features", "window"]), "the shipped build: {args:?}");
-        let driver = root().join("target").join("release").join(DRIVER).display().to_string();
-        assert!(env.contains(&(DRIVER_VAR.to_string(), driver)), "it embeds the driver just built: {env:?}");
+        assert!(env.contains(&(DRIVER_VAR.to_string(), staged.display().to_string())), "it embeds the copy the server build cannot rewrite: {env:?}");
         assert!(env.contains(&(PUBKEY_VAR.to_string(), KEY.to_string())), "and the update key: {env:?}");
     }
 
     #[test]
     fn a_rust_only_change_can_leave_the_web_app_alone_and_no_key_means_none_is_baked_in() {
         let steps = plan(&root(), &installed(), "cargo", None, &Options { skip_web: true, ..Options::default() });
-        assert_eq!(labels(&steps), ["aggregate driver", "server", "stop", "install", "check"]);
-        let Step::Run { env, .. } = &steps[1] else { panic!("the server is a build") };
+        assert_eq!(labels(&steps), ["aggregate driver", "stage", "server", "stop", "install", "check"]);
+        let Step::Run { env, .. } = &steps[2] else { panic!("the server is a build") };
         assert!(env.iter().all(|(k, _)| k != PUBKEY_VAR), "no key is invented: {env:?}");
     }
 
     #[test]
     fn the_install_is_the_console_build_and_the_check_looks_in_the_install_folder() {
         let steps = plan(&root(), &installed(), "cargo", None, &Options::default());
-        let Step::Install { exe } = &steps[5] else { panic!("install") };
+        let Step::Install { exe } = &steps[6] else { panic!("install") };
         assert_eq!(exe.file_stem().and_then(|s| s.to_str()), Some("gazelle-audio-server"), "the console one prints what it did");
-        let Step::CheckDriver { installed: at, .. } = &steps[6] else { panic!("check") };
+        let Step::CheckDriver { built, installed: at } = &steps[7] else { panic!("check") };
         assert_eq!(at, &installed().join(DRIVER));
+        assert_eq!(built, &root().join("target").join("install-local").join(DRIVER), "checked against what was embedded");
     }
 
     /// Everything cargo starts runs with the backstop set, this helper included, and a child
@@ -385,8 +404,9 @@ mod tests {
     fn a_dry_run_says_every_step_in_words() {
         let steps = plan(&root(), &installed(), "cargo", Some(KEY), &Options { dry_run: true, ..Options::default() });
         let said: Vec<String> = steps.iter().map(Step::describe).collect();
-        assert!(said[3].starts_with("server: GAZELLE_AGGREGATE_DLL="), "{}", said[3]);
-        assert!(said[4].contains("by process id"), "{}", said[4]);
-        assert!(said[5].contains(no_hardware::VAR), "it says what the install does differently: {}", said[5]);
+        assert!(said[3].starts_with("set the driver aside"), "{}", said[3]);
+        assert!(said[4].starts_with("server: GAZELLE_AGGREGATE_DLL="), "{}", said[4]);
+        assert!(said[5].contains("by process id"), "{}", said[5]);
+        assert!(said[6].contains(no_hardware::VAR), "it says what the install does differently: {}", said[6]);
     }
 }
