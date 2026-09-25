@@ -1,6 +1,6 @@
 {
   "name": "gazelle-audio-client",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Zero-dependency TypeScript client for the Gazelle Audio control server",
   "license": "MIT",
   "private": true,

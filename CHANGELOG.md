@@ -10,6 +10,10 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-25
+
+The Quadro's preamps reach their full gain, and installing from a terminal hands the terminal back.
+
 ### Fixed
 
 - **The Quadro's preamps go to their full gain.** Gazelle held every preamp to the Studio+'s
