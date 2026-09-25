@@ -11,7 +11,7 @@ One card per preamp (4 on the Quadro, 12 on the Studio+):
 | Control | What it does |
 |---|---|
 | **Mic / Line / Hi-Z** | The input type. Hi-Z (instrument) is offered on preamps 1 and 2 of the Quadro and 1 to 4 of the Studio+. The type sets the gain's range |
-| **Gain** | Mic 0 to 65 dB, Line -6 to +20 dB, Hi-Z 0 to 40 dB. Double-click for 0 dB |
+| **Gain** | Mic 0 to 75 dB on the Quadro, 0 to 65 dB on the Studio+; Line -6 to +20 dB; Hi-Z 0 to 45 dB on the Quadro, 0 to 40 dB on the Studio+. Double-click for 0 dB |
 | **48V** | Phantom power, Mic type only. **Two clicks to switch on** (the button reads **Confirm**, or **Confirm N** when a link switches N preamps), or Ctrl+click. One click switches it off |
 | **Ø** | Phase invert |
 | **HPF** | Lit when the device reports its high-pass filter on. Read-only: neither model offers a command for it |

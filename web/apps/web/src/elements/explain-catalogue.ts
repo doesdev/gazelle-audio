@@ -298,7 +298,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name} type",
     name: "Preamp",
     what: "What {name} expects: Mic, Line, or Hi-Z for an instrument, on the preamps that have it. The same control as the Inputs page's.",
-    effect: "Changes the gain range: Mic 0 to 65 dB, Line -6 to +20 dB, Hi-Z 0 to 40 dB.",
+    effect: "Changes the gain range: Mic 0 to 75 dB on a Quadro and 0 to 65 dB on a Studio+, Line -6 to +20 dB, Hi-Z 0 to 45 dB on a Quadro and 0 to 40 dB on a Studio+.",
     watch: "48V works on Mic only.",
   },
   "channel.pre-gain": {
@@ -398,7 +398,7 @@ export const CATALOGUE: Catalogue = {
   "inputs.type-mic": {
     title: "{name} Mic",
     name: "Preamp",
-    what: "Sets {name} for a microphone: gain 0 to 65 dB, and 48V available.",
+    what: "Sets {name} for a microphone: gain up to 75 dB on a Quadro and 65 dB on a Studio+, and 48V available.",
   },
   "inputs.type-line": {
     title: "{name} Line",
@@ -415,7 +415,7 @@ export const CATALOGUE: Catalogue = {
   "inputs.gain": {
     title: "{name} gain",
     name: "Preamp",
-    what: "{name}'s gain in whole dB. Its range follows the type: Mic 0 to 65, Line -6 to +20, Hi-Z 0 to 40.",
+    what: "{name}'s gain in whole dB. Its range follows the type and the model: Mic 0 to 75 on a Quadro and 0 to 65 on a Studio+, Line -6 to +20, Hi-Z 0 to 45 on a Quadro and 0 to 40 on a Studio+.",
     effect: "Raises or lowers the input before anything else, so every mix, recording and effect fed by it follows. " + STEP_KEYS,
     watch: "Too much clips the converter, and that cannot be undone later: watch the clip light on its strips.",
   },

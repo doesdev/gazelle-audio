@@ -41,9 +41,9 @@ test("relative members keep their offsets, each within its own range", async () 
   quadro.setGain(1, 10);
   const id = store.links.create("preamp", [ref(Q, 0), ref(Q, 1)], "relative") as string;
   quadro.setGain(0, 5);
-  quadro.setGain(0, 60);
+  quadro.setGain(0, 70);
   await flush();
-  assert.deepEqual(sent(Q, "set_pre_gain").slice(1), [{ id: 0, gain: 5 }, { id: 1, gain: 15 }, { id: 0, gain: 60 }, { id: 1, gain: 65 }], "Mic gain tops out at 65 dB");
+  assert.deepEqual(sent(Q, "set_pre_gain").slice(1), [{ id: 0, gain: 5 }, { id: 1, gain: 15 }, { id: 0, gain: 70 }, { id: 1, gain: 75 }], "a Quadro's Mic gain tops out at 75 dB");
 
   store.links.setMode(id, "absolute");
   quadro.setGain(1, 20);

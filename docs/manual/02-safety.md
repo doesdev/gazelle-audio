@@ -17,7 +17,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 ## Sudden level jumps
 
-**The risk.** A volume, a gain, a fader or a route changes, and the result reaches your monitors or headphones at full level: an output volume set to 0 dB (its maximum), a preamp gain pushed up (the Mic range goes to +65 dB), a mix fader brought to unity, or a source routed straight to an output, which bypasses every level control in between.
+**The risk.** A volume, a gain, a fader or a route changes, and the result reaches your monitors or headphones at full level: an output volume set to 0 dB (its maximum), a preamp gain pushed up (the Mic range goes to +75 dB on a Quadro and +65 dB on a Studio+), a mix fader brought to unity, or a source routed straight to an output, which bypasses every level control in between.
 
 **Where it can happen in Gazelle, specifically:**
 

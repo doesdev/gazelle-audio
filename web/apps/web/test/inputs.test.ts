@@ -89,6 +89,25 @@ test("the type sets the gain range; Hi-Z only where the device has it; 48V only 
   assert.throws(() => quadro.setGain(4, 0), RangeError);
 });
 
+test("each model's own gain range: the Quadro's Mic goes to 75 dB and its Hi-Z to 45, the Studio+'s to 65 and 40", async () => {
+  const { store, sent } = setup();
+  const quadro = store.inputs("loopback-0");
+  const studio = store.inputs("loopback-1");
+  assert.deepEqual([quadro.gainRange(0), quadro.gainRange(1), quadro.gainRange(2)], [{ min: 0, max: 75 }, { min: -6, max: 20 }, { min: 0, max: 45 }]);
+  assert.deepEqual([studio.gainRange(0), studio.gainRange(1), studio.gainRange(2)], [{ min: 0, max: 65 }, { min: -6, max: 20 }, { min: 0, max: 40 }]);
+
+  quadro.setType(0, 0);
+  quadro.setGain(0, 80);
+  quadro.setType(1, 2);
+  quadro.setGain(1, 50);
+  studio.setType(0, 0);
+  studio.setGain(0, 80);
+  studio.setType(1, 2);
+  studio.setGain(1, 50);
+  await flush();
+  assert.deepEqual(sent("set_pre_gain"), [{ id: 0, gain: 75 }, { id: 1, gain: 45 }, { id: 0, gain: 65 }, { id: 1, gain: 40 }]);
+});
+
 test("digital input gains: the Studio+ sets line, ADAT and S/PDIF; the Quadro only shows them", async () => {
   const { store, report, sent } = setup();
   const studio = store.inputs("loopback-1");

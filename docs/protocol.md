@@ -312,7 +312,7 @@ half-applied routing.
 
 - **Type** (`type` on the Quadro, `pretype` on the Studio+, 4 bits): Mic 0, Line 1, Hi-Z 2.
   Hi-Z is on Quadro preamps 1 and 2 and Studio+ preamps 1 to 4. `set_pre_type(id, type)`.
-- **Gain**: whole dB, no scaling. Mic 0 to 65, Line -6 to +20, Hi-Z 0 to 40.
+- **Gain**: whole dB, no scaling. The range is each panel's own: the Quadro panel replaces the shared preamp table (`PreampModel.VALUES_CONFIG`: Mic 0 to 65, Line -6 to +20, Hi-Z 0 to 40) with its own `CustomizedPreampModel`, Mic 0 to 75, Line -6 to +20, Hi-Z 0 to 45; the Studio+ panel's knob is Mic 0 to 65, Line -6 to +20, Hi-Z 0 to 40.
 - **48V**: `set_pre_phantom(id, on)`, for Mic only.
 - **Phase**: `set_pre_phase_inv` (Quadro) or `set_pre_phaseinv` (Studio+), 0 or 1. The Quadro
   disables phase and 48V while mic emulation is on the channel.

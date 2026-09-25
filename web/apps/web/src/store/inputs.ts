@@ -2,7 +2,9 @@
 // reports) and digital input gains. State comes from the cyclic 0x73 report; changes send the
 // vendor panels' commands. Scales and rules are the panels' (bytecode research, 2026-09):
 // - type 0 Mic, 1 Line, 2 Hi-Z; Hi-Z exists on Quadro preamps 1-2 and Studio+ preamps 1-4;
-// - gain is whole dB, its range set by the type: Mic 0..65, Line -6..+20, Hi-Z 0..40;
+// - gain is whole dB, its range set by the model and the type (`GAIN_RANGES`): the Quadro panel
+//   replaces the shared preamp table with its own (`CustomizedPreampModel`: Mic 0..75, Hi-Z 0..45),
+//   the Studio+ keeps Mic 0..65, Hi-Z 0..40; Line is -6..+20 on both;
 // - 48V applies to Mic only: the Quadro panel reads a reported 48V as off on any other type;
 // - HPF has no command in either panel, so it is shown, not set;
 // - digital gains are -6..+12 dB; only the Studio+ panel sets them (line, ADAT, S/PDIF).
@@ -21,11 +23,22 @@ export const PREAMP_TYPES: readonly { value: PreampType; label: string }[] = [
   { value: 2, label: "Hi-Z" },
 ];
 
-export const GAIN_RANGE: Readonly<Record<PreampType, { min: number; max: number }>> = {
-  0: { min: 0, max: 65 },
-  1: { min: -6, max: 20 },
-  2: { min: 0, max: 40 },
+export interface GainRange {
+  min: number;
+  max: number;
+}
+
+/** Each model's preamp gain range by type, in whole dB, as its own panel sets its knob. */
+export const GAIN_RANGES: Readonly<Record<"quadro" | "studio", Readonly<Record<PreampType, GainRange>>>> = {
+  quadro: { 0: { min: 0, max: 75 }, 1: { min: -6, max: 20 }, 2: { min: 0, max: 45 } },
+  studio: { 0: { min: 0, max: 65 }, 1: { min: -6, max: 20 }, 2: { min: 0, max: 40 } },
 };
+
+/** The gain range for a model and a type; a type the panels do not know reads as Mic. */
+export function gainRange(family: "quadro" | "studio", type: number): GainRange {
+  const ranges = GAIN_RANGES[family];
+  return ranges[type as PreampType] ?? ranges[0];
+}
 
 export const DIGITAL_GAIN = { min: -6, max: 12 } as const;
 
@@ -565,7 +578,7 @@ export class InputsModel {
   /** Sets a preamp's type, and its link's members'; when any of them has no Hi-Z, none changes. */
   setType(index: number, type: PreampType, follow = true): void {
     this.#checkPreamp(index);
-    if (!(type in GAIN_RANGE)) throw new RangeError(`no preamp type ${type}`);
+    if (!PREAMP_TYPES.some((t) => t.value === type)) throw new RangeError(`no preamp type ${type}`);
     const peers = follow ? this.#context.peers("preamp", index) : [];
     for (const target of [{ model: this as InputsModel, index }, ...peers]) {
       if (type === 2 && target.index >= target.model.hizCount) {
@@ -577,9 +590,14 @@ export class InputsModel {
     for (const peer of peers) peer.model.setType(peer.index, type, false);
   }
 
+  /** This model's gain range for a preamp type. */
+  gainRange(type: number): GainRange {
+    return gainRange(this.family, type);
+  }
+
   setGain(index: number, gain: number, follow = true): void {
     const state = this.preamp(index).peek();
-    const value = clamp(gain, GAIN_RANGE[state.type as PreampType] ?? GAIN_RANGE[0]);
+    const value = clamp(gain, this.gainRange(state.type));
     this.#change(`pre:${index}:gain`, value, "preamp_gains");
     this.#send("set_pre_gain", { id: index, gain: value }, `pre_gain:${index}`);
     if (!follow) return;

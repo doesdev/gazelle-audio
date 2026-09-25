@@ -12,6 +12,9 @@ version that has not been published yet.
 
 ### Fixed
 
+- **The Quadro's preamps go to their full gain.** Gazelle held every preamp to the Studio+'s
+  ranges, so a Quadro's Mic gain stopped at 65 dB instead of 75, and its Hi-Z gain at 40 dB instead
+  of 45. Each model now has its own range, as Antelope's own panels set them.
 - **`--install --start` from a terminal hands the terminal back.** The Gazelle it starts no longer
   writes its log into that terminal or keeps a script that ran the install waiting until Gazelle
   quits; its log is in its own file as always.

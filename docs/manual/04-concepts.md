@@ -39,7 +39,7 @@ Everything that makes a sound is a **source**; everywhere a sound can go is a **
 
 ## Inputs
 
-A **preamp** has a type (**Mic**, **Line** or **Hi-Z** for instruments, on the first two Quadro or first four Studio+ preamps), a gain whose range follows the type (Mic 0 to 65 dB, Line -6 to +20 dB, Hi-Z 0 to 40 dB), **48V** phantom power (Mic only), and a phase invert (**Ø**). The Quadro's preamps also offer **microphone emulation**, which turns a supported Antelope microphone into a model of another; you need the microphone and the licence.
+A **preamp** has a type (**Mic**, **Line** or **Hi-Z** for instruments, on the first two Quadro or first four Studio+ preamps), a gain whose range follows the type (Mic 0 to 75 dB on the Quadro and 0 to 65 dB on the Studio+, Line -6 to +20 dB, Hi-Z 0 to 45 dB on the Quadro and 0 to 40 dB on the Studio+), **48V** phantom power (Mic only), and a phase invert (**Ø**). The Quadro's preamps also offer **microphone emulation**, which turns a supported Antelope microphone into a model of another; you need the microphone and the licence.
 
 **Digital inputs** (ADAT, S/PDIF, and the Studio+'s line inputs) have a gain of -6 to +12 dB. On the Studio+ you can set it; on the Quadro it is shown but not settable, because the vendor's own Quadro panel never sets it and nobody has checked that the device accepts it.
 
