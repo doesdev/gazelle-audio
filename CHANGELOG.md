@@ -10,6 +10,31 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **Phones on your network.** The Workspace page has a new Phones section, and the tray a new
+  item: turn on Allow phones on this network, and Gazelle also listens on your network, straight
+  away and without a restart. Choose Pair a phone and scan the QR code with the phone's camera, or
+  type the code it shows: the phone is then paired and opens Gazelle, with nothing to type again.
+  The section lists every paired phone, when and where it was last seen, and revokes any of them
+  at once. Only paired phones can control Gazelle, and only the computer can allow, pair or revoke.
+  Windows may ask whether to let Gazelle through its firewall the first time: allow it on private
+  networks only. The connection is plain HTTP, so use it on a network you trust.
+
+### Changed
+
+- **`--bind` on a network address now asks every other device to pair.** Before, anyone who could
+  reach the address could change your levels, with no password. Scripts on another machine pair
+  once, as a phone does, and send the key they are given; the command-line chapter of the manual
+  shows how. Bound to one specific address, Gazelle also listens on `127.0.0.1` at the same port,
+  so the window and pairing work from the computer itself.
+- **Updates stay on wherever Gazelle listens.** Started with `--bind` on a network address, Gazelle
+  used to turn its updater off. It now keeps it, and answers the update controls only on the
+  computer it runs on; a phone never sees them.
+- **Gazelle refuses requests that did not come from its own pages.** A web page on another site
+  can no longer make your browser send commands to Gazelle on your computer, by posting to it or
+  by reaching it under a name of its own.
+
 ## [1.4.1] - 2026-09-25
 
 The Quadro's preamps reach their full gain, and installing from a terminal hands the terminal back.

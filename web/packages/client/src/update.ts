@@ -1,6 +1,6 @@
 // The in-app updater as `GET /api/v1/update` and the three POSTs answer it
-// (crates/gazelle-audio-server/src/update). The routes exist only on a loopback bind: a server
-// reachable from the network does not offer them, and every call here then fails `http_404`.
+// (crates/gazelle-audio-server/src/update). The routes answer only the server's own machine: a
+// phone gets `not_local` (403), and a server started with --no-update does not serve them (404).
 // Keys stay snake_case as on the wire.
 
 /** Where the updater has got to. `state` names the variant; its own fields sit beside it. */

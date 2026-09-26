@@ -1,5 +1,5 @@
 //! The server's tray icon: open the UI, see what the server is doing, rescan devices, start it on
-//! boot, open its log folder, quit.
+//! boot, allow phones on the network, open its log folder, quit.
 //!
 //! What the menu holds is decided here, as plain data, so it is tested without a desktop. The
 //! Windows module only draws it. The menu is rebuilt each time it opens, so the status lines
@@ -57,6 +57,19 @@ pub struct Context {
     /// Asks for a device scan now. `None` where devices cannot come and go (the loopback), and
     /// the menu then has no Rescan item.
     pub rescan: Option<Box<dyn Fn()>>,
+    /// The phones setting, as the Workspace page's Phones section has it. `None` leaves the item
+    /// out.
+    pub phones: Option<PhonesToggle>,
+}
+
+/// Allow phones on this network, from the tray: read when the menu opens, flipped when picked.
+/// Pairing a phone is done on the Workspace page, which can show a code and a QR code.
+pub struct PhonesToggle {
+    /// `--bind` decides instead; the item is then shown as it is and cannot be changed.
+    pub fixed: bool,
+    pub on: Box<dyn Fn() -> bool>,
+    /// Flip it. `Ok` carries the new state.
+    pub toggle: Box<dyn Fn() -> Result<bool, String>>,
 }
 
 /// The tray, created but not yet running. [`Tray::run`] pumps its messages on this thread until
@@ -143,6 +156,7 @@ pub enum Command {
     DownloadUpdate,
     /// Stop the server and start the staged binary. The only place the app restarts itself.
     RestartToUpdate,
+    AllowPhones,
 }
 
 impl Command {
@@ -158,6 +172,7 @@ impl Command {
             Command::DownloadUpdate => 7,
             Command::RestartToUpdate => 8,
             Command::OpenInBrowser => 9,
+            Command::AllowPhones => 10,
         }
     }
 
@@ -167,7 +182,7 @@ impl Command {
 }
 
 /// Every menu command, for the id round trip and for the Windows module's dispatch.
-pub const ALL: [Command; 9] = [
+pub const ALL: [Command; 10] = [
     Command::Open,
     Command::StartOnBoot,
     Command::Quit,
@@ -177,6 +192,7 @@ pub const ALL: [Command; 9] = [
     Command::DownloadUpdate,
     Command::RestartToUpdate,
     Command::OpenInBrowser,
+    Command::AllowPhones,
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -204,13 +220,23 @@ pub struct Status {
     pub log_file: bool,
     /// Whether devices can come and go, so a rescan means something (the USB backend).
     pub can_rescan: bool,
-    /// What the updater has to say, or `None` when there is no updater: a non-loopback bind,
-    /// where update control is deliberately not offered.
+    /// What the updater has to say, or `None` when there is no updater (`--no-update`, or the
+    /// settings say not to check).
     pub update: Option<UpdateMenu>,
+    /// The phones setting, when the tray offers it.
+    pub phones: Option<PhonesMenu>,
 
     /// Whether this server has a desktop window. Open then shows it, and a second item opens a
     /// browser; without one Open is the browser, as it always was.
     pub has_window: bool,
+}
+
+/// The phones setting as the menu shows it, read when the menu opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhonesMenu {
+    pub on: bool,
+    /// `--bind` decides, so the item cannot be changed here.
+    pub fixed: bool,
 }
 
 /// The updater as the menu shows it, read when the menu opens.
@@ -325,6 +351,17 @@ pub fn menu(status: &Status) -> Vec<Item> {
             checked: Some(status.start_on_boot),
             default: false,
         },
+    ]);
+    if let Some(phones) = status.phones {
+        items.push(Item::Action {
+            command: Command::AllowPhones,
+            label: if phones.fixed { "Allow phones (set by --bind)".into() } else { "Allow phones on this network".into() },
+            enabled: !phones.fixed,
+            checked: Some(phones.on),
+            default: false,
+        });
+    }
+    items.extend([
         Item::Action {
             command: Command::OpenLogFolder,
             label: if status.log_file { "Open log folder".into() } else { "Open log folder (no log file)".into() },
@@ -355,6 +392,7 @@ mod tests {
             log_file: true,
             can_rescan: false,
             update: None,
+            phones: None,
             has_window: false,
         }
     }
@@ -604,6 +642,7 @@ mod tests {
             status(),
             Status { backend: "usb".into(), dry_run: true, devices: vec![], can_rescan: true, antelope_service_running: true, ..status() },
             Status { web_ui: false, log_file: false, has_window: true, ..status() },
+            Status { phones: Some(PhonesMenu { on: true, fixed: true }), ..status() },
         ];
         for state in states {
             menus.push(with_update(UpdateMenu { line: state.line(), available: Some("0.2.0".into()), staged: Some("0.2.0".into()) }));
@@ -627,6 +666,25 @@ mod tests {
                 assert!(!line.contains("://") || line.starts_with("Listening on "), "only the address the user needs is a URL: {line:?}");
             }
         }
+    }
+
+    /// Allowing phones is a switch beside Start on boot, and shows whether it is on. Started with
+    /// `--bind` on a network address, it is on and greyed, since the command line decides.
+    #[test]
+    fn allow_phones_sits_after_start_on_boot_and_shows_its_state() {
+        for on in [false, true] {
+            let items = menu(&Status { phones: Some(PhonesMenu { on, fixed: false }), ..status() });
+            let commands: Vec<Command> =
+                items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect();
+            assert_eq!(commands, [Command::Open, Command::StartOnBoot, Command::AllowPhones, Command::OpenLogFolder, Command::Quit]);
+            assert_eq!(
+                action(&items, Command::AllowPhones),
+                &Item::Action { command: Command::AllowPhones, label: "Allow phones on this network".into(), enabled: true, checked: Some(on), default: false }
+            );
+        }
+        let items = menu(&Status { phones: Some(PhonesMenu { on: true, fixed: true }), ..status() });
+        assert!(matches!(action(&items, Command::AllowPhones), Item::Action { enabled: false, checked: Some(true), .. }));
+        assert!(!menu(&status()).iter().any(|i| matches!(i, Item::Action { command: Command::AllowPhones, .. })));
     }
 
     #[test]

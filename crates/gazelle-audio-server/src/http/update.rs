@@ -1,9 +1,10 @@
-//! What the web UI can ask about updates. Four routes, and only on a loopback bind.
+//! What the web UI can ask about updates. Four routes, answered only to this machine.
 //!
-//! These are merged into the router by `main.rs`, and only when the listener is on a loopback
-//! address: an update check, a download and a restart are the machine's own business, not
-//! something a server exposed to a network should offer. On any other bind the routes are simply
-//! not there, and `GET /api/v1/health` still names the running version.
+//! These are merged into the router by `main.rs` whenever the updater is offered, wherever Gazelle
+//! listens. An update check, a download and a restart are the machine's own business, not
+//! something a phone on the network should be able to start, so the gate in front of every route
+//! (`remote::guard`) answers 403 `not_local` to any caller that is not on this machine, token or
+//! no token. `GET /api/v1/health` still names the running version to everyone who may ask it.
 //!
 //! Checking and downloading are blocking (the updater speaks plain `ureq`), so both run on the
 //! runtime's blocking pool and the request waits for the answer. Two downloads at once are

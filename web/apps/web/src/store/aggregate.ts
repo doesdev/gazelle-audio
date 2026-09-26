@@ -7,12 +7,12 @@
 // Nothing here decides any of that again. What it does is keep the answer current, turn a reason's
 // `fix` into the exact call that request names, and say in one place what a gap or a stall reads as.
 //
-// Two things shape the polling. The route is served only on a loopback bind and only to a caller on
-// the same machine, so a server reachable from the network answers 404 or refuses: that is "this
-// server does not offer it", not a failure, and there is then nothing to keep asking for. And the
-// answer reads the audio drivers, which is not free, so it is asked for often only when the figures
-// move: every second while a DAW is streaming, less often while it merely has the driver open, and
-// slowly while nothing is going on at all, which is the ordinary case.
+// Two things shape the polling. The route answers only a caller on the same machine, so a phone is
+// refused, and a server too old to know it answers 404: that is "this server does not offer it", not
+// a failure, and there is then nothing to keep asking for. And the answer reads the audio drivers,
+// which is not free, so it is asked for often only when the figures move: every second while a DAW
+// is streaming, less often while it merely has the driver open, and slowly while nothing is going on
+// at all, which is the ordinary case.
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
 import type {
@@ -2150,7 +2150,7 @@ export class AggregateModel {
 
   /**
    * Whether this server offers the aggregate routes at all: undefined until the first read settles,
-   * false on a server bound off loopback, where the page says so rather than showing a failure.
+   * false when asked from a phone, where the page says so rather than showing a failure.
    */
   get offered(): ReadonlySignal<boolean | undefined> {
     return this.#offered;

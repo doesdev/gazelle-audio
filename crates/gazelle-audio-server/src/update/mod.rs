@@ -543,12 +543,14 @@ pub fn siblings(exe: &Path) -> Vec<PathBuf> {
 
 /// Whether this server offers update control at all.
 ///
-/// Three ways to say no, and each is deliberate: `--no-update`; `check: false` in the settings;
-/// and **any bind that is not loopback**, because a check and a download belong to the machine
-/// running the server rather than to whoever can reach it over the network. Saying no means the
-/// tray has no update items and the HTTP routes are not served.
-pub fn is_offered(bind: std::net::IpAddr, no_update: bool, settings: &Settings) -> bool {
-    !no_update && settings.check && bind.is_loopback()
+/// Two ways to say no: `--no-update`, and `check: false` in the settings. Where Gazelle listens
+/// no longer matters. A check and a download still belong to the machine running the server, not
+/// to whoever can reach it over the network, but that is now said per request rather than per
+/// bind: the update routes answer only a caller on this machine, and a phone gets 403 for them
+/// (`remote::guard`), while the tray is on this machine by nature. Turning the updater off because
+/// phones were allowed would have left a PC that is used from a phone never updating.
+pub fn is_offered(no_update: bool, settings: &Settings) -> bool {
+    !no_update && settings.check
 }
 
 /// Start the binary that is now in place, with the arguments this process was given, and let
@@ -757,19 +759,12 @@ mod tests {
     }
 
     #[test]
-    fn updates_are_offered_only_on_a_loopback_bind_and_only_when_asked_for() {
+    fn updates_are_offered_unless_asked_not_to_wherever_gazelle_listens() {
         let on = Settings::default();
         let off = Settings { check: false, ..Settings::default() };
-        for ip in ["127.0.0.1", "::1"] {
-            let ip: std::net::IpAddr = ip.parse().unwrap();
-            assert!(is_offered(ip, false, &on));
-            assert!(!is_offered(ip, true, &on), "--no-update wins");
-            assert!(!is_offered(ip, false, &off), "the settings can switch it off");
-        }
-        for ip in ["0.0.0.0", "192.168.1.5", "::"] {
-            let ip: std::net::IpAddr = ip.parse().unwrap();
-            assert!(!is_offered(ip, false, &on), "{ip} is reachable from off this machine");
-        }
+        assert!(is_offered(false, &on));
+        assert!(!is_offered(true, &on), "--no-update wins");
+        assert!(!is_offered(false, &off), "the settings can switch it off");
     }
 
     fn every_state() -> Vec<State> {

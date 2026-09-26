@@ -21,7 +21,23 @@ const themeSources: ThemeSource[] = [
   ...Object.entries(community).map(([path, data]) => ({ id: `community:${stem(path)}`, origin: "community" as const, data })),
 ];
 
+/** A device that is not paired gets 401 from everything; it is told how to pair rather than that the server is gone. */
+async function unpaired(): Promise<boolean> {
+  try {
+    return (await fetch("/api/v1/health")).status === 401;
+  } catch {
+    return false;
+  }
+}
+
 async function boot(): Promise<void> {
+  // A phone opening the QR code's address: the pair page, in a chunk of its own, and not the app,
+  // which it may not use until it has paired.
+  if (location.pathname === "/pair") {
+    const { showPairPage } = await import("./elements/pair-page.ts");
+    showPairPage();
+    return;
+  }
   try {
     // At phone width the open mixer dock would take a quarter of the screen.
     const narrow = matchMedia(`(max-width: ${DRAWER_MAX_PX}px)`).matches;
@@ -32,9 +48,15 @@ async function boot(): Promise<void> {
     const box = document.createElement("div");
     box.className = "boot-error";
     const heading = document.createElement("h1");
-    heading.textContent = "Gazelle cannot reach its server";
     const detail = document.createElement("p");
-    detail.textContent = `${location.origin}: ${error instanceof Error ? error.message : String(error)}`;
+    if (await unpaired()) {
+      const { UNPAIRED_TITLE, UNPAIRED_TEXT } = await import("./store/pair.ts");
+      heading.textContent = UNPAIRED_TITLE;
+      detail.textContent = UNPAIRED_TEXT;
+    } else {
+      heading.textContent = "Gazelle cannot reach its server";
+      detail.textContent = `${location.origin}: ${error instanceof Error ? error.message : String(error)}`;
+    }
     const retry = document.createElement("button");
     retry.textContent = "Try again";
     retry.addEventListener("click", () => location.reload());

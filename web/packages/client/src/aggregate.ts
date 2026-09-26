@@ -7,8 +7,7 @@
 // or not ready with the reasons. A reason carries a code to switch on and, where Gazelle can put
 // it right, a `fix` naming the route and the body to send. Keys stay snake_case as on the wire.
 //
-// These routes are served only on a loopback bind and only to a caller on the same machine, like
-// the update routes: a page that shows them treats a rejection as "this server does not offer
+// These routes answer only a caller on the server's own machine, like the update routes: a page that shows them treats a rejection as "this server does not offer
 // them" rather than as a failure.
 
 import type { DriverWriteReport } from "./driver.ts";

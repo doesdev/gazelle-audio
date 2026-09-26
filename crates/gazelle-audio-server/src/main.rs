@@ -6,7 +6,9 @@
 //! emulator, which every test suite names explicitly, and a server started with
 //! `GAZELLE_NO_HARDWARE` set refuses `usb` outright (`no_hardware`).
 //!
-//! The listener still binds to localhost unless told otherwise.
+//! The listener still binds to localhost unless told otherwise. Phones on the network are a
+//! setting of their own, and every request from another machine needs a paired phone's token
+//! (`remote`).
 
 use clap::{Parser, ValueEnum};
 use std::net::SocketAddr;
@@ -21,6 +23,8 @@ use gazelle_audio_server::device::hotplug::{self, HotPlug, Scanner};
 use gazelle_audio_server::device::manager::DeviceManager;
 use gazelle_audio_server::device::usb;
 use gazelle_audio_server::registry_set::RegistrySet;
+use gazelle_audio_server::remote::store::{default_remote_path, Backing};
+use gazelle_audio_server::remote::{self, guard, Exposure, Remote};
 use gazelle_audio_server::snapshot::store::{JsonDirStore, MemorySnapshotStore, SnapshotStore};
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::tray::{self, boot::BootArgs};
@@ -48,7 +52,9 @@ impl Backend {
 #[derive(Parser, Debug)]
 #[command(name = "gazelle-audio-server", version, about = "Gazelle control server for Antelope Audio interfaces")]
 struct Args {
-    /// Address to bind. Defaults to localhost; override only deliberately.
+    /// Address to bind. Defaults to localhost; override only deliberately. A network address
+    /// makes Gazelle reachable from other machines whatever the phones setting says, and every
+    /// one of them then needs a paired phone's token.
     #[arg(long, default_value = gazelle_audio_server::config::DEFAULT_BIND)]
     bind: SocketAddr,
 
@@ -236,6 +242,25 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     };
     let updater = updater(args);
     let address = listener.local_addr()?;
+    // Bound to one network address, Gazelle also listens on loopback at the same port: otherwise
+    // nothing on this machine, the window included, could reach it without a token, and nothing
+    // could start the pairing that gives one (`remote`).
+    let local_listener = match Exposure::of(address) {
+        Exposure::Address(_) => {
+            let local = SocketAddr::from(([127, 0, 0, 1], address.port()));
+            match runtime.block_on(tokio::net::TcpListener::bind(local)) {
+                Ok(listener) => Some(listener),
+                Err(e) => {
+                    tracing::warn!("also listening on {local} for this machine failed: {e}");
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    // Where this machine's own window and tray open the app.
+    let local_address = local_listener.as_ref().and_then(|l| l.local_addr().ok()).unwrap_or(address);
+    let remote = remote(args, address);
 
     // Quit in the tray and Ctrl-C both end the server the same way, and a restart is a quit that
     // is followed by a relaunch: built here so the tray item and the HTTP route share the one
@@ -248,15 +273,18 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
     // Before the devices are attached, so the window is on screen while that happens rather than
     // after it; its first request waits in the listener's backlog until the server answers.
-    let (window, showing) = open_window(args, address);
-    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone(), carried))?;
+    let (window, showing) = open_window(args, local_address);
+    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone(), carried, remote.clone()))?;
+    // The phone listener serves the same app, gate and all, and starts now if phones are allowed.
+    remote.serve_phones(app.clone(), runtime.handle().clone());
 
     // The tray's message loop needs the thread that created the icon, so it takes this one and
     // the server runs on the runtime's workers.
     let tray = if args.no_tray {
         None
     } else {
-        let mut context = tray_context(args, address, &devices, &quit, log_dir, window.clone());
+        let mut context = tray_context(args, local_address, &devices, &quit, log_dir, window.clone());
+        context.phones = Some(phones_toggle(&remote));
         context.update = updater.clone();
         context.restart = restart.clone().map(|restart| Box::new(move || restart.request()) as Box<dyn Fn() -> Result<String, String>>);
         context.rescan = hotplug.as_ref().map(|hotplug| {
@@ -281,7 +309,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
     let closer = tray.as_ref().map(tray::Tray::closer);
     let server = runtime.spawn(async move {
-        let result = serve(listener, app, devices, hotplug, quit).await;
+        let result = serve(listener, local_listener, app, devices, hotplug, quit, remote).await;
         // Stopped by Ctrl-C or an error rather than the tray: take the icon down too.
         if let Some(closer) = closer {
             closer.close();
@@ -303,18 +331,17 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
 /// The updater, when this server should have one.
 ///
-/// Off with `--no-update` or when the settings say not to check, and **only on a loopback
-/// bind**: an update check and a download belong to the machine running the server, not to
-/// whoever can reach it over the network, so a server bound anywhere else offers neither the
-/// tray items nor the HTTP routes.
+/// Off with `--no-update` or when the settings say not to check. Wherever Gazelle listens, an update
+/// check and a download belong to the machine running it: the HTTP routes answer only this
+/// machine (`remote::guard`), and the tray is on this machine by nature.
 fn updater(args: &Args) -> Option<Arc<Updater>> {
     let path = update::settings::default_settings_path(|k| std::env::var(k).ok());
     let (settings, warning) = Settings::load(&path);
     if let Some(warning) = warning {
         tracing::warn!("{warning}");
     }
-    if !update::is_offered(args.bind.ip(), args.no_update, &settings) {
-        tracing::info!("no update checks (--no-update, the settings in {}, or a non-loopback bind)", path.display());
+    if !update::is_offered(args.no_update, &settings) {
+        tracing::info!("no update checks (--no-update, or the settings in {})", path.display());
         return None;
     }
     match Updater::for_this_build(settings) {
@@ -336,6 +363,7 @@ async fn prepare(
     show_window: Option<gazelle_audio_server::ShowWindow>,
     restart: Option<Arc<update::Restart>>,
     carried: bundled::Status,
+    remote: Arc<Remote>,
 ) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
@@ -429,13 +457,16 @@ async fn prepare(
 
     let app = http::router(state)
         .merge(http::driver::routes(devices.clone(), driver, args.dry_run))
-        .merge(http::aggregate::routes(aggregate, store, args.dry_run));
+        .merge(http::aggregate::routes(aggregate, store, args.dry_run))
+        .merge(http::remote::routes(remote.clone()));
     let app = match restart {
         Some(restart) => app.merge(http::update::routes(restart)),
         None => app,
     };
     #[cfg(feature = "web-ui")]
     let app = if args.no_web_ui { app } else { gazelle_audio_server::web::with_ui(app) };
+    // Last, so it stands in front of everything above, the web app's files included.
+    let app = guard::protect(app, remote);
 
     // The bound address, not `args.bind`: with port 0 this log line is how another process (the
     // web client's integration tests) finds the server.
@@ -458,7 +489,7 @@ async fn prepare(
     }
     if !args.bind.ip().is_loopback() {
         tracing::warn!(
-            "bound to a non-loopback address ({}); this exposes device control to the network",
+            "bound to a non-loopback address ({}); other machines can reach Gazelle, and each needs a paired phone's token",
             args.bind.ip()
         );
     }
@@ -476,7 +507,13 @@ fn second_instance(bind: SocketAddr, hidden: bool, error: &std::io::Error) -> Re
         tracing::info!("{bind} is in use ({error}); a --hidden start leaves whatever holds it alone");
         return Ok(());
     }
-    match gazelle_audio_server::handover::hand_over(bind) {
+    // Bound to one network address, the running copy also listens on loopback, and only a request
+    // from this machine may raise its window.
+    let target = match Exposure::of(bind) {
+        Exposure::Address(_) => SocketAddr::from(([127, 0, 0, 1], bind.port())),
+        _ => bind,
+    };
+    match gazelle_audio_server::handover::hand_over(target) {
         Ok(gazelle_audio_server::handover::Outcome::Shown) => {
             tracing::info!("Gazelle is already running on {bind}; brought its window to the front");
             Ok(())
@@ -490,18 +527,38 @@ fn second_instance(bind: SocketAddr, hidden: bool, error: &std::io::Error) -> Re
 }
 
 /// Serve until Ctrl-C or Quit, then stop the device workers.
+///
+/// `local` is the loopback listener a bind to one network address brings with it; it stops with
+/// the main one. The phone listener stops first of all, so its port is free before a restart
+/// into an update starts the next copy.
 async fn serve(
     listener: tokio::net::TcpListener,
+    local: Option<tokio::net::TcpListener>,
     app: axum::Router,
     devices: Arc<DeviceManager>,
     hotplug: Option<HotPlug>,
     quit: Arc<Notify>,
+    remote: Arc<Remote>,
 ) -> std::io::Result<()> {
+    let (stop_local, local_stopped) = tokio::sync::oneshot::channel::<()>();
+    if let Some(local) = local {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let shutdown = async move {
+                let _ = local_stopped.await;
+            };
+            if let Err(e) = http::serve_with_shutdown(local, app, shutdown).await {
+                tracing::warn!("the loopback listener stopped: {e}");
+            }
+        });
+    }
     let shutdown = async move {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
             _ = quit.notified() => {}
         }
+        remote.stop();
+        let _ = stop_local.send(());
         tracing::info!("shutting down, stopping device workers");
         // Scanning stops first, so nothing is attached behind the shutdown.
         if let Some(hotplug) = hotplug {
@@ -510,6 +567,35 @@ async fn serve(
         devices.shutdown_all();
     };
     http::serve_with_shutdown(listener, app, shutdown).await
+}
+
+/// Remote access: the phones setting and the paired phones, from `remote.json` beside
+/// `update.json`, or in memory only under `--no-persist`, so a test server never leaves the
+/// owner's Gazelle open to the network.
+fn remote(args: &Args, address: SocketAddr) -> Arc<Remote> {
+    let backing = if args.no_persist {
+        Backing::Memory
+    } else {
+        Backing::File(default_remote_path(|k| std::env::var(k).ok()))
+    };
+    let (remote, warning) = Remote::new(remote::Options::for_this_pc(backing, args.bind, address.port()));
+    if let Some(warning) = warning {
+        tracing::warn!("{warning}");
+    }
+    remote
+}
+
+/// The tray's Allow phones item: whether it is on, and a way to flip it.
+fn phones_toggle(remote: &Arc<Remote>) -> tray::PhonesToggle {
+    let (read, flip) = (remote.clone(), remote.clone());
+    tray::PhonesToggle {
+        fixed: remote.fixed_by_bind().is_some(),
+        on: Box::new(move || read.allow_phones() || read.fixed_by_bind().is_some()),
+        toggle: Box::new(move || {
+            let on = !flip.allow_phones();
+            flip.set_allow_phones(on).map(|()| on)
+        }),
+    }
 }
 
 /// What the tray is told about this server, including the arguments a boot entry repeats.
@@ -552,6 +638,7 @@ fn tray_context(
         rescan: None,
         update: None,
         restart: None,
+        phones: None,
     }
 }
 

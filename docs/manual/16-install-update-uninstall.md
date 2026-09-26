@@ -69,7 +69,7 @@ Some things to know:
 
 - The header says nothing at all while you are up to date, and nothing while a check is running: it speaks up only when there is something to do or something is happening. On a phone the version readout is dropped but the update prompt is not.
 - A build made from source without the release key cannot download updates at all, and says so.
-- The update controls exist only while Gazelle listens on your own computer. Started with `--bind` on a network address, it has no updater, and the header says nothing about updates.
+- Updating is done from the computer Gazelle runs on: the window, a browser on that computer, or the tray. A paired phone is refused the update controls, and its header says nothing about updates. This holds however Gazelle was started, `--bind` included.
 - `--no-update` turns update checks off for one run.
 - To change the defaults, write `%APPDATA%\gazelle\update.json`; without it, Gazelle uses these:
 

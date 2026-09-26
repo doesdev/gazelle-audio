@@ -42,6 +42,16 @@ sha2 = "0.11"
 # Signature checking only; no signing in the shipped binary. `xtask` does the signing.
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 semver = "1"
+# Phones on the network (`remote`). Tokens and pairing codes come from the operating system's
+# CSPRNG through `getrandom`, which axum's WebSocket support already brings into the tree; stored
+# token hashes are compared with `subtle`, which the signature checking already brings in. Neither
+# adds a package.
+getrandom = "0.3"
+subtle = { version = "2.6", default-features = false }
+# The pairing QR code: kennytm's encoder (MIT or Apache-2.0), with its default features off, which
+# leaves it with no dependencies at all. The server hands the page the module grid and the page
+# draws it, so the app stays served from this binary with nothing fetched at run time.
+qrcode = { version = "0.14", default-features = false }
 
 # The desktop window, behind the `window` feature: Tao makes the window, Wry puts the system
 # webview (WebView2 on Windows) in it and points it at this server. Used directly, not through
@@ -61,6 +71,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_Properties",
     "Win32_Graphics_Gdi",
+    # This PC's network addresses, for the addresses a phone would use (`remote/addresses.rs`).
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
     # The audio driver's API DLL is told apart by its version resource (`driver/windows.rs`).
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",

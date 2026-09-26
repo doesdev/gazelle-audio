@@ -108,7 +108,7 @@ Back to Antelope's software: quit Gazelle, then `Start-Service -Name Antelope-Ma
 | `--backend loopback` | The emulator; no hardware |
 | `--dry-run` | Real devices, nothing written: shows bytes |
 | `--no-persist` | Save nothing |
-| `--bind 0.0.0.0:8420` | Reachable from your network (no password) |
+| `--bind 0.0.0.0:8420` | On your network; phones must pair |
 | `--log-dir <DIR>` | Log to a folder, for `--no-tray` runs |
 | `--install` | Install for this user |
 | `--uninstall` | Remove; settings kept unless `--purge` |

@@ -15,7 +15,7 @@ Both take the same options. `gazelle-audio-server.exe --help` lists them; this t
 
 | Option | Default | What it does |
 |---|---|---|
-| `--bind <ADDR>` | `127.0.0.1:8420` | The address to listen on. A non-local address (`0.0.0.0:8420`) exposes device control to your network with no password, logs a warning, and turns the updater off. Port 0 picks a free port |
+| `--bind <ADDR>` | `127.0.0.1:8420` | The address to listen on. Port 0 picks a free port. A network address puts Gazelle on your network whatever **Allow phones on this network** says (the switch is then shown on and greyed), and every other device must still pair and send its key; see [Remote access](#remote-access). A wildcard (`0.0.0.0:8420`) includes this computer; one specific address (`192.168.1.20:8420`) also opens `127.0.0.1` at the same port, for the window and for pairing. The updater stays on either way, for this computer only |
 | `--backend <usb\|loopback>` | `usb` | `usb` drives the attached interfaces. `loopback` runs the built-in emulator of a Quadro and a Studio+ and never touches hardware |
 | `--dry-run` | off | Never write to a device: every command reports the bytes it would send. Reads are not sent either |
 | `--enable-recall` | off | Allows the snapshot recall route to be asked. Applying a recall is not built, so even with this it refuses, or in dry run reports the bytes |
@@ -48,7 +48,7 @@ Examples:
 ```
 gazelle-audio-server.exe --backend loopback --no-persist         the emulator, nothing saved
 gazelle-audio-server.exe --dry-run                               your devices, nothing written
-gazelle-audio-server.exe --bind 0.0.0.0:8420                     reachable from your network
+gazelle-audio-server.exe --bind 0.0.0.0:8420                     on your network; other devices pair
 gazelle-audio-server.exe --backend loopback --bind 127.0.0.1:0   the emulator on a free port
 ```
 
@@ -62,7 +62,7 @@ gazelle-audio-server.exe --backend loopback --bind 127.0.0.1:0   the emulator on
 
 ## The HTTP API
 
-Everything the app does goes through this API, under `http://127.0.0.1:8420/api/v1`. There is no authentication: anyone who can reach the address can use it, which is why Gazelle listens only on your own computer unless told otherwise. Errors come back as `{"error": {"code": "...", "message": "..."}}`.
+Everything the app does goes through this API, under `http://127.0.0.1:8420/api/v1`. A program on this computer needs no key; anything else must be a paired phone and send its key (see [Remote access](#remote-access)). Errors come back as `{"error": {"code": "...", "message": "..."}}`.
 
 | Method and path | What it does |
 |---|---|
@@ -82,8 +82,8 @@ Everything the app does goes through this API, under `http://127.0.0.1:8420/api/
 | `POST /snapshots/import` | Add snapshots from a list; ones already here are kept |
 | `POST /snapshots/{id}/recall/plan` | The recall plan, as the preview shows it. Sends nothing |
 | `POST /snapshots/{id}/recall` | Refused: applying a recall is not built |
-| `GET /update`, `POST /update/check`, `POST /update/download` | The updater, only when listening on your own computer. The status says the running version, the channel, when it last checked (`last_check_ms`), and its state: `unknown`, `checking`, `up_to_date`, `available`, `downloading`, `staged` or `failed` |
-| `POST /update/restart` | Restart into the version waiting on disk. Answers `{"restarting": true, "version": "..."}` **before** the server stops, which it then does a fraction of a second later, so expect the connection to drop and come back. With nothing waiting it refuses with `nothing_staged` (409) and stops nothing |
+| `GET /update`, `POST /update/check`, `POST /update/download` | The updater, only from your own computer (a phone gets `not_local`, 403). The status says the running version, the channel, when it last checked (`last_check_ms`), and its state: `unknown`, `checking`, `up_to_date`, `available`, `downloading`, `staged` or `failed` |
+| `POST /update/restart` | Restart into the version waiting on disk. Answers `{"restarting": true, "version": "..."}` **before** the server stops, which it then does a fraction of a second later, so expect the connection to drop and come back. With nothing waiting it refuses with `nothing_staged` (409) and stops nothing. Only from your own computer |
 | `GET /aggregate` | Whether this computer can run the aggregate audio driver, and what is in the way. In one answer: every audio driver installed here, whether Gazelle Aggregate is registered and what its registration points at, each chosen interface's live clock source, lock, sample rate, buffer size and USB controller, what the driver itself is reporting now, the last few lines of its event log, and `ready` with a list of `reasons`. Each reason has a `code` (`not_configured`, `device_missing`, `not_registered`, `dll_missing`, `device_not_attached`, `device_not_matched`, `driver_unreadable`, `one_usb_controller`, `controller_unknown`, `rates_differ`, `buffers_differ`, `no_cable`, `clock_not_cabled`, `not_locked`, `phase_not_measured`), a `severity` (`blocking` or `warning`, and `ready` is false only for a blocking one) and, where Gazelle can put it right, a `fix` naming the route and body to send. Only from your own computer |
 | `POST /aggregate/match-buffers` | Put every chosen interface on one buffer size: `{"buffer_size": 512}`, with `"force": true` to change one while a program is using it. Each interface answers for itself, so one refusing does not stop the others; a refusal carries the same codes as `PUT /devices/{id}/driver`. Refused as a whole with `not_configured` (409) when no interfaces have been chosen. Only from your own computer |
 | `POST /aggregate/register`, `POST /aggregate/unregister` | Register or unregister the aggregate driver. This needs administrator rights, so Windows puts up its own prompt; a declined prompt comes back as `run.started` false, not as an error. The answer always includes the `command` you could run yourself instead. With no driver file to register it refuses with `dll_not_found` (409) and says where it looked. Only from your own computer |
@@ -91,6 +91,11 @@ Everything the app does goes through this API, under `http://127.0.0.1:8420/api/
 | `POST /aggregate/calibrate` | Start one: `{"direction": "inputs", "outputs": [{"device": 0, "channel": 0}, {"device": 0, "channel": 1}], "inputs": [{"device": 0, "channel": 0}, {"device": 1, "channel": 0}]}` names the cabling one output and one input per interface, in the setup's order. Every channel is an interface, by its place in the setup, and that interface's own channel number, both counted from zero, so `{"device": 1, "channel": 0}` is the second interface's first channel. It is never a number in the aggregate's own list: the run opens the drivers and works that out itself. Optional: `witnesses` (extra inputs, named the same way, to record and report, taking no part in any trim), `clicks`, `level_dbfs`, and `"check": true` to line the session up as a DAW's would be and report how far apart a recording would land, rather than measuring a trim. **It plays a click out of a real output** and takes both audio drivers while it runs. Refused with `not_started` (409) when one is already running or the request does not make sense, `not_configured` (409) with fewer than two interfaces, and `bad_value` (400) when a channel is not written as an interface and a channel. A channel the run cannot place is a failed run whose `refusal` says what would have been right, before anything plays: an interface that is not one of them, a channel the interface has not got (with how many it has, from its own driver), one the setup keeps out of the aggregate, or one the setup keeps for the phase measurement. Only from your own computer |
 | `POST /aggregate/calibrate/stop` | Stop the one that is running, between one block and the next, letting both drivers go. Answers `{"stopped": true}` when something was running and `false` when nothing was. Only from your own computer |
 | `POST /window/show` | Brings the window to the front; only from your own computer |
+| `GET /remote` | Phones on the network: `allow_phones`; `fixed_by_bind` (the `--bind` address when that decides instead, or null); `listening` (whether a phone can reach Gazelle now); `error` (why it could not listen, or null); the `port`, `addresses` (`ip`, and `primary` for the adapter the internet goes through) and `urls` a phone would use; the paired `phones` (`id`, `name`, `paired_ms`, `last_seen_ms`, `last_address`); the `pairing` running, or null; and the server's `now_ms`. Only from your own computer |
+| `PUT /remote` | `{"allow_phones": true}` or `false`. Takes effect at once, with no restart; off closes every phone's connection. Refused with `fixed_by_bind` (409) when `--bind` decides. Only from your own computer |
+| `POST /remote/pairing`, `DELETE /remote/pairing` | Start pairing, replacing any code running, or stop it. The answer has the `code` (`XXXX-XXXX`), `expires_ms`, `pair_urls` (`http://<address>:<port>/pair#code=<code>`, the likeliest first) and `qr`, the first of those as a QR code: its `size` and `rows` of `1` (dark) and `0` (light) modules, to be drawn with a quiet zone of four modules. Refused with `phones_off` (409) while no phone could reach Gazelle. Only from your own computer |
+| `POST /remote/pair` | From the phone, with no key: `{"code": "...", "name": "..."}`. Answers `{"token": "...", "phone": {...}}` and sets the same token as a cookie, `gazelle_token`, HttpOnly and SameSite=Strict. Refused with `pairing_refused` (403) for a wrong, used or expired code, `too_many_attempts` (429) after five wrong codes from one address, or twenty from all, in a minute, and `too_many_phones` (409) when 32 are paired |
+| `DELETE /remote/phones/{id}` | Revoke a phone: its next request is refused and its open WebSocket closes (code 4401). `unknown_phone` (404) when there is no such phone. Only from your own computer |
 | `GET /ws` | The WebSocket, below |
 
 For example, to see what setting channel 7 of a Quadro's mix 1 to -10 dB would send, without sending it (`level` is dB of attenuation):
@@ -101,11 +106,30 @@ curl -X POST "http://127.0.0.1:8420/api/v1/devices/<id>/command/set_mixer?dry_ru
 
 Field values are integers (booleans become 0 or 1, byte arrays are hex strings), exactly as the device's command defines them; the `commands` route lists every field. The few commands in a device's command set that manage its licence are not offered at all (`unknown_command`): Gazelle reads which emulations and effects a device is licensed for, and changes nothing about it. A field you leave out is sent as its default, not as the device's current value: `set_mixer` above also sets the channel's pan, mute and solo. Commands go straight to the device: nothing checks that a value is sensible for your speakers. Every [safety](02-safety.md) consideration applies, more so.
 
-Error codes: `unknown_device` (404), `unknown_command` (404), `bad_value` (400), `timeout` (504, no answer within 3 seconds), `refused` (502, the device said no), `device_gone` (503), `no_registry` (501, a model Gazelle does not know), `unsupported` (501), `unknown_snapshot` (404), `storage_error` and `protocol_error` (500).
+Error codes: `unknown_device` (404), `unknown_command` (404), `bad_value` (400), `timeout` (504, no answer within 3 seconds), `refused` (502, the device said no), `device_gone` (503), `no_registry` (501, a model Gazelle does not know), `unsupported` (501), `unknown_snapshot` (404), `storage_error` and `protocol_error` (500). Any route can also answer with the remote access codes below: `unauthorized` (401), `not_local`, `remote_off`, `bad_host` and `bad_origin` (all 403).
+
+## Remote access
+
+Every request passes one check before its route, on every address Gazelle listens on.
+
+- **Who is asking** is the connection's own address. Headers such as `X-Forwarded-For` are never believed, so a proxy in front of Gazelle makes every request look like the proxy.
+- **The `Host`** must be `localhost`, an IP address, or this computer's own name (with `.local` or not); anything else gets `bad_host` (403). This defeats DNS rebinding, where a web page on another site reaches `127.0.0.1` under a name of its own.
+- **An `Origin`**, which browsers send on posts and WebSocket upgrades, must be this server itself, the same host and port as `Host`; otherwise `bad_origin` (403). Programs that are not browsers send none and are not affected.
+- **This computer** (`127.0.0.1` or `::1`) needs nothing more.
+- **Any other device** is refused with `remote_off` (403) while phones are not allowed and `--bind` is on loopback. Otherwise it may load the app's own files and `POST /remote/pair`; everything else under `/api` needs its key, as `Authorization: Bearer <token>` or the `gazelle_token` cookie, or gets `unauthorized` (401). With a key, the update, window, aggregate and remote routes still answer `not_local` (403).
+
+A script on another machine pairs as a phone does: start pairing on this computer (`POST /remote/pairing`, or the Workspace page), send the code from there, keep the `token`, and send it as a bearer token:
+
+```
+curl -X POST http://192.168.1.20:8420/api/v1/remote/pair -H "content-type: application/json" -d "{\"code\": \"YHV8-YRJM\", \"name\": \"Studio script\"}"
+curl http://192.168.1.20:8420/api/v1/devices -H "Authorization: Bearer <token>"
+```
+
+Keys are 256 random bits, kept by Gazelle only as SHA-256 fingerprints in `%APPDATA%\gazelle\remote.json`, beside the phones setting. The traffic is plain HTTP, so a key crosses the network in the clear; see [what pairing does not protect](05-the-app.md#what-pairing-protects-and-what-it-does-not).
 
 ## The WebSocket
 
-`GET /api/v1/ws` upgrades to a WebSocket carrying JSON text frames.
+`GET /api/v1/ws` upgrades to a WebSocket carrying JSON text frames. From another device the upgrade needs a key like any other request, as a bearer token or the cookie; a revoked phone's socket is closed with code 4401.
 
 - The server's first frame is `{"type": "hello", ...}` with the version, backend, dry run, the devices and any notices.
 - Then events: `device_added`, `device_removed`, `cyclic` (a decoded status or meter report: `device_id`, `report_id`, `fields`), `undecoded`, and `lagged` when a slow client missed some.

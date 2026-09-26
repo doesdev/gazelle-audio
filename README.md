@@ -22,7 +22,7 @@ A DAW opens one audio driver at a time, so two interfaces are ordinarily two sep
 - **Effects:** add, remove and reorder effects in each chain, bypass, a settings editor for almost every effect, effect meters, and the reverb.
 - **Across devices:** surfaces that put strips from both interfaces side by side, declared digital cables with clock and signal warnings, snapshots you can compare with the present, and workspace backup.
 - **Recording across both interfaces:** Gazelle Aggregate presents both as one device to your DAW. The **Aggregate** page says whether your PC can run it and why not, registers the driver, names every channel, and measures how far apart the interfaces really record, so it can line every session up to the sample rather than trusting the figures the drivers report.
-- **Around it:** a desktop window and tray icon, a mixer dock on every page, dark and light themes, phone-sized layouts, an HTTP and WebSocket API, a signed in-app updater, and a built-in emulator of both devices for trying it all without hardware.
+- **Around it:** a desktop window and tray icon, a mixer dock on every page, dark and light themes, phone-sized layouts, phones on your network paired with a QR code, an HTTP and WebSocket API, a signed in-app updater, and a built-in emulator of both devices for trying it all without hardware.
 
 ## How much it has been tested
 
@@ -55,6 +55,7 @@ Software that controls an audio interface can make it very loud, very suddenly. 
 - **Mid-change failures.** Gazelle is not in the audio path: if it quits or loses its connection, the interface keeps its last settings. The devices do not acknowledge settings, so a command lost in transit leaves the screen and the device disagreeing until you reload. Snapshot recall, the one feature that would send many changes at once, is deliberately not built; its plan silences the outputs first, switches 48V on last, asks before raising any output by more than 6 dB, and stops at the first failure.
 - **Measuring the aggregate plays a click** out of a real output, at a modest level, into whatever is plugged in, and the page says so and asks for a confirming click first. Turn amplifiers down the first time. The per session phase measurement is quieter and goes down the digital cable between the interfaces on a channel your DAW never sees, but an interface that monitors that digital input would let you hear it.
 - **Registering the aggregate driver is the one thing that asks for administrator rights**, because Windows keeps its list of audio drivers for every program on the PC. Windows puts up its own prompt; declining it changes nothing.
+- **Phones on your network.** Off by default. Turned on, only phones you pair (with a code shown on the computer's screen) can control Gazelle, and updating, restarting and pairing stay on the computer. The connection is plain HTTP, so anyone who can watch your network's traffic can see it: allow phones only on a network you trust, and let Gazelle through Windows' firewall on private networks only.
 - **Try it safely.** `--backend loopback` runs a built-in emulator that never touches hardware; `--dry-run` shows the bytes each command would send and sends none. Gazelle's own test suites refuse to open real devices (`GAZELLE_NO_HARDWARE=1`).
 
 The full version is the manual's [Safety chapter](docs/manual/02-safety.md).
@@ -110,7 +111,7 @@ More in [Getting started](docs/manual/03-getting-started.md) and [Install, updat
 - **Gazelle Aggregate needs the hardware set up for it**: each interface on its own USB host controller and a digital cable between them. Software cannot arrange either, so the Aggregate page tells you which is missing rather than working around it.
 - **Lining sessions up needs a path inside the interfaces**: on the interface that drives the callback, a playback channel routed to the socket the digital cable leaves from, and on the other, that cable's socket routed to a record channel. Gazelle says what has to go where, but does not yet set that routing up for you.
 - **Untested on hardware:** everything in the lists marked so [above](#how-much-it-has-been-tested).
-- **No authentication.** Gazelle listens only on your own computer unless you start it with `--bind`; on a network address, anyone who can reach it can change your levels.
+- **Plain HTTP on the network.** Phones must pair before they can control anything, but nothing is encrypted: anyone on the same network who can watch its traffic can see what a phone and Gazelle send, including the phone's key. Gazelle listens only on your own computer unless you allow phones or start it with `--bind`.
 
 > [!NOTE]
 > Gazelle supports two interfaces on Windows because those are the two it can be tested on. Support for other Antelope models, or for macOS and Linux, is possible, but each needs real hardware to test against and a good deal of time. If you would like your interface or platform supported, open an issue: I am happy to talk about an arrangement that covers the device access and the time involved.

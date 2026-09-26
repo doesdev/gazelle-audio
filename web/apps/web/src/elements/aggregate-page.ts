@@ -366,7 +366,7 @@ export class GaAggregate extends GaElement {
 
     this.root.replaceChildren(h("div", { class: "bar" }, verdict, state, h("span", { class: "spacer" }), readAt, again), problem, unavailable, sections);
 
-    // Whether the server offers any of this at all. A server bound off loopback is not a failure.
+    // Whether the server offers any of this at all. Being asked from a phone is not a failure.
     this.watch(() => {
       const offered = model.offered.value;
       unavailable.hidden = offered !== false;

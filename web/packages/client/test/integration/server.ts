@@ -57,7 +57,17 @@ const ANSI = /\x1b\[[0-9;]*m/g;
 export interface StartOptions {
   /** Serve the embedded web UI at `/` (browser tests); API-only by default. */
   webUi?: boolean;
+  /**
+   * Let the test play a phone without leaving loopback: the phone listener binds 127.0.0.1 on a
+   * port of its own instead of every interface, and an `x-gazelle-test-peer` header on a request
+   * from this machine says where it came from. Only a debug build of the server honours either
+   * (crates/gazelle-audio-server/src/remote/seam.rs), which is what this harness builds.
+   */
+  phoneSeams?: boolean;
 }
+
+/** The header a test sends to be a phone, when the server was started with `phoneSeams`. */
+export const TEST_PEER_HEADER = "x-gazelle-test-peer";
 
 /**
  * The variable that makes the server refuse the USB backend outright. Set on every server this
@@ -82,7 +92,8 @@ export async function startServer(extraArgs: readonly string[] = [], options: St
   }
   const binary = buildServer();
   const args = ["--bind", "127.0.0.1:0", "--no-persist", "--no-tray", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
-  const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv() });
+  const env = options.phoneSeams ? { ...childEnv(), GAZELLE_TEST_PHONE_LISTEN: "127.0.0.1", GAZELLE_TEST_PEER_HEADER: "1" } : childEnv();
+  const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env });
   live.add(child);
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
   exited.then(() => live.delete(child));

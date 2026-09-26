@@ -40,6 +40,14 @@ The window needs Microsoft's WebView2 runtime, which Windows 11 includes. Withou
 
 A Gazelle built from source without first running `corepack pnpm -C web build` serves a notice instead of the app. Build the web interface, then build Gazelle again.
 
+## A phone cannot reach Gazelle
+
+- **Is Allow phones on this network on?** The Phones section on the Workspace page says whether Gazelle is listening, and the addresses to use.
+- **Is the phone on the same network?** Not on mobile data, and not on a guest Wi-Fi that keeps devices apart.
+- **Did Windows' firewall block it?** If you declined the firewall's question, or it never asked, allow Gazelle in Windows Security, Firewall and network protection, Allow an app through firewall, for private networks. Check that Windows counts your network as private.
+- **"This device is not paired with Gazelle"** means the phone reached Gazelle but has no key, or was revoked: pair it again from the Phones section.
+- **"That code did not work"**: codes last 5 minutes and work once. Choose **Pair a phone** again for a new one.
+
 ## "Gazelle cannot reach its server", or "The server is not connected"
 
 The page lost its connection to the Gazelle program: it was quit, it crashed, or (from another computer) the network dropped. Controls are disabled until it reconnects, and nothing you did meanwhile is sent later. Start Gazelle again, then **Try again** or reload.

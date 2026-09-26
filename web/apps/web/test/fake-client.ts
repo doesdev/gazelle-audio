@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -203,6 +203,57 @@ export class FakeClient implements Client {
     if (this.failUpdates !== undefined) throw this.failUpdates;
     if (this.updateStatus === undefined) throw new GazelleError("http_404", "GET /api/v1/update returned HTTP 404");
     return this.updateStatus;
+  }
+
+  /**
+   * What `GET /remote` answers, or undefined for a caller the server refuses it to (a phone, which
+   * gets `not_local`).
+   */
+  remoteStatus: RemoteStatus | undefined = {
+    allow_phones: false,
+    fixed_by_bind: null,
+    listening: false,
+    error: null,
+    port: 8420,
+    addresses: [{ ip: "192.168.1.5", primary: true }],
+    urls: ["http://192.168.1.5:8420/"],
+    phones: [],
+    pairing: null,
+    now_ms: 1_789_700_000_000,
+  };
+  /** Every phones call the section made, in order. */
+  readonly remoteCalls: string[] = [];
+
+  readonly remote = {
+    status: async (): Promise<RemoteStatus> => this.#remoteAnswer("status"),
+    setAllowPhones: async (on: boolean): Promise<RemoteStatus> => {
+      const status = this.#remoteAnswer(`allow:${on}`);
+      this.remoteStatus = { ...status, allow_phones: on, listening: on };
+      return this.remoteStatus;
+    },
+    startPairing: async (): Promise<RemotePairing> => {
+      const status = this.#remoteAnswer("pairing");
+      if (!status.listening) throw new GazelleError("phones_off", "Turn on Allow phones on this network first");
+      const pairing: RemotePairing = { code: "ABCD-EFGH", expires_ms: status.now_ms + 300_000, pair_urls: ["http://192.168.1.5:8420/pair#code=ABCD-EFGH"], qr: { size: 2, rows: ["10", "01"] } };
+      this.remoteStatus = { ...status, pairing };
+      return pairing;
+    },
+    cancelPairing: async (): Promise<{ cancelled: boolean }> => {
+      const status = this.#remoteAnswer("cancel");
+      this.remoteStatus = { ...status, pairing: null };
+      return { cancelled: status.pairing !== null };
+    },
+    revoke: async (id: string): Promise<{ revoked: boolean }> => {
+      const status = this.#remoteAnswer(`revoke:${id}`);
+      this.remoteStatus = { ...status, phones: status.phones.filter((p) => p.id !== id) };
+      return { revoked: status.phones.some((p) => p.id === id) };
+    },
+  };
+
+  #remoteAnswer(call: string): RemoteStatus {
+    this.remoteCalls.push(call);
+    if (this.remoteStatus === undefined) throw new GazelleError("not_local", "Only Gazelle on the computer itself can do that.");
+    return this.remoteStatus;
   }
 
   /** What `GET /aggregate` answers, or undefined for a server that does not serve the route. */

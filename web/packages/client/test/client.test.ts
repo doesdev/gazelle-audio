@@ -415,7 +415,7 @@ test("the update surface is four calls under /update, and a refused restart keep
   const refused = errorOf(await outcome(client.update.restart()));
   assert.deepEqual([refused.code, refused.message], ["nothing_staged", "no update is ready; nothing to restart into"]);
 
-  // A server bound off loopback does not serve these at all, which is not a failure to report.
+  // A server started with --no-update does not serve these at all, which is not a failure to report.
   answer = { ok: false, status: 404, body: undefined };
   assert.equal(errorOf(await outcome(client.update.status())).code, "http_404");
   await client.close();

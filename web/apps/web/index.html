@@ -24,6 +24,14 @@
       .boot-error { max-width: 520px; margin: 15vh auto; padding: 0 16px; }
       .boot-error h1 { font: 600 22px "Josefin Sans Variable", system-ui, sans-serif; }
       .boot-error button { font: inherit; padding: 4px 12px; }
+      /* The pair page (src/pair), which a phone opens before the app: large enough to use. */
+      .pair { font-size: 15px; }
+      .pair form { display: grid; gap: 6px; }
+      .pair label { margin-top: 8px; color: var(--ga-text-secondary, #a8abb0); }
+      .pair input { font: inherit; padding: 8px; border-radius: 4px; border: 1px solid #4a4d52; background: #111214; color: inherit; }
+      .pair #pair-code { font-size: 20px; letter-spacing: 0.12em; text-transform: uppercase; }
+      .pair button { margin-top: 12px; padding: 10px 16px; }
+      .pair [data-ok="false"] { color: #e0a040; }
     </style>
     <script type="module" src="/src/main.ts"></script>
   </head>

@@ -35,7 +35,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::boot::{boot_program, RunKey, StartOnBoot};
-use super::{device_label, menu, ui_url, Command, Context, Item, Status, UpdateMenu, ANTELOPE_SERVICE, TITLE};
+use super::{device_label, menu, ui_url, Command, Context, Item, PhonesMenu, Status, UpdateMenu, ANTELOPE_SERVICE, TITLE};
 
 /// The message the icon sends to the window.
 const WM_TRAY: u32 = WM_APP + 1;
@@ -276,6 +276,7 @@ fn status(state: &State) -> Status {
             staged: updater.staged(),
         }),
         has_window: c.show_window.is_some(),
+        phones: c.phones.as_ref().map(|p| PhonesMenu { on: (p.on)(), fixed: p.fixed }),
     }
 }
 
@@ -327,6 +328,15 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
             Ok(false) => tracing::info!("start on boot: off"),
             Err(e) => tracing::warn!("changing start on boot: {e}"),
         },
+        // Starting the listener is a bind, done on this thread: it answers at once either way.
+        Some(Command::AllowPhones) => {
+            if let Some(phones) = &state.context.phones {
+                match (phones.toggle)() {
+                    Ok(on) => tracing::info!("phones on this network {}, from the tray", if on { "allowed" } else { "not allowed" }),
+                    Err(why) => tracing::warn!("changing whether phones are allowed: {why}"),
+                }
+            }
+        }
         Some(Command::OpenLogFolder) => {
             if let Some(dir) = &state.context.log_dir {
                 if let Err(code) = shell_open(&dir.display().to_string()) {

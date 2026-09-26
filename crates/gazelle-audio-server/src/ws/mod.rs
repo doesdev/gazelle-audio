@@ -5,6 +5,7 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::Extension;
 use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -16,6 +17,7 @@ use crate::device::descriptor::DeviceId;
 use crate::device::manager::ServerEvent;
 use crate::device::worker::DeviceEvent;
 use crate::error::ServerError;
+use crate::remote::PhoneSession;
 use crate::value::{fields_to_json, json_to_payload_values, to_hex};
 use crate::AppState;
 
@@ -35,11 +37,22 @@ struct RpcRequest {
     ext3: Option<u32>,
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+/// The upgrade. A phone's request carries its session (`remote::guard` put it there, having
+/// checked the token before any upgrade), and its socket closes the moment the phone is revoked or
+/// phones are turned off. This machine's connections carry none and are never closed that way.
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>, phone: Option<Extension<PhoneSession>>) -> Response {
+    let phone = phone.map(|Extension(session)| session);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, phone))
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSession>) {
+    let ended = async move {
+        match phone {
+            Some(session) => session.ended().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::pin!(ended);
     let (mut sink, mut stream) = socket.split();
     let mut events = state.devices.subscribe();
     // RPCs run as their own tasks and report back here, so a request waiting on a device
@@ -64,6 +77,12 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     loop {
         let frame = tokio::select! {
+            // A revoked phone is let go at once, with a close frame that says why.
+            () = &mut ended => {
+                let close = axum::extract::ws::CloseFrame { code: 4401, reason: "this phone is no longer paired".into() };
+                let _ = sink.send(Message::Close(Some(close))).await;
+                break;
+            }
             // Outbound: device and lifecycle events.
             ev = events.recv() => match ev {
                 Ok(e) => event_frame(&e),

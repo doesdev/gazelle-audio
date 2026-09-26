@@ -7,6 +7,7 @@
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
+import type { RemotePairing, RemoteStatus } from "./remote.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
 import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
@@ -143,9 +144,9 @@ export interface Client {
   setDriver(id: string, change: DriverChange): Promise<DriverWriteReport>;
   /**
    * The aggregate audio driver: one driver a DAW opens with several interfaces underneath it.
-   * Served only on a loopback bind and only to a caller on the same machine, like `update`, so a
-   * page treats a rejection as "this server does not offer it" rather than as a failure. The
-   * setup itself is the workspace's `aggregate` section, saved with the rest of it.
+   * Answered only to a caller on the server's own machine, like `update`, so a page treats a
+   * rejection as "this server does not offer it" rather than as a failure. The setup itself is the
+   * workspace's `aggregate` section, saved with the rest of it.
    */
   readonly aggregate: {
     /**
@@ -185,9 +186,9 @@ export interface Client {
     stopCalibrate(): Promise<AggregateCalibrateStopped>;
   };
   /**
-   * The in-app updater. Served only on a loopback bind, so every call rejects with `http_404` on
-   * a server reachable from the network; a caller that shows update state treats that as "this
-   * server does not do updates" rather than as a failure.
+   * The in-app updater. Answered only to a caller on the server's own machine: a phone gets
+   * `not_local` (403), and a server started with --no-update answers `http_404`. A caller that
+   * shows update state treats either as "no updates here" rather than as a failure.
    */
   readonly update: {
     /** What is known now. Asks the release source nothing, so it may be polled. */
@@ -202,6 +203,21 @@ export interface Client {
      * when there is nothing to restart into.
      */
     restart(): Promise<UpdateRestart>;
+  };
+  /**
+   * Phones on the network: the setting, pairing and the paired phones. Answered only to a caller
+   * on the server's own machine, so on a phone every call rejects with `not_local`. Pairing itself,
+   * which the phone does, is `pairPhone`.
+   */
+  readonly remote: {
+    status(): Promise<RemoteStatus>;
+    /** Allow phones or not. Acted on at once; rejects with `fixed_by_bind` when --bind decides. */
+    setAllowPhones(on: boolean): Promise<RemoteStatus>;
+    /** Start pairing, replacing any code running. Rejects with `phones_off` while no phone could reach the server. */
+    startPairing(): Promise<RemotePairing>;
+    cancelPairing(): Promise<{ cancelled: boolean }>;
+    /** Unpair a phone. Its next request is refused and its open connection closes. */
+    revoke(id: string): Promise<{ revoked: boolean }>;
   };
   close(): Promise<void>;
 }
@@ -376,6 +392,14 @@ class Connection implements Client {
     check: async (): Promise<UpdateStatus> => (await this.#http("POST", "update/check")) as UpdateStatus,
     download: async (): Promise<UpdateStatus> => (await this.#http("POST", "update/download")) as UpdateStatus,
     restart: async (): Promise<UpdateRestart> => (await this.#http("POST", "update/restart")) as UpdateRestart,
+  };
+
+  readonly remote = {
+    status: async (): Promise<RemoteStatus> => (await this.#http("GET", "remote")) as RemoteStatus,
+    setAllowPhones: async (on: boolean): Promise<RemoteStatus> => (await this.#http("PUT", "remote", { allow_phones: on })) as RemoteStatus,
+    startPairing: async (): Promise<RemotePairing> => (await this.#http("POST", "remote/pairing")) as RemotePairing,
+    cancelPairing: async (): Promise<{ cancelled: boolean }> => (await this.#http("DELETE", "remote/pairing")) as { cancelled: boolean },
+    revoke: async (id: string): Promise<{ revoked: boolean }> => (await this.#http("DELETE", `remote/phones/${encodeURIComponent(id)}`)) as { revoked: boolean },
   };
 
   constructor(baseUrl: string, options: ConnectOptions) {

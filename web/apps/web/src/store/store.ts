@@ -28,6 +28,7 @@ import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
 import { AggregateModel } from "./aggregate.ts";
+import { PhonesModel } from "./phones.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
 import { updatePrompt, type UpdatePrompt } from "./update.ts";
 import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
@@ -357,7 +358,7 @@ export interface Notice {
  *
  * Polling, not the event socket: that socket carries the device manager's own broadcast and is
  * built from `AppState`, which deliberately knows nothing about the updater (the updater is a
- * separate layer that only exists on a loopback bind). Pushing update state down it would mean a
+ * separate layer that only answers this machine). Pushing update state down it would mean a
  * new server event and an updater inside `AppState`, to save one small request every half minute.
  * The faster rate while a check or a download is running is so "downloading" turns into "ready"
  * while the person is still looking at it.
@@ -921,6 +922,22 @@ export class Store {
   });
 
   /**
+   * Phones on the network, for the Workspace page's Phones section: the setting, pairing and the
+   * paired phones. Answered only to the computer Gazelle runs on; a phone is told so.
+   */
+  readonly phones: PhonesModel = new PhonesModel(
+    {
+      status: () => this.#client.remote.status(),
+      setAllowPhones: (on) => this.#client.remote.setAllowPhones(on),
+      startPairing: () => this.#client.remote.startPairing(),
+      cancelPairing: () => this.#client.remote.cancelPairing(),
+      revoke: (id) => this.#client.remote.revoke(id),
+    },
+    // Through `this`, for the same reason as the aggregate's.
+    { setTimeout: (callback, ms) => this.#timers.setTimeout(callback, ms), clearTimeout: (handle) => this.#timers.clearTimeout(handle) },
+  );
+
+  /**
    * Edits the aggregate's setup in the workspace. Saving it is what exports the file the driver
    * reads and tells the driver to look again, so nothing else has to be sent.
    */
@@ -1112,9 +1129,10 @@ export class Store {
   }
 
   /**
-   * Read the update status, then keep reading it. A server that does not serve the route at all
-   * (bound off loopback, or started with --no-update) answers 404, and there is then nothing to
-   * say about updates and no reason to keep asking. Anything else is a hiccup worth retrying.
+   * Read the update status, then keep reading it. A server started with --no-update does not serve
+   * the route (404), and one asked from a phone refuses it (403 `not_local`: updating is the
+   * computer's business); either way there is nothing to say about updates and no reason to keep
+   * asking. Anything else is a hiccup worth retrying.
    */
   #followUpdates(): void {
     void (async () => {
@@ -1125,7 +1143,7 @@ export class Store {
         if (status.state.state === "checking" || status.state.state === "downloading") again = UPDATE_BUSY_POLL_MS;
       } catch (error) {
         this.#update.value = undefined;
-        if (error instanceof GazelleError && error.code === "http_404") return;
+        if (error instanceof GazelleError && (error.code === "http_404" || error.code === "not_local")) return;
       }
       if (this.#followingUpdates) this.#updateTimer = this.#timers.setTimeout(() => this.#followUpdates(), again);
     })();

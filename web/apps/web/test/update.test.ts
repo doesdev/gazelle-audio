@@ -43,7 +43,7 @@ test("an app that is up to date, checking, or has never checked says nothing at 
   for (const state of [{ state: "unknown" }, { state: "checking" }, { state: "up_to_date" }] as UpdateState[]) {
     assert.equal(updatePrompt(status(state)), undefined, `${state.state} is not worth a line`);
   }
-  // No updater at all (a server bound off loopback, or --no-update) is the same silence.
+  // No updater at all (asked from a phone, or --no-update) is the same silence.
   assert.equal(updatePrompt(undefined), undefined);
 });
 

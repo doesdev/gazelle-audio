@@ -20,6 +20,10 @@ Declared connections between two devices' digital ports, each with a health line
 
 The top-level channel groups, with their colours, folded or opened.
 
+## Phones
+
+**Allow phones on this network**, **Pair a phone** with its code and QR code, and the paired phones with **Revoke**. Only the computer Gazelle runs on can change any of it. [Phones on your network](05-the-app.md#phones-on-your-network) covers it, including what pairing does and does not protect.
+
 ## Snapshots and backup
 
 Taking, comparing and previewing snapshots, and exporting and importing the workspace, are in chapter 14, [Snapshots and backup](15-snapshots-and-backup.md).

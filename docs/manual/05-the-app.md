@@ -20,6 +20,7 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 | **Rescan devices** | Looks for interfaces again at once (it also does so every two seconds) |
 | Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](16-install-update-uninstall.md#updates) |
 | **Start on boot** | Starts Gazelle in the tray when you log in, with its window hidden until you open it |
+| **Allow phones on this network** | The same switch as on the Workspace page; see [Phones on your network](#phones-on-your-network). Greyed, and shown on, when `--bind` decides instead |
 | **Open log folder** | Opens the folder with Gazelle's log files |
 | **Quit** | Stops Gazelle. The devices keep their settings |
 
@@ -80,13 +81,35 @@ Failures and warnings appear as notices in the bottom-right corner, each closed 
 
 Every page that sends commands can show, at the right of its top bar, the last command it sent and its bytes, for example "Sent set_mixer: 70000000...". It appears while the explain mode is on, and in dry run, where it reads "Dry run, would send ..."; the rest of the time it stays out of the way.
 
-## On a phone or a second computer
+## Phones on your network
 
-Gazelle is a web app served by the program on your computer, so any browser that can reach it gets the same controls. By default Gazelle listens only on the computer itself (`127.0.0.1:8420`). To use it from a phone on your network, start Gazelle with `--bind 0.0.0.0:8420` and open `http://<your computer's address>:8420` on the phone. Anyone who can reach that address can then change your levels, with no password; see [Safety](02-safety.md#other-hazards-worth-knowing).
+Gazelle is a web app served by the program on your computer, so a phone's browser, or a second computer's, can have the same controls. By default Gazelle listens only on the computer itself (`127.0.0.1:8420`) and nothing else can reach it. Letting phones in takes two steps, both on the computer: allow phones on the network, then pair each phone.
+
+**Allow phones.** On the [Workspace page](12-workspace-page.md), the **Phones** section has **Allow phones on this network** (also in the tray menu). Turning it on takes a second click. Gazelle then also listens on every network connection your computer has, on the same port, straight away and without a restart; the section shows the addresses a phone would use, such as `http://192.168.1.20:8420/`. Turning it off stops listening at once and closes every phone's connection. The setting is kept in `%APPDATA%\gazelle\remote.json`.
+
+**Windows may ask.** The first time Gazelle listens on the network, Windows Defender Firewall may ask whether to allow it. Allow it on **private networks only** (your home or studio network), not public ones such as a café's. Gazelle never changes firewall settings itself; that is yours to decide. If you declined by mistake, the rule can be changed in Windows Security, Firewall and network protection, Allow an app through firewall.
+
+**Pair a phone.** Choose **Pair a phone**. Gazelle shows a code, such as `YHV8-YRJM`, and a QR code of the pairing address. Scan the QR code with the phone's camera, or open the address shown on the phone and type the code; letters and digits only, and case, spaces and dashes do not matter. The phone asks for a name for itself, then opens Gazelle. A code lasts 5 minutes, works once, and stops working after ten wrong tries; **Stop pairing** ends it sooner, and **New code** replaces it. From then on the phone stays paired, with nothing to type, until you revoke it.
+
+**Paired phones** are listed under the pairing, each with when it was paired and when and from which address it was last seen. **Revoke** (two clicks) unpairs a phone at once: its next request is refused and its open connection closes. Pair it again to let it back.
+
+Everything in the Phones section can be changed only from the computer Gazelle runs on. On a phone the section says so, and a phone never sees the update prompt: updating and restarting are the computer's business too.
 
 ![The Mixer page at phone width. The sidebar becomes a drawer, opened with the menu button.](../images/phone-mixer.png)
 
 At phone width the sidebar becomes a drawer, opened with the ☰ button and closed with Escape, a tap outside it, or by choosing a page. The mixer dock starts folded.
+
+### What pairing protects, and what it does not
+
+- **Only paired phones can control Gazelle.** Every request from another device must carry its phone's key, which pairing hands over once (as a cookie the phone's browser keeps, and in the answer for an app). Without one, the answer is a refusal. The key is kept on the computer only as a fingerprint that cannot be turned back into it.
+- **Pairing needs your screen.** A code comes only from the computer, lasts minutes, and is used once, so being on your network is not enough to get in: someone has to see the code.
+- **Some things stay on the computer**, whatever a phone holds: the Phones section itself, updates and restarting, the window, and the aggregate driver.
+- **What it does not protect: the connection is plain HTTP.** Anyone on the same network who can watch its traffic (on a shared or open Wi-Fi, or through a compromised router) can see everything the phone and Gazelle send each other, including the phone's key, and could use that key until you revoke the phone. Pairing decides who can control Gazelle, not who can watch. Allow phones only on a network you trust, and revoke a phone you have lost.
+- **This computer is trusted without pairing**, as it always was, so the window and your own scripts work as before. Gazelle refuses requests from a web page on another site, and requests that arrive under a name that is not this computer's, so a web page you visit cannot use your browser to reach it.
+
+### Started with `--bind`
+
+Starting Gazelle with `--bind` on a network address (see [the command line](18-command-line-and-api.md#options)) puts it on the network whatever the switch says, and the switch is shown on and greyed. Every other device still has to pair. With one specific address, such as `--bind 192.168.1.20:8420`, Gazelle also listens on `127.0.0.1` at that port, so the window and the pairing still work from the computer itself.
 
 ## Gestures
 

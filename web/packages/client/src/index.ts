@@ -21,6 +21,8 @@ export type {
 export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
 export type { AggregateAnswer, AggregateCalibrateChannel, AggregateCalibrateDirection, AggregateCalibrateOutcome, AggregateCalibratePhase, AggregateCalibrateReading, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibrateTrim, AggregateCalibrateWitness, AggregateCalibration, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateDrift, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePhaseState, AggregatePlan, AggregateRateInForce, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AggregateTrimReference, AggregateUsbChannels, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
 export type { UpdateRestart, UpdateState, UpdateStatus } from "./update.ts";
+export { pairPhone } from "./remote.ts";
+export type { PairFetch, RemoteAddress, RemotePaired, RemotePairing, RemotePhone, RemoteQr, RemoteStatus } from "./remote.ts";
 export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
 export { fromHex, toHex } from "./bytes.ts";

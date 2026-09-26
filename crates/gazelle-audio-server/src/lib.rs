@@ -10,7 +10,8 @@
 //! The transport backend is the real hardware unless `--backend loopback` asks for the emulator,
 //! because driving the interfaces is the whole point of the shipped app; attaching is read-only,
 //! and a write is still a deliberate act, with `--dry-run` there to show the bytes instead of
-//! sending them. Binding is loopback-only unless explicitly overridden. See
+//! sending them. Binding is loopback-only unless explicitly overridden, and anything reaching it
+//! from another machine must be a paired phone ([`remote`]). See
 //! [`no_hardware`] for the variable that keeps a test harness off real devices.
 
 /// The build script's icon-resource writer, compiled into the test build so its own tests run.
@@ -42,6 +43,7 @@ pub mod logging;
 pub mod no_hardware;
 pub mod notice;
 pub mod registry_set;
+pub mod remote;
 pub mod snapshot;
 pub mod tray;
 pub mod update;

@@ -6,6 +6,10 @@
 // its shape, says what it holds and asks before replacing; the server's own validation then
 // decides, and its reason is shown if it refuses. The file's contents are passed on untouched.
 // A workspace is layout only, so importing one sends nothing to a device.
+//
+// Phones: allowing phones on this network, pairing them and revoking them (phones-section.ts). It
+// is here because this page is what the server keeps for everyone, and phones are one more kind of
+// everyone.
 
 import { h } from "../core/dom.ts";
 import { effect, untracked } from "../core/signal.ts";
@@ -31,6 +35,7 @@ import {
 } from "../store/snapshots.ts";
 import { backupFileName, backupFileText, readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import { phonesSection, PHONES_STYLES } from "./phones-section.ts";
 import { href } from "./router.ts";
 
 /** "2 device names, 1 group and 1 link": the parts a file holds, the empty ones left out. */
@@ -109,6 +114,7 @@ export class GaWorkspace extends GaElement {
       .step-note, .step-held { flex: 1 1 100%; margin-left: 2.7em; color: var(--ga-notice-warning, var(--ga-text-primary)); overflow-wrap: anywhere; }
       .plan-nothing-sent { margin: 10px 0 0; padding: 6px 8px; border: 1px solid var(--ga-border-subtle); font-size: 11px; }
     `),
+    sheet(PHONES_STYLES),
   ];
 
   protected override render(): void {
@@ -123,6 +129,7 @@ export class GaWorkspace extends GaElement {
       h("ga-section", { heading: "Groups", explain: "workspace.groups" }, groups),
       h("ga-section", { heading: "Snapshots", explain: "workspace.snapshots" }, this.#snapshots()),
       h("ga-section", { heading: "Backup", explain: "workspace.backup" }, this.#backup()),
+      h("ga-section", { heading: "Phones", explain: "workspace.phones" }, phonesSection(store, (fn) => this.watch(fn), (fn) => this.onDisconnect(fn))),
     );
 
     this.watch(() => {
