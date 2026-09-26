@@ -31,7 +31,7 @@ Both take the same options. `gazelle-audio-server.exe --help` lists them; this t
 | `--no-window` | off | No desktop window; open the app in a browser |
 | `--hidden` | off | Start in the tray with the window hidden; **Open Gazelle** in the tray, or launching Gazelle again, shows it. What Start on boot runs. If Gazelle is already running, a `--hidden` start leaves it alone |
 | `--log-dir <DIR>` | `%LOCALAPPDATA%\gazelle\logs` for tray runs | Also log to a size-capped file in DIR |
-| `--install` | | Install this copy for the current user and stop. See [Install](16-install-update-uninstall.md#install) |
+| `--install` | | Install this copy for the current user and stop. See [Install](17-install-update-uninstall.md#install) |
 | `--start` | | With `--install`: start the installed copy |
 | `--no-start` | | With `--install`: do not start it, and do not ask |
 | `--uninstall` | | Remove the installed copy and stop. Settings and logs are kept unless `--purge` |
@@ -131,7 +131,7 @@ Keys are 256 random bits, kept by Gazelle only as SHA-256 fingerprints in `%APPD
 
 `GET /api/v1/ws` upgrades to a WebSocket carrying JSON text frames. From another device the upgrade needs a key like any other request, as a bearer token or the cookie; a revoked phone's socket is closed with code 4401.
 
-- The server's first frame is `{"type": "hello", ...}` with the version, backend, dry run, the devices and any notices.
+- The server's first frame is `{"type": "hello", ...}` with the version, backend, dry run, the devices, any notices, and `phone`: true on a paired phone's connection, which the routes that stay on the computer refuse.
 - Then events: `device_added`, `device_removed`, `cyclic` (a decoded status or meter report: `device_id`, `report_id`, `fields`), `undecoded`, and `lagged` when a slow client missed some.
 - To send a command: `{"id": 1, "device_id": "...", "command": "set_mute", "args": {"id": 0, "mute": 1}}`, optionally with `"dry_run": true`. The answer is `{"type": "rpc_response", "id": 1, "result": {...}}` or `{"type": "rpc_error", "id": 1, "error": {...}}`, in the order commands finish.
 

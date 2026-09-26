@@ -6,6 +6,7 @@
 import "@fontsource-variable/inter";
 import "@fontsource-variable/josefin-sans";
 
+import { effect } from "./core/signal.ts";
 import { DRAWER_MAX_PX } from "./elements/app.ts";
 import { provideStore } from "./elements/index.ts";
 import { openStore } from "./store/store.ts";
@@ -43,7 +44,13 @@ async function boot(): Promise<void> {
     const narrow = matchMedia(`(max-width: ${DRAWER_MAX_PX}px)`).matches;
     const store = await openStore(location.origin, { themeSources, narrow });
     provideStore(store);
+    // A phone opening the app's plain address lands on the page laid out for it.
+    if (store.phone && location.hash === "") history.replaceState(history.state, "", "#/remote");
     document.body.replaceChildren(document.createElement("ga-app"));
+    // Revoked on the computer while open: the app stops, and says so in its own place.
+    effect(() => {
+      if (store.unpaired.value) void showRevoked();
+    });
   } catch (error) {
     const box = document.createElement("div");
     box.className = "boot-error";
@@ -63,6 +70,26 @@ async function boot(): Promise<void> {
     box.append(heading, detail, retry);
     document.body.replaceChildren(box);
   }
+}
+
+/**
+ * The page a phone is left with once the computer has revoked it: the connection has stopped for
+ * good, since every try would be refused, and the way back is to pair again.
+ */
+async function showRevoked(): Promise<void> {
+  const { REVOKED_TITLE, REVOKED_TEXT } = await import("./store/pair.ts");
+  const box = document.createElement("div");
+  box.className = "boot-error";
+  box.dataset["testid"] = "unpaired";
+  const heading = document.createElement("h1");
+  heading.textContent = REVOKED_TITLE;
+  const detail = document.createElement("p");
+  detail.textContent = REVOKED_TEXT;
+  const again = document.createElement("a");
+  again.href = "/pair";
+  again.textContent = "Pair again";
+  box.append(heading, detail, again);
+  document.body.replaceChildren(box);
 }
 
 void boot();

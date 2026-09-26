@@ -53,6 +53,10 @@ export const UNPAIRED_TITLE = "This device is not paired with Gazelle";
 export const UNPAIRED_TEXT =
   "Gazelle only answers devices it has paired with. On the computer running Gazelle, open the Workspace page, and under Phones choose Pair a phone. Then scan its QR code with this phone, or open the pairing address it shows.";
 
+/** What the app says in its own place once the computer has revoked this phone. */
+export const REVOKED_TITLE = "This phone is no longer paired with Gazelle";
+export const REVOKED_TEXT = "Pair it again from the computer: Workspace, Phones.";
+
 export interface PairOutcome {
   ok: boolean;
   message: string;

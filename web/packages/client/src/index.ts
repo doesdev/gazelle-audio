@@ -1,4 +1,4 @@
-export { API_PATH, DEFAULT_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, connect } from "./client.ts";
+export { API_PATH, CLOSE_UNPAIRED, DEFAULT_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, connect } from "./client.ts";
 export type {
   Client,
   ClientEvents,

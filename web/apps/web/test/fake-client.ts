@@ -30,7 +30,8 @@ export interface Invocation {
 
 export class FakeClient implements Client {
   status: Status = "open";
-  server: ServerInfo = { version: "0.1.0", backend: "loopback", dry_run: true, notices: [] };
+  server: ServerInfo = { version: "0.1.0", backend: "loopback", dry_run: true, notices: [], phone: false };
+  unpaired = false;
   readonly devices = new Map<string, DeviceDescriptor>();
   readonly listeners = new Map<string, Set<(value: unknown) => void>>();
   readonly cyclic = new Map<string, (fields: Record<string, unknown>) => void>();

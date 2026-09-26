@@ -6,7 +6,7 @@
 import { h } from "../core/dom.ts";
 import { channelSpan } from "../store/cables.ts";
 import { DIGITAL_GAIN, PREAMP_TYPES, type DigitalGroup, type InputsModel, type PreampType } from "../store/inputs.ts";
-import { bindControl, type ControlOptions } from "./controls.ts";
+import { bindControl, TOUCH_RISE_PER_S, type ControlOptions } from "./controls.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { LINK_STYLES, linkBar, linkButton } from "./link-bar.ts";
 import { polarPlot, POLAR_PLOT_STYLES, stereoOrientation, type PlotHead } from "./polar-plot.ts";
@@ -57,7 +57,6 @@ export const INPUT_CONTROL_STYLES = `
     border-radius: 3px;
     background: var(--ga-surface-inset);
     cursor: ew-resize;
-    touch-action: none;
     outline: none;
   }
   .gain:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
@@ -365,7 +364,8 @@ export function preampCard(host: ControlHost, inputs: InputsModel, i: number, en
   const fill = h("div", { class: "fill" });
   const value = h("span", { class: "value" });
   const gain = h("div", { class: "gain", role: "slider", tabindex: 0, "aria-label": `${label} gain`, "data-testid": `pre-gain-${i}`, "data-explain": "inputs.gain", "data-explain-name": label }, fill, value);
-  const range: ControlOptions = { axis: "x", ...inputs.gainRange(0), up: 1, page: 6, reset: 0, get: () => state.peek().gain, set: (v) => inputs.setGain(i, v), enabled };
+  // Gain is loudness as much as a level is, so a finger raises it no faster than one.
+  const range: ControlOptions = { axis: "x", ...inputs.gainRange(0), up: 1, page: 6, reset: 0, touchRise: TOUCH_RISE_PER_S, get: () => state.peek().gain, set: (v) => inputs.setGain(i, v), enabled };
   bindControl(gain, range);
 
   let armTimer: ReturnType<typeof setTimeout> | undefined;

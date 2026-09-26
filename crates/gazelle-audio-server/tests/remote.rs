@@ -411,8 +411,11 @@ async fn revoking_a_phone_closes_its_open_websocket_and_no_other() {
     let (mut lost, _) = tokio_tungstenite::connect_async(ws_request(address, &[("authorization", &bearer(&lose))])).await.unwrap();
     let (mut kept, _) = tokio_tungstenite::connect_async(ws_request(address, &[("authorization", &bearer(&keep))])).await.unwrap();
     let (mut here, _) = tokio_tungstenite::connect_async(ws_request(local, &[])).await.unwrap();
-    for ws in [&mut lost, &mut kept, &mut here] {
-        assert_eq!(hello(ws).await["type"], "hello");
+    // The hello says which connections are phones, so the web app on one skips what is refused.
+    for (ws, phone) in [(&mut lost, true), (&mut kept, true), (&mut here, false)] {
+        let said = hello(ws).await;
+        assert_eq!(said["type"], "hello");
+        assert_eq!(said["phone"], phone);
     }
 
     s.remote.revoke(&lose_id).unwrap();

@@ -27,6 +27,89 @@ export interface ControlOptions {
   inset?: number;
   /** For a level (a fader, a volume, a send, a return): unity by Ctrl+click, and `reset` is its safe level. */
   level?: LevelReset;
+  /** `valueAt`'s inverse: where a value sits, as a fraction of the travel. Linear when left out. */
+  positionOf?(value: number): number;
+  /**
+   * How fast a finger may move the value towards `up` (louder), in the value's units per second.
+   * A level takes `TOUCH_RISE_PER_S` unless it says otherwise; anything else is not held back.
+   */
+  touchRise?: number;
+}
+
+/**
+ * Touch (the Remote page, 2026-09-26). A mouse click on a control's track jumps the value there, which
+ * is right at a desk (the user, 2026-09-18). A finger is different: it lands on a fader while the
+ * page is being scrolled, and a jump there could take Monitor from -40 dB to 0 dB. So under a finger:
+ *
+ * - **Drag only.** Touching a control changes nothing. Moving along it past `TOUCH_SLOP_PX` starts a
+ *   drag, and the value then follows the finger from where it was, not from where the finger is: the
+ *   cap does not jump to the finger. A tap, or a scroll across the control, changes nothing.
+ * - **Louder slowly.** Towards `up` a level moves at most `TOUCH_RISE_PER_S` per second, however fast
+ *   the finger goes, so a flick adds a dB or two, never the whole travel. Quieter is never held back.
+ *   When the finger outruns it, the value is picked up again where the finger is, so moving back
+ *   makes it quieter at once.
+ * - **No double-tap reset.** A double-click resets a level; a double tap would be too easy to make
+ *   while scrolling, and the header's setting can make that reset unity. The Remote page has its
+ *   own reset button behind a confirm instead.
+ * - The browser keeps the other direction for scrolling (`touch-action`, set by `bindControl`), so a
+ *   page of horizontal faders still scrolls up and down under a finger, and a row of vertical ones
+ *   sideways.
+ *
+ * A pen is treated as a mouse: it is as precise, and it is not scrolling the page.
+ */
+export const TOUCH_SLOP_PX = 6;
+/** How fast a finger may make a level louder, in dB a second: a slow, deliberate drag keeps up with it. */
+export const TOUCH_RISE_PER_S = 24;
+/** The longest wait between two moves the rise counts, so a finger held still and then flicked gains no more. */
+export const TOUCH_RISE_GAP_MS = 50;
+
+/** A finger on a control, between touching it and letting go. */
+export interface TouchDrag {
+  readonly id: number;
+  /** Where along the axis, in pixels, the finger came down: the slop is measured from here. */
+  readonly startPx: number;
+  /** Past the slop: the value follows the finger. */
+  readonly dragging: boolean;
+  /** Where the finger was, as a fraction of the travel, when the value was last picked up. */
+  readonly anchor: number;
+  /** The value it was picked up at, unrounded. */
+  readonly anchorValue: number;
+  /** The value last set, unrounded, so small steps add up however the model rounds. */
+  readonly value: number;
+  /** When the value last moved, in ms. */
+  readonly at: number;
+}
+
+/** How a drag maps travel to values: the control's own scale and direction. */
+export interface TouchScale {
+  valueAt(fraction: number): number;
+  positionOf(value: number): number;
+  up: 1 | -1;
+  /** Units a second towards `up`, or undefined for no limit. */
+  rise: number | undefined;
+}
+
+export function touchStart(id: number, fraction: number, px: number, value: number, at: number): TouchDrag {
+  return { id, startPx: px, dragging: false, anchor: fraction, anchorValue: value, value, at };
+}
+
+/**
+ * One move of a finger: the drag as it now is and, once it is dragging, the value to set. A move
+ * within the slop sets nothing; the one that leaves it picks the value up there, so it does not jump
+ * by the slop either.
+ */
+export function touchMove(drag: TouchDrag, fraction: number, px: number, at: number, scale: TouchScale): { drag: TouchDrag; value?: number } {
+  if (!drag.dragging) {
+    if (Math.abs(px - drag.startPx) < TOUCH_SLOP_PX) return { drag };
+    return { drag: { ...drag, dragging: true, anchor: fraction, anchorValue: drag.value, at } };
+  }
+  const target = scale.valueAt(Math.min(1, Math.max(0, scale.positionOf(drag.anchorValue) + fraction - drag.anchor)));
+  const louder = (target - drag.value) * scale.up > 0;
+  if (louder && scale.rise !== undefined) {
+    const allowed = drag.value + (scale.up * scale.rise * Math.min(TOUCH_RISE_GAP_MS, Math.max(0, at - drag.at))) / 1000;
+    if ((target - allowed) * scale.up > 0) return { drag: { ...drag, anchor: fraction, anchorValue: allowed, value: allowed, at }, value: allowed };
+  }
+  return { drag: { ...drag, value: target, at }, value: target };
 }
 
 /**
@@ -56,20 +139,43 @@ export function levelTitle(level: LevelReset): string {
   return level.unityOnDoubleClick() ? `Double-click or Ctrl/Cmd+click: ${level.unityText}.` : `Double-click: ${level.resetText}. Ctrl/Cmd+click: ${level.unityText}.`;
 }
 
-/** Pointer drag, wheel, double-click reset and keyboard control of a value along one axis. */
+/**
+ * Pointer drag, wheel, double-click reset and keyboard control of a value along one axis. A mouse or
+ * pen jumps to where it presses and drags from there; a finger only drags (see `TOUCH_SLOP_PX`).
+ */
 export function bindControl(element: HTMLElement, options: ControlOptions): void {
-  const valueAt = (event: PointerEvent) => {
+  const fractionAt = (event: PointerEvent) => {
     const rect = element.getBoundingClientRect();
     const inset = options.inset ?? 0;
-    const fraction = Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top - inset) / (rect.height - 2 * inset) : (event.clientX - rect.left - inset) / (rect.width - 2 * inset)));
-    return options.valueAt === undefined ? options.min + fraction * (options.max - options.min) : options.valueAt(fraction);
+    return Math.min(1, Math.max(0, options.axis === "y" ? (event.clientY - rect.top - inset) / (rect.height - 2 * inset) : (event.clientX - rect.left - inset) / (rect.width - 2 * inset)));
   };
+  const valueOf = (fraction: number) => (options.valueAt === undefined ? options.min + fraction * (options.max - options.min) : options.valueAt(fraction));
+  const valueAt = (event: PointerEvent) => valueOf(fractionAt(event));
+  const along = (event: PointerEvent) => (options.axis === "y" ? event.clientY : event.clientX);
+  const scale = (): TouchScale => ({
+    valueAt: valueOf,
+    positionOf: (value) => (options.positionOf === undefined ? (value - options.min) / (options.max - options.min) : options.positionOf(value)),
+    up: options.up,
+    rise: options.touchRise ?? (options.level === undefined ? undefined : TOUCH_RISE_PER_S),
+  });
+  // The browser keeps the other axis, so a finger across a control can still scroll the page.
+  element.style.touchAction = options.axis === "y" ? "pan-x" : "pan-y";
+  let touch: TouchDrag | undefined;
+  /** What pressed last: a double-click a finger made is not a reset. */
+  let pointer = "mouse";
   const level = options.level;
   level?.watch(() => {
     element.title = levelTitle(level);
   });
   element.addEventListener("pointerdown", (event) => {
+    pointer = event.pointerType;
     if (!options.enabled() || event.button !== 0) return;
+    if (event.pointerType === "touch") {
+      // Nothing moves where a finger lands, and the browser may still take it for a scroll.
+      element.focus({ preventScroll: true });
+      touch = touchStart(event.pointerId, fractionAt(event), along(event), options.get(), event.timeStamp);
+      return;
+    }
     element.focus();
     event.preventDefault();
     // Ctrl+click on a level is unity, wherever it lands, and starts no drag.
@@ -78,10 +184,27 @@ export function bindControl(element: HTMLElement, options: ControlOptions): void
     options.set(valueAt(event));
   });
   element.addEventListener("pointermove", (event) => {
+    if (touch !== undefined && event.pointerId === touch.id) {
+      if (!options.enabled()) return;
+      const step = touchMove(touch, fractionAt(event), along(event), event.timeStamp, scale());
+      touch = step.drag;
+      if (step.value !== undefined) options.set(step.value);
+      return;
+    }
     if (element.hasPointerCapture(event.pointerId)) options.set(valueAt(event));
   });
+  // Lifted, or taken by the browser for a scroll: the drag is over either way.
+  for (const type of ["pointerup", "pointercancel"] as const) {
+    element.addEventListener(type, (event) => {
+      if (touch?.id === event.pointerId) touch = undefined;
+    });
+  }
+  // A long press is a finger resting on a control, not a request for the page's menu.
+  element.addEventListener("contextmenu", (event) => {
+    if (pointer === "touch") event.preventDefault();
+  });
   element.addEventListener("dblclick", (event) => {
-    if (!options.enabled()) return;
+    if (!options.enabled() || pointer === "touch") return;
     // Two Ctrl+clicks have already set unity; the double-click they make is not a reset.
     if (level !== undefined && (event.ctrlKey || event.metaKey)) return;
     options.set(level?.unityOnDoubleClick() === true ? level.unity : options.reset);
@@ -257,6 +380,8 @@ export function bindMomentary(button: HTMLElement, set: (on: boolean) => void, e
     press();
   });
   for (const type of ["pointerup", "pointerleave", "pointercancel", "blur"]) button.addEventListener(type, release);
+  // A finger held on it is talking, not asking for the page's menu.
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
   button.addEventListener("keydown", (event) => {
     if ((event.key === " " || event.key === "Enter") && !event.repeat) {
       event.preventDefault();

@@ -15,12 +15,13 @@
     "manual/11-effects-page.md",
     "manual/12-workspace-page.md",
     "manual/13-aggregate-page.md",
-    "manual/14-surfaces-and-cables.md",
-    "manual/15-snapshots-and-backup.md",
-    "manual/16-install-update-uninstall.md",
-    "manual/17-troubleshooting.md",
-    "manual/18-command-line-and-api.md",
-    "manual/19-glossary.md"
+    "manual/14-remote-page.md",
+    "manual/15-surfaces-and-cables.md",
+    "manual/16-snapshots-and-backup.md",
+    "manual/17-install-update-uninstall.md",
+    "manual/18-troubleshooting.md",
+    "manual/19-command-line-and-api.md",
+    "manual/20-glossary.md"
   ],
   "cheatSheet": "cheat-sheet.md"
 }

@@ -64,7 +64,7 @@ test("connect resolves on hello with the server's info and devices", async () =>
   const { client, socket } = await open();
   assert.equal(socket.url, "ws://127.0.0.1:8420/api/v1/ws");
   assert.equal(client.status, "open");
-  assert.deepEqual(client.server, { version: "0.1.0", backend: "loopback", dry_run: false, notices: [] });
+  assert.deepEqual(client.server, { version: "0.1.0", backend: "loopback", dry_run: false, notices: [], phone: false });
   assert.deepEqual([...client.devices.keys()], ["loopback-0", "loopback-1", "usb:1:2:3:4"]);
   await client.close();
 });

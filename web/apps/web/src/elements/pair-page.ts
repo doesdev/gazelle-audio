@@ -40,7 +40,8 @@ export function showPairPage(): void {
     void submitPair(code.value, name.value, pairHere(location.origin)).then((outcome) => {
       status.textContent = outcome.message;
       status.dataset["ok"] = String(outcome.ok);
-      if (outcome.ok) location.replace("/");
+      // Paired: on to the page laid out for a phone.
+      if (outcome.ok) location.replace("/#/remote");
       else button.disabled = false;
     });
   });

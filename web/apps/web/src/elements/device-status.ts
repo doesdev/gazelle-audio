@@ -34,7 +34,7 @@ export class GaDeviceStatus extends GaElement {
       .power { display: flex; gap: 6px; margin-top: 8px; }
       .brightness-row { display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr); align-items: center; gap: 10px; margin-top: 8px; }
       .brightness-row .caption { font-size: 12px; color: var(--ga-text-secondary); }
-      .brightness { position: relative; height: 22px; margin-top: 8px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; touch-action: none; outline: none; }
+      .brightness { position: relative; height: 22px; margin-top: 8px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; outline: none; }
       .brightness:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
       .brightness .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .brightness .value { position: absolute; inset: 0; font-size: 11px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }

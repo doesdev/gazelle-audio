@@ -46,6 +46,9 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>, pho
 }
 
 async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSession>) {
+    // Said in the hello, so the web app on a phone never asks for what stays on this machine
+    // (`remote::guard::LOCAL_ONLY`) only to be refused.
+    let is_phone = phone.is_some();
     let ended = async move {
         match phone {
             Some(session) => session.ended().await,
@@ -70,6 +73,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSe
         "devices": state.devices.descriptors(),
         // Read here rather than pushed, so a client that reconnects gets the current answer.
         "notices": crate::notice::current(&state.backend, state.devices.len(), crate::tray::antelope_service_running()),
+        // True for a paired phone: update, window, aggregate and remote answer it 403 `not_local`.
+        "phone": is_phone,
     });
     if sink.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;

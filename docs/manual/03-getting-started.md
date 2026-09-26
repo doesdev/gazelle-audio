@@ -19,7 +19,7 @@ Each release on the project's GitHub page (https://github.com/doesdev/gazelle-au
 2. Double-click it. The program is **not code-signed**, so Windows SmartScreen may say "Windows protected your PC". Choose **More info**, then **Run anyway**, but only if you downloaded the file from the project's own releases page.
 3. Gazelle asks "Install Gazelle for your account?". Choose **Install**.
 
-That is all: Gazelle copies itself to `%LOCALAPPDATA%\Programs\Gazelle`, adds **Gazelle** to the Start Menu and to Settings, Apps, and opens. No administrator rights are needed, and Windows does not ask for them. You can delete the downloaded file afterwards. Chapter 15, [Install, update and uninstall](16-install-update-uninstall.md), has the details, including what happens when you run it over an installed copy.
+That is all: Gazelle copies itself to `%LOCALAPPDATA%\Programs\Gazelle`, adds **Gazelle** to the Start Menu and to Settings, Apps, and opens. No administrator rights are needed, and Windows does not ask for them. You can delete the downloaded file afterwards. Chapter 15, [Install, update and uninstall](17-install-update-uninstall.md), has the details, including what happens when you run it over an installed copy.
 
 #### Or from the zip
 
@@ -79,7 +79,7 @@ Starting Gazelle a second time just brings the running window to the front.
 
 > **Warning.** Opening a page reads your devices and changes nothing. Changing any control changes the device at once. Turn your monitors down before you start exploring; see [Safety](02-safety.md).
 
-If no interface appears, see [No devices](17-troubleshooting.md#no-devices-appear).
+If no interface appears, see [No devices](18-troubleshooting.md#no-devices-appear).
 
 ![The Devices page for a Quadro, with the sidebar's device cards, meters and Control Room on the right, and the mixer dock along the bottom.](../images/devices-quadro.png)
 

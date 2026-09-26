@@ -31,7 +31,6 @@ export const OUTPUT_CONTROL_STYLES = `
     border-radius: 3px;
     background: var(--ga-surface-inset);
     cursor: ew-resize;
-    touch-action: none;
     outline: none;
   }
   .volume:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }

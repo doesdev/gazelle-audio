@@ -59,7 +59,6 @@ export class GaStrip extends GaElement {
         border-radius: 2px;
         background: var(--ga-surface-inset);
         cursor: ew-resize;
-        touch-action: none;
       }
       .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--ga-accent); opacity: 0.75; }
       /* Short ticks at the edges only, so the centre mark never strikes through the value; at centre the value says "C" and the ticks go. */
@@ -71,7 +70,7 @@ export class GaStrip extends GaElement {
       :host([strip="master"]) .level-area { grid-template-columns: 18px 1fr; }
       .scale { position: relative; font-size: 8px; color: var(--ga-text-muted); font-variant-numeric: tabular-nums; }
       .scale span { position: absolute; right: 0; transform: translateY(-50%); }
-      .fader { position: relative; cursor: ns-resize; touch-action: none; outline: none; }
+      .fader { position: relative; cursor: ns-resize; outline: none; }
       .groove { position: absolute; top: 0; bottom: 0; left: 50%; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--ga-fader-track); }
       .cap {
         position: absolute;
@@ -172,7 +171,7 @@ export class GaStrip extends GaElement {
 
     const cap = h("div", { class: "cap" });
     const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}`, "data-explain": id === "master" ? "strip.master-fader" : "strip.fader", "data-explain-name": label }, h("div", { class: "groove" }), cap);
-    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
+    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, positionOf: faderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
     // Marks share the cap's travel, so the cap's centre line sits on the mark for its level.
     const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: calc(${FADER_CAP_PX / 2}px + (100% - ${FADER_CAP_PX}px) * ${faderPosition(mark)})` }, mark === 0 ? "0" : `-${mark}`)));
     const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}`, "data-explain": "strip.level" });

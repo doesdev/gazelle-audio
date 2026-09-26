@@ -18,7 +18,7 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 | Device lines | Each attached device, or **No devices attached** |
 | **Warning: Antelope's service is holding the devices** | Shown while that service runs; see [Getting started](03-getting-started.md#stop-antelopes-service) |
 | **Rescan devices** | Looks for interfaces again at once (it also does so every two seconds) |
-| Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](16-install-update-uninstall.md#updates) |
+| Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](17-install-update-uninstall.md#updates) |
 | **Start on boot** | Starts Gazelle in the tray when you log in, with its window hidden until you open it |
 | **Allow phones on this network** | The same switch as on the Workspace page; see [Phones on your network](#phones-on-your-network). Greyed, and shown on, when `--bind` decides instead |
 | **Open log folder** | Opens the folder with Gazelle's log files |
@@ -28,7 +28,7 @@ Starting Gazelle while it is already running brings the running window to the fr
 
 ## The header
 
-Along the top: the page tabs, then three things worth a glance.
+Along the top: the page tabs, then three things worth a glance. On a phone, or in a window of phone width, **Remote** is the first tab, in the accent colour; see [The Remote page](14-remote-page.md).
 
 - **The backend badge.** **USB** (in the warning colour) when Gazelle drives real interfaces; **LOOPBACK** when it runs the emulator.
 - **Dry run**, shown only when Gazelle was started with `--dry-run`: commands report the bytes they would send, and nothing is written to a device.
@@ -48,7 +48,7 @@ Along the top: the page tabs, then three things worth a glance.
 | **Get X** | A new version was found and this install does not fetch by itself (`auto_download` is `false`) | Downloads and checks it |
 | **Update failed, try again** | A check or a download failed; its tooltip says why | Looks again |
 
-A phone drops the version readout but keeps this, since it is something to do rather than something to read. The whole story is in [Updates](16-install-update-uninstall.md#updates).
+A phone drops the version readout but keeps this, since it is something to do rather than something to read. The whole story is in [Updates](17-install-update-uninstall.md#updates).
 
 At the right, two menus. **Double-click** chooses what a double-click does to a level: its **safe level** (the default: -20 dB on a fader, -30 dB on a volume, off on a reverb send), or **unity**. It is kept in this browser, and a phone, which has no double-click, does not show it. The **theme** menu switches between Gazelle Dark, Gazelle Light and any community or user themes.
 
@@ -70,7 +70,7 @@ One sidebar holds three sections, each folded or opened by clicking its title. I
 
 The **Mixer** band along the bottom of every page (except the Mixer page itself) keeps one mix's faders in reach. It shows the selected device's channels in the selected mix as slim strips, with the mix master at the right.
 
-- **Show** chooses **This device** or any [surface](14-surfaces-and-cables.md) you have built.
+- **Show** chooses **This device** or any [surface](15-surfaces-and-cables.md) you have built.
 - The mix menu beside the device name is the same choice as the Mixer page's Mix buttons.
 - Click the band's title to fold it away; Gazelle remembers.
 - Drag sources from the [Routing page](10-routing-page.md#adding-sources-to-a-mix) onto it to add a channel for each to the mix it shows.
@@ -89,11 +89,11 @@ Gazelle is a web app served by the program on your computer, so a phone's browse
 
 **Windows may ask.** The first time Gazelle listens on the network, Windows Defender Firewall may ask whether to allow it. Allow it on **private networks only** (your home or studio network), not public ones such as a café's. Gazelle never changes firewall settings itself; that is yours to decide. If you declined by mistake, the rule can be changed in Windows Security, Firewall and network protection, Allow an app through firewall.
 
-**Pair a phone.** Choose **Pair a phone**. Gazelle shows a code, such as `YHV8-YRJM`, and a QR code of the pairing address. Scan the QR code with the phone's camera, or open the address shown on the phone and type the code; letters and digits only, and case, spaces and dashes do not matter. The phone asks for a name for itself, then opens Gazelle. A code lasts 5 minutes, works once, and stops working after ten wrong tries; **Stop pairing** ends it sooner, and **New code** replaces it. From then on the phone stays paired, with nothing to type, until you revoke it.
+**Pair a phone.** Choose **Pair a phone**. Gazelle shows a code, such as `YHV8-YRJM`, and a QR code of the pairing address. Scan the QR code with the phone's camera, or open the address shown on the phone and type the code; letters and digits only, and case, spaces and dashes do not matter. The phone asks for a name for itself, then opens Gazelle on its [Remote page](14-remote-page.md), the page laid out for a phone; every other page is a tab along from it. A code lasts 5 minutes, works once, and stops working after ten wrong tries; **Stop pairing** ends it sooner, and **New code** replaces it. From then on the phone stays paired, with nothing to type, until you revoke it.
 
-**Paired phones** are listed under the pairing, each with when it was paired and when and from which address it was last seen. **Revoke** (two clicks) unpairs a phone at once: its next request is refused and its open connection closes. Pair it again to let it back.
+**Paired phones** are listed under the pairing, each with when it was paired and when and from which address it was last seen. **Revoke** (two clicks) unpairs a phone at once: its next request is refused and its open connection closes. The phone then says **This phone is no longer paired with Gazelle** in place of the app and stops trying to reconnect; its **Pair again** link opens the pairing page. Pair it again to let it back.
 
-Everything in the Phones section can be changed only from the computer Gazelle runs on. On a phone the section says so, and a phone never sees the update prompt: updating and restarting are the computer's business too.
+Everything in the Phones section can be changed only from the computer Gazelle runs on. On a phone the section says so, and a phone never sees the update prompt: updating and restarting are the computer's business too. A phone does not even ask for them, so nothing it does is refused.
 
 ![The Mixer page at phone width. The sidebar becomes a drawer, opened with the menu button.](../images/phone-mixer.png)
 
@@ -109,7 +109,7 @@ At phone width the sidebar becomes a drawer, opened with the ☰ button and clos
 
 ### Started with `--bind`
 
-Starting Gazelle with `--bind` on a network address (see [the command line](18-command-line-and-api.md#options)) puts it on the network whatever the switch says, and the switch is shown on and greyed. Every other device still has to pair. With one specific address, such as `--bind 192.168.1.20:8420`, Gazelle also listens on `127.0.0.1` at that port, so the window and the pairing still work from the computer itself.
+Starting Gazelle with `--bind` on a network address (see [the command line](19-command-line-and-api.md#options)) puts it on the network whatever the switch says, and the switch is shown on and greyed. Every other device still has to pair. With one specific address, such as `--bind 192.168.1.20:8420`, Gazelle also listens on `127.0.0.1` at that port, so the window and the pairing still work from the computer itself.
 
 ## Gestures
 

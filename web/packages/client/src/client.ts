@@ -45,7 +45,16 @@ export interface ServerInfo {
   /** What the server wants said beyond the device list, in the order it sent them; see its
    * `notice.rs`. Empty from a server that sends none. */
   notices: readonly string[];
+  /**
+   * True when this connection is a paired phone's: the routes that stay on the computer (update,
+   * window, aggregate, remote) refuse it with `not_local`, so a caller need not ask. False from a
+   * server too old to say.
+   */
+  phone: boolean;
 }
+
+/** The WebSocket close code a server sends to a phone it has just unpaired. */
+export const CLOSE_UNPAIRED = 4401;
 
 export interface ClientEvents {
   status: Status;
@@ -53,6 +62,12 @@ export interface ClientEvents {
   device_removed: string;
   /** This connection fell behind; that many events are gone. */
   lagged: number;
+  /**
+   * The server no longer knows this device: a phone revoked on the computer (its socket closed with
+   * `CLOSE_UNPAIRED`, or a request answered 401 `unauthorized`). The client has stopped for good,
+   * with status `closed`, since trying again would only be refused again. Carries the server's reason.
+   */
+  unpaired: string;
 }
 
 export interface InvokeOptions {
@@ -101,6 +116,8 @@ export type DeviceHandle = { [F in Family]: TypedDevice<F> }[Family] | UntypedDe
 export interface Client {
   readonly status: Status;
   readonly server: ServerInfo;
+  /** Whether the server has said this device is not paired (`unpaired`); the client has stopped. */
+  readonly unpaired: boolean;
   readonly devices: ReadonlyMap<string, DeviceDescriptor>;
   /** Returns an unsubscribe function. */
   on<E extends keyof ClientEvents>(event: E, listener: (value: ClientEvents[E]) => void): () => void;
@@ -235,6 +252,7 @@ export interface SocketLike {
   close(code?: number, reason?: string): void;
   onopen: ((event: unknown) => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
+  /** A browser's close event carries the server's close `code`. */
   onclose: ((event: unknown) => void) | null;
   onerror: ((event: unknown) => void) | null;
 }
@@ -316,7 +334,8 @@ function familySchema(family: Family): FamilySchema {
 
 class Connection implements Client {
   #status: Status = "closed";
-  #server: ServerInfo = { version: "", backend: "", dry_run: false, notices: [] };
+  #server: ServerInfo = { version: "", backend: "", dry_run: false, notices: [], phone: false };
+  #unpaired = false;
   readonly #devices = new Map<string, DeviceDescriptor>();
   readonly #listeners = new Map<string, Set<(value: unknown) => void>>();
   readonly #cyclic = new Map<string, Set<{ reportId: string; listener: (fields: unknown) => void }>>();
@@ -427,6 +446,10 @@ class Connection implements Client {
     return this.#devices;
   }
 
+  get unpaired(): boolean {
+    return this.#unpaired;
+  }
+
   start(): Promise<void> {
     return new Promise((resolve, reject) => this.#dial({ resolve, reject }));
   }
@@ -482,8 +505,15 @@ class Connection implements Client {
     const url = new URL(`${API_PATH}/ws`, this.#base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const failed = (error: GazelleError) => {
-      if (first !== undefined) first.reject(error);
-      else this.#scheduleReconnect();
+      if (first !== undefined) {
+        first.reject(error);
+        return;
+      }
+      this.#scheduleReconnect();
+      // A browser does not say why an upgrade was refused, so a phone that cannot get back in asks
+      // whether it is still paired: one revoked while its connection was already down (asleep, out
+      // of range) would otherwise knock forever.
+      if (this.#server.phone) void this.#stillPaired();
     };
     let socket: SocketLike;
     try {
@@ -516,10 +546,18 @@ class Connection implements Client {
         this.#frame(frame);
       }
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (this.#socket !== socket) return;
       this.#socket = undefined;
       this.#timers.clearTimeout(this.#helloTimer);
+      const code = isObject(event) ? event["code"] : undefined;
+      if (code === CLOSE_UNPAIRED) {
+        const reason = isObject(event) && typeof event["reason"] === "string" && event["reason"] !== "" ? event["reason"] : "this phone is no longer paired";
+        const unpaired = new GazelleError("unauthorized", reason);
+        if (first !== undefined) first.reject(unpaired);
+        this.#stopUnpaired(reason);
+        return;
+      }
       if (greeted) this.#lost();
       else failed(new GazelleError("closed", `the connection to ${url} closed before hello`));
     };
@@ -533,6 +571,36 @@ class Connection implements Client {
     if (this.#status === "closed") return;
     this.#setStatus("reconnecting");
     this.#scheduleReconnect();
+  }
+
+  /**
+   * Stops for good: the server has said this device is not paired. Nothing is retried, since every
+   * try would be refused, and the `unpaired` listeners are told once.
+   */
+  #stopUnpaired(reason: string): void {
+    if (this.#unpaired) return;
+    this.#unpaired = true;
+    this.#timers.clearTimeout(this.#reconnectTimer);
+    this.#timers.clearTimeout(this.#helloTimer);
+    this.#failAll(new GazelleError("unauthorized", reason));
+    const socket = this.#socket;
+    this.#socket = undefined;
+    if (socket !== undefined) {
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.close(1000);
+    }
+    this.#setStatus("closed");
+    this.#emit("unpaired", reason);
+  }
+
+  /** Asks the server, over HTTP, whether it still takes this device; a 401 stops the client. */
+  async #stillPaired(): Promise<void> {
+    try {
+      await this.#http("GET", "health");
+    } catch {
+      // A 401 has stopped the client already (`#http`); anything else is the server being away.
+    }
   }
 
   #scheduleReconnect(): void {
@@ -562,6 +630,7 @@ class Connection implements Client {
       version: String(frame["version"] ?? ""),
       backend: String(frame["backend"] ?? ""),
       dry_run: frame["dry_run"] === true,
+      phone: frame["phone"] === true,
       // Each notice is `{code, message}`; only the message is shown, and anything else is skipped
       // rather than rendered as `[object Object]`.
       notices: (Array.isArray(frame["notices"]) ? frame["notices"] : [])
@@ -735,6 +804,7 @@ class Connection implements Client {
       const error = isObject(payload) && isObject(payload["error"]) ? payload["error"] : {};
       const code = typeof error["code"] === "string" ? error["code"] : `http_${response.status}`;
       const message = typeof error["message"] === "string" ? error["message"] : `${method} ${url} returned HTTP ${response.status}`;
+      if (response.status === 401 && code === "unauthorized") this.#stopUnpaired(message);
       throw new GazelleError(code, message, error["detail"]);
     }
     return payload;

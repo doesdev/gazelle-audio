@@ -304,6 +304,12 @@ test("every control, readout, badge and heading on every page carries a key the 
     await check(page, `routing ${device}`);
   }
 
+  // The Remote page on each model: the Control Room at thumb size, hard mute, the mix and the preamps.
+  for (const device of [QUADRO, STUDIO]) {
+    await visit(`remote/${device}`, "ga-remote");
+    await check(page, `remote ${device}`);
+  }
+
   // The Quadro's mixer with channels, a group, a link and the colour popover open.
   await visit(`mixer/${QUADRO}`, "ga-channel");
   await page.getByTestId("colour-6").click();

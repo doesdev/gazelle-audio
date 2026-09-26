@@ -149,6 +149,11 @@ export function parseSelectedMixes(stored: unknown): Record<string, number> | un
  * in the selected mix. Missing means the default, which is to show only the selected mix's.
  */
 export function parseShowAllChannels(stored: unknown): Record<string, boolean> | undefined {
+  return parseFlags(stored);
+}
+
+/** A stored map of names to on or off (the Remote page's folded sections); entries that are not a boolean are dropped. */
+export function parseFlags(stored: unknown): Record<string, boolean> | undefined {
   if (!isRecord(stored)) return undefined;
   return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
 }

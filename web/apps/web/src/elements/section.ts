@@ -1,4 +1,4 @@
-// <ga-section heading="Devices" [collapsed] [explain="key"]>: a titled bar with a disclosure arrow
+// <ga-section heading="Devices" [collapsed] [explain="key"] [touch]>: a titled bar with a disclosure arrow
 // that shows or hides its content. Controls for the section go in slot="actions" at the bar's right
 // end. It fires `toggle` when the person opens or closes it. `explain` is the explain mode's key for
 // the section, carried by its heading, so hovering the heading explains the section and hovering
@@ -47,6 +47,12 @@ export class GaSection extends GaElement {
       .title { font-size: 13px; }
       .body { padding: 4px 0 8px; }
       :host([collapsed]) .body { display: none; }
+      /* touch (the Remote page): a bar a thumb can fold. */
+      :host([touch]) .bar, :host([touch]) .toggle { min-height: 44px; }
+      :host([touch]) .toggle { gap: 10px; padding: 0 12px; }
+      :host([touch]) .title { font-size: 16px; }
+      :host([touch]) .disclosure { border-left-width: 6px; border-right-width: 6px; border-top-width: 7px; }
+      :host([touch]) .body { padding: 8px 0 12px; }
     `),
   ];
 

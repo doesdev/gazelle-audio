@@ -38,7 +38,7 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 
 **Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 
-If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/17-troubleshooting.md#reporting-a-problem).
+If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/18-troubleshooting.md#reporting-a-problem).
 
 ## Safety
 
@@ -99,7 +99,7 @@ GAZELLE_AGGREGATE_DLL=target/release/gazelle_aggregate.dll cargo build --release
 
 **To record from both interfaces at once**, open the **Aggregate** page. It checks what the aggregate needs before it can work at all: each interface on its own USB host controller (two on one controller cannot both stream), one digital cable between them with the receiving interface clocked from it, and the same sample rate and buffer size on both. The driver comes with Gazelle, so there is nothing extra to download: **Register the driver**, which is where Windows asks for administrator rights, and your DAW will list **Gazelle Aggregate**. Uninstalling Gazelle offers to remove that registration again. The page can then measure how far apart the interfaces record and line every session up; the manual's [Aggregate chapter](docs/manual/13-aggregate-page.md) walks through it.
 
-More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/16-install-update-uninstall.md).
+More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/17-install-update-uninstall.md).
 
 ## Known limitations
 

@@ -9,6 +9,7 @@
 // theme picker below, where the tabs scroll sideways within their line when they do not fit.
 
 import { h } from "../core/dom.ts";
+import { DRAWER_MAX_PX } from "./app.ts";
 import { bindConfirm } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 import { href, PAGES, route } from "./router.ts";
@@ -25,6 +26,7 @@ const PAGE_KEYS: Record<string, string> = {
   routing: "header.page.routing",
   effects: "header.page.effects",
   aggregate: "header.page.aggregate",
+  remote: "header.page.remote",
 };
 
 export class GaHeader extends GaElement {
@@ -45,6 +47,10 @@ export class GaHeader extends GaElement {
       }
       nav a:hover { background: var(--ga-control-hover); color: var(--ga-text-primary); }
       nav a[aria-current="page"] { background: var(--ga-control-active); color: var(--ga-text-primary); }
+      /* On a phone (paired, or a window of phone width) Remote is the first tab, in the accent,
+         since it is the page laid out for one; every other page stays a tab along from it. */
+      :host([phone]) nav a[data-page="remote"] { order: -1; }
+      :host([phone]) nav a[data-page="remote"]:not([aria-current]) { color: var(--ga-accent); }
       .spacer { flex: 1; }
       .badge {
         padding: 2px 7px;
@@ -93,9 +99,13 @@ export class GaHeader extends GaElement {
         .bar::after { content: ""; order: 1; flex: 0 0 100%; }
         nav { order: 2; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
         /* Tighter tabs, so all of them fit a tablet's width on their own line rather than
-           scrolling out of reach: the eighth (Aggregate) would not otherwise. */
-        nav a { padding: 4px 7px; font-size: 13px; }
-        .theme, .reset { order: 3; max-width: 104px; }
+           scrolling out of reach: the last two (Aggregate, Remote) would not otherwise. */
+        nav a { padding: 4px 5px; font-size: 13px; }
+        .theme, .reset { order: 3; max-width: 96px; }
+      }
+      @media (max-width: ${DRAWER_MAX_PX}px) {
+        nav a[data-page="remote"] { order: -1; }
+        nav a[data-page="remote"]:not([aria-current]) { color: var(--ga-accent); }
       }
       @media (max-width: 480px) {
         .brand { font-size: 17px; }
@@ -148,6 +158,7 @@ export class GaHeader extends GaElement {
 
     this.root.replaceChildren(h("div", { class: "bar" }, h("span", { class: "brand title" }, "Gazelle"), h("nav", { "aria-label": "Pages" }, links), h("span", { class: "spacer" }), updateNote, updateButton, version, backend, dryRun, status, reset, picker, h("slot", { name: "menu" })));
 
+    this.toggleAttribute("phone", store.phone);
     this.watch(() => {
       // A surface is opened from the Workspace page, so that tab stays marked while one is shown.
       const current = route.value.page === "surface" ? "workspace" : route.value.page;

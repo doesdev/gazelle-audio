@@ -20,6 +20,17 @@ version that has not been published yet.
   at once. Only paired phones can control Gazelle, and only the computer can allow, pair or revoke.
   Windows may ask whether to let Gazelle through its firewall the first time: allow it on private
   networks only. The connection is plain HTTP, so use it on a network you trust.
+- **The Remote page, for a phone.** A remote for the session, laid out for a phone held upright:
+  the Control Room's outputs and talkback, the Quadro's hard mute kept apart, the mix the dock shows
+  as a fader per channel with its meter, and each preamp's gain, 48V and phase. A phone opens on
+  it once paired, and Remote is the first tab on a phone; every other page is still there. It
+  works in a desktop window too.
+- **Faders are safe under a finger.** On a touch screen a tap on a fader, volume or gain changes
+  nothing, a drag moves it from where it was, and a flick cannot make it loud: it gets louder no
+  faster than a steady drag. A swipe that starts on a fader scrolls the page instead. A mouse still
+  jumps to where it clicks.
+- **A revoked phone says so.** When the computer revokes a phone, the phone shows that it is no
+  longer paired and how to pair it again, instead of trying to reconnect for ever.
 
 ### Changed
 

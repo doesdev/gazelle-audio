@@ -15,12 +15,13 @@ Gazelle controls Antelope Audio's Zen Quadro Synergy Core and Zen Studio+ interf
 11. [The Effects page](manual/11-effects-page.md)
 12. [The Workspace page](manual/12-workspace-page.md)
 13. [The Aggregate page](manual/13-aggregate-page.md)
-14. [Surfaces and digital cables](manual/14-surfaces-and-cables.md)
-15. [Snapshots and backup](manual/15-snapshots-and-backup.md)
-16. [Install, update and uninstall](manual/16-install-update-uninstall.md)
-17. [Troubleshooting](manual/17-troubleshooting.md)
-18. [The command line and the API](manual/18-command-line-and-api.md)
-19. [Glossary](manual/19-glossary.md)
+14. [The Remote page](manual/14-remote-page.md): a remote for the session, on a phone
+15. [Surfaces and digital cables](manual/15-surfaces-and-cables.md)
+16. [Snapshots and backup](manual/16-snapshots-and-backup.md)
+17. [Install, update and uninstall](manual/17-install-update-uninstall.md)
+18. [Troubleshooting](manual/18-troubleshooting.md)
+19. [The command line and the API](manual/19-command-line-and-api.md)
+20. [Glossary](manual/20-glossary.md)
 
 The [cheat sheet](cheat-sheet.md) is the two-page version to keep beside the desk.
 
@@ -40,7 +41,7 @@ Before printing, the build checks, and stops on any failure:
 - no em dash or en dash anywhere in `README.md` or `docs/` (the project's house style: use commas, colons, semicolons, brackets or "to");
 - every relative link, image and `#anchor` resolves;
 - `book.json` lists every page under `manual/` exactly once, and every image in `images/` is used;
-- when a server binary has been built, the options table in [the command-line chapter](manual/18-command-line-and-api.md) matches its `--help`, flag for flag and default for default.
+- when a server binary has been built, the options table in [the command-line chapter](manual/19-command-line-and-api.md) matches its `--help`, flag for flag and default for default.
 
 `corepack pnpm -C web docs:check` runs the checks alone.
 

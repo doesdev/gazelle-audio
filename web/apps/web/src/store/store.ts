@@ -31,7 +31,7 @@ import { AggregateModel } from "./aggregate.ts";
 import { PhonesModel } from "./phones.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
 import { updatePrompt, type UpdatePrompt } from "./update.ts";
-import { clampStripWidth, migratePanels, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
+import { clampStripWidth, migratePanels, parseFlags, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
 export type { MixerWidth, SidebarSection, SidebarState };
 export { SIDEBAR_SECTIONS } from "./preferences.ts";
@@ -47,6 +47,7 @@ export const MIXER_DOCK_STORAGE_KEY = "gazelle.layout.mixerDock";
 export const MIXER_DOCK_SURFACE_STORAGE_KEY = "gazelle.layout.mixerDockSurface";
 export const EXPLAIN_STORAGE_KEY = "gazelle.explain";
 export const DOUBLE_CLICK_UNITY_STORAGE_KEY = "gazelle.controls.doubleClickUnity";
+export const REMOTE_SECTIONS_STORAGE_KEY = "gazelle.layout.remoteSections";
 
 // Elements may not import the client, so the store passes on the data types they show.
 export type { Cable, CableEnd, ChannelRef, DeviceDescriptor, DeviceMixer, DigitalPort, Group, Link, LinkKind, MixerChannel, RouteSource, ServerInfo, Status, Surface, SurfaceStrip, Topology, Workspace };
@@ -475,6 +476,8 @@ export class Store {
   readonly #explainMode: Signal<boolean>;
   readonly #mixerDockSurface: Signal<string | null>;
   readonly #doubleClickUnity: Signal<boolean>;
+  readonly #remoteSections: Signal<Readonly<Record<string, boolean>>>;
+  readonly #unpaired: Signal<boolean>;
   /** The surface the mixer dock shows, while it exists; undefined for the device in view. */
   readonly mixerDockSurface: ReadonlySignal<string | undefined>;
   readonly #clipLights = new Set<ClipLight>();
@@ -511,6 +514,8 @@ export class Store {
     this.#explainMode = persisted(this.#storage, EXPLAIN_STORAGE_KEY, false, (stored) => (stored === true ? true : stored === false ? false : undefined));
     this.#mixerDockSurface = persisted<string | null>(this.#storage, MIXER_DOCK_SURFACE_STORAGE_KEY, null, (stored) => (typeof stored === "string" || stored === null ? stored : undefined));
     this.#doubleClickUnity = persisted(this.#storage, DOUBLE_CLICK_UNITY_STORAGE_KEY, false, (stored) => (typeof stored === "boolean" ? stored : undefined));
+    this.#remoteSections = persisted<Readonly<Record<string, boolean>>>(this.#storage, REMOTE_SECTIONS_STORAGE_KEY, {}, parseFlags);
+    this.#unpaired = signal(client.unpaired);
     // A surface deleted here or elsewhere hands the dock back to the device in view.
     this.mixerDockSurface = computed(() => {
       const id = this.#mixerDockSurface.value;
@@ -561,6 +566,11 @@ export class Store {
         this.#effects.get(deviceId)?.forget();
       }),
       client.on("lagged", (missed) => this.#notify("warning", `This connection fell behind the server; ${missed} updates were skipped.`)),
+      // Revoked on the computer: the client has stopped, and the app says so in place of itself.
+      client.on("unpaired", () => {
+        this.#stopFollowingUpdates();
+        this.#unpaired.value = true;
+      }),
     );
   }
 
@@ -570,6 +580,36 @@ export class Store {
 
   get server(): ReadonlySignal<ServerInfo> {
     return this.#server;
+  }
+
+  /**
+   * Whether this is a paired phone rather than the computer Gazelle runs on, as the server said in
+   * its hello. A phone is never sent to what stays on the computer (update, window, aggregate and
+   * phone management): those calls are refused here, with the server's own `not_local`, before
+   * any request is made.
+   */
+  get phone(): boolean {
+    return this.#server.peek().phone;
+  }
+
+  /** True once the server has said this device is no longer paired; the connection has stopped for good. */
+  get unpaired(): ReadonlySignal<boolean> {
+    return this.#unpaired;
+  }
+
+  /** Whether one of the Remote page's sections is folded; remembered per browser. Open until folded. */
+  remoteSectionCollapsed(section: string): boolean {
+    return this.#remoteSections.peek()[section] ?? false;
+  }
+
+  setRemoteSectionCollapsed(section: string, collapsed: boolean): void {
+    const stored = this.#remoteSections.peek();
+    if ((stored[section] ?? false) !== collapsed) this.#remoteSections.value = { ...stored, [section]: collapsed };
+  }
+
+  /** `call`, or on a phone the refusal the server would give, without asking it. */
+  #local<T>(call: () => Promise<T>): Promise<T> {
+    return this.phone ? Promise.reject(new GazelleError("not_local", "Only Gazelle on the computer itself can do that.")) : call();
   }
 
   /** What the updater says, or undefined where there is no updater (or it has not answered yet). */
@@ -907,13 +947,13 @@ export class Store {
    * `aggregate` section, edited through `editWorkspace` like everything else there.
    */
   readonly aggregate: AggregateModel = new AggregateModel({
-    read: () => this.#client.aggregate.read(),
-    matchBuffers: (size, options) => this.#client.aggregate.matchBuffers(size, options),
-    register: () => this.#client.aggregate.register(),
-    unregister: () => this.#client.aggregate.unregister(),
-    calibration: () => this.#client.aggregate.calibration(),
-    calibrate: (request) => this.#client.aggregate.calibrate(request),
-    stopCalibrate: () => this.#client.aggregate.stopCalibrate(),
+    read: () => this.#local(() => this.#client.aggregate.read()),
+    matchBuffers: (size, options) => this.#local(() => this.#client.aggregate.matchBuffers(size, options)),
+    register: () => this.#local(() => this.#client.aggregate.register()),
+    unregister: () => this.#local(() => this.#client.aggregate.unregister()),
+    calibration: () => this.#local(() => this.#client.aggregate.calibration()),
+    calibrate: (request) => this.#local(() => this.#client.aggregate.calibrate(request)),
+    stopCalibrate: () => this.#local(() => this.#client.aggregate.stopCalibrate()),
     command: (deviceId, command, args) => this.#invokeCommand(deviceId, command, args, {}),
     setupRate: (rate) => this.editAggregate((current) => ({ ...current, rate })),
     // Through `this`, not `this.#timers` itself: a field's value is worked out before the
@@ -927,11 +967,11 @@ export class Store {
    */
   readonly phones: PhonesModel = new PhonesModel(
     {
-      status: () => this.#client.remote.status(),
-      setAllowPhones: (on) => this.#client.remote.setAllowPhones(on),
-      startPairing: () => this.#client.remote.startPairing(),
-      cancelPairing: () => this.#client.remote.cancelPairing(),
-      revoke: (id) => this.#client.remote.revoke(id),
+      status: () => this.#local(() => this.#client.remote.status()),
+      setAllowPhones: (on) => this.#local(() => this.#client.remote.setAllowPhones(on)),
+      startPairing: () => this.#local(() => this.#client.remote.startPairing()),
+      cancelPairing: () => this.#local(() => this.#client.remote.cancelPairing()),
+      revoke: (id) => this.#local(() => this.#client.remote.revoke(id)),
     },
     // Through `this`, for the same reason as the aggregate's.
     { setTimeout: (callback, ms) => this.#timers.setTimeout(callback, ms), clearTimeout: (handle) => this.#timers.clearTimeout(handle) },
@@ -1124,7 +1164,8 @@ export class Store {
   }
 
   async start(): Promise<void> {
-    this.#followUpdates();
+    // Updating is the computer's business: a phone does not ask.
+    if (!this.phone) this.#followUpdates();
     await Promise.all([this.loadWorkspace(), this.loadUserThemes()]);
   }
 
@@ -1165,7 +1206,7 @@ export class Store {
    */
   async restartForUpdate(): Promise<void> {
     try {
-      const { version } = await this.#client.update.restart();
+      const { version } = await this.#local(() => this.#client.update.restart());
       this.#notify("info", `Restarting into Gazelle ${version}. This page reconnects when the server is back.`);
     } catch (error) {
       this.#notify("error", `Could not restart into the update: ${message(error)}`);
@@ -1174,7 +1215,7 @@ export class Store {
 
   async #updateCall(call: "check" | "download", failure: string): Promise<void> {
     try {
-      this.#update.value = await this.#client.update[call]();
+      this.#update.value = await this.#local(() => this.#client.update[call]());
       // A download that has begun changes again shortly; ask sooner than the idle rate.
       this.#timers.clearTimeout(this.#updateTimer);
       this.#followUpdates();
@@ -2173,9 +2214,13 @@ export class Store {
     for (const off of this.#unsubscribe.splice(0)) off();
     for (const report of this.#reports.values()) report.off();
     this.#reports.clear();
-    this.#followingUpdates = false;
-    this.#timers.clearTimeout(this.#updateTimer);
+    this.#stopFollowingUpdates();
     this.#timers.clearTimeout(this.#saveTimer);
     await this.#client.close();
+  }
+
+  #stopFollowingUpdates(): void {
+    this.#followingUpdates = false;
+    this.#timers.clearTimeout(this.#updateTimer);
   }
 }

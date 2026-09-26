@@ -19,6 +19,7 @@ const STEP_KEYS = "Arrow keys and the wheel move it a step at a time, Page Up an
 const LEVEL_KEYS = "Arrow keys and the wheel move it a step at a time, Page Up and Page Down in bigger steps. A double-click sets -20 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.";
 const NOTHING_SENT = "Nothing is sent to a device.";
 const WORKSPACE = "It is kept in the workspace on the server, so everyone using this server sees the same.";
+const TOUCH = "Under a finger it only drags: a tap changes nothing, the value moves from where it was rather than jumping to the finger, and it gets louder no faster than a steady drag, so a flick cannot send it to the top.";
 
 export const CATALOGUE: Catalogue = {
   // The header.
@@ -40,6 +41,7 @@ export const CATALOGUE: Catalogue = {
   "header.page.mixer": { title: "Mixer page", what: "The device's four hardware mixes, as channels you set up, each with its fader, pan, mute and solo in the mix you pick." },
   "header.page.routing": { title: "Routing page", what: "Which source feeds every destination on the device, as the vendor panel's routing tab lays it out." },
   "header.page.effects": { title: "Effects page", what: "The device's effect chains and its reverb: what is loaded, bypass, each effect's settings, and the reverb's sends and returns." },
+  "header.page.remote": { title: "Remote page", what: "A remote for the session, laid out for a phone: the Control Room's outputs and talkback, the mix the dock shows as faders, and the preamps' gain, 48V and phase. On a phone it is the first tab." },
   "header.page.aggregate": { title: "Aggregate page", what: "One audio driver a DAW opens with two or more interfaces underneath it: whether this PC can run it, registering it, what is in it, and how it is holding while a DAW plays." },
   "header.version": {
     title: "Version",
@@ -132,7 +134,7 @@ export const CATALOGUE: Catalogue = {
     name: "Output",
     what: "The hardware volume of {name}, in dB of attenuation: 0 dB at the right, down to off at the left.",
     effect: "Sends the new volume straight to the device, the same control as the Outputs page's. A double-click sets -30 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.",
-    watch: "This is the volume of what you are listening to: a drag to the right is as loud as the output goes.",
+    watch: "This is the volume of what you are listening to: a drag to the right is as loud as the output goes. " + TOUCH,
   },
   "cr.mute": { title: "{name} mute", name: "Output", what: "Mutes {name} on the device. Its volume is kept and comes back when unmuted." },
   "cr.dim": {
@@ -161,6 +163,40 @@ export const CATALOGUE: Catalogue = {
     effect: "A double-click sets -30 dB, or 0 dB when the header's Double-click menu says unity; Ctrl or Cmd and a click always sets 0 dB.",
   },
   "cr.talk-to": { title: "Talkback to {name}", name: "this output", what: "Whether talkback is heard on {name} while Talk is held." },
+
+  // The Remote page.
+  "remote.device": { title: "{name}", name: "Device", what: "The device the Remote page controls. Choosing another shows its outputs, mix and preamps instead, and makes it the selected device, as a device card does." },
+  "remote.monitoring": { title: "Monitoring", what: "The Control Room at thumb size: the outputs chosen for it on the Outputs page, with volume, Mute, Dim and Mono, and on the Studio+, talkback. They are the sidebar's own controls, so a change here shows there at once. On the Quadro, Hard mute sits below them. Folding it is remembered in this browser." },
+  "remote.hard-mute": {
+    title: "Hard mute",
+    what: "The Quadro's one switch that mutes every output at once, kept apart as the thing to reach for when something is suddenly loud.",
+    effect: "One tap mutes every output. Letting them play again takes a second tap within a few seconds; each output's own volume and mute are kept.",
+    watch: "Nothing plays anywhere while it is lit, headphones included.",
+  },
+  "remote.mix": { title: "Mix", what: "What the mixer dock shows: the device's mix as a fader per channel with the master last, or one of your surfaces. The dock is hidden on this page, since this is it. Folding it is remembered in this browser." },
+  "remote.mix-select": { title: "Mix", what: "Which of the device's mixes the faders are in. It is the same choice as the Mixer page's Mix buttons and the dock's Mix menu: changing one changes the others." },
+  "remote.source": { title: "Show", what: "This device's mix, or one of your surfaces, as the dock's Show menu chooses: they are one choice, remembered in this browser." },
+  "remote.fader": {
+    title: "{name} fader",
+    name: "Channel",
+    what: "{name}'s level in the mix you picked, laid on its side: 0 dB at the right, down to -90 dB at the left, on the same scale as the Mixer page's faders. The bar along its foot is the channel's input meter.",
+    effect: "Changes this channel's level in this mix only; the other mixes keep theirs. " + TOUCH + " With a mouse, a click jumps and a drag follows, as on the Mixer page.",
+    watch: "-90 dB is the floor, not silence: to take a channel out of a mix, mute it.",
+  },
+  "remote.master-fader": {
+    title: "{name} master fader",
+    name: "Mix",
+    what: "The master level of {name}, laid on its side: 0 dB at the right, down to -90 dB at the left.",
+    effect: "Every output and recording input that plays this mix gets louder or quieter together. " + TOUCH,
+  },
+  "remote.reset": {
+    title: "Reset {name}",
+    name: "the fader",
+    what: "Puts {name} back to -20 dB, the safe level a double-click gives on the Mixer page. Never to unity here, whatever the header's Double-click menu says.",
+    effect: "The first tap asks (the button reads Confirm); a second tap within a few seconds resets. Left alone, it forgets.",
+  },
+  "remote.inputs": { title: "Inputs", what: "Each preamp's gain, with its type shown, 48V and phase: the Inputs page's own controls. The type is changed on the Inputs page. Folding it is remembered in this browser." },
+  "remote.preamp-type": { title: "{name} type", name: "Preamp", what: "What {name} is set to: Mic, Line or Hi-Z. It decides the gain's range and whether 48V is there. It is changed on the Inputs page, not here." },
 
   // The mixer dock.
   "dock.section": {

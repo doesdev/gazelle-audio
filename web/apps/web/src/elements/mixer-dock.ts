@@ -11,7 +11,8 @@
 // faders stay in reach on the Studio+'s Inputs page. The choice is kept per browser, and falls back
 // to the device in view once the surface is deleted.
 //
-// On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full;
+// On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full,
+// and on the Remote page, whose Mix section shows what the dock would;
 // a surface in the dock is hidden, likewise, on that surface's own page.
 // While hidden or collapsed it follows nothing: the report watch, the mix reads and the strips are
 // released, as they are when another device comes into view. Whether it is collapsed is kept per
@@ -116,17 +117,7 @@ export class GaMixerDock extends GaElement {
     this.onDisconnect(release);
     const follow = (deviceId: string): (() => void)[] => {
       const channels = store.channels(deviceId);
-      const own: (() => void)[] = [];
-      // Levels come from the device, read once as the Mixer page reads them.
-      own.push(
-        effect(() => {
-          if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
-        }),
-      );
-      // Strips meter their inputs from the status report, followed while the dock shows the mix,
-      // with the interface's own mixer channel meters filling in the inputs it does not meter by type.
-      own.push(effect(() => store.mixer(deviceId, channels.meteredMix.value).activate()));
-      own.push(effect(() => store.pointMeterBank(deviceId, channels.meteredMix.value)));
+      const own: (() => void)[] = followMix(store, deviceId);
       own.push(
         effect(() => {
           const entry = store.devices.value.find((d) => d.id === deviceId);
@@ -220,8 +211,9 @@ export class GaMixerDock extends GaElement {
     this.watch(() => {
       const current = route.value;
       const surface = store.mixerDockSurface.value;
-      // Hidden where the page already shows the same strips in full.
-      const repeated = surface === undefined ? current.page === "mixer" : current.page === "surface" && current.id === surface;
+      // Hidden where the page already shows the same strips in full. The Remote page shows the
+      // dock's own choice, device or surface, in its Mix section.
+      const repeated = current.page === "remote" || (surface === undefined ? current.page === "mixer" : current.page === "surface" && current.id === surface);
       const collapsed = store.mixerDockCollapsed.value;
       const known = store.devices.value.filter((d) => d.family !== null);
       const id = known.find((d) => d.id === current.id)?.id ?? store.deviceInView(true);
@@ -376,6 +368,23 @@ export class GaMixerDock extends GaElement {
       })();
     });
   }
+}
+
+/**
+ * What showing a device's mix holds on to, as the dock and the Remote page show one: the mix levels,
+ * read once from the device as the Mixer page reads them, the meter report while the mix is shown,
+ * and the interface's own mixer channel meters pointed at that mix to fill in the inputs it does not
+ * meter by type. Each follows the mix chosen (`meteredMix`). Returns the disposers.
+ */
+export function followMix(store: ReturnType<typeof useStore>, deviceId: string): (() => void)[] {
+  const channels = store.channels(deviceId);
+  return [
+    effect(() => {
+      if (store.mixesToRead(deviceId)) untracked(() => void store.readMixes(deviceId));
+    }),
+    effect(() => store.mixer(deviceId, channels.meteredMix.value).activate()),
+    effect(() => store.pointMeterBank(deviceId, channels.meteredMix.value)),
+  ];
 }
 
 /** The question a drop that would double an input waits behind. */

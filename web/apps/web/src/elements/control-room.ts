@@ -4,7 +4,8 @@
 // then; kept per device in the workspace), each with volume, mute, (Quadro) dim, Mono for the mix that
 // feeds it, and a mono badge where the device reports one; on the Studio+, talkback: the hold-to-talk
 // button, its level and where it goes. Outputs and talkback use the same OutputsModel as the Outputs
-// page, and mono the same ChannelsModel as the mix masters, so they all stay in step.
+// page, and mono the same ChannelsModel as the mix masters, so they all stay in step. The Remote
+// page shows the same <ga-monitor>, with `touch`, at thumb size.
 //
 // Mono (per output since 2026-09-17): neither model can make an output mono, so an output's Mono
 // sums the mix routed to it, which every other output playing that mix hears too; the button names
@@ -58,7 +59,7 @@ export class GaMonitor extends GaElement {
       .caption { min-width: 0; overflow: hidden; font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
       .spacer { flex: 1; }
       .badge { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-text-inverse); background: var(--ga-accent); }
-      .volume { position: relative; height: 24px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; touch-action: none; outline: none; }
+      .volume { position: relative; height: 24px; border: 1px solid var(--ga-border-subtle); border-radius: 3px; background: var(--ga-surface-inset); cursor: ew-resize; outline: none; }
       .volume:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
       .volume .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ga-accent); opacity: 0.6; }
       .volume .value { position: absolute; inset: 0; font-size: 12px; line-height: 22px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -73,6 +74,22 @@ export class GaMonitor extends GaElement {
       .to-row { display: flex; align-items: center; gap: 4px; }
       .to-row .caption { flex: none; margin-right: 2px; }
       .to { flex: 1; min-width: 0; padding: 0 2px; }
+      /* Held, not tapped: a finger resting on Talk must not scroll the page, select text or open a menu. */
+      .talk { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      /* touch (the Remote page): the same panel at thumb size. The device is named by the page. */
+      :host([touch]) { gap: 12px; font-size: 13px; }
+      :host([touch]) .device { display: none; }
+      :host([touch]) .group { gap: 8px; }
+      :host([touch]) .group + .group { padding-top: 12px; }
+      :host([touch]) .label { font-size: 16px; }
+      :host([touch]) .caption { font-size: 12px; }
+      :host([touch]) .buttons { gap: 6px; }
+      :host([touch]) button { min-width: 52px; min-height: 44px; padding: 0 10px; font-size: 13px; }
+      :host([touch]) .volume { height: 44px; }
+      :host([touch]) .volume .value { font-size: 15px; line-height: 42px; }
+      :host([touch]) .talk { min-width: 88px; min-height: 52px; font-size: 15px; }
+      :host([touch]) .talk-row { gap: 10px; }
+      :host([touch]) .to-row { gap: 6px; }
     `),
   ];
 

@@ -130,7 +130,7 @@ async function phoneContext(browser: Browser) {
   return browser.newContext({ extraHTTPHeaders: PHONE, viewport: { width: 390, height: 800 } });
 }
 
-test("a phone opening the pairing address pairs, keeps the cookie, and lands on the app", async ({ browser }) => {
+test("a phone opening the pairing address pairs, keeps the cookie, and lands on the app's Remote page", async ({ browser }) => {
   await setAllowed(true);
   const started = (await (await fetch(`${server.url}/api/v1/remote/pairing`, { method: "POST" })).json()) as { code: string };
   const context = await phoneContext(browser);
@@ -142,7 +142,7 @@ test("a phone opening the pairing address pairs, keeps the cookie, and lands on 
   expect(new URL(page.url()).hash).toBe("");
   await page.getByTestId("pair-name").fill("Pocket");
   await page.getByTestId("pair-submit").click();
-  await page.waitForURL(`${server.url}/`);
+  await page.waitForURL(`${server.url}/#/remote`);
   await expect(page.getByTestId("connection")).toHaveAttribute("data-state", "open");
   const cookies = await context.cookies();
   expect(cookies.find((c) => c.name === "gazelle_token")?.httpOnly).toBe(true);

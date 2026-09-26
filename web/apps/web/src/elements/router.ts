@@ -1,11 +1,12 @@
 // Hash routes: #/devices[/<device id>], #/workspace, #/inputs[/<device id>],
 // #/outputs[/<device id>], #/mixer[/<device id>[/<mixer>]], #/routing, #/effects[/<device id>],
-// #/aggregate, and #/surface/<surface id>, which has no tab of its own: surfaces are opened from
-// the Workspace page.
+// #/aggregate, #/remote[/<device id>] (the page a phone opens, and what the Android shell loads),
+// and #/surface/<surface id>, which has no tab of its own: surfaces are opened from the Workspace
+// page.
 
 import { signal } from "../core/signal.ts";
 
-export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing" | "effects" | "aggregate" | "surface";
+export type Page = "devices" | "workspace" | "inputs" | "outputs" | "mixer" | "routing" | "effects" | "aggregate" | "remote" | "surface";
 
 export interface Route {
   page: Page;
@@ -23,6 +24,7 @@ export const PAGES: readonly { page: Page; label: string }[] = [
   { page: "routing", label: "Routing" },
   { page: "effects", label: "Effects" },
   { page: "aggregate", label: "Aggregate" },
+  { page: "remote", label: "Remote" },
 ];
 
 export function parseRoute(hash: string): Route {
