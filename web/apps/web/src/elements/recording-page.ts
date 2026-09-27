@@ -15,11 +15,15 @@
 
 import { h } from "../core/dom.ts";
 import { signal, untracked } from "../core/signal.ts";
-import { fileOf, folderOf, meterFill, newPreset, PATTERN_DEFAULT, PERCENT_DEFAULT, PERCENTS, recordingModel, takeLine, type RecordingPreset } from "../store/recording.ts";
+import { fileOf, folderOf, newPreset, PATTERN_DEFAULT, PERCENT_DEFAULT, PERCENTS, PRESET_KEY, presetToOffer, recordingModel, takeLine, type RecordingPreset } from "../store/recording.ts";
 import type { Store } from "../store/store.ts";
 import { bindConfirm } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
-import { recordingTransport, TRANSPORT_STYLES } from "./recording-transport.ts";
+import { CHANNEL_STYLES, channelMeters, recordingTransport, remembered, spaceToggles, TRANSPORT_STYLES, type TransportHost } from "./recording-transport.ts";
+
+/** What auto-arm means for the drivers, and for this PC's other work, said beside the setting. */
+export const AUTO_ARM_HELP =
+  "Gazelle arms with this preset whenever it starts, and again when the interfaces drop out and come back. Always armed means Gazelle always holds the audio drivers of both interfaces, so a DAW may not be able to use them: whether the Antelope drivers let a second program in at the same time has not been tried yet. Disarming by hand pauses auto-arm until Gazelle next starts or you arm again, so a DAW or a measurement can have the interfaces. Quitting Gazelle, or restarting it to update, finishes any take first. Ending it by force cannot: the take's files still open, but lose up to its last two seconds.";
 
 export class GaRecording extends GaElement {
   static override styles = [
@@ -27,12 +31,11 @@ export class GaRecording extends GaElement {
       :host { display: block; }
       .sections { display: grid; gap: 12px; max-width: 980px; }
       ${TRANSPORT_STYLES}
-      .channels { display: grid; gap: 4px; }
-      .channel { display: grid; grid-template-columns: minmax(160px, 260px) minmax(0, 1fr) 64px; align-items: center; gap: 10px; font-size: 13px; }
-      .channel .level { position: relative; height: 10px; border-radius: 3px; overflow: hidden; background: var(--ga-meter-background, var(--ga-surface-inset)); }
-      .channel .level .fill { position: absolute; inset: 0; background: var(--ga-meter-gradient); clip-path: inset(0 calc((1 - var(--fill, 0)) * 100%) 0 0); }
-      .channel .db { font-variant-numeric: tabular-nums; color: var(--ga-text-secondary); text-align: right; }
+      ${CHANNEL_STYLES}
       .empty { margin: 0; font-size: 13px; color: var(--ga-text-muted); }
+      .computer { display: grid; gap: 8px; }
+      .computer .check { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+      .computer .note[hidden] { display: none; }
       .presets { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 12px; }
       .list { display: grid; gap: 4px; align-content: start; }
       .list button { text-align: left; }
@@ -59,70 +62,96 @@ export class GaRecording extends GaElement {
 
   protected override render(): void {
     const store = useStore();
-    const model = recordingModel(store);
     const host = { watch: (fn: () => void) => this.watch(fn), onDisconnect: (fn: () => void) => this.onDisconnect(fn) };
     const section = (id: string, heading: string, explain: string, ...content: Node[]) => h("ga-section", { heading, explain, "data-testid": `recording-section-${id}` }, ...content);
 
+    const channels = channelMeters(host, "recording-channel", "Arm to see the channels being recorded, each with its level. Their names are the ones a DAW shows, and the ones their files take.");
     this.root.replaceChildren(
       h(
         "div",
         { class: "sections" },
         section("transport", "Transport", "recording.transport", recordingTransport(host, false)),
-        section("channels", "Channels", "recording.channels", this.#channels(store)),
+        section("channels", "Channels", "recording.channels", channels),
+        // The windows and the settings are this computer's: a phone is not shown them.
+        store.phone ? false : section("computer", "Widget, hub and auto-arm", "recording.computer", this.#computer(store, host)),
         section("presets", "Presets", "recording.presets", this.#presets(store)),
         section("takes", "Takes", "recording.takes", this.#takes(store)),
       ),
     );
 
     // Space: Record while armed, Stop while recording, unless something that takes Space has focus.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== " " || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-      const path = event.composedPath();
-      const taken = path.some((node) => node instanceof HTMLElement && (node.matches("input, select, textarea, button, a[href], [role='slider'], [role='switch'], [contenteditable]") || node.isContentEditable));
-      if (taken) return;
-      if (model.toggle() !== undefined) event.preventDefault();
-    };
-    document.addEventListener("keydown", onKey);
-    this.onDisconnect(() => document.removeEventListener("keydown", onKey));
+    spaceToggles(host);
   }
 
-  /** The recorded channels and their levels while armed; the chosen preset's channels otherwise. */
-  #channels(store: Store): HTMLElement {
+  /**
+   * This computer as a studio: the recording widget and hub windows, auto-arm and starting in the
+   * hub. Read when the page opens and whenever its window comes back into view, since the tray
+   * changes the same things.
+   */
+  #computer(store: Store, host: TransportHost): HTMLElement {
     const model = recordingModel(store);
-    const box = h("div", { class: "channels", "data-testid": "recording-channels" });
-    let shape = "";
-    let rows: { fill: HTMLElement; db: HTMLElement }[] = [];
-    this.watch(() => {
-      const status = model.status.value;
-      const armed = status !== undefined && status.channels.length > 0;
-      const names = armed ? status.channels.map((c) => c.name) : [];
-      const key = JSON.stringify(names);
-      if (key !== shape) {
-        shape = key;
-        rows = [];
-        untracked(() => {
-          if (!armed) {
-            box.replaceChildren(h("p", { class: "empty" }, "Arm to see the channels being recorded, each with its level. Their names are the ones a DAW shows, and the ones their files take."));
-            return;
-          }
-          box.replaceChildren(
-            ...status.channels.map((channel, index) => {
-              const fill = h("div", { class: "fill" });
-              const db = h("span", { class: "db readout", "data-explain": "recording.level-db", "data-explain-name": channel.name }, "");
-              rows.push({ fill, db });
-              return h("div", { class: "channel", "data-testid": `recording-channel-${index}` }, h("span", { class: "name", "data-explain": "recording.channel-name", "data-explain-name": channel.name }, channel.name), h("div", { class: "level meter", role: "img", "aria-label": `${channel.name} level`, "data-explain": "recording.level", "data-explain-name": channel.name }, fill), db);
-            }),
-          );
-        });
-      }
-      status?.channels.forEach((channel, index) => {
-        const row = rows[index];
-        if (row === undefined) return;
-        row.fill.style.setProperty("--fill", String(meterFill(channel.peak_dbfs)));
-        row.db.textContent = channel.peak_dbfs === undefined ? "-inf" : `${channel.peak_dbfs.toFixed(1)}`;
-      });
+    const reread = () => void model.readComputer();
+    reread();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reread();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    addEventListener("focus", reread);
+    this.onDisconnect(() => {
+      document.removeEventListener("visibilitychange", onVisible);
+      removeEventListener("focus", reread);
     });
-    return box;
+
+    const widget = h("button", { type: "button", "data-testid": "recording-widget-toggle", "data-explain": "recording.widget-toggle" }, "Open the recording widget");
+    widget.addEventListener("click", () => void model.setWindow("widget", { open: !(model.windows.peek()?.widget ?? false) }));
+    const hub = h("button", { type: "button", "data-testid": "recording-hub-open", "data-explain": "recording.hub-open" }, "Open the recording hub");
+    hub.addEventListener("click", () => void model.setWindow("hub", { open: true }));
+    const noWindows = h("p", { class: "note", "data-testid": "recording-no-windows", hidden: true });
+
+    const autoArm = h("input", { type: "checkbox", "data-testid": "recording-auto-arm", "data-explain": "recording.auto-arm" });
+    const autoPreset = h("select", { "aria-label": "Preset auto-arm arms with", "data-testid": "recording-auto-arm-preset", "data-explain": "recording.auto-arm-preset" });
+    autoArm.addEventListener("change", () => {
+      const preset = autoPreset.value === "" ? null : autoPreset.value;
+      void model.setSettings(autoArm.checked ? { auto_arm: true, auto_arm_preset: preset } : { auto_arm: false });
+    });
+    autoPreset.addEventListener("change", () => void model.setSettings({ auto_arm_preset: autoPreset.value === "" ? null : autoPreset.value }));
+    const startInHub = h("input", { type: "checkbox", "data-testid": "recording-start-in-hub", "data-explain": "recording.start-in-hub" });
+    startInHub.addEventListener("change", () => void model.setSettings({ start_in_hub: startInHub.checked }));
+
+    host.watch(() => {
+      const windows = model.windows.value;
+      const settings = model.settings.value;
+      const presets = store.workspace.value?.recording?.presets ?? [];
+      const connected = store.connected.value;
+      const available = windows?.available ?? false;
+      widget.textContent = windows?.widget === true ? "Close the recording widget" : "Open the recording widget";
+      widget.disabled = !connected || !available;
+      hub.disabled = !connected || !available;
+      startInHub.disabled = !connected || settings === undefined;
+      noWindows.hidden = windows === undefined || available;
+      noWindows.textContent = windows?.reason ?? "";
+
+      autoPreset.replaceChildren(...presets.map((p) => h("option", { value: p.id }, p.name)));
+      if (presets.length === 0) autoPreset.append(h("option", { value: "" }, "No presets yet"));
+      const chosen = settings?.auto_arm_preset ?? untracked(() => presetToOffer(presets, model.status.peek(), remembered(PRESET_KEY))) ?? "";
+      autoPreset.value = presets.some((p) => p.id === chosen) ? chosen : (presets[0]?.id ?? "");
+      autoArm.checked = settings?.auto_arm ?? false;
+      autoArm.disabled = !connected || settings === undefined || presets.length === 0;
+      autoPreset.disabled = !connected || settings === undefined || presets.length === 0;
+      startInHub.checked = settings?.start_in_hub ?? false;
+    });
+
+    return h(
+      "div",
+      { class: "computer" },
+      h("div", { class: "row" }, widget, hub),
+      noWindows,
+      h("p", { class: "note" }, "The widget is a small window that stays on top of everything else, with the state, the time and the buttons; drag it anywhere by its body. The hub fills a screen, to be read from across the room: Space records and stops, Esc leaves full screen. Both open from the tray as well."),
+      h("label", { class: "check" }, autoArm, "Auto-arm with ", autoPreset),
+      h("p", { class: "note" }, AUTO_ARM_HELP),
+      h("label", { class: "check" }, startInHub, "Start in the recording hub"),
+      h("p", { class: "note" }, "When Gazelle starts, including at login with Start on boot, it opens the hub full screen on the monitor it was last on. The app's own window still starts in the tray at login."),
+    );
   }
 
   /** The presets: a list, and the editor for the one chosen. */

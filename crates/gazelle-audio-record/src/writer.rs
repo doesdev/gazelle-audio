@@ -487,9 +487,11 @@ fn clock_words(seconds: f64) -> String {
     format!("{}:{:06.3}", minutes as u64, seconds - minutes * 60.0)
 }
 
+/// One line of the take's log, handed to the disk at once: lines are few, and a process ended by
+/// force keeps every line written before it rather than a log left empty in a buffer.
 fn log(open: &mut Open, line: &str) {
     if let Some(out) = open.log.as_mut() {
-        if out.write_all(format!("{line}\r\n").as_bytes()).is_err() {
+        if out.write_all(format!("{line}\r\n").as_bytes()).and_then(|()| out.flush()).is_err() {
             open.log = None;
         }
     }

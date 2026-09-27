@@ -232,6 +232,18 @@ impl Recorder {
         !matches!(*self.phase(), Phase::Off)
     }
 
+    /// The state in one word, as [`Status::state`] says it, without reading anything else: `off`,
+    /// `arming`, `armed`, `recording` or `disarming`.
+    pub fn state(&self) -> &'static str {
+        match &*self.phase() {
+            Phase::Off => "off",
+            Phase::Arming => "arming",
+            Phase::Armed(running) if running.capture.wants_recording() => "recording",
+            Phase::Armed(_) => "armed",
+            Phase::Disarming => "disarming",
+        }
+    }
+
     /// The preset an armed recorder holds.
     pub fn armed_preset(&self) -> Option<String> {
         match &*self.phase() {

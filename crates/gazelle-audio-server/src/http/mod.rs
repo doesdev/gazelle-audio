@@ -9,6 +9,7 @@ pub mod recall;
 pub mod recording;
 pub mod remote;
 pub mod snapshots;
+pub mod studio;
 pub mod themes;
 pub mod update;
 pub mod window;

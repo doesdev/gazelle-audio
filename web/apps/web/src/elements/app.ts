@@ -16,8 +16,7 @@
 
 import { h } from "../core/dom.ts";
 import { signal, untracked } from "../core/signal.ts";
-import { cssProperties } from "../themes/theme.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { applyTheme, GaElement, sheet, useStore } from "./element.ts";
 import type { SidebarSection } from "../store/store.ts";
 import type { GaSection } from "./section.ts";
 import { followHash, PAGES, route, type Page } from "./router.ts";
@@ -196,11 +195,7 @@ export class GaApp extends GaElement {
       void route.value;
       untracked(() => closeDrawer(false));
     });
-    this.watch(() => {
-      const properties = cssProperties(store.theme.value);
-      const style = document.documentElement.style;
-      for (const [name, value] of Object.entries(properties)) style.setProperty(name, value);
-    });
+    this.watch(() => applyTheme(store));
     this.watch(() => {
       const { side, collapsed } = store.sidebar.value;
       this.setAttribute("sidebar-side", side);

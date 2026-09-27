@@ -4,9 +4,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { GazelleError, type RecordingStatus } from "gazelle-audio-client";
+import { GazelleError, type RecordingAutoArm, type RecordingStatus } from "gazelle-audio-client";
 
-import { clockText, diskText, fileOf, folderOf, lossText, meterFill, newPreset, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, RecordingModel, secondsText, stateLabel, takeLine } from "../src/store/recording.ts";
+import { autoArmShort, autoArmText, clockText, diskLeftText, diskText, fileOf, folderOf, lossText, meterFill, newPreset, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, RecordingModel, secondsText, stateLabel, takeLine, timeOfDay, warnings } from "../src/store/recording.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -110,3 +110,61 @@ test("presets: a new one records nothing yet, and the one offered first is the a
   assert.equal(presetToOffer(presets, undefined, "b"), "b");
   assert.equal(presetToOffer([], undefined, "b"), undefined);
 });
+
+const auto = (over: Partial<RecordingAutoArm> = {}): RecordingAutoArm => ({ on: true, preset: "band", preset_name: "Band", phase: "armed", reason: null, failures: 0, retry_at_ms: null, lost: false, ...over });
+
+test("auto-arm is said in a sentence for the page and the hub, and in a few words for the widget", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(autoArmText(undefined, now), undefined, "an older server says nothing about it");
+  assert.equal(autoArmText(auto({ on: false }), now), undefined, "nor does one with it off");
+  assert.equal(autoArmShort(auto({ on: false }), now), undefined);
+  assert.equal(autoArmText(auto(), now), "Auto-arm is on, with Band.");
+  assert.equal(autoArmShort(auto(), now), "Auto: Band");
+  assert.match(autoArmText(auto({ phase: "paused" }), now) ?? "", /paused because you disarmed\. Arm to resume/);
+  assert.equal(autoArmShort(auto({ phase: "paused" }), now), "Auto: paused");
+  assert.match(autoArmText(auto({ phase: "waiting_for_interfaces", lost: true }), now) ?? "", /went away, so auto-arm disarmed\. It arms with Band again/);
+  assert.match(autoArmText(auto({ phase: "waiting_for_measurement" }), now) ?? "", /measurement/);
+  const backing = auto({ phase: "backing_off", reason: "A DAW has the interfaces.", failures: 2, retry_at_ms: now + 14_200 });
+  assert.equal(autoArmText(backing, now), "Auto-arm could not arm with Band: A DAW has the interfaces. It tries again in 15 s.");
+  assert.equal(autoArmShort(backing, now), "Auto: retry in 15 s");
+  assert.equal(autoArmShort({ ...backing, retry_at_ms: now - 5 }, now), "Auto: retry in 0 s", "never a countdown below zero");
+  assert.equal(autoArmShort(auto({ preset_name: null }), now), "Auto: band", "the id, when the preset has gone from the workspace");
+});
+
+test("the warnings the transport, the widget and the hub share, the clock and the disk", () => {
+  assert.deepEqual(warnings(undefined, undefined), []);
+  const trouble: RecordingStatus = { ...armed, overruns: 2, disk_low: true, disk_free_bytes: 2 * 1024 ** 3, disk_seconds_left: 500, reset_asked: true, problem: "The disk was slow." };
+  const said = warnings("Refused.", trouble);
+  assert.equal(said[0], "Refused.");
+  assert.equal(said[1], "The disk was slow.");
+  assert.match(said[2] ?? "", /2 blocks lost because the disk fell behind/);
+  assert.equal(said[3], "The disk is getting full: 2.0 GB free, about 8 min 20 s of recording.");
+  assert.match(said[4] ?? "", /driver asked to be restarted/);
+  assert.equal(timeOfDay(new Date(2026, 8, 27, 9, 5, 7)), "09:05:07");
+  assert.equal(diskLeftText(armed), undefined, "not known until the writer has looked");
+  assert.equal(diskLeftText({ ...armed, disk_seconds_left: 3 * 3600 + 12 * 60 }), "3 h 12 min");
+});
+
+test("the settings and the windows are read and changed through the model, and a refusal is its problem", async () => {
+  const { client, store } = withStore();
+  const model = new RecordingModel(store.recorder);
+  await model.readComputer();
+  assert.deepEqual(model.settings.value, { auto_arm: false, auto_arm_preset: null, start_in_hub: false });
+  assert.equal(model.windows.value?.available, true);
+  assert.equal(await model.setSettings({ auto_arm: true, auto_arm_preset: "band" }), true);
+  assert.deepEqual(model.settings.value, { auto_arm: true, auto_arm_preset: "band", start_in_hub: false });
+  assert.equal(await model.setWindow("widget", { open: true }), true);
+  assert.equal(model.windows.value?.widget, true);
+  assert.equal(await model.setWindow("hub", { open: true }), true);
+  assert.equal(model.windows.value?.hub_full_screen, true);
+
+  client.recordingRefusal = new GazelleError("no_preset", "There is no preset \"gone\".");
+  assert.equal(await model.setSettings({ auto_arm_preset: "gone" }), false);
+  assert.equal(model.problem.value, "There is no preset \"gone\".");
+  assert.equal(model.settings.peek()?.auto_arm_preset, "band", "nothing changed");
+
+  client.recordingWindows = { available: false, widget: false, hub: false, hub_full_screen: false, reason: "no windows here" };
+  assert.equal(await model.setWindow("widget", { open: true }), false);
+  assert.equal(model.problem.value, "no windows here");
+});
+

@@ -7,11 +7,11 @@
 // one press too, and the page explains it the first time (`ARM_EXPLAINED_KEY`). Disarming while a
 // take is running asks first, on the page and at the server (`confirm_disarm`).
 
-import { GazelleError, type RecordingPreset, type RecordingStatus, type RecordingTake } from "gazelle-audio-client";
+import { GazelleError, type RecordingAutoArm, type RecordingPreset, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows } from "gazelle-audio-client";
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
 
-export type { RecordingPreset, RecordingStatus, RecordingTake };
+export type { RecordingAutoArm, RecordingPreset, RecordingSettings, RecordingStatus, RecordingTake, RecordingWindows };
 
 /** What the model calls; the store's `recorder`. */
 export interface RecorderApi {
@@ -23,6 +23,12 @@ export interface RecorderApi {
   takes(): Promise<{ takes: RecordingTake[] }>;
   /** Follows the live state; returns how to stop. */
   follow(listener: (status: RecordingStatus) => void): () => void;
+  /** Auto-arm and starting in the hub; the computer's only. */
+  settings(): Promise<RecordingSettings>;
+  setSettings(change: Partial<RecordingSettings>): Promise<RecordingSettings>;
+  /** The recording widget and hub windows; the computer's only. */
+  windows(): Promise<RecordingWindows>;
+  setWindow(which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows>;
 }
 
 /** Remembered in this browser once Arm has been explained, so it is explained once. */
@@ -43,6 +49,8 @@ export class RecordingModel {
   readonly #takes = signal<RecordingTake[]>([]);
   readonly #busy = signal<RecordingAction | undefined>(undefined);
   readonly #problem = signal<string | undefined>(undefined);
+  readonly #settings = signal<RecordingSettings | undefined>(undefined);
+  readonly #windows = signal<RecordingWindows | undefined>(undefined);
   #watchers = 0;
   #unfollow: (() => void) | undefined;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -158,6 +166,54 @@ export class RecordingModel {
     if (state === "recording") return this.stop();
     return undefined;
   }
+
+  /** Auto-arm and starting in the hub, once read; undefined on a phone, which may not read them. */
+  get settings(): ReadonlySignal<RecordingSettings | undefined> {
+    return this.#settings;
+  }
+
+  /** Whether the recording widget and hub are open, once read. */
+  get windows(): ReadonlySignal<RecordingWindows | undefined> {
+    return this.#windows;
+  }
+
+  /** Read the settings and the windows again: when a page opens, and when its window comes back into view. */
+  async readComputer(): Promise<void> {
+    await Promise.all([
+      this.#api.settings().then(
+        (settings) => (this.#settings.value = settings),
+        () => undefined,
+      ),
+      this.#api.windows().then(
+        (windows) => (this.#windows.value = windows),
+        () => undefined,
+      ),
+    ]);
+  }
+
+  /** Change the settings; a refusal is the model's problem, as a press's is. */
+  async setSettings(change: Partial<RecordingSettings>): Promise<boolean> {
+    this.#problem.value = undefined;
+    try {
+      this.#settings.value = await this.#api.setSettings(change);
+      return true;
+    } catch (error) {
+      this.#problem.value = message(error);
+      return false;
+    }
+  }
+
+  /** Open or close the widget or the hub, or take the hub in or out of full screen. */
+  async setWindow(which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<boolean> {
+    this.#problem.value = undefined;
+    try {
+      this.#windows.value = await this.#api.setWindow(which, ask);
+      return true;
+    } catch (error) {
+      this.#problem.value = message(error);
+      return false;
+    }
+  }
 }
 
 const models = new WeakMap<object, RecordingModel>();
@@ -251,6 +307,82 @@ export function lossText(status: RecordingStatus | undefined): string | undefine
     parts.push(`${status.dropouts} block${status.dropouts === 1 ? "" : "s"} lost by the aggregate (${who.join(", ")})`);
   }
   return parts.length === 0 ? undefined : `Since Arm: ${parts.join("; ")}.`;
+}
+
+/**
+ * Everything worth a warning line, in one sentence each: the last refusal, what the recorder says
+ * went wrong, what was lost, a disk getting full, and a driver asking to be restarted. The
+ * transport, the widget and the hub all say the same things.
+ */
+export function warnings(problem: string | undefined, status: RecordingStatus | undefined): string[] {
+  return [
+    problem,
+    status?.problem,
+    lossText(status),
+    status?.disk_low === true ? `The disk is getting full: ${diskText(status)}.` : undefined,
+    status?.reset_asked === true ? "A driver asked to be restarted. Disarm and arm again when you can: the take so far is safe." : undefined,
+  ].filter((s): s is string => s !== undefined && s !== "");
+}
+
+/** A countdown in whole seconds under a minute ("15 s"), else as `secondsText` says it. */
+function countdownText(seconds: number): string {
+  return seconds < 60 ? `${seconds} s` : secondsText(seconds);
+}
+
+/** Whole seconds until `at` (ms since the epoch), never below zero. */
+function secondsUntil(at: number | null, now: number): number {
+  return at === null ? 0 : Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+/** What auto-arm is doing, in a sentence, or undefined while it is off. `now` is in ms since the epoch. */
+export function autoArmText(auto: RecordingAutoArm | undefined, now: number): string | undefined {
+  if (auto === undefined || !auto.on) return undefined;
+  const name = auto.preset_name ?? auto.preset ?? "its preset";
+  switch (auto.phase) {
+    case "armed":
+      return `Auto-arm is on, with ${name}.`;
+    case "arming":
+      return `Auto-arm is arming with ${name}.`;
+    case "paused":
+      return `Auto-arm is paused because you disarmed. Arm to resume it; otherwise it arms again when Gazelle next starts.`;
+    case "waiting_for_interfaces":
+      return auto.lost ? `The interfaces went away, so auto-arm disarmed. It arms with ${name} again when they are back.` : `Auto-arm is waiting for the interfaces, to arm with ${name}.`;
+    case "waiting_for_measurement":
+      return `Auto-arm is waiting for the measurement on the Aggregate page to finish.`;
+    case "backing_off":
+      return `Auto-arm could not arm with ${name}: ${auto.reason ?? "it was refused."} It tries again in ${countdownText(secondsUntil(auto.retry_at_ms, now))}.`;
+    default:
+      return `Auto-arm is on, with ${name}.`;
+  }
+}
+
+/** The same, in a few words for the widget: "Auto: Band", "Auto: paused", "Auto: retry in 15 s". */
+export function autoArmShort(auto: RecordingAutoArm | undefined, now: number): string | undefined {
+  if (auto === undefined || !auto.on) return undefined;
+  switch (auto.phase) {
+    case "paused":
+      return "Auto: paused";
+    case "waiting_for_interfaces":
+      return "Auto: waiting for interfaces";
+    case "waiting_for_measurement":
+      return "Auto: waiting for measurement";
+    case "backing_off":
+      return `Auto: retry in ${countdownText(secondsUntil(auto.retry_at_ms, now))}`;
+    default:
+      return `Auto: ${auto.preset_name ?? auto.preset ?? "on"}`;
+  }
+}
+
+/** The time of day on a clock: "14:03:20". */
+export function timeOfDay(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+
+/** How long the disk would record for at this rate and channel count, as the hub says it, or undefined when that is not known yet. */
+export function diskLeftText(status: RecordingStatus | undefined): string | undefined {
+  if (status?.disk_seconds_left === undefined) return undefined;
+  return secondsText(status.disk_seconds_left);
 }
 
 /** The disk, in words, while armed. */

@@ -47,6 +47,26 @@ version that has not been published yet.
 - **Record from your phone.** The Remote page has the recorder's transport at the top: the preset,
   Off, Armed or Recording with the time and the pre-roll held, and Arm, Record, Stop and Disarm.
   Presets are still changed on the computer.
+- **The recording widget.** A small window that stays on top of everything else, with the
+  recorder's state (red while recording), the time, the preset and the pre-roll held, one big
+  button for Arm, Record or Stop, Disarm beside it, and a line that says when anything is wrong.
+  Drag it anywhere by its body. It remembers where you left it, comes back on screen if that
+  monitor has gone, and comes back at the next start if it was open. Open it from the tray's
+  Recording widget item or from the Recording page.
+- **The recording hub.** A full-screen window to read from across the room: the state and the time
+  very large, the preset and pre-roll, every channel's meter by its name, how long the disk would
+  record for, the last few takes, a clock, and Arm, Record and Stop as big buttons. Space records
+  and stops, Esc leaves full screen, and Disarm is small and off to the side. It opens on the
+  monitor it was last on, from the tray's Recording hub item or the Recording page, and Start in
+  the recording hub opens it whenever Gazelle starts, login included.
+- **Auto-arm.** Choose a preset on the Recording page, or in the tray, and Gazelle arms with it
+  whenever it starts, and again when the interfaces drop out and come back. It is off unless you
+  turn it on. Disarming by hand pauses it until Gazelle next starts or you arm again, it waits for
+  a measurement on the Aggregate page to finish, and when arming is refused it says why and tries
+  again after a growing wait. The widget, the hub and the Recording page show that it is on, and
+  turn it off. Always armed means Gazelle always holds the audio drivers, so a DAW may not be able
+  to use them. Quitting Gazelle, or restarting it to update, finishes any take being recorded
+  before it stops.
 - **Gazelle Remote, an app for Android phones.** Each release now carries `Gazelle-Remote.apk`:
   install it on your phone (Android asks you to allow installing it from your browser), scan the
   QR code on the computer, and Gazelle's Remote page opens full screen, with the screen kept on.

@@ -4,6 +4,7 @@
 
 import { effect, type Signal } from "../core/signal.ts";
 import type { Store } from "../store/store.ts";
+import { cssProperties } from "../themes/theme.ts";
 import { shared } from "./styles.ts";
 
 let appStore: Store | undefined;
@@ -15,6 +16,12 @@ export function provideStore(store: Store): void {
 export function useStore(): Store {
   if (appStore === undefined) throw new Error("the store has not been provided; call provideStore() before adding elements");
   return appStore;
+}
+
+/** Put the chosen theme on the document; inside a watch, it follows the choice. The app, the widget and the hub each do. */
+export function applyTheme(store: Store): void {
+  const style = document.documentElement.style;
+  for (const [name, value] of Object.entries(cssProperties(store.theme.value))) style.setProperty(name, value);
 }
 
 export class GaElement extends HTMLElement {

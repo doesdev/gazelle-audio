@@ -198,6 +198,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             }
             0
         }
+        // Asked to close from outside: `taskkill /PID <pid>` without /F, which is how `xtask
+        // install-local` stops a running Gazelle. That is a Quit, so the server stops the ordinary
+        // way, finishing any take's files and letting go of the audio drivers, rather than the tray
+        // going and the server staying on with no icon. The server's own shutdown closes the tray
+        // this way too, when the quit is already under way.
+        WM_CLOSE => {
+            tracing::info!("asked to close; quitting");
+            (state.context.quit)();
+            DestroyWindow(hwnd);
+            0
+        }
         WM_DESTROY => {
             Shell_NotifyIconW(NIM_DELETE, &icon_data(hwnd));
             DestroyIcon(state.icon);
@@ -277,6 +288,7 @@ fn status(state: &State) -> Status {
         }),
         has_window: c.show_window.is_some(),
         phones: c.phones.as_ref().map(|p| PhonesMenu { on: (p.on)(), fixed: p.fixed }),
+        recording: c.recording.as_ref().map(|r| (r.menu)()),
     }
 }
 
@@ -334,6 +346,34 @@ fn show_menu(hwnd: HWND, state: &Rc<State>) {
                 match (phones.toggle)() {
                     Ok(on) => tracing::info!("phones on this network {}, from the tray", if on { "allowed" } else { "not allowed" }),
                     Err(why) => tracing::warn!("changing whether phones are allowed: {why}"),
+                }
+            }
+        }
+        Some(Command::RecordingWidget) => {
+            if let Some(recording) = &state.context.recording {
+                tracing::info!("recording widget opened or closed, from the tray");
+                (recording.toggle_widget)();
+            }
+        }
+        Some(Command::RecordingHub) => {
+            if let Some(recording) = &state.context.recording {
+                tracing::info!("recording hub opened, from the tray");
+                (recording.open_hub)();
+            }
+        }
+        Some(Command::AutoArm) => {
+            if let Some(recording) = &state.context.recording {
+                match (recording.toggle_auto_arm)() {
+                    Ok(on) => tracing::info!("auto-arm {}, from the tray", if on { "on" } else { "off" }),
+                    Err(why) => tracing::warn!("changing auto-arm: {why}"),
+                }
+            }
+        }
+        Some(Command::StartInHub) => {
+            if let Some(recording) = &state.context.recording {
+                match (recording.toggle_start_in_hub)() {
+                    Ok(on) => tracing::info!("start in the recording hub {}, from the tray", if on { "on" } else { "off" }),
+                    Err(why) => tracing::warn!("changing start in the recording hub: {why}"),
                 }
             }
         }

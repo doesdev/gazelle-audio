@@ -14,15 +14,19 @@ Gazelle is one program with three faces: a desktop window, a tray icon, and a sm
 | **Gazelle X.Y.Z** | The first line: which version is running. The icon's own tooltip stays **Gazelle** |
 | **Open Gazelle** | Shows the window (or opens the browser, where there is no window) |
 | **Open in browser** | Opens the same app in your web browser |
+| **Recording widget** | Opens or closes the small recording window that stays on top; ticked while it is open. See [The recording widget](14-recording-page.md#the-recording-widget) |
+| **Recording hub** | Opens the full-screen recording hub on the monitor it was last on. See [The recording hub](14-recording-page.md#the-recording-hub) |
 | Listening on, Backend, Dry run | Information: the address, `usb` or `loopback`, and whether dry run is on |
 | Device lines | Each attached device, or **No devices attached** |
 | **Warning: Antelope's service is holding the devices** | Shown while that service runs; see [Getting started](03-getting-started.md#stop-antelopes-service) |
 | **Rescan devices** | Looks for interfaces again at once (it also does so every two seconds) |
 | Update lines | The update state, **Check for updates**, and, when one is ready, **Restart to update to X**. **Download update X** appears only if you set `auto_download` to `false`; see [Updates](18-install-update-uninstall.md#updates) |
 | **Start on boot** | Starts Gazelle in the tray when you log in, with its window hidden until you open it |
+| **Auto-arm with** *preset* | Arms whenever Gazelle starts and when the interfaces come back; see [Auto-arm](14-recording-page.md#auto-arm). Greyed until a preset is chosen on the Recording page |
+| **Start in the recording hub** | Opens the recording hub full screen whenever Gazelle starts, at login too |
 | **Allow phones on this network** | The same switch as on the Workspace page; see [Phones on your network](#phones-on-your-network). Greyed, and shown on, when `--bind` decides instead |
 | **Open log folder** | Opens the folder with Gazelle's log files |
-| **Quit** | Stops Gazelle. The devices keep their settings |
+| **Quit** | Stops Gazelle. The devices keep their settings. A take being recorded is finished first |
 
 Starting Gazelle while it is already running brings the running window to the front instead of starting a second copy.
 

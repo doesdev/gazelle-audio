@@ -46,7 +46,10 @@ pub const PAIR_PATH: &str = "/api/v1/remote/pair";
 
 /// What stays on this machine: a phone with a token still gets 403 for these, and for anything
 /// under them.
-pub const LOCAL_ONLY: [&str; 4] = ["/api/v1/update", "/api/v1/window", "/api/v1/aggregate", "/api/v1/remote"];
+///
+/// The recording settings are here too: auto-arm holds this PC's drivers and start in the hub fills
+/// its screen, so they are the computer's to change, while the recorder itself is a phone's to use.
+pub const LOCAL_ONLY: [&str; 5] = ["/api/v1/update", "/api/v1/window", "/api/v1/aggregate", "/api/v1/remote", "/api/v1/recording/settings"];
 
 /// Put the gate in front of every route of `app`, and of its fallback (the web app's files).
 pub fn protect(app: Router, remote: Arc<Remote>) -> Router {
@@ -290,10 +293,10 @@ mod tests {
 
     #[test]
     fn what_stays_on_this_machine() {
-        for path in ["/api/v1/update", "/api/v1/update/restart", "/api/v1/window/show", "/api/v1/aggregate", "/api/v1/remote", "/api/v1/remote/pairing", "/api/v1/remote/phones/ab"] {
+        for path in ["/api/v1/update", "/api/v1/update/restart", "/api/v1/window/show", "/api/v1/window/widget", "/api/v1/window/hub", "/api/v1/aggregate", "/api/v1/remote", "/api/v1/remote/pairing", "/api/v1/remote/phones/ab", "/api/v1/recording/settings"] {
             assert!(local_only(path), "{path}");
         }
-        for path in [PAIR_PATH, "/api/v1/health", "/api/v1/ws", "/api/v1/devices", "/api/v1/updates", "/api/v1/workspace"] {
+        for path in [PAIR_PATH, "/api/v1/health", "/api/v1/ws", "/api/v1/devices", "/api/v1/updates", "/api/v1/workspace", "/api/v1/recording", "/api/v1/recording/arm", "/api/v1/recording/disarm", "/api/v1/recording/takes"] {
             assert!(!local_only(path), "{path}");
         }
     }

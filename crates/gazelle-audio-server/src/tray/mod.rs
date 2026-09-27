@@ -60,6 +60,32 @@ pub struct Context {
     /// The phones setting, as the Workspace page's Phones section has it. `None` leaves the item
     /// out.
     pub phones: Option<PhonesToggle>,
+    /// The recording widget and hub, auto-arm and starting in the hub. `None` leaves them out.
+    pub recording: Option<RecordingHooks>,
+}
+
+/// The recording items, from the tray: read when the menu opens, acted on when picked.
+pub struct RecordingHooks {
+    pub menu: Box<dyn Fn() -> RecordingMenu>,
+    /// Open the widget if it is closed, close it if it is open.
+    pub toggle_widget: Box<dyn Fn()>,
+    /// Open the hub, full screen, and bring it to the front.
+    pub open_hub: Box<dyn Fn()>,
+    /// Flip auto-arm, with the preset it last had. `Ok` carries the new state.
+    pub toggle_auto_arm: Box<dyn Fn() -> Result<bool, String>>,
+    pub toggle_start_in_hub: Box<dyn Fn() -> Result<bool, String>>,
+}
+
+/// The recording items as the menu shows them, read when the menu opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordingMenu {
+    /// Whether the widget is open, or `None` without windows, which leaves the widget, the hub and
+    /// starting in the hub out of the menu.
+    pub widget: Option<bool>,
+    pub auto_arm: bool,
+    /// The name of the preset auto-arm arms with, when it has one.
+    pub auto_arm_preset: Option<String>,
+    pub start_in_hub: bool,
 }
 
 /// Allow phones on this network, from the tray: read when the menu opens, flipped when picked.
@@ -157,6 +183,12 @@ pub enum Command {
     /// Stop the server and start the staged binary. The only place the app restarts itself.
     RestartToUpdate,
     AllowPhones,
+    /// Open or close the recording widget.
+    RecordingWidget,
+    /// Open the recording hub, full screen.
+    RecordingHub,
+    AutoArm,
+    StartInHub,
 }
 
 impl Command {
@@ -173,6 +205,10 @@ impl Command {
             Command::RestartToUpdate => 8,
             Command::OpenInBrowser => 9,
             Command::AllowPhones => 10,
+            Command::RecordingWidget => 11,
+            Command::RecordingHub => 12,
+            Command::AutoArm => 13,
+            Command::StartInHub => 14,
         }
     }
 
@@ -182,7 +218,7 @@ impl Command {
 }
 
 /// Every menu command, for the id round trip and for the Windows module's dispatch.
-pub const ALL: [Command; 10] = [
+pub const ALL: [Command; 14] = [
     Command::Open,
     Command::StartOnBoot,
     Command::Quit,
@@ -193,6 +229,10 @@ pub const ALL: [Command; 10] = [
     Command::RestartToUpdate,
     Command::OpenInBrowser,
     Command::AllowPhones,
+    Command::RecordingWidget,
+    Command::RecordingHub,
+    Command::AutoArm,
+    Command::StartInHub,
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,6 +265,8 @@ pub struct Status {
     pub update: Option<UpdateMenu>,
     /// The phones setting, when the tray offers it.
     pub phones: Option<PhonesMenu>,
+    /// The recording items, when the tray offers them.
+    pub recording: Option<RecordingMenu>,
 
     /// Whether this server has a desktop window. Open then shows it, and a second item opens a
     /// browser; without one Open is the browser, as it always was.
@@ -266,6 +308,19 @@ pub fn device_label(descriptor: &DeviceDescriptor) -> String {
     }
 }
 
+/// The longest a preset's name is in the Auto-arm item, so the line fits the menu.
+const AUTO_ARM_NAME_LIMIT: usize = 40;
+
+/// `text`, cut to `limit` characters with an ellipsis when it is longer.
+fn short(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(limit.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
+}
+
 /// The menu, top to bottom.
 pub fn menu(status: &Status) -> Vec<Item> {
     let mut items = vec![
@@ -289,6 +344,11 @@ pub fn menu(status: &Status) -> Vec<Item> {
             checked: None,
             default: false,
         });
+    }
+    // The recording widget and hub are windows, so they open beside the app's own.
+    if let Some(RecordingMenu { widget: Some(open), .. }) = &status.recording {
+        items.push(Item::Action { command: Command::RecordingWidget, label: "Recording widget".into(), enabled: status.web_ui, checked: Some(*open), default: false });
+        items.push(Item::Action { command: Command::RecordingHub, label: "Recording hub".into(), enabled: status.web_ui, checked: None, default: false });
     }
     items.extend([
         Item::Separator,
@@ -352,6 +412,17 @@ pub fn menu(status: &Status) -> Vec<Item> {
             default: false,
         },
     ]);
+    // Beside Start on boot: what Gazelle does as it starts.
+    if let Some(recording) = &status.recording {
+        let label = match &recording.auto_arm_preset {
+            Some(name) => format!("Auto-arm with {}", short(name, AUTO_ARM_NAME_LIMIT)),
+            None => "Auto-arm (choose a preset in the app)".into(),
+        };
+        items.push(Item::Action { command: Command::AutoArm, label, enabled: recording.auto_arm_preset.is_some(), checked: Some(recording.auto_arm), default: false });
+        if recording.widget.is_some() {
+            items.push(Item::Action { command: Command::StartInHub, label: "Start in the recording hub".into(), enabled: true, checked: Some(recording.start_in_hub), default: false });
+        }
+    }
     if let Some(phones) = status.phones {
         items.push(Item::Action {
             command: Command::AllowPhones,
@@ -394,7 +465,58 @@ mod tests {
             update: None,
             phones: None,
             has_window: false,
+            recording: None,
         }
+    }
+
+    fn commands(items: &[Item]) -> Vec<Command> {
+        items.iter().filter_map(|i| if let Item::Action { command, .. } = i { Some(*command) } else { None }).collect()
+    }
+
+    fn recording(widget: Option<bool>, auto_arm: bool, preset: Option<&str>) -> Status {
+        Status {
+            has_window: widget.is_some(),
+            recording: Some(RecordingMenu { widget, auto_arm, auto_arm_preset: preset.map(str::to_string), start_in_hub: false }),
+            ..status()
+        }
+    }
+
+    /// The widget and the hub open beside the app's window; auto-arm and starting in the hub sit
+    /// with Start on boot, since they are about what happens as Gazelle starts.
+    #[test]
+    fn the_recording_items_sit_with_open_and_with_start_on_boot() {
+        let items = menu(&recording(Some(true), true, Some("Band")));
+        assert_eq!(
+            commands(&items),
+            [Command::Open, Command::OpenInBrowser, Command::RecordingWidget, Command::RecordingHub, Command::StartOnBoot, Command::AutoArm, Command::StartInHub, Command::OpenLogFolder, Command::Quit]
+        );
+        assert_eq!(action(&items, Command::RecordingWidget), &Item::Action { command: Command::RecordingWidget, label: "Recording widget".into(), enabled: true, checked: Some(true), default: false });
+        assert_eq!(action(&items, Command::RecordingHub), &Item::Action { command: Command::RecordingHub, label: "Recording hub".into(), enabled: true, checked: None, default: false });
+        assert_eq!(action(&items, Command::AutoArm), &Item::Action { command: Command::AutoArm, label: "Auto-arm with Band".into(), enabled: true, checked: Some(true), default: false });
+        assert!(matches!(action(&items, Command::StartInHub), Item::Action { checked: Some(false), enabled: true, label, .. } if label == "Start in the recording hub"));
+    }
+
+    #[test]
+    fn without_a_preset_auto_arm_says_where_to_choose_one_and_cannot_be_turned_on() {
+        let items = menu(&recording(Some(false), false, None));
+        assert!(matches!(action(&items, Command::AutoArm), Item::Action { enabled: false, checked: Some(false), label, .. } if label == "Auto-arm (choose a preset in the app)"));
+    }
+
+    /// `--no-window` still auto-arms, so the tray still offers it; there is nothing to open.
+    #[test]
+    fn without_windows_only_auto_arm_is_offered() {
+        let items = menu(&recording(None, false, Some("Band")));
+        assert_eq!(commands(&items), [Command::Open, Command::StartOnBoot, Command::AutoArm, Command::OpenLogFolder, Command::Quit]);
+    }
+
+    #[test]
+    fn a_long_preset_name_is_cut_to_fit_the_menu() {
+        let name = "The whole band, every microphone in the live room and the booth";
+        let items = menu(&recording(Some(false), true, Some(name)));
+        let Item::Action { label, .. } = action(&items, Command::AutoArm) else { unreachable!() };
+        assert!(label.chars().count() <= crate::update::LINE_LIMIT, "{label}");
+        assert!(label.ends_with('…'));
+        assert_eq!(short("Band", 40), "Band");
     }
 
     fn with_update(update: UpdateMenu) -> Status {
@@ -643,6 +765,8 @@ mod tests {
             Status { backend: "usb".into(), dry_run: true, devices: vec![], can_rescan: true, antelope_service_running: true, ..status() },
             Status { web_ui: false, log_file: false, has_window: true, ..status() },
             Status { phones: Some(PhonesMenu { on: true, fixed: true }), ..status() },
+            recording(Some(true), true, Some(&"x".repeat(200))),
+            recording(Some(false), false, None),
         ];
         for state in states {
             menus.push(with_update(UpdateMenu { line: state.line(), available: Some("0.2.0".into()), staged: Some("0.2.0".into()) }));

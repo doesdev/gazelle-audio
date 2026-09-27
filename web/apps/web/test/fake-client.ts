@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type RecordingStatus, type RecordingTake, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -246,7 +246,33 @@ export class FakeClient implements Client {
     stop: () => this.#recorder("stop", { state: "armed" }),
     disarm: (options: { confirm?: boolean } = {}) => this.#recorder(`disarm${options.confirm === true ? " confirmed" : ""}`, { state: "off" }),
     takes: async () => ({ takes: this.recordingTakes }),
+    settings: async (): Promise<RecordingSettings> => {
+      this.recordingCalls.push("settings");
+      return this.recordingSettings;
+    },
+    setSettings: async (change: Partial<RecordingSettings>): Promise<RecordingSettings> => {
+      this.recordingCalls.push(`settings ${JSON.stringify(change)}`);
+      const refusal = this.recordingRefusal;
+      if (refusal !== undefined) {
+        this.recordingRefusal = undefined;
+        throw refusal;
+      }
+      this.recordingSettings = { ...this.recordingSettings, ...change };
+      return this.recordingSettings;
+    },
+    windows: async (): Promise<RecordingWindows> => this.recordingWindows,
+    setWindow: async (which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows> => {
+      this.recordingCalls.push(`window ${which} ${JSON.stringify(ask)}`);
+      if (!this.recordingWindows.available) throw new GazelleError("no_window", this.recordingWindows.reason ?? "no windows");
+      if (which === "widget" && ask.open !== undefined) this.recordingWindows = { ...this.recordingWindows, widget: ask.open };
+      if (which === "hub" && ask.open !== undefined) this.recordingWindows = { ...this.recordingWindows, hub: ask.open, hub_full_screen: ask.open };
+      if (which === "hub" && ask.full_screen !== undefined) this.recordingWindows = { ...this.recordingWindows, hub_full_screen: ask.full_screen };
+      return this.recordingWindows;
+    },
   };
+  /** The recording settings and windows the fake answers with. */
+  recordingSettings: RecordingSettings = { auto_arm: false, auto_arm_preset: null, start_in_hub: false };
+  recordingWindows: RecordingWindows = { available: true, widget: false, hub: false, hub_full_screen: false };
 
   readonly remoteCalls: string[] = [];
 

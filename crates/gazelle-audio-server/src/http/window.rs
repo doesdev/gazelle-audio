@@ -1,5 +1,7 @@
-//! The desktop window, as far as HTTP is concerned: one request, which a second launch of the
-//! binary makes so the copy already running comes to the front (`crate::handover`).
+//! The desktop window, as far as HTTP is concerned: `POST /api/v1/window/show`, which a second
+//! launch of the binary makes so the copy already running comes to the front (`crate::handover`).
+//! The recording widget and hub windows have their routes beside the recording settings
+//! (`crate::http::studio`).
 //!
 //! Loopback peers only. The request moves a window on someone's desk, so a server bound to every
 //! interface must not let the network make it.

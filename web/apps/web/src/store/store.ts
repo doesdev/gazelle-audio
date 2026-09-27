@@ -981,7 +981,7 @@ export class Store {
   /**
    * The recorder's calls and its live state, for the model the Recording page and the Remote page's
    * transport share (`recording.ts`), which comes with those pages rather than with the app. A phone
-   * may use every one of these.
+   * may use every one of these but the settings and the windows, which stay on the computer.
    */
   readonly recorder: RecorderApi = {
     status: () => this.#client.recording.status(),
@@ -991,6 +991,10 @@ export class Store {
     disarm: (confirm) => this.#client.recording.disarm({ confirm }),
     takes: () => this.#client.recording.takes(),
     follow: (listener) => this.#client.on("recording", listener),
+    settings: () => this.#local(() => this.#client.recording.settings()),
+    setSettings: (change) => this.#local(() => this.#client.recording.setSettings(change)),
+    windows: () => this.#local(() => this.#client.recording.windows()),
+    setWindow: (which, ask) => this.#local(() => this.#client.recording.setWindow(which, ask)),
   };
 
   /**

@@ -7,7 +7,7 @@
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
-import type { RecordingStatus, RecordingTake } from "./recording.ts";
+import type { RecordingSettings, RecordingStatus, RecordingTake, RecordingWindows } from "./recording.ts";
 import type { RemotePairing, RemoteStatus } from "./remote.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
@@ -219,6 +219,13 @@ export interface Client {
     /** Rejects with `confirm_disarm` while recording unless `confirm`: disarming stops the take. */
     disarm(options?: { confirm?: boolean }): Promise<RecordingStatus>;
     takes(): Promise<{ takes: RecordingTake[] }>;
+    /** Auto-arm and starting in the hub. The computer's only: a phone gets `not_local`. */
+    settings(): Promise<RecordingSettings>;
+    /** Changes what it names and leaves the rest; auto-arm on needs a preset that is there (`no_preset`). */
+    setSettings(change: Partial<RecordingSettings>): Promise<RecordingSettings>;
+    /** The recording widget and hub windows; `no_window` (409) from a Gazelle without windows. */
+    windows(): Promise<RecordingWindows>;
+    setWindow(which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows>;
   };
   /**
    * The in-app updater. Answered only to a caller on the server's own machine: a phone gets
@@ -431,6 +438,10 @@ class Connection implements Client {
     stop: async (): Promise<RecordingStatus> => (await this.#http("POST", "recording/stop", {})) as RecordingStatus,
     disarm: async (options: { confirm?: boolean } = {}): Promise<RecordingStatus> => (await this.#http("POST", "recording/disarm", { confirm: options.confirm === true })) as RecordingStatus,
     takes: async (): Promise<{ takes: RecordingTake[] }> => (await this.#http("GET", "recording/takes")) as { takes: RecordingTake[] },
+    settings: async (): Promise<RecordingSettings> => (await this.#http("GET", "recording/settings")) as RecordingSettings,
+    setSettings: async (change: Partial<RecordingSettings>): Promise<RecordingSettings> => (await this.#http("PUT", "recording/settings", change)) as RecordingSettings,
+    windows: async (): Promise<RecordingWindows> => (await this.#http("GET", "window/widget")) as RecordingWindows,
+    setWindow: async (which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows> => (await this.#http("POST", `window/${which}`, ask)) as RecordingWindows,
   };
 
   readonly update = {

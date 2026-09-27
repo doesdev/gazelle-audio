@@ -9,6 +9,7 @@ import "@fontsource-variable/josefin-sans";
 import { effect } from "./core/signal.ts";
 import { DRAWER_MAX_PX } from "./elements/app.ts";
 import { provideStore } from "./elements/index.ts";
+import { loadElement } from "./elements/lazy.ts";
 import { openStore } from "./store/store.ts";
 import type { ThemeSource } from "./themes/theme.ts";
 
@@ -44,6 +45,14 @@ async function boot(): Promise<void> {
     const narrow = matchMedia(`(max-width: ${DRAWER_MAX_PX}px)`).matches;
     const store = await openStore(location.origin, { themeSources, narrow });
     provideStore(store);
+    // The recording widget and hub: one element each, in its own chunk, with none of the app around it.
+    const alone = /^#\/(widget|hub)$/.exec(location.hash)?.[1];
+    if (alone !== undefined) {
+      const tag = `ga-recording-${alone}`;
+      await loadElement(tag);
+      document.body.replaceChildren(document.createElement(tag));
+      return;
+    }
     // A phone opening the app's plain address lands on the page laid out for it.
     if (store.phone && location.hash === "") history.replaceState(history.state, "", "#/remote");
     document.body.replaceChildren(document.createElement("ga-app"));

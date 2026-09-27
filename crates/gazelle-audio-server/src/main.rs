@@ -29,6 +29,9 @@ use gazelle_audio_server::snapshot::store::{JsonDirStore, MemorySnapshotStore, S
 use gazelle_audio_server::workspace::store::{JsonFileStore, MemoryStore, WorkspaceStore};
 use gazelle_audio_server::tray::{self, boot::BootArgs};
 use gazelle_audio_server::update::{self, settings::Settings, Updater};
+use gazelle_audio_server::recording::RecordingService;
+use gazelle_audio_server::studio::{settings::default_studio_path, settings::Backing as StudioBacking, Studio};
+use gazelle_audio_server::window::Viewports;
 use gazelle_audio_server::{http, logging, AppState};
 use tokio::sync::Notify;
 
@@ -122,7 +125,9 @@ struct Args {
     no_window: bool,
 
     /// Start in the tray with the window hidden. The tray's Open, or launching Gazelle again,
-    /// shows it. Start on boot runs Gazelle this way.
+    /// shows it. Start on boot runs Gazelle this way. The recording widget still comes back if it
+    /// was open, and "Start in the recording hub" still opens the hub: a studio PC starting at
+    /// login is what those are for.
     #[arg(long)]
     hidden: bool,
 
@@ -271,10 +276,15 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         Arc::new(update::Restart::new(updater, Box::new(move || quit.notify_one())))
     });
 
+    // Auto-arm and starting in the hub, before the windows, which start in the hub when it says so.
+    let studio = studio(args);
+
     // Before the devices are attached, so the window is on screen while that happens rather than
     // after it; its first request waits in the listener's backlog until the server answers.
-    let (window, showing) = open_window(args, local_address);
-    let (app, devices, hotplug) = runtime.block_on(prepare(args, address, window.clone(), restart.clone(), carried, remote.clone()))?;
+    let desktop = open_window(args, local_address, studio.get().start_in_hub);
+    let window = desktop.show.clone();
+    let showing = desktop.showing;
+    let (app, devices, hotplug, recording) = runtime.block_on(prepare(args, address, window.clone(), desktop.viewports.clone(), studio, restart.clone(), carried, remote.clone()))?;
     // The phone listener serves the same app, gate and all, and starts now if phones are allowed.
     remote.serve_phones(app.clone(), runtime.handle().clone());
 
@@ -285,6 +295,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
     } else {
         let mut context = tray_context(args, local_address, &devices, &quit, log_dir, window.clone());
         context.phones = Some(phones_toggle(&remote));
+        context.recording = Some(recording_hooks(&recording, desktop.viewports.clone()));
         context.update = updater.clone();
         context.restart = restart.clone().map(|restart| Box::new(move || restart.request()) as Box<dyn Fn() -> Result<String, String>>);
         context.rescan = hotplug.as_ref().map(|hotplug| {
@@ -309,7 +320,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
 
     let closer = tray.as_ref().map(tray::Tray::closer);
     let server = runtime.spawn(async move {
-        let result = serve(listener, local_listener, app, devices, hotplug, quit, remote).await;
+        let result = serve(listener, local_listener, app, devices, hotplug, quit, remote, recording).await;
         // Stopped by Ctrl-C or an error rather than the tray: take the icon down too.
         if let Some(closer) = closer {
             closer.close();
@@ -357,14 +368,17 @@ fn updater(args: &Args) -> Option<Arc<Updater>> {
 /// For the USB backend, also the scanner that keeps attaching and detaching devices from then on.
 ///
 /// `address` is what the listener really bound, which with port 0 is not what was asked for.
+#[allow(clippy::too_many_arguments)]
 async fn prepare(
     args: &Args,
     address: SocketAddr,
     show_window: Option<gazelle_audio_server::ShowWindow>,
+    viewports: Option<Arc<dyn Viewports>>,
+    studio: Arc<Studio>,
     restart: Option<Arc<update::Restart>>,
     carried: bundled::Status,
     remote: Arc<Remote>,
-) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>), Box<dyn std::error::Error>> {
+) -> Result<(axum::Router, Arc<DeviceManager>, Option<HotPlug>, Arc<RecordingService>), Box<dyn std::error::Error>> {
     let registries = RegistrySet::builtin().map_err(|e| format!("loading registries: {e}"))?;
 
     let pids: Vec<u16> = args
@@ -458,17 +472,21 @@ async fn prepare(
     // One calibration and one recorder, which share the aggregate and each refuse while the other
     // has it. The loopback records from the aggregate's own fakes, never a driver.
     let calibration = Arc::new(gazelle_audio_server::aggregate::calibrate::Calibration::this_pc());
-    let recording = gazelle_audio_server::recording::RecordingService::for_backend(args.backend == Backend::Loopback, calibration.clone(), store.clone(), devices.clone());
+    // The recording settings come with it: auto-arm looks once a second, and does nothing while it
+    // is off, which it is by default and always under --no-persist.
+    let recording = RecordingService::for_backend_with(args.backend == Backend::Loopback, calibration.clone(), store.clone(), devices.clone(), studio);
     tokio::spawn(recording.clone().follow());
+    tokio::spawn(recording.clone().follow_auto_arm());
 
     let app = http::router(state)
         .merge(http::driver::routes(devices.clone(), driver, args.dry_run))
         .merge(http::aggregate::routes_sharing(aggregate, store, args.dry_run, calibration))
         .merge(http::recording::routes(recording.clone()))
+        .merge(http::studio::routes(recording.clone(), viewports))
         .merge(http::remote::routes(remote.clone()));
     // Every route sees the recorder: the WebSocket sends its live state, the workspace keeps the
     // armed preset as it is, and a measurement is refused while it is armed.
-    let app = app.layer(axum::Extension(recording));
+    let app = app.layer(axum::Extension(recording.clone()));
     let app = match restart {
         Some(restart) => app.merge(http::update::routes(restart)),
         None => app,
@@ -504,7 +522,7 @@ async fn prepare(
         );
     }
 
-    Ok((app, devices, hotplug))
+    Ok((app, devices, hotplug, recording))
 }
 
 /// The port is already taken. If a Gazelle holds it, hand it the window and go quietly; the
@@ -540,7 +558,9 @@ fn second_instance(bind: SocketAddr, hidden: bool, error: &std::io::Error) -> Re
 ///
 /// `local` is the loopback listener a bind to one network address brings with it; it stops with
 /// the main one. The phone listener stops first of all, so its port is free before a restart
-/// into an update starts the next copy.
+/// into an update starts the next copy. Then the recorder is disarmed, which finishes any take's
+/// files and lets go of the audio drivers, before the devices are closed and the process ends.
+#[allow(clippy::too_many_arguments)]
 async fn serve(
     listener: tokio::net::TcpListener,
     local: Option<tokio::net::TcpListener>,
@@ -549,6 +569,7 @@ async fn serve(
     hotplug: Option<HotPlug>,
     quit: Arc<Notify>,
     remote: Arc<Remote>,
+    recording: Arc<RecordingService>,
 ) -> std::io::Result<()> {
     let (stop_local, local_stopped) = tokio::sync::oneshot::channel::<()>();
     if let Some(local) = local {
@@ -567,8 +588,14 @@ async fn serve(
             _ = tokio::signal::ctrl_c() => {}
             _ = quit.notified() => {}
         }
+        gazelle_audio_server::window::note_shutdown();
         remote.stop();
         let _ = stop_local.send(());
+        // A take being recorded is finished, not cut: its files closed with their sizes, its log
+        // complete. Disarming waits for the writer, so it is not done on a runtime worker.
+        if tokio::task::spawn_blocking(move || recording.shutdown()).await.is_err() {
+            tracing::warn!("the recorder stopped part way through disarming at shutdown");
+        }
         tracing::info!("shutting down, stopping device workers");
         // Scanning stops first, so nothing is attached behind the shutdown.
         if let Some(hotplug) = hotplug {
@@ -593,6 +620,52 @@ fn remote(args: &Args, address: SocketAddr) -> Arc<Remote> {
         tracing::warn!("{warning}");
     }
     remote
+}
+
+/// The recording settings: auto-arm and starting in the hub, from `recording.json` beside
+/// `remote.json`, or in memory only under `--no-persist`, so a test server never reads the owner's
+/// file and never auto-arms.
+fn studio(args: &Args) -> Arc<Studio> {
+    let backing = if args.no_persist {
+        StudioBacking::Memory
+    } else {
+        StudioBacking::File(default_studio_path(|k| std::env::var(k).ok()))
+    };
+    let (studio, warning) = Studio::new(backing);
+    if let Some(warning) = warning {
+        tracing::warn!("{warning}");
+    }
+    let settings = studio.get();
+    if let Some(preset) = settings.auto_arm_with() {
+        tracing::info!("auto-arm is on, with preset {preset:?}: Gazelle arms as soon as the interfaces are there, and holds the audio drivers while armed");
+    }
+    Arc::new(studio)
+}
+
+/// The tray's recording items: the widget and the hub when there are windows, auto-arm and
+/// starting in the hub.
+fn recording_hooks(recording: &Arc<RecordingService>, viewports: Option<Arc<dyn Viewports>>) -> tray::RecordingHooks {
+    let (read, arm, hub_setting) = (recording.clone(), recording.clone(), recording.clone());
+    let (seen, toggle, open) = (viewports.clone(), viewports.clone(), viewports);
+    tray::RecordingHooks {
+        menu: Box::new(move || {
+            let settings = read.studio().get();
+            let name = settings.auto_arm_preset.as_deref().map(|id| read.preset_name(id).unwrap_or_else(|| id.to_string()));
+            tray::RecordingMenu { widget: seen.as_ref().map(|v| v.state().widget), auto_arm: settings.auto_arm, auto_arm_preset: name, start_in_hub: settings.start_in_hub }
+        }),
+        toggle_widget: Box::new(move || {
+            if let Some(viewports) = &toggle {
+                viewports.set_widget(!viewports.state().widget);
+            }
+        }),
+        open_hub: Box::new(move || {
+            if let Some(viewports) = &open {
+                viewports.set_hub(true);
+            }
+        }),
+        toggle_auto_arm: Box::new(move || arm.change_settings(|s| s.auto_arm = !s.auto_arm).map(|s| s.auto_arm)),
+        toggle_start_in_hub: Box::new(move || hub_setting.change_settings(|s| s.start_in_hub = !s.start_in_hub).map(|s| s.start_in_hub)),
+    }
 }
 
 /// The tray's Allow phones item: whether it is on, and a way to flip it.
@@ -649,6 +722,7 @@ fn tray_context(
         update: None,
         restart: None,
         phones: None,
+        recording: None,
     }
 }
 
@@ -663,24 +737,40 @@ fn tray_context(
 /// and the tray's Open falls back to the browser.
 ///
 /// `--hidden` makes it but leaves it closed to the tray. Alongside the way to show it comes a way
-/// to ask whether it is showing, which a restart into an update carries over.
+/// to ask whether it is showing, which a restart into an update carries over, and the recording
+/// widget and hub, which the routes and the tray open and close.
+///
+/// **Start in the hub wins over `--hidden` for the hub**, not for the app's window: a login start
+/// with the setting on opens the full-screen hub, since a studio PC ready at login is the point of
+/// the setting, and the app's window stays in the tray as `--hidden` asks. The widget comes back if
+/// it was open, whatever `--hidden` says, for the same reason.
 #[cfg(feature = "window")]
-fn open_window(args: &Args, address: SocketAddr) -> (Option<gazelle_audio_server::ShowWindow>, Option<Showing>) {
+fn open_window(args: &Args, address: SocketAddr, hub: bool) -> Desktop {
     if args.no_window || args.no_tray || args.no_web_ui {
-        return (None, None);
+        return Desktop::none();
     }
-    let path = gazelle_audio_server::config::default_window_state_path(|k| std::env::var(k).ok());
-    match gazelle_audio_server::window::open(tray::ui_url(address), path, !args.hidden) {
+    let path = |kind| gazelle_audio_server::window::state::state_path(kind, |k| std::env::var(k).ok());
+    use gazelle_audio_server::window::Kind;
+    let options = gazelle_audio_server::window::Options {
+        url: tray::ui_url(address),
+        main_state: path(Kind::Main),
+        widget_state: path(Kind::Widget),
+        hub_state: path(Kind::Hub),
+        visible: !args.hidden,
+        hub,
+    };
+    match gazelle_audio_server::window::open(options) {
         Ok(window) => {
-            let asked = window.clone();
-            (
-                Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
-                Some(Box::new(move || asked.is_showing()) as Showing),
-            )
+            let (asked, viewports) = (window.clone(), window.clone());
+            Desktop {
+                show: Some(Arc::new(move || window.show()) as gazelle_audio_server::ShowWindow),
+                showing: Some(Box::new(move || asked.is_showing()) as Showing),
+                viewports: Some(viewports as Arc<dyn Viewports>),
+            }
         }
         Err(e) => {
             tracing::warn!("no window, serving the UI over HTTP only: {e}");
-            (None, None)
+            Desktop::none()
         }
     }
 }
@@ -688,11 +778,24 @@ fn open_window(args: &Args, address: SocketAddr) -> (Option<gazelle_audio_server
 /// Whether the desktop window is on screen.
 type Showing = Box<dyn Fn() -> bool>;
 
+/// The desktop windows, as far as the rest of the server reaches them. All `None` without windows.
+struct Desktop {
+    show: Option<gazelle_audio_server::ShowWindow>,
+    showing: Option<Showing>,
+    viewports: Option<Arc<dyn Viewports>>,
+}
+
+impl Desktop {
+    fn none() -> Desktop {
+        Desktop { show: None, showing: None, viewports: None }
+    }
+}
+
 /// Without the `window` feature there is no window to open, and `--no-window` is accepted and
 /// already true.
 #[cfg(not(feature = "window"))]
-fn open_window(_args: &Args, _address: SocketAddr) -> (Option<gazelle_audio_server::ShowWindow>, Option<Showing>) {
-    (None, None)
+fn open_window(_args: &Args, _address: SocketAddr, _hub: bool) -> Desktop {
+    Desktop::none()
 }
 
 /// Attaches every Antelope control interface the HID stack can open now, then keeps scanning.

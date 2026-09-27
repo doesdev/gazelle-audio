@@ -78,6 +78,47 @@ export interface RecordingStatus {
   default_folder?: string;
   /** Recording from the loopback's test tones, into the temporary folder. */
   loopback?: boolean;
+  /** What auto-arm is doing; older servers omit it. */
+  auto_arm?: RecordingAutoArm;
+}
+
+/**
+ * Where auto-arm is. `paused`: disarmed by hand, until Gazelle next starts or it is armed by hand.
+ * `backing_off`: the last try was refused (`reason`), and the next is at `retry_at_ms`.
+ */
+export type RecordingAutoArmPhase = "off" | "armed" | "arming" | "paused" | "waiting_for_interfaces" | "waiting_for_measurement" | "backing_off";
+
+/** Auto-arm, as the recorder's state carries it. */
+export interface RecordingAutoArm {
+  on: boolean;
+  /** The preset it arms with, by id; kept while it is off. */
+  preset: string | null;
+  preset_name: string | null;
+  phase: RecordingAutoArmPhase;
+  /** Why the last try was refused. */
+  reason: string | null;
+  failures: number;
+  /** When it tries next, in milliseconds since the Unix epoch. */
+  retry_at_ms: number | null;
+  /** The interfaces went away while it was armed, and it is waiting for them. */
+  lost: boolean;
+}
+
+/** `/api/v1/recording/settings`: kept on the computer, in `recording.json`. */
+export interface RecordingSettings {
+  auto_arm: boolean;
+  auto_arm_preset: string | null;
+  start_in_hub: boolean;
+}
+
+/** `/api/v1/window/widget` and `/api/v1/window/hub`: the recording widget and hub windows. */
+export interface RecordingWindows {
+  /** This Gazelle has windows at all; `reason` says why not. */
+  available: boolean;
+  widget: boolean;
+  hub: boolean;
+  hub_full_screen: boolean;
+  reason?: string;
 }
 
 /** A take that has been written. */

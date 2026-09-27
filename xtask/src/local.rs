@@ -19,7 +19,10 @@
 //! 4. the server, `--release --features window`, with `GAZELLE_AGGREGATE_DLL` naming that copy and
 //!    `GAZELLE_UPDATE_PUBKEY` set when a key can be had (below);
 //! 5. any Gazelle running from the install folder is stopped, **by its process id**, found by its
-//!    executable's exact path, never by name, and waited out until Windows lets go of the file;
+//!    executable's exact path, never by name, and waited out until Windows lets go of the file.
+//!    It is asked to quit first (`taskkill /PID` without `/F`, which its tray takes as Quit), so a
+//!    take being recorded, auto-armed or not, is finished and the audio drivers let go of; only a
+//!    copy that has not quit within [`QUIT_WAIT`] is ended by force;
 //! 6. the console build's `--install --start`;
 //! 7. a check that the driver the installed copy wrote beside itself is the one just built.
 //!
@@ -51,6 +54,9 @@ pub const DRIVER_VAR: &str = "GAZELLE_AGGREGATE_DLL";
 pub const PUBKEY_VAR: &str = "GAZELLE_UPDATE_PUBKEY";
 /// How long to wait for a stopped Gazelle to let go of its executable.
 const LET_GO: Duration = Duration::from_secs(15);
+/// How long a Gazelle asked to quit has to do so: long enough to finish a take's files and let go
+/// of the audio drivers, which is seconds, not this long.
+const QUIT_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Options {
@@ -87,7 +93,7 @@ impl Step {
                 format!("{label}: {vars}{program} {}", args.join(" "))
             }
             Step::Stage { from, to } => format!("set the driver aside: {} to {}", from.display(), to.display()),
-            Step::StopRunning { install_dir } => format!("stop any Gazelle running from {}, by process id", install_dir.display()),
+            Step::StopRunning { install_dir } => format!("stop any Gazelle running from {}, by process id: asked to quit, then by force", install_dir.display()),
             Step::Install { exe } => format!("install: {} --install --start (with {} taken away)", exe.display(), no_hardware::VAR),
             Step::CheckDriver { installed, .. } => format!("check {} is the driver just built", installed.display()),
         }
@@ -268,13 +274,22 @@ fn stop_running(dir: &Path) -> Result<(), String> {
         println!("    nothing running from there");
         return Ok(());
     }
+    let held = |path: &PathBuf| install::image_in_use(path);
     for (pid, path) in &running {
-        println!("    stopping {} (process {pid})", path.display());
+        // Asked first, as the tray's Quit would be: Gazelle's tray takes the close as a Quit, so a
+        // take being recorded is finished and the audio drivers are let go of. Only a copy that
+        // has not stopped by then is ended by force.
+        println!("    asking {} (process {pid}) to quit", path.display());
+        let asked = Command::new("taskkill").args(["/PID", &pid.to_string()]).output().map_err(|e| format!("asking process {pid} to quit: {e}"))?;
+        if asked.status.success() && wait_for(|| !held(path), QUIT_WAIT) {
+            continue;
+        }
+        println!("    it did not quit within {} seconds; stopping it (a take being recorded is cut short)", QUIT_WAIT.as_secs());
         let stopped = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .output()
             .map_err(|e| format!("stopping process {pid}: {e}"))?;
-        if !stopped.status.success() {
+        if !stopped.status.success() && held(path) {
             return Err(format!(
                 "process {pid} ({}) would not stop: {}",
                 path.display(),
@@ -283,7 +298,6 @@ fn stop_running(dir: &Path) -> Result<(), String> {
         }
     }
     let since = Instant::now();
-    let held = |path: &PathBuf| install::image_in_use(path);
     while running.iter().any(|(_, path)| held(path)) {
         if since.elapsed() > LET_GO {
             return Err(format!("Windows is still holding Gazelle's files after {} seconds; try again", LET_GO.as_secs()));
@@ -291,6 +305,18 @@ fn stop_running(dir: &Path) -> Result<(), String> {
         std::thread::sleep(Duration::from_millis(200));
     }
     Ok(())
+}
+
+/// Wait until `done`, or `limit` has passed. Answers whether it was done.
+fn wait_for(done: impl Fn() -> bool, limit: Duration) -> bool {
+    let since = Instant::now();
+    while !done() {
+        if since.elapsed() > limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    true
 }
 
 /// The update key the release workflow reads, through `gh`. Nothing found is not a failure.

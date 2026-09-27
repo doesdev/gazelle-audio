@@ -46,6 +46,7 @@ pub mod notice;
 pub mod registry_set;
 pub mod remote;
 pub mod snapshot;
+pub mod studio;
 pub mod tray;
 pub mod update;
 pub mod value;

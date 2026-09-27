@@ -20,7 +20,7 @@ export type {
 } from "./client.ts";
 export type { AsioInstance, DriverChange, DriverReading, DriverReport, DriverSettings, DriverSetterCall, DriverUnread, DriverWriteReport } from "./driver.ts";
 export type { AggregateAnswer, AggregateCalibrateChannel, AggregateCalibrateDirection, AggregateCalibrateOutcome, AggregateCalibratePhase, AggregateCalibrateReading, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibrateTrim, AggregateCalibrateWitness, AggregateCalibration, AggregateClock, AggregateDeviceOutcome, AggregateDeviceReport, AggregateDeviceStatus, AggregateDriverSummary, AggregateDrift, AggregateEvent, AggregateFix, AggregateMatchBuffers, AggregateMatchedBy, AggregatePhaseState, AggregatePlan, AggregateRateInForce, AggregateReason, AggregateReasonCode, AggregateRegistration, AggregateRegistrationRun, AggregateStatus, AggregateStatusReading, AggregateTrimReference, AggregateUsbChannels, AsioEntry, DllSearch, ElevatedRun, UsbController } from "./aggregate.ts";
-export type { RecordingChannelLevel, RecordingDropouts, RecordingPreroll, RecordingState, RecordingStatus, RecordingTake, RecordingTakeLive } from "./recording.ts";
+export type { RecordingAutoArm, RecordingAutoArmPhase, RecordingChannelLevel, RecordingDropouts, RecordingPreroll, RecordingSettings, RecordingState, RecordingStatus, RecordingTake, RecordingTakeLive, RecordingWindows } from "./recording.ts";
 export type { UpdateRestart, UpdateState, UpdateStatus } from "./update.ts";
 export { pairPhone } from "./remote.ts";
 export type { PairFetch, RemoteAddress, RemotePaired, RemotePairing, RemotePhone, RemoteQr, RemoteStatus } from "./remote.ts";
