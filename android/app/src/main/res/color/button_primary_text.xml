@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The primary button's text: the accent's own text colour, as on an active button in the web app. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/control_disabled_text" android:state_enabled="false" />
+    <item android:color="@color/accent_text" />
+</selector>

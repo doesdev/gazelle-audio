@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A button's text, as the web app's: control text, and the disabled text when it is off. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/control_disabled_text" android:state_enabled="false" />
+    <item android:color="@color/control_text" />
+</selector>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Josefin Sans at 600, the web app's heading and wordmark face (SIL Open Font Licence). The web
+  app bundles it from the Fontsource package at build time; the repository holds no font file,
+  so the app asks Google Fonts for it through Play services' font provider (a downloadable font)
+  rather than carrying one. Without Play services, or before it has arrived, the phone's own sans
+  serif stands in.
+-->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fontProviderAuthority="com.google.android.gms.fonts"
+    android:fontProviderCerts="@array/com_google_android_gms_fonts_certs"
+    android:fontProviderPackage="com.google.android.gms"
+    android:fontProviderQuery="name=Josefin Sans&amp;weight=600" />

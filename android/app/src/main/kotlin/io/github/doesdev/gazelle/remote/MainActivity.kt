@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -23,6 +24,7 @@ import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -106,7 +108,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Gazelle Dark whatever the phone's own setting: transparent bars with light icons, over
+        // the theme's background, so they match it.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         setContentView(R.layout.activity_main)
 
         val root = findViewById<View>(R.id.root)
@@ -179,7 +186,7 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setUpWebView() {
-        web.setBackgroundColor(ContextCompat.getColor(this, R.color.background))
+        web.setBackgroundColor(ContextCompat.getColor(this, R.color.surface_background))
         web.settings.apply {
             // Gazelle's page is a JavaScript app that keeps its preferences in local storage.
             javaScriptEnabled = true

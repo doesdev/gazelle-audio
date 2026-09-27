@@ -2,14 +2,21 @@
 <!--
   Four screens in one place, one shown at a time (MainActivity.show): the WebView with Gazelle's
   own page, "Connecting" while the computer is asked and the page loads (the WebView loading
-  unseen beneath it), the pairing screen, and the screen for when the page does not load. The root takes the
-  system bar, cutout and keyboard insets as padding, and keeps the screen on while the app is in
-  front.
+  unseen beneath it), the pairing screen, and the screen for when the page does not load. The root
+  takes the system bar, cutout and keyboard insets as padding, and keeps the screen on while the
+  app is in front.
+
+  The app's own screens are drawn as Gazelle Dark draws the web app (themes.xml, colors.xml): the
+  header bar with the wordmark, section bars, flat buttons with the accent for the main action,
+  filled fields. Gaps follow the web app's field tokens, scaled up for a thumb: 6dp between a
+  label and its field, 16dp between one field and the next, 8dp between buttons, 24dp before a
+  screen's main action.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/surface_background"
     android:keepScreenOn="true">
 
     <WebView
@@ -23,146 +30,175 @@
         android:id="@+id/connecting_screen"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/background"
-        android:gravity="center"
+        android:background="@color/surface_background"
         android:orientation="vertical"
-        android:padding="24dp"
         android:visibility="gone">
 
-        <ProgressBar
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:indeterminate="true" />
-
         <TextView
-            android:id="@+id/connecting_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:accessibilityLiveRegion="polite"
-            android:gravity="center"
-            android:textAppearance="?android:attr/textAppearanceMedium" />
+            style="@style/Widget.Gazelle.Header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
 
-        <Button
-            android:id="@+id/connecting_cancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/connecting_cancel" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <ProgressBar
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:indeterminate="true"
+                android:indeterminateTint="@color/accent" />
+
+            <TextView
+                android:id="@+id/connecting_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:accessibilityLiveRegion="polite"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Gazelle.Body" />
+
+            <Button
+                android:id="@+id/connecting_cancel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/connecting_cancel" />
+        </LinearLayout>
     </LinearLayout>
 
     <ScrollView
         android:id="@+id/pair_screen"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:fillViewport="true"
         android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="24dp">
+            android:orientation="vertical">
 
             <TextView
+            style="@style/Widget.Gazelle.Header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/pair_title"
-                android:textAppearance="?android:attr/textAppearanceLarge" />
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/pair_intro"
-                android:textAppearance="?android:attr/textAppearanceMedium" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/pair_title"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Title" />
 
-            <TextView
-                android:id="@+id/pair_current"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:textAppearance="?android:attr/textAppearanceSmall"
-                android:visibility="gone" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/pair_intro"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Body" />
 
-            <Button
-                android:id="@+id/pair_back"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/pair_back"
-                android:visibility="gone" />
+                <TextView
+                    android:id="@+id/pair_current"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Muted"
+                    android:visibility="gone" />
 
-            <Button
-                android:id="@+id/pair_scan"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/pair_scan" />
+                <Button
+                    android:id="@+id/pair_back"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/pair_back"
+                    android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/pair_scan_unavailable"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/pair_scan_unavailable"
-                android:textAppearance="?android:attr/textAppearanceSmall"
-                android:visibility="gone" />
+                <Button
+                    android:id="@+id/pair_scan"
+                    style="@style/Widget.Gazelle.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/pair_scan" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:text="@string/pair_type_title"
-                android:textAppearance="?android:attr/textAppearanceMedium" />
+                <TextView
+                    android:id="@+id/pair_scan_unavailable"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/pair_scan_unavailable"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Muted"
+                    android:visibility="gone" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:labelFor="@+id/pair_address"
-                android:text="@string/pair_address_label"
-                android:textAppearance="?android:attr/textAppearanceSmall" />
+                <TextView
+                    style="@style/Widget.Gazelle.SectionBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="32dp"
+                    android:text="@string/pair_type_title" />
 
-            <EditText
-                android:id="@+id/pair_address"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="@string/pair_address_hint"
-                android:importantForAutofill="no"
-                android:inputType="textUri"
-                android:maxLines="1" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:labelFor="@+id/pair_address"
+                    android:text="@string/pair_address_label"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Label" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:labelFor="@+id/pair_code"
-                android:text="@string/pair_code_label"
-                android:textAppearance="?android:attr/textAppearanceSmall" />
+                <EditText
+                    android:id="@+id/pair_address"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:hint="@string/pair_address_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="textUri"
+                    android:maxLines="1" />
 
-            <EditText
-                android:id="@+id/pair_code"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="@string/pair_code_hint"
-                android:importantForAutofill="no"
-                android:inputType="textCapCharacters|textNoSuggestions"
-                android:maxLines="1" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:labelFor="@+id/pair_code"
+                    android:text="@string/pair_code_label"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Label" />
 
-            <Button
-                android:id="@+id/pair_submit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/pair_submit" />
+                <EditText
+                    android:id="@+id/pair_code"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:hint="@string/pair_code_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="textCapCharacters|textNoSuggestions"
+                    android:maxLines="1" />
 
-            <TextView
-                android:id="@+id/pair_message"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:accessibilityLiveRegion="polite"
-                android:textAppearance="?android:attr/textAppearanceMedium"
-                android:textColor="@color/accent" />
+                <Button
+                    android:id="@+id/pair_submit"
+                    style="@style/Widget.Gazelle.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/pair_submit" />
+
+                <TextView
+                    android:id="@+id/pair_message"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:accessibilityLiveRegion="polite"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Warning" />
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
@@ -170,47 +206,60 @@
         android:id="@+id/trouble_screen"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:fillViewport="true"
         android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="24dp">
+            android:orientation="vertical">
 
             <TextView
-                android:id="@+id/trouble_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textAppearance="?android:attr/textAppearanceLarge" />
+            style="@style/Widget.Gazelle.Header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
 
-            <TextView
-                android:id="@+id/trouble_detail"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:textAppearance="?android:attr/textAppearanceMedium" />
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/trouble_hints"
-                android:textAppearance="?android:attr/textAppearanceSmall" />
+                <TextView
+                    android:id="@+id/trouble_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Title" />
 
-            <Button
-                android:id="@+id/trouble_retry"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/trouble_retry" />
+                <TextView
+                    android:id="@+id/trouble_detail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Body" />
 
-            <Button
-                android:id="@+id/trouble_repair"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/trouble_repair" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/trouble_hints"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Muted" />
+
+                <Button
+                    android:id="@+id/trouble_retry"
+                    style="@style/Widget.Gazelle.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/trouble_retry" />
+
+                <Button
+                    android:id="@+id/trouble_repair"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/trouble_repair" />
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

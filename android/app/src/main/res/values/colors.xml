@@ -1,10 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Gazelle Dark, the web app's default theme, so the app's own screens and the page they lead to
+  look like one thing. Every colour is the web token of the same name (dots and camel case become
+  underscores), copied from web/apps/web/themes/gazelle-dark.json; change them there and here
+  together. The app is always dark: Dark is Gazelle's default, whatever the phone's own setting.
+-->
 <resources>
-    <!-- The window behind the page and the native screens, light. values-night has the dark ones. -->
-    <color name="background">#FFF4F4F5</color>
-    <color name="text">#FF1E1F22</color>
-    <color name="text_muted">#FF5C5F66</color>
-    <color name="accent">#FF8A5A00</color>
+    <color name="surface_background">#FF1A1B1D</color>
+    <color name="surface_panel">#FF232427</color>
+    <color name="surface_raised">#FF2C2E32</color>
+    <color name="surface_inset">#FF131415</color>
+    <color name="border_subtle">#FF34363A</color>
+    <color name="border_strong">#FF4A4C51</color>
+    <color name="section_header">#FF35373B</color>
+    <color name="section_header_text">#FFE6E6E6</color>
+    <color name="text_primary">#FFE6E6E6</color>
+    <color name="text_secondary">#FFB4B6BA</color>
+    <color name="text_muted">#FF85878C</color>
+    <color name="accent">#FF3FB6D9</color>
+    <color name="accent_text">#FF0B1114</color>
+    <color name="focus">#FF6CC7E6</color>
+    <color name="control_background">#FF35373B</color>
+    <color name="control_hover">#FF3E4045</color>
+    <color name="control_active">#FF4B4E53</color>
+    <color name="control_text">#FFE0E0E0</color>
+    <color name="control_disabled">#FF28292C</color>
+    <color name="control_disabled_text">#FF65676C</color>
+    <color name="notice_warning">#FFE0B341</color>
+    <!-- Selected text: the accent, as the web app selects text in a field, at 40 percent. -->
+    <color name="accent_selection">#663FB6D9</color>
     <!-- The launcher icon, as the desktop app draws it (icon.rs): an amber G on a dark grey disc. -->
     <color name="icon_background">#FF2B2D31</color>
     <color name="icon_mark">#FFE8A838</color>

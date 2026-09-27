@@ -1,16 +1,137 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Light, following the phone. values-night has the dark one. The system bars are drawn over
-         by the app (edge to edge) and themed by enableEdgeToEdge from the same setting. -->
-    <style name="Theme.GazelleRemote" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/background</item>
+    <!--
+      Gazelle Dark, always: the web app's default theme (web/apps/web/themes/gazelle-dark.json,
+      colors.xml), with its controls (web/apps/web/src/elements/styles.ts). There is no
+      values-night: the app's screens stay dark whatever the phone's own day or night setting,
+      as Gazelle is dark until someone chooses otherwise, and one definition cannot drift from a
+      second. The system bars are drawn over by the app, transparent over this background
+      (enableEdgeToEdge in MainActivity, with dark bar styles).
+    -->
+    <style name="Theme.GazelleRemote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/surface_background</item>
+        <item name="android:colorBackground">@color/surface_background</item>
+        <item name="android:colorPrimary">@color/surface_panel</item>
+        <item name="android:colorPrimaryDark">@color/surface_background</item>
         <item name="android:colorAccent">@color/accent</item>
-        <item name="android:textColorPrimary">@color/text</item>
-        <item name="android:textColorSecondary">@color/text_muted</item>
-        <item name="android:buttonStyle">@style/Widget.GazelleRemote.Button</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+        <item name="android:colorControlNormal">@color/border_strong</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_muted</item>
+        <item name="android:textColorHighlight">@color/accent_selection</item>
+        <item name="android:buttonStyle">@style/Widget.Gazelle.Button</item>
+        <item name="android:editTextStyle">@style/Widget.Gazelle.EditText</item>
     </style>
 
-    <style name="Widget.GazelleRemote.Button" parent="android:Widget.Material.Button">
+    <!-- A button, as the web app's: flat, control colours, the field radius, a thumb's height. -->
+    <style name="Widget.Gazelle.Button" parent="android:Widget.Material.Button">
+        <item name="android:background">@drawable/button_secondary</item>
+        <item name="android:textColor">@color/button_text</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">@font/inter</item>
         <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">88dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:elevation">0dp</item>
+    </style>
+
+    <!-- The primary action on a screen: the accent, as an active button in the web app. -->
+    <style name="Widget.Gazelle.Button.Primary">
+        <item name="android:background">@drawable/button_primary</item>
+        <item name="android:textColor">@color/button_primary_text</item>
+    </style>
+
+    <!-- A text field, as the web app's: filled, bordered, not underlined; the hint is muted text. -->
+    <style name="Widget.Gazelle.EditText" parent="android:Widget.Material.EditText">
+        <item name="android:background">@drawable/field</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textColorHint">@color/text_muted</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+    </style>
+
+    <!-- The "Gazelle" wordmark, as the web app's header draws it: Josefin Sans, spaced out. -->
+    <style name="TextAppearance.Gazelle.Wordmark" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/josefin_sans_semibold</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- The header bar with the wordmark, at the top of each of the app's own screens, as the
+         web app's header: the panel colour, the wordmark at its start. -->
+    <style name="Widget.Gazelle.Header">
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:gravity">center_vertical|start</item>
+        <item name="android:background">@color/surface_panel</item>
+        <item name="android:text">@string/wordmark</item>
+        <item name="android:textAppearance">@style/TextAppearance.Gazelle.Wordmark</item>
+        <item name="android:importantForAccessibility">no</item>
+    </style>
+
+    <!-- A section's heading bar, as the web app's sections draw theirs, at touch size. -->
+    <style name="Widget.Gazelle.SectionBar">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:gravity">center_vertical|start</item>
+        <item name="android:background">@drawable/section_bar</item>
+        <item name="android:textAppearance">@style/TextAppearance.Gazelle.Section</item>
+    </style>
+
+    <!-- A page title (the web app's h1): Josefin Sans. -->
+    <style name="TextAppearance.Gazelle.Title" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/josefin_sans_semibold</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- A section's heading, on its bar (the web app's section title, at touch size). -->
+    <style name="TextAppearance.Gazelle.Section" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/josefin_sans_semibold</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:textColor">@color/section_header_text</item>
+    </style>
+
+    <!-- Reading text. -->
+    <style name="TextAppearance.Gazelle.Body" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- A field's label (the web app's .label): secondary text. -->
+    <style name="TextAppearance.Gazelle.Label" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+    </style>
+
+    <!-- A note beside the main text (the web app's .muted). -->
+    <style name="TextAppearance.Gazelle.Muted" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/text_muted</item>
+    </style>
+
+    <!-- What went wrong while pairing, in the web app's warning colour. -->
+    <style name="TextAppearance.Gazelle.Warning" parent="android:TextAppearance.Material">
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/notice_warning</item>
     </style>
 </resources>

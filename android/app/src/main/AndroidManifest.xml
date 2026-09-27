@@ -22,6 +22,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GazelleRemote">
 
+        <!-- Ask for the web app's fonts (res/font, downloadable) when the app is installed. -->
+        <meta-data
+            android:name="preloaded_fonts"
+            android:resource="@array/preloaded_fonts" />
+
         <!-- Ask Play services for the scanner module when the app is installed, not on first use. -->
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"

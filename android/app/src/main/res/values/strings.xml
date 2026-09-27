@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Gazelle Remote</string>
+    <!-- The wordmark in the header bar, as the web app's header writes it. -->
+    <string name="wordmark" translatable="false">Gazelle</string>
 
     <!-- The pairing screen: first run, a revoked phone, or the icon's long press. -->
     <string name="pair_title">Pair with Gazelle</string>

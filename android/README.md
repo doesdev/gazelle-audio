@@ -50,6 +50,16 @@ The user's side of it (getting it, installing it, pairing) is in the manual's
 - **The one menu** is a long press on the app's icon: **Pair with another computer**. The pairing
   screen then shows the address it is paired with now, and **Back to Gazelle**.
 - No notifications, no background service, no other permission than the network.
+- **It looks like Gazelle.** The app's own screens (pairing, connecting, trouble) are always
+  Gazelle Dark, the web app's default theme, whatever the phone's day or night setting: the
+  colours in `res/values/colors.xml` are the tokens of `web/apps/web/themes/gazelle-dark.json`
+  under the same names, and the buttons, fields, header and section bars follow
+  `web/apps/web/src/elements/styles.ts`, `header.ts` and `section.ts`. Change the web theme and
+  those files together. The fonts are the web app's, Inter and Josefin Sans (SIL Open Font
+  Licence): the web app bundles them from Fontsource at build time and the repository holds no
+  font file, so the app asks Google Fonts for them through Play services' font provider
+  (`res/font`, downloadable fonts) and carries none; without Play services the phone's own sans
+  serif stands in.
 
 ## Security model
 

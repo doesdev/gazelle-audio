@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A text field as the web app draws one: the inset surface, a subtle border and the field radius
+  (3px), with the focus colour for its border while it is being typed in.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_inset" />
+            <stroke android:width="2dp" android:color="@color/focus" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_inset" />
+            <stroke android:width="1dp" android:color="@color/border_subtle" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+</selector>

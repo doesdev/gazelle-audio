@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The primary action, drawn as the web app draws an active button: the accent, with its border
+  the accent too. Pressed, it lightens to the focus colour.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/control_disabled" />
+            <stroke android:width="1dp" android:color="@color/border_subtle" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/focus" />
+            <stroke android:width="1dp" android:color="@color/focus" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent" />
+            <stroke android:width="2dp" android:color="@color/focus" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent" />
+            <stroke android:width="1dp" android:color="@color/accent" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+</selector>
