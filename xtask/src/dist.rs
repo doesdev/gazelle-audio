@@ -8,6 +8,13 @@
 //! | `gazelle-audio-<target>.zip` | both of those, under their plain names, for a person |
 //! | `Gazelle-Setup.exe` | `<bin-dir>/gazelle-audio-serverw.exe` again, Windows only: the file a person downloads to install |
 //! | `gazelle-manual.pdf`, `gazelle-cheat-sheet.pdf` | `<docs>/`, from `pnpm -C web docs:pdf` |
+//! | `Gazelle-Remote.apk` | not from here: `sign-apk` signs the Android app into the directory afterwards |
+//!
+//! The Android app is the one asset `dist` does not write. It is built on another machine (the
+//! release workflow's `android` job), and only the signing job, which holds its key, can make the
+//! file that ships, so `sign-apk --out <dir>/Gazelle-Remote.apk` adds it after `dist` and before
+//! `sign`. `verify` accepts it as a release asset, and with `--require-apk` insists on it; a
+//! person cutting a release by hand without an Android SDK leaves it out.
 //!
 //! The setup file is the windowless build byte for byte; its name is what makes it offer to
 //! install when double-clicked (`install::setup` in the server). It is signed into `SHA256SUMS`
@@ -33,6 +40,9 @@ use gazelle_audio_server::update::BINARIES;
 
 pub const MANUAL: &str = "gazelle-manual.pdf";
 pub const CHEAT_SHEET: &str = "gazelle-cheat-sheet.pdf";
+/// The Android app, signed. No version in the name, like the setup file, so the link to the
+/// latest release's copy never changes.
+pub const ANDROID_APK: &str = "Gazelle-Remote.apk";
 /// The setup file: a copy of the windowless build, on Windows targets.
 pub const SETUP: &str = "Gazelle-Setup.exe";
 /// The build the setup file is a copy of.

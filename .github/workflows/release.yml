@@ -16,6 +16,11 @@
 # (never inside a checkout), checks that its public half is the one the binaries carry, signs,
 # and deletes it.
 #
+# The Android app, Gazelle Remote, is built unsigned by the `android` job on Ubuntu, beside the
+# Windows build and holding no secret either. The sign job signs it with the app's own key (the
+# ANDROID_KEYSTORE_B64 secret and its passwords) into the release directory as
+# Gazelle-Remote.apk, before SHA256SUMS is written, so the release signature covers it too.
+#
 # Third-party actions are pinned to full commit SHAs, with the release in a trailing comment.
 #
 # The dry run by hand: gh workflow run release.yml --ref main
@@ -212,9 +217,78 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # The Android app, unsigned, in parallel with the Windows build. Its version is the server's, read
+  # from the same Cargo.toml the build job's check-version reads; the sign job checks the APK
+  # against that job's answer (xtask sign-apk --version), so the two cannot drift apart unseen.
+  android:
+    name: Build the Android app (unsigned)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # versionName is the server's version; versionCode is major * 10000 + minor * 100 + patch,
+      # as xtask check-version prints it (android_version_code), so every release is higher.
+      - name: The version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' ../crates/gazelle-audio-server/Cargo.toml | head -n 1)"
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+            echo "::error::crates/gazelle-audio-server/Cargo.toml has no version this job can read (found \"$version\")."
+            exit 1
+          fi
+          major=$((10#${BASH_REMATCH[1]})); minor=$((10#${BASH_REMATCH[2]})); patch=$((10#${BASH_REMATCH[3]}))
+          if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then
+            echo "::error::$version: the Android version code needs minor and patch under 100."
+            exit 1
+          fi
+          if [ "$EVENT" = push ] && [ "$GITHUB_REF_NAME" != "$version" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME, but the server's version is $version."
+            exit 1
+          fi
+          code=$((major * 10000 + minor * 100 + patch))
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Gazelle Remote $version, version code $code"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      # No cache, as everywhere in this workflow: a release is built from nothing.
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          gradle-version: "9.6.0"
+          cache-disabled: true
+      - name: Lint, unit tests and the release build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CODE: ${{ steps.version.outputs.code }}
+        run: |
+          gradle --no-daemon :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease \
+            -PgazelleVersionName="$VERSION" -PgazelleVersionCode="$CODE"
+          mapfile -t apks < <(find app/build/outputs/apk/release -name '*.apk')
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected one release APK, found ${#apks[@]}: ${apks[*]}"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/android"
+          cp "${apks[0]}" "$RUNNER_TEMP/android/gazelle-remote-unsigned.apk"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-unsigned
+          path: ${{ runner.temp }}/android/
+          if-no-files-found: error
+          retention-days: 7
+
   sign:
     name: Sign and draft the release
-    needs: build
+    needs: [build, android]
     if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 30
@@ -237,6 +311,38 @@ jobs:
         with:
           name: notes
           path: notes
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-unsigned
+          path: android
+
+      # 5b. The Android app, signed into the release directory before anything is hashed. The
+      #     SDK's build-tools come with GitHub's Windows image (ANDROID_HOME); apksigner needs a
+      #     JDK. The keystore is the secret's contents, decoded into the runner's temp directory
+      #     and removed however the step ends; the passwords reach apksigner as environment
+      #     variables, never on a command line. No keystore, no release: an unsigned or
+      #     debug-signed app is never shipped.
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Sign the Android app
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS || 'gazelle-remote' }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::The release environment has no ANDROID_KEYSTORE_B64 or ANDROID_KEYSTORE_PASSWORD secret, so the Android app cannot be signed (docs/releasing.md, One-time setup)."
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/gazelle-remote.p12"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > "$keystore"
+          helper/xtask.exe sign-apk --apk android/gazelle-remote-unsigned.apk --keystore "$keystore" \
+            --alias "$KEY_ALIAS" --version "$VERSION" --out release/Gazelle-Remote.apk
 
       # 6. Sign, last. The key file is the secret's contents, in the runner's temp directory,
       #    removed however the step ends. Its public half must be the one the binaries carry,
@@ -258,7 +364,7 @@ jobs:
       # Checked again as an installed copy will check it, with the updater's own code. The list
       # it prints is exactly what is uploaded.
       - name: Verify
-        run: helper/xtask.exe verify --dir release --pubkey "$GAZELLE_UPDATE_PUBKEY" | tee upload.txt
+        run: helper/xtask.exe verify --dir release --pubkey "$GAZELLE_UPDATE_PUBKEY" --require-apk | tee upload.txt
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -282,7 +388,7 @@ jobs:
 
   dry-run:
     name: Sign with a throwaway key (dry run)
-    needs: build
+    needs: [build, android]
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 30
@@ -299,6 +405,30 @@ jobs:
         with:
           name: notes
           path: notes
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-unsigned
+          path: android
+      # The Android app signed as a release signs it, with a keystore made here by keytool and
+      # thrown away, so this needs no secret either.
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Sign the Android app with a throwaway key
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          dir="$RUNNER_TEMP/throwaway-android"
+          trap 'rm -rf "$dir"' EXIT
+          mkdir -p "$dir"
+          ANDROID_KEYSTORE_PASSWORD="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          export ANDROID_KEYSTORE_PASSWORD
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$dir/dry-run.p12" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD -keypass:env ANDROID_KEYSTORE_PASSWORD \
+            -alias gazelle-remote -keyalg RSA -keysize 2048 -validity 1 -dname "CN=Gazelle Remote dry run"
+          helper/xtask.exe sign-apk --apk android/gazelle-remote-unsigned.apk --keystore "$dir/dry-run.p12" \
+            --version "$VERSION" --out release/Gazelle-Remote.apk
       # The same sign and verify as a release, with a key made here and thrown away, so the dry
       # run needs no secret. Its signature is by that key, not the release key, so nothing from
       # this run may ever be uploaded.
@@ -312,7 +442,7 @@ jobs:
           helper/xtask.exe keygen --out "$key" > /dev/null
           public="$(helper/xtask.exe pubkey --key "$key")"
           helper/xtask.exe sign --dir release --key "$key"
-          helper/xtask.exe verify --dir release --pubkey "$public" | tee upload.txt
+          helper/xtask.exe verify --dir release --pubkey "$public" --require-apk | tee upload.txt
           {
             echo "Dry run: a release would be drafted on tag $TAG (prerelease: $PRERELEASE) with these files:"
             echo

@@ -9,7 +9,12 @@
 //! - every line of `SHA256SUMS` parses, and no name appears twice;
 //! - every file in the directory is listed, and every listed file is there, with that digest;
 //! - both binaries the updater asks for on this target are there;
-//! - on Windows, the setup file is there and is the windowless build byte for byte.
+//! - on Windows, the setup file is there and is the windowless build byte for byte;
+//! - every file is one a release carries (`dist::expected`, and the Android app), so nothing
+//!   else can be signed and uploaded by mistake;
+//! - the Android app, `Gazelle-Remote.apk`, is an APK signed with APK Signature Scheme v2 or
+//!   later when it is there, and with `--require-apk` (as the release workflow runs it) it must be.
+//!   A person cutting a release by hand without an Android SDK leaves it out.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -20,7 +25,7 @@ use gazelle_audio_server::update::BINARIES;
 
 /// Verify `dir` against `pubkey`, and return the files to upload: every asset, then the sums
 /// file and its signature.
-pub fn verify(dir: &Path, pubkey: &str, target: &str) -> Result<Vec<PathBuf>, String> {
+pub fn verify(dir: &Path, pubkey: &str, target: &str, require_apk: bool) -> Result<Vec<PathBuf>, String> {
     let read = |name: &str| std::fs::read(dir.join(name)).map_err(|e| format!("reading {}: {e}", dir.join(name).display()));
     let sums_bytes = read(SUMS_NAME)?;
     let signature = read(SIGNATURE_NAME)?;
@@ -85,11 +90,42 @@ pub fn verify(dir: &Path, pubkey: &str, target: &str) -> Result<Vec<PathBuf>, St
         }
     }
 
+    let known = crate::dist::expected(target);
+    let strangers: Vec<&String> = sums.keys().filter(|name| !known.contains(*name) && name.as_str() != crate::dist::ANDROID_APK).collect();
+    if !strangers.is_empty() {
+        return Err(format!("{strangers:?} in {} are not files a release carries; take them out and sign again", dir.display()));
+    }
+
+    let apk = crate::dist::ANDROID_APK;
+    if sums.contains_key(apk) {
+        let bytes = std::fs::read(dir.join(apk)).map_err(|e| format!("reading {apk}: {e}"))?;
+        signed_apk(&bytes).map_err(|why| format!("{apk} {why}"))?;
+    } else if require_apk {
+        return Err(format!("{apk} is not in the release; the release workflow signs it into the directory before sign"));
+    }
+
     let mut upload: Vec<PathBuf> = sums.keys().map(|name| dir.join(name)).collect();
     upload.push(dir.join(SUMS_NAME));
     upload.push(dir.join(SIGNATURE_NAME));
     Ok(upload)
 }
+
+/// Whether `bytes` look like an APK signed with APK Signature Scheme v2 or later: a zip, holding
+/// the APK Signing Block, whose magic sits just before the zip's central directory. That is what
+/// `apksigner` writes and Android 7 and later check; an unsigned or v1-only APK has no such block.
+/// `apksigner verify` has already checked the signature itself in the sign job; this catches an
+/// unsigned build put in its place.
+pub fn signed_apk(bytes: &[u8]) -> Result<(), String> {
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Err("is not an APK (not a zip file)".to_string());
+    }
+    if !bytes.windows(APK_SIG_BLOCK_MAGIC.len()).any(|w| w == APK_SIG_BLOCK_MAGIC) {
+        return Err("is not signed (it has no APK Signing Block); sign it with xtask sign-apk".to_string());
+    }
+    Ok(())
+}
+
+const APK_SIG_BLOCK_MAGIC: &[u8] = b"APK Sig Block 42";
 
 #[cfg(test)]
 mod tests {
@@ -140,7 +176,7 @@ mod tests {
     #[test]
     fn a_directory_sign_wrote_verifies_and_lists_every_file_to_upload() {
         let dir = signed("ok");
-        let upload = verify(&dir.dist(), &public(3), TARGET).unwrap();
+        let upload = verify(&dir.dist(), &public(3), TARGET, false).unwrap();
         let names: Vec<String> = upload.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(
             names,
@@ -158,8 +194,8 @@ mod tests {
     #[test]
     fn another_public_key_is_refused() {
         let dir = signed("wrong-key");
-        assert!(verify(&dir.dist(), &public(4), TARGET).unwrap_err().contains("not made by the release signing key"));
-        assert!(verify(&dir.dist(), "not a key", TARGET).unwrap_err().contains("32 hex-encoded bytes"));
+        assert!(verify(&dir.dist(), &public(4), TARGET, false).unwrap_err().contains("not made by the release signing key"));
+        assert!(verify(&dir.dist(), "not a key", TARGET, false).unwrap_err().contains("32 hex-encoded bytes"));
     }
 
     #[test]
@@ -169,7 +205,7 @@ mod tests {
         let mut bytes = std::fs::read(&asset).unwrap();
         bytes[0] ^= 1;
         std::fs::write(&asset, bytes).unwrap();
-        assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("gazelle-manual.pdf does not match"));
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("gazelle-manual.pdf does not match"));
     }
 
     #[test]
@@ -180,28 +216,28 @@ mod tests {
         // One hex digit of the first digest changed, as a tampered mirror might serve it.
         let first = if text.starts_with('0') { "1" } else { "0" };
         std::fs::write(&sums, format!("{first}{}", &text[1..])).unwrap();
-        assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("not made by the release signing key"));
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("not made by the release signing key"));
 
         let dir = signed("sig-short");
         std::fs::write(dir.dist().join(SIGNATURE_NAME), [0u8; 63]).unwrap();
-        assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("63 bytes"));
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("63 bytes"));
     }
 
     #[test]
     fn a_file_added_or_removed_after_signing_is_refused() {
         let dir = signed("added");
         std::fs::write(dir.dist().join("extra.txt"), b"x").unwrap();
-        assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("extra.txt"));
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("extra.txt"));
 
         let dir = signed("removed");
         std::fs::remove_file(dir.dist().join("gazelle-manual.pdf")).unwrap();
-        assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("which are not in"));
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("which are not in"));
     }
 
     #[test]
     fn a_release_without_the_binaries_for_the_target_is_refused() {
         let dir = signed("other-target");
-        let error = verify(&dir.dist(), &public(3), "aarch64-pc-windows-msvc").unwrap_err();
+        let error = verify(&dir.dist(), &public(3), "aarch64-pc-windows-msvc", false).unwrap_err();
         assert!(error.contains("gazelle-audio-server-aarch64-pc-windows-msvc.exe is not in the release"), "{error}");
     }
 
@@ -216,7 +252,7 @@ mod tests {
         let dir = signed("no-setup");
         std::fs::remove_file(dir.dist().join(crate::dist::SETUP)).unwrap();
         resign(&dir);
-        let error = verify(&dir.dist(), &public(3), TARGET).unwrap_err();
+        let error = verify(&dir.dist(), &public(3), TARGET, false).unwrap_err();
         assert!(error.contains("Gazelle-Setup.exe is not in the release"), "{error}");
     }
 
@@ -225,7 +261,7 @@ mod tests {
         let dir = signed("setup-differs");
         std::fs::write(dir.dist().join(crate::dist::SETUP), b"something else").unwrap();
         resign(&dir);
-        let error = verify(&dir.dist(), &public(3), TARGET).unwrap_err();
+        let error = verify(&dir.dist(), &public(3), TARGET, false).unwrap_err();
         assert!(error.contains("Gazelle-Setup.exe is not the same file as gazelle-audio-serverw-x86_64-pc-windows-msvc.exe"), "{error}");
     }
 
@@ -240,7 +276,53 @@ mod tests {
             // Signed again over the edited sums, so only the strictness can catch it.
             let signature = ed25519_dalek::Signer::sign(&SigningKey::from_bytes(&[3u8; 32]), text.as_bytes()).to_bytes();
             std::fs::write(dir.dist().join(SIGNATURE_NAME), signature).unwrap();
-            assert!(verify(&dir.dist(), &public(3), TARGET).unwrap_err().contains("malformed or a name is doubled"), "{extra}");
+            assert!(verify(&dir.dist(), &public(3), TARGET, false).unwrap_err().contains("malformed or a name is doubled"), "{extra}");
         }
+    }
+
+    /// A stand-in APK: a zip header, some bytes, and (when signed) the signing block's magic.
+    fn apk(signed: bool) -> Vec<u8> {
+        let mut bytes = b"PK\x03\x04 the app".to_vec();
+        if signed {
+            bytes.extend_from_slice(APK_SIG_BLOCK_MAGIC);
+        }
+        bytes.extend_from_slice(b"PK\x01\x02 the central directory");
+        bytes
+    }
+
+    #[test]
+    fn the_android_app_is_listed_when_it_is_there_and_required_when_asked() {
+        let dir = signed("apk-optional");
+        // Without it: fine by hand, refused when the workflow requires it.
+        assert!(verify(&dir.dist(), &public(3), TARGET, false).is_ok());
+        let error = verify(&dir.dist(), &public(3), TARGET, true).unwrap_err();
+        assert!(error.contains("Gazelle-Remote.apk is not in the release"), "{error}");
+
+        std::fs::write(dir.dist().join(crate::dist::ANDROID_APK), apk(true)).unwrap();
+        resign(&dir);
+        for require in [false, true] {
+            let upload = verify(&dir.dist(), &public(3), TARGET, require).unwrap();
+            assert!(upload.iter().any(|p| p.ends_with(crate::dist::ANDROID_APK)), "the APK is uploaded");
+        }
+    }
+
+    #[test]
+    fn an_unsigned_or_not_an_apk_is_refused() {
+        for (bytes, why) in [(apk(false), "is not signed"), (b"MZ not a zip".to_vec(), "not a zip")] {
+            let dir = signed("apk-bad");
+            std::fs::write(dir.dist().join(crate::dist::ANDROID_APK), bytes).unwrap();
+            resign(&dir);
+            let error = verify(&dir.dist(), &public(3), TARGET, false).unwrap_err();
+            assert!(error.contains("Gazelle-Remote.apk") && error.contains(why), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_signed_file_that_is_no_release_asset_is_refused() {
+        let dir = signed("stranger");
+        std::fs::write(dir.dist().join("gazelle-remote-debug.apk"), apk(true)).unwrap();
+        resign(&dir);
+        let error = verify(&dir.dist(), &public(3), TARGET, false).unwrap_err();
+        assert!(error.contains("gazelle-remote-debug.apk") && error.contains("not files a release carries"), "{error}");
     }
 }

@@ -91,6 +91,8 @@ Gazelle is a web app served by the program on your computer, so a phone's browse
 
 **Pair a phone.** Choose **Pair a phone**. Gazelle shows a code, such as `YHV8-YRJM`, and a QR code of the pairing address. Scan the QR code with the phone's camera, or open the address shown on the phone and type the code; letters and digits only, and case, spaces and dashes do not matter. The phone asks for a name for itself, then opens Gazelle on its [Remote page](14-remote-page.md), the page laid out for a phone; every other page is a tab along from it. A code lasts 5 minutes, works once, and stops working after ten wrong tries; **Stop pairing** ends it sooner, and **New code** replaces it. From then on the phone stays paired, with nothing to type, until you revoke it.
 
+**On Android**, the Gazelle Remote app is an alternative to the browser: Gazelle full screen, pairing by scanning the QR code itself. See [The Android app](14-remote-page.md#the-android-app).
+
 **Paired phones** are listed under the pairing, each with when it was paired and when and from which address it was last seen. **Revoke** (two clicks) unpairs a phone at once: its next request is refused and its open connection closes. The phone then says **This phone is no longer paired with Gazelle** in place of the app and stops trying to reconnect; its **Pair again** link opens the pairing page. Pair it again to let it back.
 
 Everything in the Phones section can be changed only from the computer Gazelle runs on. On a phone the section says so, and a phone never sees the update prompt: updating and restarting are the computer's business too. A phone does not even ask for them, so nothing it does is refused.

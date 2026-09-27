@@ -30,7 +30,15 @@ version that has not been published yet.
   faster than a steady drag. A swipe that starts on a fader scrolls the page instead. A mouse still
   jumps to where it clicks.
 - **A revoked phone says so.** When the computer revokes a phone, the phone shows that it is no
-  longer paired and how to pair it again, instead of trying to reconnect for ever.
+  longer paired and how to pair it again, instead of trying to reconnect for ever. A device that
+  was never paired gets a link to the pairing page, where the code goes.
+- **Gazelle Remote, an app for Android phones.** Each release now carries `Gazelle-Remote.apk`:
+  install it on your phone (Android asks you to allow installing it from your browser), scan the
+  QR code on the computer, and Gazelle's Remote page opens full screen, with the screen kept on.
+  A phone without Google Play services can type the address and code instead. If the computer
+  cannot be reached, the app says so and offers to retry or pair with another computer; press and
+  hold its icon to pair again. It only ever opens your computer's Gazelle, and links anywhere
+  else open in your browser.
 
 ### Changed
 

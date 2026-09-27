@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Gazelle Remote</string>
+
+    <!-- The pairing screen: first run, a revoked phone, or the icon's long press. -->
+    <string name="pair_title">Pair with Gazelle</string>
+    <string name="pair_intro">On the computer, open Gazelle\'s Workspace page. Under Phones, turn on Allow phones on this network, then choose Pair a phone.</string>
+    <string name="pair_current">This phone is paired with %1$s.</string>
+    <string name="pair_back">Back to Gazelle</string>
+    <string name="pair_scan">Scan the code on your computer</string>
+    <string name="pair_scan_unavailable">This phone has no Google Play services, so it cannot scan the code here. Type the address and the code instead.</string>
+    <string name="pair_scan_failed">The scanner did not start. Type the address and the code instead, or try scanning again.</string>
+    <string name="pair_type_title">Or type it in</string>
+    <string name="pair_address_label">The computer\'s address, as Gazelle shows it under Phones</string>
+    <string name="pair_address_hint">192.168.1.20:8420</string>
+    <string name="pair_code_label">The code</string>
+    <string name="pair_code_hint">XXXX-XXXX</string>
+    <string name="pair_submit">Pair</string>
+
+    <!-- When the page does not load. -->
+    <string name="trouble_not_answering">Gazelle is not answering at %1$s</string>
+    <string name="trouble_refused">Gazelle at %1$s did not let this phone in</string>
+    <string name="trouble_refused_detail">On the computer, turn on Allow phones on this network, on the Workspace page under Phones.</string>
+    <string name="trouble_http">Gazelle at %1$s answered with an error</string>
+    <string name="trouble_http_detail">It said HTTP %1$d.</string>
+    <string name="trouble_hints">Check that this phone is on the same Wi-Fi network as the computer, that Gazelle is running there with Allow phones on this network turned on, and that Windows Firewall lets Gazelle in on private networks.</string>
+    <string name="trouble_retry">Retry</string>
+    <string name="trouble_repair">Pair with another computer</string>
+
+    <!-- The launcher shortcut. -->
+    <string name="shortcut_pair_short">Pair again</string>
+    <string name="shortcut_pair_long">Pair with another computer</string>
+</resources>

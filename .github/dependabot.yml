@@ -30,6 +30,16 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
+  # The Android app's version catalog (android/gradle/libs.versions.toml). An AndroidX update can
+  # ask for a newer compile SDK than the app's; CI's android job builds it, so read that first.
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

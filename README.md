@@ -23,6 +23,7 @@ A DAW opens one audio driver at a time, so two interfaces are ordinarily two sep
 - **Across devices:** surfaces that put strips from both interfaces side by side, declared digital cables with clock and signal warnings, snapshots you can compare with the present, and workspace backup.
 - **Recording across both interfaces:** Gazelle Aggregate presents both as one device to your DAW. The **Aggregate** page says whether your PC can run it and why not, registers the driver, names every channel, and measures how far apart the interfaces really record, so it can line every session up to the sample rather than trusting the figures the drivers report.
 - **Around it:** a desktop window and tray icon, a mixer dock on every page, dark and light themes, phone-sized layouts, phones on your network paired with a QR code, an HTTP and WebSocket API, a signed in-app updater, and a built-in emulator of both devices for trying it all without hardware.
+- **Gazelle Remote for Android:** a small app, `Gazelle-Remote.apk` on each release, that shows Gazelle's Remote page full screen on your phone and pairs by scanning the QR code on the computer. [The manual](docs/manual/14-remote-page.md#the-android-app) says how to install and pair it.
 
 ## How much it has been tested
 
@@ -37,6 +38,8 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 **Gazelle Aggregate, not yet tried on the devices:** long sessions; a sample rate change mid session; unplugging an interface while it streams; three or more interfaces; and measuring the output side. The page's own Measure, Check and phase setup were first driven by hand, rather than through the API, on 2026-09-22.
 
 **Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
+
+**Not yet tried on a phone:** Gazelle Remote, the Android app. It is built and its address checks are tested on every change, but nobody has installed it yet.
 
 If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/18-troubleshooting.md#reporting-a-problem).
 
@@ -133,6 +136,7 @@ More in [Getting started](docs/manual/03-getting-started.md) and [Install, updat
 | `crates/gazelle-audio-calibrate` | The measurement: plays a click through the aggregate itself and reads how far apart the interfaces landed |
 | `crates/gazelle-audio-aggregate-probe` | The command line tool that answered, at the hardware, whether two vendor drivers could live in one process at all |
 | `web/` | The web app and `gazelle-audio-client`, the typed TypeScript client for the API |
+| [`android/`](android/README.md) | Gazelle Remote, the Android app: a WebView of the web app confined to the paired computer, and native pairing. Built by CI with Gradle |
 | `refs/` | The recovered command model (`refs/schemas`) and the tools that extract it |
 | `docs/` | The user manual and its build |
 | [`docs/protocol.md`](docs/protocol.md) | The control protocol: framing, headers, the field grammar, payloads, reports, and what the commands mean |

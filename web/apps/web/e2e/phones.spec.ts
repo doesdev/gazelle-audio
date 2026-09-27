@@ -168,6 +168,10 @@ test("a wrong code on the pair page says what to do, and a device that is not pa
 
   await page.goto(`${server.url}/`);
   await expect(page.getByRole("heading", { name: "This device is not paired with Gazelle" })).toBeVisible();
+  // The way on is the pair page (which the Android app replaces with its own pairing screen).
+  await expect(page.getByTestId("pair-link")).toHaveAttribute("href", "/pair");
+  await page.getByTestId("pair-link").click();
+  await expect(page.getByTestId("pair-page")).toBeVisible();
   await context.close();
 });
 

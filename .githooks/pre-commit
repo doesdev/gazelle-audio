@@ -29,10 +29,11 @@ fi
 [ -z "$staged" ] && exit 0
 
 # --- 1. Files that must never be committed, by name ------------------------------------
+# Keys of every kind, the Android app's keystores (.jks, .keystore, .p12, .pfx) included.
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     case "$(basename "$f")" in
-        herd|ilok|.env|credentials.json|*.pem|*.key|id_rsa|id_ed25519)
+        herd|ilok|.env|credentials.json|*.pem|*.key|id_rsa|id_ed25519|*.jks|*.keystore|*.p12|*.pfx)
             echo "BLOCKED: '$f' is a credential file and must not be committed." >&2
             fail=1 ;;
     esac

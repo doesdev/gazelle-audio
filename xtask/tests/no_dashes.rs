@@ -8,8 +8,10 @@
 //!
 //! The roots are everything that is built into, or served by, the app: the web app and the client
 //! package, every crate's sources and build script, the release helper, the themes, and the
-//! schemas the server embeds. Tests and `refs/` notes are not product; `docs/` and `README.md` are
-//! checked by `pnpm -C web docs:check`. Generated files
+//! schemas the server embeds, and the Android app's sources, resources, build scripts and README
+//! (`android/`: every `.kt`, `.kts`, `.xml`, `.toml`, `.properties` and `.md`, its unit tests
+//! included, since their names and messages are the app's own words). Tests and `refs/` notes are
+//! not product; `docs/` and `README.md` are checked by `pnpm -C web docs:check`. Generated files
 //! (the effect catalogues and mic emulations from `refs/tools/scripts/`) sit inside these roots,
 //! so a generator that emitted a dash again would fail here too; each generator also refuses to
 //! write one.
@@ -51,6 +53,11 @@ const FILES: &[&str] = &[
 /// Never descended into, wherever they appear.
 const SKIP_DIRS: &[&str] = &["node_modules", "dist", "target"];
 
+/// The Android app: its text files, by extension, outside what Gradle and editors write.
+const ANDROID: &str = "android";
+const ANDROID_EXTENSIONS: &[&str] = &["kt", "kts", "xml", "toml", "properties", "md"];
+const ANDROID_SKIP_DIRS: &[&str] = &["build", ".gradle", ".idea", ".kotlin"];
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the repository root").to_path_buf()
 }
@@ -72,6 +79,7 @@ fn roots(root: &Path) -> Vec<PathBuf> {
             }
         }
     }
+    android_files(&root.join(ANDROID), &mut out);
     let schemas = std::fs::read_dir(root.join("refs/schemas")).expect("the schemas directory is readable");
     for entry in schemas {
         let path = entry.expect("a schema directory entry").path();
@@ -80,6 +88,22 @@ fn roots(root: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// The Android app's text files under `dir`, skipping build output.
+fn android_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    for entry in entries {
+        let path = entry.expect("a directory entry").path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            if !ANDROID_SKIP_DIRS.contains(&name) {
+                android_files(&path, out);
+            }
+        } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| ANDROID_EXTENSIONS.contains(&e)) {
+            out.push(path);
+        }
+    }
 }
 
 fn files_under(path: &Path, out: &mut Vec<PathBuf>) {
@@ -179,6 +203,13 @@ fn the_roots_include_every_crate_and_the_embedded_schemas() {
         "CHANGELOG.md",
         "CLAUDE.md",
         ".github/workflows/release.yml",
+        "android/README.md",
+        "android/app/build.gradle.kts",
+        "android/gradle/libs.versions.toml",
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/res/values/strings.xml",
+        "android/app/src/main/kotlin/io/github/doesdev/gazelle/remote/MainActivity.kt",
+        "android/app/src/test/kotlin/io/github/doesdev/gazelle/remote/LinksTest.kt",
     ] {
         assert!(roots.contains(&root.join(expected)), "{expected} is not checked");
     }

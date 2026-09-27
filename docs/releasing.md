@@ -20,6 +20,7 @@ in front. The updater tolerates a leading `v`, but the release workflow and
 | `Gazelle-Setup.exe` | Windows only: the windowless build byte for byte, under the name a person downloads to install. Double-clicked, it offers to install itself. The updater ignores it |
 | `gazelle-audio-<target>.zip` | Both binaries, for a person downloading by hand; the updater ignores it |
 | `gazelle-manual.pdf`, `gazelle-cheat-sheet.pdf` | The docs; once per release, not per target |
+| `Gazelle-Remote.apk` | The Android app, [Gazelle Remote](../android/README.md), signed with its own key; once per release. The updater ignores it |
 | `SHA256SUMS` | One `<digest>  <name>` line per asset |
 | `SHA256SUMS.sig` | 64 raw bytes: the detached ed25519 signature over `SHA256SUMS` |
 
@@ -31,6 +32,11 @@ on x86_64 is the only build there is. Its name is what puts the windowless build
 (the server's `install/setup.rs`); both binaries embed an application manifest saying they run
 as the invoker, so Windows never takes a file called "Setup" for an installer that needs
 administrator rights.
+
+The Android app has no version in its name either, for the same reason: the link to the latest
+release's copy never changes. Its version is inside it: the server's version as `versionName`,
+and `major * 10000 + minor * 100 + patch` as `versionCode`, so each release installs over the one
+before (a release candidate has its release's code, which Android also accepts as an update).
 
 The asset the updater fetches is the executable itself, not an archive: unpacking an archive
 from the network would be code running on bytes nothing has verified yet, while a bare binary
@@ -94,8 +100,9 @@ git push origin X.Y.Z
 | Job | What it does | Holds the signing key |
 |---|---|---|
 | `build` | `xtask check-version <tag>`; `xtask release-notes <version>`; checks the `GAZELLE_UPDATE_PUBKEY` variable is 64 hex digits; `pnpm install --frozen-lockfile` and `pnpm build`; the aggregate driver's release build; every suite (cargo test, clippy with `-D warnings`, the window check, pnpm test, e2e, docs:check); the release build with `--features window`, the public key and `GAZELLE_AGGREGATE_DLL` naming the driver just built; the import table test (`--test runtime`) on the release binaries, the driver beside them and the copy they carry; `xtask smoke` on both binaries; `pnpm docs:pdf` against the release binary; `xtask dist`; a release build of `xtask` itself. Uploads the unsigned directory, the helper and the notes as workflow artifacts. No build cache is restored: a release is built from nothing. | No |
-| `sign` (tag pushes only) | Runs in the protected `release` environment, so it waits for approval. A fresh machine that checks nothing out and builds nothing: it runs the helper the build job made. Writes the secret to the runner's temporary directory, checks its public half is the one the binaries carry (`xtask pubkey --expect`), signs (`xtask sign`), deletes the key, and verifies with the updater's own code (`xtask verify`), whose output is the upload list. Then `gh release create <tag> --draft --verify-tag`, with `--prerelease` for a semver pre-release, uploading exactly the verified files. The only job with `contents: write`. | Yes, only after the build is finished |
-| `dry-run` (manual runs only) | The same signing and verification with a throwaway key made on the spot, and a summary of the release that would have been drafted. No secret, no environment, nothing created. | No |
+| `android` | On Ubuntu, in parallel with `build`: the version from the server's `Cargo.toml` (and, on a tag, the tag must be it), then `gradle :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease` with that version name and code, and uploads the **unsigned** APK. | No |
+| `sign` (tag pushes only) | Runs in the protected `release` environment, so it waits for approval. A fresh machine that checks nothing out and builds nothing: it runs the helper the build job made. First the Android app: decodes the `ANDROID_KEYSTORE_B64` secret into the runner's temporary directory, and `xtask sign-apk` checks the APK is this version, aligns, signs and verifies it with the Windows image's Android SDK build-tools into the release directory as `Gazelle-Remote.apk`; no keystore secret fails the release rather than shipping an unsigned app. Then writes the secret to the runner's temporary directory, checks its public half is the one the binaries carry (`xtask pubkey --expect`), signs (`xtask sign`), deletes the key, and verifies with the updater's own code (`xtask verify --require-apk`), whose output is the upload list. Then `gh release create <tag> --draft --verify-tag`, with `--prerelease` for a semver pre-release, uploading exactly the verified files. The only job with `contents: write`. | Yes, only after the build is finished |
+| `dry-run` (manual runs only) | The same signing and verification with throwaway keys made on the spot (the Android app's by `keytool`), and a summary of the release that would have been drafted. No secret, no environment, nothing created. | No |
 
 Approve the `release` deployment on the run's page when it asks. A draft release appears under
 Releases with the changelog section as its notes; read it, then publish it. Finally prove the
@@ -116,6 +123,10 @@ xtask smoke [--pubkey <hex>]     both built binaries on the loopback backend: he
                                  the target, the web app at /, (with --pubkey) that exact key inside, and
                                  on Windows the gazelle_aggregate.dll beside them, byte for byte, inside
 xtask dist --out <dir>           the release directory, named as the updater asks; new or empty dirs only
+xtask sign-apk --apk <file> --keystore <file.p12> --out <dir>/Gazelle-Remote.apk [--alias <a>] [--version <v>]
+                                 the Android app: aapt2 says it is this app at this version (name and
+                                 code), then zipalign, apksigner sign, apksigner verify; the passwords
+                                 from ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_PASSWORD, never an argument
 xtask pubkey --key <file> [--expect <hex>]
                                  the key's public half; fails hard on a mismatch
 xtask sign --dir <dir> --key <file>
@@ -123,7 +134,9 @@ xtask sign --dir <dir> --key <file>
 xtask verify --dir <dir> --pubkey <hex>
                                  the updater's own checks, plus: every file listed, every listed file
                                  there, both binaries present, and on Windows the setup file present
-                                 and identical to the windowless build; prints the upload list
+                                 and identical to the windowless build; nothing that is not a release
+                                 asset; the APK, when there, signed (v2 or later), and with
+                                 --require-apk it must be there; prints the upload list
 ```
 
 ### The manual fallback
@@ -174,6 +187,15 @@ GAZELLE_BIN=target/release/gazelle-audio-server.exe corepack pnpm -C web docs:pd
 #    the zip and the PDFs. It refuses a directory that already holds anything.
 cargo run -p xtask -- dist --out dist
 
+# 5b. Optionally, the Android app. It needs JDK 17, the Android SDK (ANDROID_HOME) and Gradle,
+#     and the app's keystore, outside the repository; a release by hand may leave it out, since
+#     verify only insists on it with --require-apk. Its version is the server's, and check-version
+#     printed its code (android_version_code).
+(cd android && gradle :app:assembleRelease -PgazelleVersionName=X.Y.Z -PgazelleVersionCode=<code>)
+ANDROID_KEYSTORE_PASSWORD=<its password> cargo run -p xtask -- sign-apk \
+  --apk android/app/build/outputs/apk/release/app-release-unsigned.apk \
+  --keystore <outside-the-repo>/gazelle-remote.p12 --out dist/Gazelle-Remote.apk
+
 # 6. Sign, LAST, after every file is in the directory. Everything in it is hashed, so the key
 #    must not be in it (sign refuses), and a binary rebuilt after this step fails its own hash.
 cargo run -p xtask -- pubkey --key <outside-the-repo>/gazelle-release.key --expect <64 hex digits>
@@ -213,6 +235,7 @@ Before tagging, all of these must be true:
 | 7 | **The web UI is built**, or the binary embeds a "not built" notice page instead of the app. | `pnpm -C web build` before the release build; `xtask smoke` checks `GET /` is the app |
 | 8 | **The installer works by hand**: `Gazelle-Setup.exe` downloaded from the draft release and double-clicked (no administrator prompt; SmartScreen's "More info", "Run anyway"), run again over the install, a real `--install`, the Start Menu entry, the entry in Settings, Apps, an uninstall from that list, and an uninstall of a relocated copy removing its own binary. `gazelle_aggregate.dll` is in the install folder after the install; with the driver registered from there, an uninstall offers to unregister it (and a quiet one, `--uninstall --yes`, leaves it and says how). | By hand; `cargo test -p gazelle-audio-server --test icon` checks the manifest that keeps the setup file from asking for elevation, and `--test install` the driver's install, replacement and uninstall against temporary folders |
 | 9 | **A staged update restarts into the new version**, including from the tray's "Restart to update" item. | Step 9 above |
+| 9a | **The Android app is signed with its own key**, the same key as every release before (a new key cannot update an installed copy), and installs over the previous release's app by hand. | `xtask sign-apk` (`apksigner verify` prints the certificate's SHA-256 digest, which must be the same every release); `xtask verify --require-apk`; by hand on a phone |
 | 10 | **The docs are current and print.** The manual and the cheat sheet describe this version and their PDFs build. | `corepack pnpm -C web docs:pdf` passes its checks (no em or en dashes, links and images resolve, the command-line chapter matches the release binary's `--help`) and writes both PDFs; the manual's title page names the version |
 
 ## One-time setup
@@ -250,11 +273,52 @@ Once per repository, before the first release:
    gh variable set GAZELLE_UPDATE_PUBKEY --repo <owner>/<repo> --body <64 hex digits>
    ```
 
-5. **Optionally, a tag ruleset** (Settings, Rules, Rulesets, a new tag ruleset targeting
+5. **Make the Android app's signing key** and give it to the `release` environment. Android
+   installs an update to an app only when it is signed with the same key as the copy installed,
+   so this key signs every release of Gazelle Remote from now on. The release fails without it
+   rather than ship an unsigned app.
+
+   `keytool` comes with any JDK. There is none on this PC unless you install one, which is your
+   choice; for example `winget install Microsoft.OpenJDK.21`, then a new terminal. In PowerShell,
+   **outside the repository** (keytool asks for a password, twice; choose a long one and keep it
+   with the key):
+
+   ```
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\gazelle-keys"
+   keytool -genkeypair -v -storetype PKCS12 -keystore "$env:USERPROFILE\gazelle-keys\gazelle-remote.p12" -alias gazelle-remote -keyalg RSA -keysize 4096 -validity 10950 -dname "CN=Gazelle Remote"
+   ```
+
+   That is a PKCS12 keystore holding one RSA 4096 key, alias `gazelle-remote`, valid for 30 years.
+   Its SHA-256 certificate fingerprint, to compare with what every release's sign job prints:
+
+   ```
+   keytool -list -v -keystore "$env:USERPROFILE\gazelle-keys\gazelle-remote.p12" -alias gazelle-remote
+   ```
+
+   Then the secrets, on the `release` environment. The keystore goes in base64, straight from the
+   file into `gh` with no copy on disk; `gh` asks for the password when it is given no value:
+
+   ```
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\gazelle-keys\gazelle-remote.p12")) | gh secret set ANDROID_KEYSTORE_B64 --env release --repo <owner>/<repo>
+   gh secret set ANDROID_KEYSTORE_PASSWORD --env release --repo <owner>/<repo>
+   ```
+
+   The key's own password is the keystore's (keytool gives a PKCS12 key the store's password), so
+   `ANDROID_KEY_PASSWORD` is needed only for a keystore whose key has one of its own. The alias is
+   `gazelle-remote` unless a variable or secret `ANDROID_KEY_ALIAS` says otherwise.
+
+   **Back up the keystore and its password**, offline and apart from each other, as you did the
+   update key. Losing either means no installed copy of the app can ever be updated again: a new
+   key makes a different app as far as Android is concerned, so every phone would have to
+   uninstall Gazelle Remote, install the new one, and pair again. Never put the keystore in the
+   repository; `.gitignore` and the pre-commit hook refuse `.p12`, `.jks`, `.keystore` and `.pfx`
+   files anyway.
+
+6. **Optionally, a tag ruleset** (Settings, Rules, Rulesets, a new tag ruleset targeting
    `[0-9]*.[0-9]*.[0-9]*` that restricts creation, update and deletion), so a release tag cannot
    be moved after it is pushed.
 
-6. **A dry run**, once `release.yml` is on the default branch (a manual run needs the file
+7. **A dry run**, once `release.yml` is on the default branch (a manual run needs the file
    there): Actions, Release, Run workflow, or
 
    ```

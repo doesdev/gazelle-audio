@@ -38,6 +38,12 @@ ilok
 !.env.example
 credentials.json
 secrets.*
+# Keystores: the Android app's signing key lives outside the repository and in the release
+# environment's secret, never here.
+*.jks
+*.keystore
+*.p12
+*.pfx
 
 # --- Web workspace build output and dependencies. ---
 # Phase 3 builds the web UI into web/apps/web/dist, which the server embeds; neither the
@@ -67,3 +73,10 @@ Thumbs.db
 # --- Docs build output (pnpm -C web docs). The PDFs are built, never committed. ---
 /docs/dist/
 *.pdf
+
+# --- The Android app (android/): Gradle's and editors' output. Its signing key is under Secrets. ---
+android/local.properties
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/.idea/

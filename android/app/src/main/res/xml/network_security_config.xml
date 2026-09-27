@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Plain HTTP is allowed, everywhere, and that is deliberate.
+
+  Gazelle runs on a computer on the phone's own network and speaks plain HTTP: there is no
+  certificate a phone could check for a private address. A domain-config can only name hosts, and
+  "any private address" or "whatever computer the person pairs with" cannot be written as a list of
+  hosts, so cleartext is permitted in the base config.
+
+  What keeps that narrow is the app, not this file: the WebView only ever loads the one origin it
+  paired with (scheme, host and port), every other link opens in the system browser, and any
+  request the page makes to another origin is refused (MainActivity, Links.kt). The app has no
+  other network code.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -15,13 +15,14 @@ cargo run -p xtask -- help
 | Subcommand | What it does |
 | --- | --- |
 | `keygen --out <file>` | Makes an ed25519 signing pair, writes the private half to a file and prints the public half. Refuses a path inside a git working tree. |
-| `check-version [<tag>]` | The tag must be the server's version, bare (`1.0.0`, no `v`). |
+| `check-version [<tag>]` | The tag must be the server's version, bare (`1.0.0`, no `v`). Also prints the Android app's version code for it. |
 | `release-notes <version>` | Prints that version's section of `CHANGELOG.md`, and fails when it is missing or empty. |
 | `smoke` | Starts both built binaries and checks what they answer: the version, that the updater is compiled in with a signing key (with `--pubkey`, that key), and that `/` is the web app rather than the "not built" notice. |
 | `dist --out <dir>` | Collects the release directory under the names the updater asks for, with the setup file, the zip and the PDFs, and nothing else. |
+| `sign-apk --apk <file> --keystore <file.p12> --out <dir>/Gazelle-Remote.apk` | Checks the Android app's unsigned APK is this app at this version, then aligns, signs and verifies it with the Android SDK's build-tools. The passwords come from the environment, never the command line. |
 | `pubkey` | Prints the public half of the signing key, and fails when it is not the one expected. |
 | `sign --dir <dir>` | Hashes every file into `SHA256SUMS` and signs it. |
-| `verify --dir <dir> --pubkey <hex>` | Checks a signed directory the way an installed copy will, and is strict about what is in it. |
+| `verify --dir <dir> --pubkey <hex> [--require-apk]` | Checks a signed directory the way an installed copy will, and is strict about what is in it: nothing that is not a release asset, and the Android app signed when it is there (and, with `--require-apk`, there). |
 | `install-local [--skip-web] [--dry-run] [--pubkey <hex>]` | Builds this checkout as a release is built (web app, aggregate driver, then the server carrying the driver and the update key, fetched with `gh variable get` when not given) and installs it on this PC, stopping a Gazelle running from the install folder by process id. The one command here that starts the real app on purpose, so it takes the `GAZELLE_NO_HARDWARE` backstop away for that launch alone. |
 
 ## Where it sits

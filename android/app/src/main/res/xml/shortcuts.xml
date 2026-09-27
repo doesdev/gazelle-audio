@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's one menu: a long press on its icon. The intent names the app itself, so the package
+     and class here must match the applicationId and MainActivity. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:shortcutId="pair"
+        android:shortcutLongLabel="@string/shortcut_pair_long"
+        android:shortcutShortLabel="@string/shortcut_pair_short">
+        <intent
+            android:action="io.github.doesdev.gazelle.remote.PAIR"
+            android:targetClass="io.github.doesdev.gazelle.remote.MainActivity"
+            android:targetPackage="io.github.doesdev.gazelle.remote" />
+    </shortcut>
+</shortcuts>

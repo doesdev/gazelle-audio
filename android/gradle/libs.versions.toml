@@ -1,0 +1,23 @@
+# Every version the app is built with, pinned. Dependabot's gradle ecosystem reads this file.
+#
+# Kotlin is not listed: the Android Gradle Plugin 9 compiles Kotlin itself ("built-in Kotlin"),
+# with the Kotlin Gradle plugin it depends on at a fixed version (2.2.10 for AGP 9.4.1), so
+# pinning the plugin pins the compiler too.
+#
+# The AndroidX versions are the newest that compile against API 36: core 1.19 needs API 37.
+
+[versions]
+agp = "9.4.1"
+activity = "1.13.0"
+core = "1.18.0"
+codeScanner = "16.1.0"
+junit = "4.13.2"
+
+[libraries]
+androidx-activity = { module = "androidx.activity:activity", version.ref = "activity" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core" }
+play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

@@ -6,9 +6,10 @@
 //! cargo run -p xtask -- release-notes 1.0.0
 //! cargo run -p xtask -- smoke --pubkey <64 hex digits>
 //! cargo run -p xtask -- dist --out dist
+//! cargo run -p xtask -- sign-apk --apk <unsigned.apk> --keystore <file.p12> --out dist/Gazelle-Remote.apk
 //! cargo run -p xtask -- pubkey --key <file> --expect <64 hex digits>
 //! cargo run -p xtask -- sign --dir dist [--key <file>]
-//! cargo run -p xtask -- verify --dir dist --pubkey <64 hex digits>
+//! cargo run -p xtask -- verify --dir dist --pubkey <64 hex digits> [--require-apk]
 //! cargo run -p xtask -- install-local [--skip-web] [--dry-run] [--pubkey <64 hex digits>]
 //! ```
 //!
@@ -36,6 +37,7 @@
 //!
 //! A binary built without it will not download an update, because it could not check one.
 
+mod android;
 mod dist;
 mod local;
 mod notes;
@@ -56,7 +58,8 @@ gazelle release helper
 
     xtask keygen --out <file>        make a signing key pair; prints the public half
     xtask check-version [<tag>]      the tag must be the server's version, bare (1.0.0, no v);
-                                     prints version=, tag= and prerelease= lines
+                                     prints version=, tag=, prerelease= and
+                                     android_version_code= lines
     xtask release-notes <version> [--changelog <file>]
                                      print that version's CHANGELOG.md section; fails if it is
                                      missing or empty
@@ -67,13 +70,20 @@ gazelle release helper
     xtask dist --out <dir> [--bin-dir <dir>] [--docs <dir>] [--target <triple>]
                                      collect the release directory under the names the updater
                                      asks for, with the setup file, the zip and the PDFs
+    xtask sign-apk --apk <file> --keystore <file.p12> --out <dir>/Gazelle-Remote.apk
+                   [--alias <alias>] [--version <v>] [--build-tools <dir>]
+                                     check the Android app's unsigned APK is this version, then
+                                     align, sign and verify it with the SDK's build-tools; the
+                                     passwords come from ANDROID_KEYSTORE_PASSWORD and
+                                     ANDROID_KEY_PASSWORD (the store's when unset)
     xtask pubkey [--key <file>] [--expect <hex>]
                                      print the public half of the signing key; fails if it is
                                      not the expected one
     xtask sign --dir <dir> [--key <file>]
                                      write SHA256SUMS over <dir>, sign it, say what to upload
-    xtask verify --dir <dir> --pubkey <hex> [--target <triple>]
-                                     check <dir> as the updater will; prints the files to upload
+    xtask verify --dir <dir> --pubkey <hex> [--target <triple>] [--require-apk]
+                                     check <dir> as the updater will; prints the files to upload.
+                                     --require-apk: the Android app must be there, signed
     xtask install-local [--skip-web] [--dry-run] [--pubkey <hex>]
                                      build this checkout as a release is built (the web app, the
                                      aggregate driver, then the server carrying it and the update
@@ -82,7 +92,8 @@ gazelle release helper
 
 The private key is read from --key, or from the file named by GAZELLE_RELEASE_KEY.
 Defaults: --bin-dir target/release, --docs docs/dist, --changelog CHANGELOG.md (all relative to
-the current directory), --version the server's own, --target the triple this helper was built for.
+the current directory), --version the server's own, --target the triple this helper was built for,
+--alias gazelle-remote.
 ";
 
 fn main() {
@@ -137,14 +148,26 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         Some("verify") => {
-            only(&args, &["--dir", "--pubkey", "--target"])?;
+            only(&args, &["--dir", "--pubkey", "--target", "--require-apk"])?;
             let dir = flag(&args, "--dir").ok_or("verify needs --dir <dir>")?;
             let pubkey = value(&args, "--pubkey").ok_or("verify needs --pubkey <64 hex digits>")?;
             // The list on stdout is exactly what to upload, so a workflow can hand it straight on.
-            for path in verify::verify(&dir, &pubkey, &target())? {
+            let require_apk = args.iter().any(|a| a == "--require-apk");
+            for path in verify::verify(&dir, &pubkey, &target(), require_apk)? {
                 println!("{}", path.display());
             }
             Ok(())
+        }
+        Some("sign-apk") => {
+            only(&args, &["--apk", "--keystore", "--out", "--alias", "--version", "--build-tools"])?;
+            android::sign_apk(&android::SignApk {
+                apk: flag(&args, "--apk").ok_or("sign-apk needs --apk <unsigned.apk>")?,
+                keystore: flag(&args, "--keystore").ok_or("sign-apk needs --keystore <file.p12>")?,
+                out: flag(&args, "--out").ok_or("sign-apk needs --out <dir>/Gazelle-Remote.apk")?,
+                alias: value(&args, "--alias").unwrap_or_else(|| android::DEFAULT_ALIAS.to_string()),
+                version: value(&args, "--version").unwrap_or_else(|| gazelle_audio_server::VERSION.to_string()),
+                build_tools: flag(&args, "--build-tools"),
+            })
         }
         Some("smoke") => {
             only(&args, &["--bin-dir", "--version", "--pubkey", "--target"])?;

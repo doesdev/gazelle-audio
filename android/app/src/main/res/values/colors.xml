@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window behind the page and the native screens, light. values-night has the dark ones. -->
+    <color name="background">#FFF4F4F5</color>
+    <color name="text">#FF1E1F22</color>
+    <color name="text_muted">#FF5C5F66</color>
+    <color name="accent">#FF8A5A00</color>
+    <!-- The launcher icon, as the desktop app draws it (icon.rs): an amber G on a dark grey disc. -->
+    <color name="icon_background">#FF2B2D31</color>
+    <color name="icon_mark">#FFE8A838</color>
+</resources>

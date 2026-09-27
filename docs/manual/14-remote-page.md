@@ -38,3 +38,23 @@ A finger lands on a fader while you scroll, so under a finger nothing jumps:
 With a mouse the page behaves as the rest of Gazelle: a click on a bar jumps there, and a double-click resets.
 
 > **Warning.** These rules keep a stray touch from jumping a level; they do not make a deliberate one safe. A slow drag to the right still takes Monitor to 0 dB. See [Sudden level jumps](02-safety.md#sudden-level-jumps).
+
+## The Android app
+
+**Gazelle Remote** is a small Android app that shows this page full screen, with nothing of a browser around it, and pairs by scanning the QR code. It shows the page your computer's Gazelle serves, so it is always the same version as your Gazelle. It needs Android 8.0 or later.
+
+**Getting it.** On the phone, open the [releases page](https://github.com/doesdev/gazelle-audio/releases) and download `Gazelle-Remote.apk` from the latest release, the same release as `Gazelle-Setup.exe`. It does not come from the Play Store, so the first time Android asks whether the browser (or the Files app, if you open it from there) may install apps: choose **Settings**, allow it for that app, go back and choose **Install**. You can take that permission away again afterwards. To update, download a newer release's `Gazelle-Remote.apk` and install it over the old one; the phone stays paired.
+
+**Pairing.** On the computer, turn on **Allow phones on this network** and choose **Pair a phone** (see [Phones on your network](05-the-app.md#phones-on-your-network)). In the app, choose **Scan the code on your computer** and point the phone at the QR code. Scanning uses Google Play services' own scanner, so the app never asks for the camera. On a phone without Play services, or if you would rather, type the address the Phones section shows, such as `192.168.1.20:8420`, and the code. The app then opens Gazelle's pairing page: give the phone a name and tap **Pair this phone**. From then on the app opens straight onto this page.
+
+**When it cannot connect**, it says **Gazelle is not answering at** the computer's address. Check that:
+
+- the phone is on the same Wi-Fi network as the computer, not on mobile data or a guest network;
+- Gazelle is running, with **Allow phones on this network** turned on;
+- Windows Firewall lets Gazelle in on private networks, and your network is set as a private one on the computer.
+
+Then choose **Retry**. If the computer's address has changed (a router can hand it a new one after a restart), choose **Pair with another computer** and pair again; a reserved address for the computer in your router's settings stops that happening.
+
+**Pairing again, or with another computer.** Press and hold the app's icon and choose **Pair with another computer**. The pairing screen says which computer the phone is paired with now, and **Back to Gazelle** returns to it. Pairing anew forgets the old computer. A phone you revoked on the computer shows that it is no longer paired, and its **Pair again** link opens the app's pairing screen.
+
+**What it reaches.** Only the computer it paired with: a link anywhere else, such as this manual online, opens in the phone's browser. The screen stays on while the app is in front. Its connection is the same plain HTTP as a phone's browser, so what [Phones on your network](05-the-app.md#phones-on-your-network) says about trusted networks holds for it too.

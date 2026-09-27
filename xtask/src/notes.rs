@@ -17,11 +17,16 @@ pub struct Report {
     pub version: String,
     pub tag: String,
     pub prerelease: bool,
+    /// The Android app's version code for this version (`android::version_code`).
+    pub android_version_code: u32,
 }
 
 impl Report {
     pub fn lines(&self) -> String {
-        format!("version={}\ntag={}\nprerelease={}\n", self.version, self.tag, self.prerelease)
+        format!(
+            "version={}\ntag={}\nprerelease={}\nandroid_version_code={}\n",
+            self.version, self.tag, self.prerelease, self.android_version_code
+        )
     }
 }
 
@@ -43,7 +48,8 @@ pub fn check_version(tag: Option<&str>, version: &str) -> Result<Report, String>
             ));
         }
     }
-    Ok(Report { version: version.to_string(), tag: version.to_string(), prerelease: !parsed.pre.is_empty() })
+    let android_version_code = crate::android::version_code(version)?;
+    Ok(Report { version: version.to_string(), tag: version.to_string(), prerelease: !parsed.pre.is_empty(), android_version_code })
 }
 
 /// The body of the `## [<version>]` section: everything up to the next `## ` heading or the link
@@ -125,7 +131,7 @@ The first release.
     fn a_tag_must_be_the_bare_version_exactly() {
         assert_eq!(
             check_version(Some("0.1.0"), "0.1.0"),
-            Ok(Report { version: "0.1.0".into(), tag: "0.1.0".into(), prerelease: false })
+            Ok(Report { version: "0.1.0".into(), tag: "0.1.0".into(), prerelease: false, android_version_code: 100 })
         );
         for wrong in ["0.1.1", "0.1", "0.1.0-rc.1", "0.1.0 ", "release-0.1.0"] {
             let error = check_version(Some(wrong), "0.1.0").unwrap_err();
@@ -147,7 +153,7 @@ The first release.
     fn a_semver_pre_release_is_a_prerelease_and_build_metadata_is_not() {
         assert!(check_version(Some("0.2.0-rc.1"), "0.2.0-rc.1").unwrap().prerelease);
         assert!(!check_version(Some("0.2.0+build.5"), "0.2.0+build.5").unwrap().prerelease);
-        assert_eq!(check_version(Some("0.2.0-rc.1"), "0.2.0-rc.1").unwrap().lines(), "version=0.2.0-rc.1\ntag=0.2.0-rc.1\nprerelease=true\n");
+        assert_eq!(check_version(Some("0.2.0-rc.1"), "0.2.0-rc.1").unwrap().lines(), "version=0.2.0-rc.1\ntag=0.2.0-rc.1\nprerelease=true\nandroid_version_code=200\n");
     }
 
     #[test]

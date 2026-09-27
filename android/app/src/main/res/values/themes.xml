@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light, following the phone. values-night has the dark one. The system bars are drawn over
+         by the app (edge to edge) and themed by enableEdgeToEdge from the same setting. -->
+    <style name="Theme.GazelleRemote" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/text_muted</item>
+        <item name="android:buttonStyle">@style/Widget.GazelleRemote.Button</item>
+    </style>
+
+    <style name="Widget.GazelleRemote.Button" parent="android:Widget.Material.Button">
+        <item name="android:textAllCaps">false</item>
+    </style>
+</resources>

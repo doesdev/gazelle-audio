@@ -56,7 +56,8 @@ async function boot(): Promise<void> {
     box.className = "boot-error";
     const heading = document.createElement("h1");
     const detail = document.createElement("p");
-    if (await unpaired()) {
+    const notPaired = await unpaired();
+    if (notPaired) {
       const { UNPAIRED_TITLE, UNPAIRED_TEXT } = await import("./store/pair.ts");
       heading.textContent = UNPAIRED_TITLE;
       detail.textContent = UNPAIRED_TEXT;
@@ -68,6 +69,15 @@ async function boot(): Promise<void> {
     retry.textContent = "Try again";
     retry.addEventListener("click", () => location.reload());
     box.append(heading, detail, retry);
+    // The way on for a device that is not paired: the pair page, where the code goes (and which
+    // the Android app turns into its own pairing screen).
+    if (notPaired) {
+      const pair = document.createElement("a");
+      pair.href = "/pair";
+      pair.textContent = "Pair this phone";
+      pair.dataset["testid"] = "pair-link";
+      box.append(pair);
+    }
     document.body.replaceChildren(box);
   }
 }
