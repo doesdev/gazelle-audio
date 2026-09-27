@@ -32,6 +32,21 @@ version that has not been published yet.
 - **A revoked phone says so.** When the computer revokes a phone, the phone shows that it is no
   longer paired and how to pair it again, instead of trying to reconnect for ever. A device that
   was never paired gets a link to the pairing page, where the code goes.
+- **The Recording page: record both interfaces, with a pre-roll.** Gazelle records the aggregate's
+  inputs itself, channels from both interfaces lined up in one take, to one Broadcast WAV file per
+  channel, with no DAW open. Press Arm and it keeps the last stretch of what the interfaces hear in
+  memory; press Record and the take starts with those moments before the press, and carries on
+  without a gap. Stop keeps it armed for the next take, and Space records and stops while the page
+  is shown. Presets choose the channels by their names in the aggregate, the folder (Documents,
+  Gazelle Recordings, unless you say), the file names, 24-bit or 32-bit float, and how much of the
+  free memory the pre-roll takes. Every file of a take starts at the same moment, which a DAW reads
+  from the files, files past 4 GB carry on as RF64, a name already there is never overwritten, and
+  each take keeps a log of anything that was lost. The disk is watched, and a take is stopped with
+  its files finished before the disk is full. While armed, Gazelle holds the audio drivers, so a DAW
+  may not be able to use them until you disarm. Not yet tried on the devices.
+- **Record from your phone.** The Remote page has the recorder's transport at the top: the preset,
+  Off, Armed or Recording with the time and the pre-roll held, and Arm, Record, Stop and Disarm.
+  Presets are still changed on the computer.
 - **Gazelle Remote, an app for Android phones.** Each release now carries `Gazelle-Remote.apk`:
   install it on your phone (Android asks you to allow installing it from your browser), scan the
   QR code on the computer, and Gazelle's Remote page opens full screen, with the screen kept on.

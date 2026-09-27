@@ -455,10 +455,20 @@ async fn prepare(
         show_window,
     };
 
+    // One calibration and one recorder, which share the aggregate and each refuse while the other
+    // has it. The loopback records from the aggregate's own fakes, never a driver.
+    let calibration = Arc::new(gazelle_audio_server::aggregate::calibrate::Calibration::this_pc());
+    let recording = gazelle_audio_server::recording::RecordingService::for_backend(args.backend == Backend::Loopback, calibration.clone(), store.clone(), devices.clone());
+    tokio::spawn(recording.clone().follow());
+
     let app = http::router(state)
         .merge(http::driver::routes(devices.clone(), driver, args.dry_run))
-        .merge(http::aggregate::routes(aggregate, store, args.dry_run))
+        .merge(http::aggregate::routes_sharing(aggregate, store, args.dry_run, calibration))
+        .merge(http::recording::routes(recording.clone()))
         .merge(http::remote::routes(remote.clone()));
+    // Every route sees the recorder: the WebSocket sends its live state, the workspace keeps the
+    // armed preset as it is, and a measurement is refused while it is armed.
+    let app = app.layer(axum::Extension(recording));
     let app = match restart {
         Some(restart) => app.merge(http::update::routes(restart)),
         None => app,

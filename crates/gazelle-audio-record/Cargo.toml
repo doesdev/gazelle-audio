@@ -1,0 +1,28 @@
+[package]
+name = "gazelle-audio-record"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Record the aggregate's inputs to Broadcast WAV files, with a pre-roll held in memory while armed"
+
+[lib]
+name = "gazelle_record"
+
+[dependencies]
+gazelle-audio-aggregate = { path = "../gazelle-audio-aggregate" }
+gazelle-audio-calibrate = { path = "../gazelle-audio-calibrate" }
+gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
+serde = { version = "1", features = ["derive"] }
+
+# How much memory is free (`GlobalMemoryStatusEx`), how much room a disk has left
+# (`GetDiskFreeSpaceExW`), and what the local time is (`FileTimeToLocalFileTime`,
+# `FileTimeToSystemTime`). The same windows-sys the aggregate and calibrate crates already use.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemInformation",
+    "Win32_System_Time",
+] }

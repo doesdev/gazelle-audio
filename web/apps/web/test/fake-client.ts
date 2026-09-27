@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type RecordingStatus, type RecordingTake, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -223,6 +223,31 @@ export class FakeClient implements Client {
     now_ms: 1_789_700_000_000,
   };
   /** Every phones call the section made, in order. */
+  readonly recordingCalls: string[] = [];
+  /** What the recorder answers; `off` until a test says otherwise. */
+  recordingStatus: RecordingStatus = { state: "off", channels: [], overruns: 0, dropouts: 0, dropouts_by_device: [], disk_low: false, reset_asked: false };
+  recordingTakes: RecordingTake[] = [];
+  /** A refusal the next recorder call gives, with its code. */
+  recordingRefusal: GazelleError | undefined;
+  #recorder = async (call: string, next?: Partial<RecordingStatus>): Promise<RecordingStatus> => {
+    this.recordingCalls.push(call);
+    const refusal = this.recordingRefusal;
+    if (refusal !== undefined) {
+      this.recordingRefusal = undefined;
+      throw refusal;
+    }
+    this.recordingStatus = { ...this.recordingStatus, ...next };
+    return this.recordingStatus;
+  };
+  readonly recording = {
+    status: () => this.#recorder("status"),
+    arm: (preset: string) => this.#recorder(`arm ${preset}`, { state: "armed" }),
+    record: () => this.#recorder("record", { state: "recording" }),
+    stop: () => this.#recorder("stop", { state: "armed" }),
+    disarm: (options: { confirm?: boolean } = {}) => this.#recorder(`disarm${options.confirm === true ? " confirmed" : ""}`, { state: "off" }),
+    takes: async () => ({ takes: this.recordingTakes }),
+  };
+
   readonly remoteCalls: string[] = [];
 
   readonly remote = {

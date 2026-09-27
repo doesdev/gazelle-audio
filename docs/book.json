@@ -15,13 +15,14 @@
     "manual/11-effects-page.md",
     "manual/12-workspace-page.md",
     "manual/13-aggregate-page.md",
-    "manual/14-remote-page.md",
-    "manual/15-surfaces-and-cables.md",
-    "manual/16-snapshots-and-backup.md",
-    "manual/17-install-update-uninstall.md",
-    "manual/18-troubleshooting.md",
-    "manual/19-command-line-and-api.md",
-    "manual/20-glossary.md"
+    "manual/14-recording-page.md",
+    "manual/15-remote-page.md",
+    "manual/16-surfaces-and-cables.md",
+    "manual/17-snapshots-and-backup.md",
+    "manual/18-install-update-uninstall.md",
+    "manual/19-troubleshooting.md",
+    "manual/20-command-line-and-api.md",
+    "manual/21-glossary.md"
   ],
   "cheatSheet": "cheat-sheet.md"
 }

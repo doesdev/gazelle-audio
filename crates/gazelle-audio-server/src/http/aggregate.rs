@@ -60,6 +60,12 @@ use crate::workspace::store::WorkspaceStore;
 struct ForceDryRun(bool);
 
 pub fn routes(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, force_dry_run: bool) -> Router {
+    routes_sharing(service, store, force_dry_run, Arc::new(Calibration::this_pc()))
+}
+
+/// [`routes`], with the one calibration the recorder also knows about: the two share the
+/// aggregate, and each refuses to start while the other has it.
+pub fn routes_sharing(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, force_dry_run: bool, measuring: Arc<Calibration>) -> Router {
     Router::new()
         .route("/api/v1/aggregate", get(read))
         .route("/api/v1/aggregate/match-buffers", post(match_buffers))
@@ -69,7 +75,7 @@ pub fn routes(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, fo
         .route("/api/v1/aggregate/calibrate/stop", post(calibrate_stop))
         .layer(Extension(service))
         .layer(Extension(store))
-        .layer(Extension(Arc::new(Calibration::this_pc())))
+        .layer(Extension(measuring))
         .layer(Extension(ForceDryRun(force_dry_run)))
 }
 
@@ -214,10 +220,19 @@ async fn calibration(Extension(job): Extension<Arc<Calibration>>, request: Reque
 async fn calibrate(
     Extension(job): Extension<Arc<Calibration>>,
     Extension(store): Extension<Arc<dyn WorkspaceStore>>,
+    recording: Option<Extension<Arc<crate::recording::RecordingService>>>,
     request: Request,
 ) -> Result<Response, ServerError> {
     if let Some(refusal) = refuse_unless_local(&request) {
         return Ok(refusal);
+    }
+    // One owner of the aggregate: the recorder holds it from Arm to Disarm.
+    if recording.is_some_and(|Extension(recording)| recording.is_active()) {
+        return Ok(error(
+            StatusCode::CONFLICT,
+            "recording_armed",
+            "The Recording page is armed, so it has the interfaces. Disarm it there, and measure again.".into(),
+        ));
     }
     let body: Result<Json<Ask>, JsonRejection> = <Json<Ask> as axum::extract::FromRequest<()>>::from_request(request, &()).await;
     let Json(ask) = body.map_err(|e| ServerError::BadValue(e.body_text()))?;
@@ -433,6 +448,46 @@ mod tests {
 
     async fn post(app: &Router, uri: &str, body: &str) -> (StatusCode, Value) {
         send(app, from_here("POST", uri, Some(body))).await
+    }
+
+    /// One owner of the aggregate: while the Recording page is armed, a measurement is refused before
+    /// anything is opened, and it says where to go.
+    #[tokio::test(flavor = "multi_thread")]
+    // Held across awaits on purpose: it keeps every test that hosts the aggregate apart, and
+    // nothing else ever waits on it.
+    #[allow(clippy::await_holding_lock)]
+    async fn a_measurement_is_refused_while_the_recorder_is_armed() {
+        let _one = crate::recording::hosting();
+        let h = harness();
+        let mut workspace = workspace_with(pair());
+        workspace.recording = Some(crate::workspace::model::Recording {
+            presets: vec![crate::workspace::model::RecordingPreset {
+                id: "p".into(),
+                name: "Band".into(),
+                channels: vec![crate::workspace::model::RecordingChannel { device: 0, channel: 0 }],
+                preroll_max_seconds: Some(5.0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        h.store.save(&workspace).unwrap();
+        let devices = DeviceManager::new(RegistrySet::builtin().unwrap());
+        devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
+        let recording = crate::recording::RecordingService::for_backend(true, Arc::new(Calibration::this_pc()), h.store.clone(), devices);
+        let app = h.app.clone().layer(Extension(recording.clone()));
+        let armed = tokio::task::spawn_blocking({
+            let recording = recording.clone();
+            move || recording.arm("p")
+        })
+        .await
+        .unwrap();
+        assert_eq!(armed, Ok(()));
+        let (status, body) = post(&app, "/api/v1/aggregate/calibrate", r#"{"direction":"inputs","outputs":[{"device":0,"channel":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}]}"#).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "recording_armed");
+        let (_, state) = get(&app, "/api/v1/aggregate/calibrate").await;
+        assert_eq!(state["state"], "idle", "nothing was started");
+        tokio::task::spawn_blocking(move || recording.disarm(true)).await.unwrap().unwrap();
     }
 
     #[tokio::test]

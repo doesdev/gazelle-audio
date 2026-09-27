@@ -21,7 +21,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **Where it can happen in Gazelle, specifically:**
 
-- **Clicking a bar or fader jumps to the point you clicked.** It does not nudge from where it was: a click near the top of a fader sets it near 0 dB at once. A finger on a touch screen does not: it only drags, and gets louder no faster than a steady drag (see [Under a finger](14-remote-page.md#under-a-finger)).
+- **Clicking a bar or fader jumps to the point you clicked.** It does not nudge from where it was: a click near the top of a fader sets it near 0 dB at once. A finger on a touch screen does not: it only drags, and gets louder no faster than a steady drag (see [Under a finger](15-remote-page.md#under-a-finger)).
 - **Double-click on a level goes to a safe level, and Ctrl+click to unity.** A mixer fader resets to **-20 dB**; an output, Control Room or talkback volume to **-30 dB**; a reverb send (the Studio+'s Send or a Quadro reverb send) to **off**, so a double-click never adds reverb; the reverb level to -18 dB, the nearest it has; a Quadro reverb return to 20 steps below full. **Ctrl+click** (Cmd+click on a Mac keyboard) puts a level at **unity**, 0 dB or full for a return, wherever on the control you click. The header's **Double-click** menu can make double-click unity too, for this browser; a level's tooltip always says which it does. Gains reset to 0 dB, pans to centre. See the table in [Gestures](05-the-app.md#gestures).
 - **Home and End jump to the ends.** On a mixer fader, Home is 0 dB; on an output volume, End is 0 dB.
 - **The mouse wheel moves whatever is under the pointer**, one step per notch (1 dB on faders and volumes), and also steps drop-down menus. Scrolling the page with the pointer over a control changes that control. The menus where one notch would be disruptive ignore the wheel: clock source, sample rate, the driver's buffer size, adding an effect, and every menu that re-routes audio (a channel's input and main mix, a mix's **+ Output**, a port strip's **Route**).
@@ -42,7 +42,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 
 **What Gazelle does.** Very little, honestly. Gazelle does not analyse routing for loops. It keeps a mix's own outputs out of the sources a digital port strip offers, and the [×2 badge](#doubled-signals) catches one special case of the same signal arriving twice, but it will let you build a loop if the device allows one.
 
-**What you should do.** Change routing with monitors low. Be careful with the Routing page's destinations for inputs you are also monitoring, with effect chains fed from other chains, and with [digital cables](15-surfaces-and-cables.md) in both directions between two interfaces. If you hear a rising howl or tone, silence the speakers first.
+**What you should do.** Change routing with monitors low. Be careful with the Routing page's destinations for inputs you are also monitoring, with effect chains fed from other chains, and with [digital cables](16-surfaces-and-cables.md) in both directions between two interfaces. If you hear a rising howl or tone, silence the speakers first.
 
 ## 48V phantom power
 
@@ -54,7 +54,7 @@ Manufacturers' own manuals and apps rarely spell this out, and anyone who has wo
 - **A linked preamp group asks once for all of them**, and says how many: **Confirm 3** switches three preamps on.
 - **48V is offered only for the Mic input type.** For Line and Hi-Z it is disabled.
 - A pending confirmation is forgotten when you leave the page, so a half-made confirmation is never completed later.
-- Snapshot recall, when it is built, leaves 48V off by default, asks for its own tick every time, and would switch 48V on last, while the outputs are silenced (see [Snapshots](16-snapshots-and-backup.md#what-recall-will-do)).
+- Snapshot recall, when it is built, leaves 48V off by default, asks for its own tick every time, and would switch 48V on last, while the outputs are silenced (see [Snapshots](17-snapshots-and-backup.md#what-recall-will-do)).
 
 **What you should do.** Check what is plugged in before you switch 48V on. Turn monitors down, or mute the input's channel, before switching it either way, and give it a few seconds after switching off before you unplug anything.
 
@@ -106,7 +106,7 @@ After: both strips show a **×2** badge, on the Mixer page and in the mixer dock
 
 **If the device disappears.** Gazelle notices within about two seconds, removes it from the sidebar, and adds it back when it returns, reading its state afresh. Unplugging and replugging while Gazelle runs has only been tested against simulated devices.
 
-**Multi-step changes.** Most controls send one command. Applying a mixer layout, a channel's routing or a mix's outputs sends a few in a row. The one feature that would send many (recalling a snapshot) is deliberately not built: its plan exists and can be previewed, and it is designed to silence the outputs first, set 48V last, ask before raising any output by more than 6 dB, and stop at the first failure with the outputs still silenced. See [Snapshots](16-snapshots-and-backup.md#what-recall-will-do).
+**Multi-step changes.** Most controls send one command. Applying a mixer layout, a channel's routing or a mix's outputs sends a few in a row. The one feature that would send many (recalling a snapshot) is deliberately not built: its plan exists and can be previewed, and it is designed to silence the outputs first, set 48V last, ask before raising any output by more than 6 dB, and stop at the first failure with the outputs still silenced. See [Snapshots](17-snapshots-and-backup.md#what-recall-will-do).
 
 ## Other hazards worth knowing
 

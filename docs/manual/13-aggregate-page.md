@@ -32,7 +32,7 @@ Each reason is marked **STOPS IT** or **WORTH KNOWING**. Only a reason that stop
 | An interface is not one of this PC's audio drivers | Its own driver is not installed, or the interface is unplugged |
 | An interface is not connected to Gazelle | The interface its card names is not plugged in, so Gazelle cannot read its clock or buffer |
 | Gazelle cannot tell which interface it is | Two of the same model are connected, or its audio driver does not say what model it is. Choose it on its card. A warning |
-| Its driver could not be read | Antelope's driver would not answer. See [Troubleshooting](18-troubleshooting.md) |
+| Its driver could not be read | Antelope's driver would not answer. See [Troubleshooting](19-troubleshooting.md) |
 | Two interfaces on one USB host controller | The one that cannot be worked around in software. Move one to another controller |
 | A host controller could not be found | Gazelle could not tell which controller an interface is on, so it cannot check this. A warning |
 | The rates differ | The interfaces are not all running at one rate, as they report it themselves. Put them all on one rate |
@@ -136,7 +136,7 @@ Two interfaces of one model that you have not named come out with the same name,
 | **Sample rate** | The rate to put every interface at. Left on **Whatever the interfaces are on**, it is the rate they are all running at. See [The rate](#the-rate) |
 | **Buffer size** | The buffer size the aggregate offers a DAW as its preferred one |
 
-The setup is kept in the workspace, so it travels with a [workspace backup](16-snapshots-and-backup.md), and Gazelle writes it out for the driver at the path shown under the section. The driver takes a change at once when nothing is streaming, and at the next buffer change when a DAW is running, which drops audio for a moment exactly as a buffer size change does.
+The setup is kept in the workspace, so it travels with a [workspace backup](17-snapshots-and-backup.md), and Gazelle writes it out for the driver at the path shown under the section. The driver takes a change at once when nothing is streaming, and at the next buffer change when a DAW is running, which drops audio for a moment exactly as a buffer size change does.
 
 ### The rate
 
@@ -246,7 +246,7 @@ Beside the gap: **blocks** handled, **dropped** (thrown away because that interf
 
 ## What happened
 
-The driver's own log, kept on disk, written only when something actually happens: **Session started** and **Session ended** (which says what the session lost), **Phase measured** (what that session's phase came to, or why it was not lined up), **Rate** (a driver that did not take the rate it was asked for straight away, and what the aggregate did about it), **Lost a block** (the first block a session lost), an interface stalling and recovering, a setup adopted, anything refused. Lines written during one of Gazelle's own measurements or checks are marked **GAZELLE**, so they are not mistaken for something that happened to a recording. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](19-command-line-and-api.md) says where Gazelle keeps its files.
+The driver's own log, kept on disk, written only when something actually happens: **Session started** and **Session ended** (which says what the session lost), **Phase measured** (what that session's phase came to, or why it was not lined up), **Rate** (a driver that did not take the rate it was asked for straight away, and what the aggregate did about it), **Lost a block** (the first block a session lost), an interface stalling and recovering, a setup adopted, anything refused. Lines written during one of Gazelle's own measurements or checks are marked **GAZELLE**, so they are not mistaken for something that happened to a recording. It is there so a session that would not start last night can still be explained today. It is a plain text file, so you can open it yourself; the [command line chapter](20-command-line-and-api.md) says where Gazelle keeps its files.
 
 ## When something is wrong
 
@@ -262,4 +262,4 @@ The driver's own log, kept on disk, written only when something actually happens
 | Phase: nothing heard on the cable | The routing does not carry the measurement. See [The routing it needs](#the-routing-it-needs) |
 | Takes line up differently from one session to the next | The follower has no phase setup, or no reference yet. Set it up and measure once |
 
-This page tells you about the aggregate; [Troubleshooting](18-troubleshooting.md) covers Gazelle not finding the interfaces in the first place.
+This page tells you about the aggregate; [Troubleshooting](19-troubleshooting.md) covers Gazelle not finding the interfaces in the first place.

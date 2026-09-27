@@ -17,7 +17,9 @@ use crate::device::descriptor::DeviceId;
 use crate::device::manager::ServerEvent;
 use crate::device::worker::DeviceEvent;
 use crate::error::ServerError;
+use crate::recording::RecordingService;
 use crate::remote::PhoneSession;
+use std::sync::Arc;
 use crate::value::{fields_to_json, json_to_payload_values, to_hex};
 use crate::AppState;
 
@@ -40,12 +42,18 @@ struct RpcRequest {
 /// The upgrade. A phone's request carries its session (`remote::guard` put it there, having
 /// checked the token before any upgrade), and its socket closes the moment the phone is revoked or
 /// phones are turned off. This machine's connections carry none and are never closed that way.
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>, phone: Option<Extension<PhoneSession>>) -> Response {
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    phone: Option<Extension<PhoneSession>>,
+    recording: Option<Extension<Arc<RecordingService>>>,
+) -> Response {
     let phone = phone.map(|Extension(session)| session);
-    ws.on_upgrade(move |socket| handle_socket(socket, state, phone))
+    let recording = recording.map(|Extension(service)| service);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, phone, recording))
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSession>) {
+async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSession>, recording: Option<Arc<RecordingService>>) {
     // Said in the hello, so the web app on a phone never asks for what stays on this machine
     // (`remote::guard::LOCAL_ONLY`) only to be refused.
     let is_phone = phone.is_some();
@@ -75,7 +83,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSe
         "notices": crate::notice::current(&state.backend, state.devices.len(), crate::tray::antelope_service_running()),
         // True for a paired phone: update, window, aggregate and remote answer it 403 `not_local`.
         "phone": is_phone,
+        // The recorder's state, as `GET /api/v1/recording` answers it; `recording` frames follow it.
+        "recording": recording.as_ref().map(|service| service.answer()),
     });
+    // The recorder's live state, sent on as it changes: five times a second while armed.
+    let mut live = recording.as_ref().map(|service| service.subscribe());
     if sink.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
     }
@@ -98,6 +110,20 @@ async fn handle_socket(socket: WebSocket, state: AppState, phone: Option<PhoneSe
             // Outbound: finished RPCs, in completion order. `rpc_tx` lives in this
             // function, so the channel never closes while the loop runs.
             Some(frame) = rpc_rx.recv() => frame,
+            // Outbound: the recorder, when it has moved.
+            changed = async {
+                match live.as_mut() {
+                    Some(receiver) => receiver.changed().await.is_ok(),
+                    None => std::future::pending::<bool>().await,
+                }
+            } => {
+                let Some(receiver) = live.as_ref().filter(|_| changed) else {
+                    live = None;
+                    continue;
+                };
+                let now = receiver.borrow().clone();
+                json!({"type": "recording", "recording": now})
+            },
             // Inbound: RPC calls.
             msg = stream.next() => {
                 let Some(Ok(msg)) = msg else { break };

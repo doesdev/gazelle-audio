@@ -8,6 +8,10 @@ Its controls are the ones the rest of Gazelle already has, at a size a thumb can
 
 At the top, the device the page controls: the one last selected, as on every page. With both interfaces attached, a button for each switches between them.
 
+## Recording
+
+The [Recording page](14-recording-page.md)'s transport, at thumb size: the **Preset**, the state in large letters (Off, Armed with a pulsing ring, or Recording in red with the time since Record), how much pre-roll is held, and **Arm**, **Record**, **Stop** and **Disarm**. It is the same recorder as the Recording page's, so a press on the phone shows on the computer at once. Record and Stop are one tap each; disarming while a take is being recorded takes a second tap. Presets are chosen here and changed on the computer.
+
 ## Monitoring
 
 The sidebar's [Control Room](05-the-app.md#the-sidebar), larger: the outputs chosen for it on the [Outputs page](08-outputs-page.md) (Monitor, HP1 and HP2 until you choose), each with its volume, **Mute**, **Dim** on the Quadro, and **Mono**. On the Studio+, talkback too: **Talk** talks only while it is held, and lets go when your finger does.
@@ -16,7 +20,7 @@ On the Quadro, **Hard mute** sits below them, apart, as the control to hit when 
 
 ## Mix
 
-What the mixer dock would show; the dock itself is hidden on this page. **Mix** chooses which of the device's mixes, and it is the same choice as the Mixer page's Mix buttons and the dock's menu: change one and the others follow. **Show**, there once you have a surface, puts one of your [surfaces](15-surfaces-and-cables.md) here instead, as the dock's Show menu does.
+What the mixer dock would show; the dock itself is hidden on this page. **Mix** chooses which of the device's mixes, and it is the same choice as the Mixer page's Mix buttons and the dock's menu: change one and the others follow. **Show**, there once you have a surface, puts one of your [surfaces](16-surfaces-and-cables.md) here instead, as the dock's Show menu does.
 
 A device's mix is a list of faders lying on their side, one per channel in the mix and the mix's master last: 0 dB at the right, down to -90 dB at the left, on the same scale as the Mixer page's faders. Lying down, each fader gets the phone's whole width and the whole of its name, and the page scrolls up and down the way your thumb already moves. The bar along a fader's foot is the channel's input meter. Each row has **M** (mute), **S** (solo) and **-20**, which puts the fader back to -20 dB: the first tap asks, and a second tap within a few seconds resets.
 

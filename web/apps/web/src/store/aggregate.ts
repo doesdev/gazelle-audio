@@ -2028,6 +2028,8 @@ export function phaseRefusedText(outcome: AggregateCalibrateOutcome | undefined)
 
 /** How a line one of Gazelle's own measurements wrote begins. */
 export const GAZELLE_MEASUREMENT = "Gazelle's own measurement:";
+/** How a line the Recording page's session wrote begins. */
+export const GAZELLE_RECORDING = "Gazelle's own recording:";
 
 const EVENT_WORDS: Record<string, string> = {
   refused: "Refused",
@@ -2047,15 +2049,16 @@ export interface EventView {
   at: string;
   kind: string;
   message: string;
-  /** Written by one of Gazelle's own measurements rather than by a DAW's session. */
+  /** Written by one of Gazelle's own measurements, or its recorder, rather than by a DAW's session. */
   gazelle: boolean;
   /** Something that went wrong, which is coloured as such. */
   problem: boolean;
 }
 
 export function eventView(event: AggregateEvent): EventView {
-  const gazelle = event.message.startsWith(GAZELLE_MEASUREMENT);
-  const message = gazelle ? event.message.slice(GAZELLE_MEASUREMENT.length).trim() : event.message;
+  const mark = [GAZELLE_MEASUREMENT, GAZELLE_RECORDING].find((one) => event.message.startsWith(one));
+  const gazelle = mark !== undefined;
+  const message = mark === undefined ? event.message : event.message.slice(mark.length).trim();
   const refusal = event.kind === "phase" && /\bnot lined up\b/.test(message);
   return {
     at: event.at,

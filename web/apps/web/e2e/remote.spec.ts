@@ -146,6 +146,8 @@ test.beforeEach(async () => {
 const inRemote = (page: Page) => page.locator("ga-remote");
 
 const box = async (page: Page, testId: string) => {
+  // Brought into view first: the recording transport at the top can push a control below the fold.
+  await inRemote(page).getByTestId(testId).scrollIntoViewIfNeeded();
   const found = await inRemote(page).getByTestId(testId).boundingBox();
   if (found === null) throw new Error(`${testId} is not on screen`);
   return found;

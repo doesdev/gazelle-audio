@@ -1,8 +1,16 @@
 //! Workspace read and replace.
 
+use std::sync::Arc;
+
 use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
-use axum::Json;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
+use serde_json::json;
+
+use crate::recording::RecordingService;
+use crate::remote::PhoneSession;
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,8 +26,10 @@ pub async fn get_workspace(State(state): State<AppState>) -> Result<Json<Workspa
 
 pub async fn put_workspace(
     State(state): State<AppState>,
+    phone: Option<Extension<PhoneSession>>,
+    recording: Option<Extension<Arc<RecordingService>>>,
     document: Result<Json<Workspace>, JsonRejection>,
-) -> Result<Json<Workspace>, ServerError> {
+) -> Result<Response, ServerError> {
     // A document that is not a workspace is refused like any other bad value, in the JSON error body
     // and naming the part that is wrong: axum's own rejection is plain text, which a page cannot show.
     let Json(workspace) = document.map_err(|rejection| {
@@ -52,8 +62,19 @@ pub async fn put_workspace(
     if let Some(aggregate) = &workspace.aggregate {
         crate::aggregate::config::check(aggregate, &workspace).map_err(|m| ServerError::BadValue(format!("aggregate: {m}")))?;
     }
+    if let Some(presets) = &workspace.recording {
+        crate::recording::check_presets(presets).map_err(|m| ServerError::BadValue(format!("recording: {m}")))?;
+    }
+    // Presets stay on the computer, and the one the recorder is armed with stays as it is.
+    if let Some(Extension(recording)) = recording {
+        let before = state.store.load()?;
+        if let Err(refusal) = recording.check_change(&before, &workspace, phone.is_some()) {
+            let status = if refusal.code == "not_local" { StatusCode::FORBIDDEN } else { StatusCode::CONFLICT };
+            return Ok((status, Json(json!({ "error": { "code": refusal.code, "message": refusal.message } }))).into_response());
+        }
+    }
     state.store.save(&workspace)?;
-    Ok(Json(workspace))
+    Ok(Json(workspace).into_response())
 }
 
 /// A Control Room lists each output once, and only outputs the device's model has (when attached).

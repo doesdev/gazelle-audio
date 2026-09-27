@@ -244,6 +244,22 @@ impl FakeDevice {
         inner.created && !inner.disposed
     }
 
+    /// How many inputs its buffers were made for, which is how many a converter can fill.
+    pub fn input_count(&self) -> usize {
+        self.inner.lock().expect("not poisoned").inputs.len()
+    }
+
+    /// Which device of the aggregate's plan this is, once its buffers belong to a stream.
+    pub fn stream_index(&self) -> Option<usize> {
+        let inner = self.inner.lock().expect("not poisoned");
+        inner.stream.as_ref().map(|_| inner.index)
+    }
+
+    /// Every device on this PC, in the order they were added.
+    pub fn every_device(pc: &FakePc) -> Vec<Arc<FakeDevice>> {
+        pc.devices.iter().map(|(_, device)| Arc::clone(device)).collect()
+    }
+
     /// Put a block of audio on one of the device's inputs, as the converter would.
     pub fn set_input(&self, channel: usize, half: usize, samples: &[i32]) {
         let mut inner = self.inner.lock().expect("not poisoned");

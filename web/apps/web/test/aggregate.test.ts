@@ -26,6 +26,7 @@ import {
   choicesWith,
   eventView,
   GAZELLE_MEASUREMENT,
+  GAZELLE_RECORDING,
   livePhaseView,
   masterIndex,
   masterReference,
@@ -1238,6 +1239,9 @@ test("the log's lines are in words, and a Gazelle measurement's lines say they a
   assert.equal(eventView({ at: "x", kind: "session-ended", message: "ran for 47 minutes" }).kind, "Session ended");
   assert.equal(eventView({ at: "x", kind: "brand-new", message: "" }).kind, "brand-new");
   const ours = eventView({ at: "x", kind: "phase", message: `${GAZELLE_MEASUREMENT} Studio+ was measured at -148 samples.` });
+  const recorded = eventView({ at: "x", kind: "session-started", message: `${GAZELLE_RECORDING} 3 in, 0 out at 96000 Hz` });
+  assert.equal(recorded.gazelle, true, "the recorder's session is Gazelle's own too");
+  assert.equal(recorded.message, "3 in, 0 out at 96000 Hz");
   assert.equal(ours.gazelle, true);
   assert.equal(ours.message, "Studio+ was measured at -148 samples.");
 });

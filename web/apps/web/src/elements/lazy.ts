@@ -21,6 +21,7 @@ const loaders: Readonly<Record<string, () => Promise<Definitions>>> = {
   "ga-routing": async () => [["ga-routing", (await import("./routing-page.ts")).GaRouting]],
   "ga-effects": async () => [["ga-effects", (await import("./effects-page.ts")).GaEffects]],
   "ga-aggregate": async () => [["ga-aggregate", (await import("./aggregate-page.ts")).GaAggregate]],
+  "ga-recording": async () => [["ga-recording", (await import("./recording-page.ts")).GaRecording]],
   // The Remote page and its mix rows, one chunk; it shows the dock's surface strips too, which come
   // from theirs when a surface is chosen.
   "ga-remote": async () => {

@@ -22,8 +22,9 @@ A DAW opens one audio driver at a time, so two interfaces are ordinarily two sep
 - **Effects:** add, remove and reorder effects in each chain, bypass, a settings editor for almost every effect, effect meters, and the reverb.
 - **Across devices:** surfaces that put strips from both interfaces side by side, declared digital cables with clock and signal warnings, snapshots you can compare with the present, and workspace backup.
 - **Recording across both interfaces:** Gazelle Aggregate presents both as one device to your DAW. The **Aggregate** page says whether your PC can run it and why not, registers the driver, names every channel, and measures how far apart the interfaces really record, so it can line every session up to the sample rather than trusting the figures the drivers report.
+- **Recording in Gazelle itself:** the **Recording** page records channels from both interfaces through Gazelle Aggregate, lined up, to one Broadcast WAV file per channel, with no DAW open. Armed, it keeps the last stretch of audio in memory, so pressing Record keeps the moments before the press. Presets choose the channels, folder, file names, 24-bit or 32-bit float and how much memory the pre-roll takes, and a phone's Remote page can arm, record and stop. [The manual](docs/manual/14-recording-page.md) has the details. Tested against the emulator only, not yet on the devices.
 - **Around it:** a desktop window and tray icon, a mixer dock on every page, dark and light themes, phone-sized layouts, phones on your network paired with a QR code, an HTTP and WebSocket API, a signed in-app updater, and a built-in emulator of both devices for trying it all without hardware.
-- **Gazelle Remote for Android:** a small app, `Gazelle-Remote.apk` on each release, that shows Gazelle's Remote page full screen on your phone and pairs by scanning the QR code on the computer. [The manual](docs/manual/14-remote-page.md#the-android-app) says how to install and pair it.
+- **Gazelle Remote for Android:** a small app, `Gazelle-Remote.apk` on each release, that shows Gazelle's Remote page full screen on your phone and pairs by scanning the QR code on the computer. [The manual](docs/manual/15-remote-page.md#the-android-app) says how to install and pair it.
 
 ## How much it has been tested
 
@@ -41,7 +42,7 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 
 **Not yet tried on a phone:** Gazelle Remote, the Android app. It is built and its address checks are tested on every change, but nobody has installed it yet.
 
-If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/18-troubleshooting.md#reporting-a-problem).
+If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/19-troubleshooting.md#reporting-a-problem).
 
 ## Safety
 
@@ -102,7 +103,7 @@ GAZELLE_AGGREGATE_DLL=target/release/gazelle_aggregate.dll cargo build --release
 
 **To record from both interfaces at once**, open the **Aggregate** page. It checks what the aggregate needs before it can work at all: each interface on its own USB host controller (two on one controller cannot both stream), one digital cable between them with the receiving interface clocked from it, and the same sample rate and buffer size on both. The driver comes with Gazelle, so there is nothing extra to download: **Register the driver**, which is where Windows asks for administrator rights, and your DAW will list **Gazelle Aggregate**. Uninstalling Gazelle offers to remove that registration again. The page can then measure how far apart the interfaces record and line every session up; the manual's [Aggregate chapter](docs/manual/13-aggregate-page.md) walks through it.
 
-More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/17-install-update-uninstall.md).
+More in [Getting started](docs/manual/03-getting-started.md) and [Install, update and uninstall](docs/manual/18-install-update-uninstall.md).
 
 ## Known limitations
 

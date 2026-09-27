@@ -19,6 +19,9 @@ members = [
     # works out the trim that lines the interfaces up. Linked into the server for the Aggregate
     # page's Measure and Check.
     "crates/gazelle-audio-calibrate",
+    # The Recording page: hosts the aggregate in the server, as a measurement does, and records its
+    # inputs to Broadcast WAV files, with a pre-roll held in memory while it is armed.
+    "crates/gazelle-audio-record",
     # Release chores (SHA256SUMS and its signature). Never shipped.
     "xtask",
 ]

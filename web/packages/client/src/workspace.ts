@@ -104,6 +104,41 @@ export interface Workspace {
   control_room?: Record<string, ControlRoom>;
   /** The aggregate audio driver's setup, when there is one; older servers omit it. */
   aggregate?: Aggregate;
+  /** The Recording page's presets; older servers omit it. */
+  recording?: Recording;
+}
+
+/** The Recording page's setup. */
+export interface Recording {
+  presets?: RecordingPreset[];
+}
+
+/** What a preset writes: 24-bit integer, the default, or 32-bit float. */
+export type RecordingFormat = "int24" | "float32";
+
+/** One channel a preset records: an interface by its place in the aggregate's setup, and its own input, both from zero. Never the aggregate's own numbering. */
+export interface RecordingChannel {
+  device: number;
+  channel: number;
+}
+
+/**
+ * A recording preset. The rate and buffer size are the aggregate's. A phone may arm with one but
+ * not change it: the server refuses a phone's workspace save that changes the presets.
+ */
+export interface RecordingPreset {
+  id: string;
+  name: string;
+  channels?: RecordingChannel[];
+  /** A whole path; absent means the server's default, Documents\Gazelle Recordings. */
+  folder?: string;
+  /** `{channel}` and `{take}` are required; `{date}`, `{time}` and `{preset}` may be used. Absent means "{date} T{take} {channel}". */
+  pattern?: string;
+  format?: RecordingFormat;
+  /** Percent of the memory free at Arm, 1 to 50; absent means 10. */
+  preroll_percent?: number;
+  /** The most pre-roll kept, 5 to 3600 seconds; absent means what the percentage gives. */
+  preroll_max_seconds?: number;
 }
 
 /**

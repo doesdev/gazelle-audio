@@ -41,6 +41,7 @@ pub mod icon;
 pub mod install;
 pub mod logging;
 pub mod no_hardware;
+pub mod recording;
 pub mod notice;
 pub mod registry_set;
 pub mod remote;

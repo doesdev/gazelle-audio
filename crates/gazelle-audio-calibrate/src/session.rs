@@ -241,19 +241,31 @@ pub const MARK: &str = "Gazelle's own measurement:";
 /// is written, because there is no version of this that somebody remembers to do every time.
 pub struct RunLog {
     keeping: Box<dyn LogSink>,
+    mark: &'static str,
 }
 
 impl RunLog {
     /// Mark everything written to this log as a run's own.
     pub fn marking(keeping: Box<dyn LogSink>) -> RunLog {
-        RunLog { keeping }
+        RunLog::marking_as(MARK, keeping)
+    }
+
+    /// Mark everything written to this log with `mark`: the recorder hosts the aggregate with the
+    /// same machinery and says so in words of its own.
+    pub fn marking_as(mark: &'static str, keeping: Box<dyn LogSink>) -> RunLog {
+        RunLog { keeping, mark }
     }
 
     /// One line, marked. A line this build cannot take apart is kept exactly as it was: an
     /// unmarked line is worth more than a mangled one.
     pub fn marked(line: &str) -> String {
+        RunLog::marked_as(MARK, line)
+    }
+
+    /// One line, marked with `mark`.
+    pub fn marked_as(mark: &str, line: &str) -> String {
         match events::parse(line) {
-            Some(parsed) => events::line(&parsed.at, parsed.event, &format!("{MARK} {}", parsed.detail)),
+            Some(parsed) => events::line(&parsed.at, parsed.event, &format!("{mark} {}", parsed.detail)),
             None => line.to_string(),
         }
     }
@@ -261,7 +273,7 @@ impl RunLog {
 
 impl LogSink for RunLog {
     fn append(&mut self, line: &str) {
-        self.keeping.append(&RunLog::marked(line));
+        self.keeping.append(&RunLog::marked_as(self.mark, line));
     }
 }
 
@@ -280,6 +292,13 @@ impl LogSink for RunLog {
 /// own lines still reach the log, which is append only and marked.
 #[cfg(windows)]
 pub fn run_reporter() -> Arc<Reporter> {
+    reporter_marked(MARK)
+}
+
+/// [`run_reporter`], with every line marked `mark`: the recorder's session is as much Gazelle's
+/// own as a measurement is, and a person reading the log has to be able to tell the two apart too.
+#[cfg(windows)]
+pub fn reporter_marked(mark: &'static str) -> Arc<Reporter> {
     use gazelle_aggregate::status::{FileLog, LocalClock};
     use gazelle_audio_aggregate_status::map::Mapping;
     use gazelle_audio_aggregate_status::windows::Section;
@@ -290,7 +309,7 @@ pub fn run_reporter() -> Arc<Reporter> {
         .filter(|section| section.created())
         .and_then(|section| Publisher::map(Box::new(section)).ok());
     let log: Option<Box<dyn LogSink>> =
-        FileLog::open().map(|log| Box::new(RunLog::marking(Box::new(log))) as Box<dyn LogSink>);
+        FileLog::open().map(|log| Box::new(RunLog::marking_as(mark, Box::new(log))) as Box<dyn LogSink>);
     Arc::new(Reporter::new(publisher, log, Box::new(LocalClock)))
 }
 
@@ -437,8 +456,24 @@ static ARENA: AtomicPtr<Arena> = AtomicPtr::new(std::ptr::null_mut());
 static ORDER: Mutex<()> = Mutex::new(());
 
 /// Take the one run there can be. Held for the whole of a measurement.
+///
+/// **This is the one owner of the aggregate in Gazelle.** The recorder takes the same turn, for as
+/// long as it is armed, through [`try_one_at_a_time`]: the callbacks are plain functions over
+/// something global in both, and two hosts of one set of vendor drivers in one process is not a
+/// thing to try.
 pub fn one_at_a_time() -> MutexGuard<'static, ()> {
     ORDER.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The turn, if nobody has it: `None` while a measurement is running or the recorder is armed. The
+/// recorder asks this way, because it is armed for as long as a person leaves it armed, and waiting
+/// behind a measurement would be a press of Arm that does nothing for a while and then something.
+pub fn try_one_at_a_time() -> Option<MutexGuard<'static, ()>> {
+    match ORDER.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
 }
 
 unsafe extern "system" fn buffer_switch(index: i32, _direct: i32) {
@@ -506,14 +541,16 @@ pub const STOPPED: &str = "the measurement was stopped part way, so nothing was 
 /// A thread that was already in an apartment keeps the one it had: leaving somebody else's
 /// apartment would be a rudeness with consequences, and a run works perfectly well inside it.
 #[cfg(windows)]
-struct Apartment {
+pub struct Apartment {
     /// True only when this entry is the one that put the thread in, and so the one to take it out.
     ours: bool,
 }
 
 #[cfg(windows)]
 impl Apartment {
-    fn enter() -> Apartment {
+    /// Put this thread in an apartment, if it is not in one already. The recorder's host thread
+    /// does this before it opens anything, exactly as a run does.
+    pub fn enter() -> Apartment {
         use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
         // Safety: a plain call with no pointer of ours, on the thread that is about to open a
         // driver. RPC_E_CHANGED_MODE means the thread is already in the other kind of apartment,

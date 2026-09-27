@@ -461,3 +461,51 @@ async fn a_websocket_opened_by_another_sites_page_is_refused() {
     let (mut ws, _) = tokio_tungstenite::connect_async(ws_request(local, &[("origin", &own)])).await.expect("its own page is fine");
     assert_eq!(hello(&mut ws).await["type"], "hello");
 }
+
+/// **A paired phone is a remote for the recorder**: it reads the state and can press every transport
+/// button, which is why `/api/v1/recording` is not among what stays on the computer. Presets are
+/// another matter, since one names a folder on the computer: a phone's workspace save that changes
+/// them is refused, and the computer's own is not.
+#[tokio::test]
+async fn a_phone_drives_the_recorder_and_leaves_its_presets_to_the_computer() {
+    use gazelle_audio_server::aggregate::calibrate::Calibration;
+    use gazelle_audio_server::recording::RecordingService;
+
+    let remote = remote_with(Backing::Memory, Exposure::Everywhere("0.0.0.0:8420".parse().unwrap()));
+    let devices = DeviceManager::new(RegistrySet::builtin().unwrap());
+    devices.attach_loopbacks(&[PID_QUADRO], 64);
+    let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
+    let state = AppState {
+        devices: devices.clone(),
+        store: store.clone(),
+        snapshots: Arc::new(MemorySnapshotStore::default()),
+        force_dry_run: true,
+        enable_recall: false,
+        backend: "loopback".into(),
+        themes_dir: None,
+        show_window: None,
+    };
+    let recording = RecordingService::for_backend(true, Arc::new(Calibration::this_pc()), store.clone(), devices);
+    let app = http::router(state).merge(http::recording::routes(recording.clone())).merge(http::remote::routes(remote.clone())).layer(axum::Extension(recording));
+    let s = Server { app: guard::protect(app, remote.clone()), remote, stops: Arc::new(AtomicUsize::new(0)) };
+    let (token, _, _) = pair(&s, "Phone").await;
+    let auth = bearer(&token);
+    let phone = [("authorization", auth.as_str())];
+
+    assert!(!guard::LOCAL_ONLY.iter().any(|path| "/api/v1/recording".starts_with(path)), "the recorder is not kept on the computer");
+    let status = get(&s.app, "/api/v1/recording", PHONE, &phone).await;
+    assert_eq!(status.status, StatusCode::OK, "{}", status.body);
+    assert_eq!(status.body["state"], "off");
+    let stop = send(&s.app, "POST", "/api/v1/recording/stop", PHONE, &phone, Some(json!({}))).await;
+    assert_eq!(stop.status, StatusCode::OK, "{}", stop.body);
+    let record = send(&s.app, "POST", "/api/v1/recording/record", PHONE, &phone, Some(json!({}))).await;
+    assert_eq!((record.status, record.body["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("not_armed")), "answered, not forbidden");
+
+    let presets = json!({"version": 1, "recording": {"presets": [{"id": "p", "name": "Band", "channels": [{"device": 0, "channel": 0}]}]}});
+    let from_phone = send(&s.app, "PUT", "/api/v1/workspace", PHONE, &phone, Some(presets.clone())).await;
+    assert_eq!((from_phone.status, from_phone.body["error"]["code"].as_str()), (StatusCode::FORBIDDEN, Some("not_local")), "{}", from_phone.body);
+    let from_here = send(&s.app, "PUT", "/api/v1/workspace", HERE, &[], Some(presets)).await;
+    assert_eq!(from_here.status, StatusCode::OK, "{}", from_here.body);
+    let untouched = send(&s.app, "PUT", "/api/v1/workspace", PHONE, &phone, Some(from_here.body.clone())).await;
+    assert_eq!(untouched.status, StatusCode::OK, "a phone's save that leaves the presets alone is taken: {}", untouched.body);
+}

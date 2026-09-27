@@ -311,3 +311,48 @@ async fn devices_coming_and_going_reach_a_connected_client() {
     assert_eq!(frame["device"]["model"], "Zen Studio+");
     devices.shutdown_all();
 }
+
+/// The recorder's state is in the hello, and every change after it arrives as a `recording` frame:
+/// arming on the loopback's own interfaces sends `armed` with its channels and pre-roll, and then
+/// frames keep coming while it holds the pre-roll, which is how the page's clock and meters move.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_recorder_is_in_the_hello_and_follows_on_the_socket() {
+    use gazelle_audio_server::aggregate::calibrate::Calibration;
+    use gazelle_audio_server::recording::RecordingService;
+    use gazelle_audio_server::workspace::model::{Recording, RecordingChannel, RecordingPreset, Workspace};
+
+    let devices = DeviceManager::new(RegistrySet::builtin().expect("registries"));
+    devices.attach_loopbacks(&[PID_QUADRO, PID_STUDIO], 64);
+    let store: Arc<dyn WorkspaceStore> = Arc::new(MemoryStore::default());
+    let preset = RecordingPreset { id: "p".into(), name: "Band".into(), channels: vec![RecordingChannel { device: 1, channel: 3 }], preroll_max_seconds: Some(5.0), ..RecordingPreset::default() };
+    store.save(&Workspace { recording: Some(Recording { presets: vec![preset], ..Recording::default() }), ..Workspace::default() }).unwrap();
+    let recording = RecordingService::for_backend(true, Arc::new(Calibration::this_pc()), store.clone(), devices.clone());
+    tokio::spawn(recording.clone().follow());
+    let app = http::router(AppState { devices, snapshots: Arc::new(MemorySnapshotStore::default()), store, force_dry_run: false, enable_recall: false, backend: "loopback".into(), themes_dir: None, show_window: None })
+        .layer(axum::Extension(recording.clone()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/v1/ws")).await.expect("connect");
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["recording"]["state"], "off");
+    let arming = recording.clone();
+    tokio::task::spawn_blocking(move || arming.arm("p")).await.unwrap().expect("armed");
+    let mut frames = 0;
+    let since = Instant::now();
+    let mut held = 0.0;
+    while since.elapsed() < Duration::from_secs(10) && (frames < 3 || held <= 0.0) {
+        let frame = next_json(&mut ws).await;
+        if frame["type"] != "recording" {
+            continue;
+        }
+        frames += 1;
+        assert_eq!(frame["recording"]["state"], "armed", "{frame}");
+        assert_eq!(frame["recording"]["channels"][0]["channel"], 3);
+        held = frame["recording"]["preroll"]["held_seconds"].as_f64().unwrap_or(0.0);
+    }
+    assert!(frames >= 3 && held > 0.0, "{frames} frames, {held} s held");
+    let disarming = recording.clone();
+    tokio::task::spawn_blocking(move || disarming.disarm(false)).await.unwrap().expect("disarmed");
+}

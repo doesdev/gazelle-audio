@@ -389,6 +389,33 @@ test("every control, readout, badge and heading on every page carries a key the 
   await check(page, "aggregate after a check");
   await page.unroute("**/api/v1/aggregate**");
 
+  // The Recording page off, then armed on the loopback's own recorder with a take behind it: the
+  // transport, the channels with their levels, the preset editor, and the list of takes.
+  const recordingApi = (path: string, body: unknown = {}) => fetch(`${server.url}/api/v1/recording/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const current = (await (await fetch(`${server.url}/api/v1/workspace`)).json()) as Record<string, unknown>;
+  const presets = { presets: [{ id: "band", name: "Band", channels: [{ device: 0, channel: 0 }, { device: 1, channel: 1 }], preroll_max_seconds: 10 }] };
+  const saved = await fetch(`${server.url}/api/v1/workspace`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...current, recording: presets }) });
+  expect(saved.status, await saved.text()).toBe(200);
+  await page.addInitScript(() => localStorage.removeItem("gazelle.recording.armExplained"));
+  await visit("recording", "ga-recording");
+  // Reloaded, so the page reads the workspace the presets were just put into.
+  await page.reload();
+  await expect(page.locator("ga-recording")).toBeVisible();
+  await page.getByTestId("recording-arm").click();
+  await expect(page.getByTestId("recording-arm-explained")).toBeVisible();
+  await check(page, "recording, off, with Arm explained");
+  expect((await recordingApi("arm", { preset: "band" })).status).toBe(200);
+  await recordingApi("record");
+  await page.waitForTimeout(800);
+  await recordingApi("stop");
+  await expect(page.locator('[data-testid^="recording-take-"]').first()).toBeVisible({ timeout: 10_000 });
+  await recordingApi("record");
+  await expect(page.getByTestId("recording-state")).toHaveText("Recording");
+  await check(page, "recording, armed and recording, with a take");
+  await visit(`remote/${QUADRO}`, "ga-remote");
+  await check(page, "remote, recording");
+  await recordingApi("disarm", { confirm: true });
+
   // A lazy page that could not be loaded leaves its message and a Try again in its place.
   await page.route(/routing-page.*\.js$/, (route) => route.abort());
   await page.goto(`${server.url}/#/routing/${QUADRO}`);

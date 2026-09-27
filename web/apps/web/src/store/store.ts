@@ -27,9 +27,10 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
-import { AggregateModel } from "./aggregate.ts";
+import { AggregateModel, aggregateNaming, interfaceChannels, interfaceNames, type InterfaceChannel } from "./aggregate.ts";
 import { PhonesModel } from "./phones.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
+import type { RecorderApi } from "./recording.ts";
 import { updatePrompt, type UpdatePrompt } from "./update.ts";
 import { clampStripWidth, migratePanels, parseFlags, parseMixerWidth, parseSelectedDevice, parseSelectedMixes, parseShowAllChannels, parseSidebar, persisted, SIDEBAR_DEFAULT, STRIP_WIDTH_DEFAULT, type MixerWidth, type SidebarSection, type SidebarState } from "./preferences.ts";
 
@@ -976,6 +977,36 @@ export class Store {
     // Through `this`, for the same reason as the aggregate's.
     { setTimeout: (callback, ms) => this.#timers.setTimeout(callback, ms), clearTimeout: (handle) => this.#timers.clearTimeout(handle) },
   );
+
+  /**
+   * The recorder's calls and its live state, for the model the Recording page and the Remote page's
+   * transport share (`recording.ts`), which comes with those pages rather than with the app. A phone
+   * may use every one of these.
+   */
+  readonly recorder: RecorderApi = {
+    status: () => this.#client.recording.status(),
+    arm: (preset) => this.#client.recording.arm(preset),
+    record: () => this.#client.recording.record(),
+    stop: () => this.#client.recording.stop(),
+    disarm: (confirm) => this.#client.recording.disarm({ confirm }),
+    takes: () => this.#client.recording.takes(),
+    follow: (listener) => this.#client.on("recording", listener),
+  };
+
+  /**
+   * The aggregate's interfaces and every input it offers, named as the Aggregate page names them,
+   * for the Recording page's presets. Read inside a watch, it follows the names as they change.
+   */
+  aggregateInputs(): { devices: string[]; inputs: InterfaceChannel[] } {
+    const workspace = this.#workspace.value;
+    const naming = aggregateNaming(workspace?.aggregate, this.phone ? undefined : this.aggregate.answer.value, {
+      devices: this.#devices.value,
+      aliases: workspace?.aliases,
+      layouts: workspace?.mixers,
+      routing: (deviceId, destination) => (this.topology(deviceId) === undefined ? undefined : this.routing(deviceId).destination(destination).value),
+    });
+    return { devices: interfaceNames(workspace?.aggregate, naming), inputs: interfaceChannels(workspace?.aggregate, naming, true) };
+  }
 
   /**
    * Edits the aggregate's setup in the workspace. Saving it is what exports the file the driver

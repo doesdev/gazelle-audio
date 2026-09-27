@@ -26,6 +26,7 @@ const PAGE_KEYS: Record<string, string> = {
   routing: "header.page.routing",
   effects: "header.page.effects",
   aggregate: "header.page.aggregate",
+  recording: "header.page.recording",
   remote: "header.page.remote",
 };
 
@@ -38,7 +39,7 @@ export class GaHeader extends GaElement {
       nav { display: flex; gap: 2px; }
       nav a { flex: none; white-space: nowrap; }
       nav a {
-        padding: 4px 10px;
+        padding: 4px 8px;
         border-radius: 3px;
         color: var(--ga-text-secondary);
         font-family: "Josefin Sans Variable", system-ui, sans-serif;
@@ -99,8 +100,9 @@ export class GaHeader extends GaElement {
         .bar::after { content: ""; order: 1; flex: 0 0 100%; }
         nav { order: 2; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
         /* Tighter tabs, so all of them fit a tablet's width on their own line rather than
-           scrolling out of reach: the last two (Aggregate, Remote) would not otherwise. */
-        nav a { padding: 4px 5px; font-size: 13px; }
+           scrolling out of reach: the last three (Aggregate, Recording, Remote) would not otherwise. */
+        nav { gap: 0; }
+        nav a { padding: 4px 4px; font-size: 12px; }
         .theme, .reset { order: 3; max-width: 96px; }
       }
       @media (max-width: ${DRAWER_MAX_PX}px) {
@@ -109,7 +111,8 @@ export class GaHeader extends GaElement {
       }
       @media (max-width: 480px) {
         .brand { font-size: 17px; }
-        nav a { padding: 4px 8px; }
+        /* The tabs scroll on a phone, so they keep a thumb's size rather than all fitting. */
+        nav a { padding: 4px 8px; font-size: 13px; }
         .theme { max-width: 96px; }
         /* A phone has no double-click. */
         .reset { display: none; }

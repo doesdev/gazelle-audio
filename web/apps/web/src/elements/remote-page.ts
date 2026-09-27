@@ -5,6 +5,10 @@
 // Top to bottom:
 // - **The device**, as every page has it: the one the address names or the one last selected, with a
 //   switch between them when more than one is attached.
+// - **Recording**: the Recording page's transport, compact (`recording-transport.ts`): the preset,
+//   Off, Armed or Recording, the time since Record and the pre-roll held, and Arm, Record, Stop and
+//   Disarm at thumb size. It is the same model as the Recording page's, so either shows the other's
+//   presses at once.
 // - **Monitoring**: the Control Room panel itself (<ga-monitor touch>), so the outputs, Mono,
 //   talkback and every rule they keep are the sidebar's own, only larger. On the Quadro, hard mute
 //   below it, apart, as the thing to hit when something goes wrong: one tap mutes every output,
@@ -37,6 +41,7 @@ import { isReady, loadElement } from "./lazy.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 import { followMix } from "./mixer-dock.ts";
 import { href } from "./router.ts";
+import { recordingTransport, TRANSPORT_STYLES } from "./recording-transport.ts";
 import type { GaSection } from "./section.ts";
 
 /** Where a fader's reset goes: -20 dB, the safe level a double-click gives (the user, 2026-09-18). Never unity here. */
@@ -46,7 +51,7 @@ const SAFE_LEVEL = 20;
 const HANDLE_PX = 18;
 
 /** The page's sections, in order, by the name each is remembered under. */
-type RemoteSection = "monitoring" | "mix" | "inputs";
+type RemoteSection = "recording" | "monitoring" | "mix" | "inputs";
 
 export class GaRemote extends GaElement {
   static override styles = [
@@ -88,6 +93,7 @@ export class GaRemote extends GaElement {
       .surface ga-surface-strip { min-height: 0; }
       /* A preamp card at thumb size. The type is shown, not changed (the page's comment says why). */
       ${INPUT_CONTROL_STYLES}
+      ${TRANSPORT_STYLES}
       .preamps { display: grid; gap: 8px; }
       .preamp { gap: 8px; padding: 10px; }
       .preamp .name { font-size: 16px; }
@@ -120,6 +126,7 @@ export class GaRemote extends GaElement {
         "div",
         { class: "page" },
         this.#devices(deviceId),
+        section("recording", "Recording", "remote.recording", recordingTransport({ watch: (fn) => this.watch(fn), onDisconnect: (fn) => this.onDisconnect(fn) }, true)),
         section("monitoring", "Monitoring", "remote.monitoring", this.#monitoring(deviceId)),
         section("mix", "Mix", "remote.mix", this.#mix(deviceId)),
         section("inputs", "Inputs", "remote.inputs", this.#inputs(deviceId)),

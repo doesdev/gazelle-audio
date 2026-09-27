@@ -60,6 +60,47 @@ pub fn default_themes_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("themes"), |dir| dir.join("themes"))
 }
 
+/// Where a recording preset's files go when it names no folder: `Gazelle Recordings` in the
+/// person's Documents folder.
+///
+/// Documents rather than Music: Windows indexes Music as a library of songs, and a night's
+/// multitrack is dozens of mono stems that would each turn up in a media player as a track. DAWs on
+/// Windows keep their own recordings under Documents for the same reason. The folder is asked of
+/// Windows rather than assumed, so one moved to another drive (or into OneDrive) is still found.
+pub fn default_recordings_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    documents_dir()
+        .or_else(|| var("USERPROFILE").filter(|v| !v.is_empty()).map(|home| PathBuf::from(home).join("Documents")))
+        .or_else(|| var("HOME").filter(|v| !v.is_empty()).map(|home| PathBuf::from(home).join("Documents")))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Gazelle Recordings")
+}
+
+/// The person's Documents folder, as Windows has it.
+#[cfg(windows)]
+fn documents_dir() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::UI::Shell::{SHGetFolderPathW, CSIDL_PERSONAL, SHGFP_TYPE_CURRENT};
+    let mut path = [0u16; 260];
+    // Safety: a buffer of MAX_PATH characters, which is what the call writes into.
+    let hr = unsafe { SHGetFolderPathW(std::ptr::null_mut(), CSIDL_PERSONAL as i32, std::ptr::null_mut(), SHGFP_TYPE_CURRENT as u32, path.as_mut_ptr()) };
+    if hr < 0 {
+        return None;
+    }
+    let len = path.iter().position(|&c| c == 0).unwrap_or(path.len());
+    (len > 0).then(|| PathBuf::from(std::ffi::OsString::from_wide(&path[..len])))
+}
+
+#[cfg(not(windows))]
+fn documents_dir() -> Option<PathBuf> {
+    None
+}
+
+/// Where the loopback's recordings go, whatever a preset says: its test tones are not audio anyone
+/// wants in a folder of real takes, and a test run must never write into a person's Documents.
+pub fn loopback_recordings_dir() -> PathBuf {
+    std::env::temp_dir().join("Gazelle loopback recordings")
+}
+
 /// Where the desktop window's size and position are remembered, beside the workspace.
 pub fn default_window_state_path(var: impl Fn(&str) -> Option<String>) -> PathBuf {
     config_dir(var).map_or_else(|| PathBuf::from("window.json"), |dir| dir.join("window.json"))

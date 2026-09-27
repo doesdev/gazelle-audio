@@ -7,6 +7,7 @@
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
+import type { RecordingStatus, RecordingTake } from "./recording.ts";
 import type { RemotePairing, RemoteStatus } from "./remote.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
@@ -68,6 +69,8 @@ export interface ClientEvents {
    * with status `closed`, since trying again would only be refused again. Carries the server's reason.
    */
   unpaired: string;
+  /** The recorder moved: its whole state, as `recording.status()` answers it. Also sent once after each hello. */
+  recording: RecordingStatus;
 }
 
 export interface InvokeOptions {
@@ -201,6 +204,21 @@ export interface Client {
     calibrate(request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted>;
     /** Stops the run that is going. Stopping one that is not is answered, not refused. */
     stopCalibrate(): Promise<AggregateCalibrateStopped>;
+  };
+  /**
+   * The recorder: Arm holds a pre-roll of the aggregate's inputs in memory, Record starts a take
+   * reaching back into it, Stop ends the take and stays armed. A paired phone may use all of it. The
+   * presets are the workspace's `recording` section. Its live state arrives as the `recording` event.
+   */
+  readonly recording: {
+    status(): Promise<RecordingStatus>;
+    /** Opens the aggregate and starts holding the pre-roll; rejects, having opened nothing, with the reason. */
+    arm(preset: string): Promise<RecordingStatus>;
+    record(): Promise<RecordingStatus>;
+    stop(): Promise<RecordingStatus>;
+    /** Rejects with `confirm_disarm` while recording unless `confirm`: disarming stops the take. */
+    disarm(options?: { confirm?: boolean }): Promise<RecordingStatus>;
+    takes(): Promise<{ takes: RecordingTake[] }>;
   };
   /**
    * The in-app updater. Answered only to a caller on the server's own machine: a phone gets
@@ -404,6 +422,15 @@ class Connection implements Client {
     calibrate: async (request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted> =>
       (await this.#http("POST", "aggregate/calibrate", request)) as AggregateCalibrateStarted,
     stopCalibrate: async (): Promise<AggregateCalibrateStopped> => (await this.#http("POST", "aggregate/calibrate/stop", {})) as AggregateCalibrateStopped,
+  };
+
+  readonly recording = {
+    status: async (): Promise<RecordingStatus> => (await this.#http("GET", "recording")) as RecordingStatus,
+    arm: async (preset: string): Promise<RecordingStatus> => (await this.#http("POST", "recording/arm", { preset })) as RecordingStatus,
+    record: async (): Promise<RecordingStatus> => (await this.#http("POST", "recording/record", {})) as RecordingStatus,
+    stop: async (): Promise<RecordingStatus> => (await this.#http("POST", "recording/stop", {})) as RecordingStatus,
+    disarm: async (options: { confirm?: boolean } = {}): Promise<RecordingStatus> => (await this.#http("POST", "recording/disarm", { confirm: options.confirm === true })) as RecordingStatus,
+    takes: async (): Promise<{ takes: RecordingTake[] }> => (await this.#http("GET", "recording/takes")) as { takes: RecordingTake[] },
   };
 
   readonly update = {
@@ -649,6 +676,7 @@ class Connection implements Client {
       for (const id of removed) this.#emit("device_removed", id);
       for (const device of added) this.#emit("device_added", device);
     }
+    if (isObject(frame["recording"])) this.#emit("recording", frame["recording"] as unknown as RecordingStatus);
   }
 
   #frame(frame: Frame): void {
@@ -681,6 +709,9 @@ class Connection implements Client {
         return;
       case "cyclic":
         this.#cyclicFrame(frame);
+        return;
+      case "recording":
+        if (isObject(frame["recording"])) this.#emit("recording", frame["recording"] as unknown as RecordingStatus);
         return;
     }
   }

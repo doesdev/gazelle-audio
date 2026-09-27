@@ -503,7 +503,7 @@ pub fn measured(outcome: &Outcome, rig: &Rig) -> Measured {
 
 /// A refusal from anywhere, as a sentence: the crates below write them lower case and unpunctuated
 /// so they can be quoted inside another message, and the page shows them on their own.
-fn sentence(why: &str) -> String {
+pub fn sentence(why: &str) -> String {
     let trimmed = why.trim();
     let mut text: String = trimmed.to_string();
     if let Some(first) = trimmed.chars().next() {

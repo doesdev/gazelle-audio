@@ -1085,6 +1085,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gazelle-audio-record"
+version = "0.1.0"
+dependencies = [
+ "gazelle-audio-aggregate",
+ "gazelle-audio-calibrate",
+ "gazelle-audio-stream-abi",
+ "serde",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "gazelle-audio-server"
 version = "1.4.1"
 dependencies = [
@@ -1092,9 +1103,11 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "futures-util",
+ "gazelle-audio-aggregate",
  "gazelle-audio-aggregate-status",
  "gazelle-audio-calibrate",
  "gazelle-audio-protocol",
+ "gazelle-audio-record",
  "gazelle-audio-transport",
  "getrandom 0.3.4",
  "hidapi",

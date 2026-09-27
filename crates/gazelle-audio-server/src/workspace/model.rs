@@ -53,6 +53,11 @@ pub struct Workspace {
     /// Gazelle reads a newer workspace unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregate: Option<Aggregate>,
+    /// The Recording page's presets. Additive like `aggregate`: a workspace written before it loads
+    /// with none and writes none, so an older Gazelle reads a newer workspace unchanged, and the
+    /// presets travel with a backup like everything else here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<Recording>,
     /// Top-level fields this server does not know (a newer app's), kept as they came and given back
     /// so an export always imports back whole.
     #[serde(flatten)]
@@ -86,10 +91,74 @@ impl Default for Workspace {
             cables: Vec::new(),
             control_room: BTreeMap::new(),
             aggregate: None,
+            recording: None,
             extra: BTreeMap::new(),
         }
     }
 }
+
+/// The Recording page's setup: its presets.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Recording {
+    #[serde(default)]
+    pub presets: Vec<RecordingPreset>,
+    /// As [`Workspace::extra`].
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// One recording preset: what to record, where, and how.
+///
+/// The rate and the buffer size are not here: they are the aggregate's, from its setup.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RecordingPreset {
+    /// Unique among the presets.
+    pub id: String,
+    pub name: String,
+    /// The channels to record, in the order their files are listed: each an interface by its place
+    /// in the aggregate's setup and that interface's own input, both from zero, exactly as the
+    /// calibration names a channel. **Never the aggregate's own numbering**, which depends on how
+    /// many channels each driver really has.
+    #[serde(default)]
+    pub channels: Vec<RecordingChannel>,
+    /// The folder the files go in. Left out means the default, `Documents\Gazelle Recordings`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// How files are named; see [`RECORDING_PATTERN_DEFAULT`]. Left out means that default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// One of [`RECORDING_FORMATS`]. Left out means `int24`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// How much of the memory free at Arm the pre-roll takes, in percent, 1 to 50. Left out means 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preroll_percent: Option<f64>,
+    /// The most pre-roll to keep, in seconds, which also makes the buffer smaller. Left out means as
+    /// much as the percentage gives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preroll_max_seconds: Option<f64>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// One channel a preset records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingChannel {
+    /// The interface, by its place in the aggregate's setup, from zero.
+    pub device: u32,
+    /// That interface's own input, from zero.
+    pub channel: u32,
+}
+
+/// The sample formats a preset can write: 24-bit integer and 32-bit float.
+pub const RECORDING_FORMATS: &[&str] = &["int24", "float32"];
+/// How a preset names its files when it does not say.
+pub const RECORDING_PATTERN_DEFAULT: &str = "{date} T{take} {channel}";
+/// The pre-roll a preset takes when it does not say, in percent of the free memory.
+pub const RECORDING_PERCENT_DEFAULT: f64 = 10.0;
+/// The longest a pre-roll cap may be, in seconds: an hour.
+pub const RECORDING_CAP_MAX: f64 = 3600.0;
 
 /// The aggregate audio driver's setup: which interfaces it opens, in what order, which one drives
 /// the callback and how their streams line up.
