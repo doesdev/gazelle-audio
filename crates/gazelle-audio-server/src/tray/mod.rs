@@ -62,7 +62,22 @@ pub struct Context {
     pub phones: Option<PhonesToggle>,
     /// The recording widget and hub, auto-arm and starting in the hub. `None` leaves them out.
     pub recording: Option<RecordingHooks>,
+    /// What Windows ending the session (shutting down, restarting, signing out) must wait for.
+    /// `None`: nothing.
+    pub end_session: Option<EndSession>,
 }
+
+/// Windows ending the session while the recorder holds the drivers: a take must be finished, not
+/// cut, and Windows must be told why it is waiting.
+pub struct EndSession {
+    /// Whether the recorder is armed or recording, and so has anything to finish.
+    pub busy: Box<dyn Fn() -> bool>,
+    /// Finish any take and let go of the drivers. Blocks until done; after it nothing arms again.
+    pub finish: Box<dyn Fn()>,
+}
+
+/// The reason Windows shows on its shutdown screen while Gazelle finishes a take.
+pub const END_SESSION_REASON: &str = "Finishing a recording";
 
 /// The recording items, from the tray: read when the menu opens, acted on when picked.
 pub struct RecordingHooks {

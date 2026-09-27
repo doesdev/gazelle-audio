@@ -296,6 +296,7 @@ fn run(args: &Args, log_dir: Option<PathBuf>) -> Result<(), Box<dyn std::error::
         let mut context = tray_context(args, local_address, &devices, &quit, log_dir, window.clone());
         context.phones = Some(phones_toggle(&remote));
         context.recording = Some(recording_hooks(&recording, desktop.viewports.clone()));
+        context.end_session = Some(end_session(&recording));
         context.update = updater.clone();
         context.restart = restart.clone().map(|restart| Box::new(move || restart.request()) as Box<dyn Fn() -> Result<String, String>>);
         context.rescan = hotplug.as_ref().map(|hotplug| {
@@ -668,6 +669,13 @@ fn recording_hooks(recording: &Arc<RecordingService>, viewports: Option<Arc<dyn 
     }
 }
 
+/// What Windows ending the session waits for: the recorder finishing any take. The same
+/// shutdown a Quit runs, from the tray's thread, which Windows is waiting on.
+fn end_session(recording: &Arc<RecordingService>) -> tray::EndSession {
+    let (busy, finish) = (recording.clone(), recording.clone());
+    tray::EndSession { busy: Box::new(move || busy.is_active()), finish: Box::new(move || finish.shutdown()) }
+}
+
 /// The tray's Allow phones item: whether it is on, and a way to flip it.
 fn phones_toggle(remote: &Arc<Remote>) -> tray::PhonesToggle {
     let (read, flip) = (remote.clone(), remote.clone());
@@ -723,6 +731,7 @@ fn tray_context(
         restart: None,
         phones: None,
         recording: None,
+        end_session: None,
     }
 }
 

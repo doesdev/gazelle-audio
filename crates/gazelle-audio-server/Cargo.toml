@@ -83,6 +83,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_Services",
+    # Saying why Windows must wait at shutdown while a take is being finished (`tray/windows.rs`).
+    "Win32_System_Shutdown",
     # Waiting for the elevated registrar to finish (`aggregate/elevate.rs`).
     "Win32_System_Threading",
     # The setup dialog (`install/dialog.rs`): `TaskDialogIndirect`.

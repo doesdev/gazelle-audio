@@ -65,8 +65,9 @@ version that has not been published yet.
   a measurement on the Aggregate page to finish, and when arming is refused it says why and tries
   again after a growing wait. The widget, the hub and the Recording page show that it is on, and
   turn it off. Always armed means Gazelle always holds the audio drivers, so a DAW may not be able
-  to use them. Quitting Gazelle, or restarting it to update, finishes any take being recorded
-  before it stops.
+  to use them. Quitting Gazelle, restarting it to update, and Windows shutting down, restarting
+  or signing you out all finish any take being recorded first; Windows shows "Finishing a
+  recording" while it waits.
 - **Gazelle Remote, an app for Android phones.** Each release now carries `Gazelle-Remote.apk`:
   install it on your phone (Android asks you to allow installing it from your browser), scan the
   QR code on the computer, and Gazelle's Remote page opens full screen, with the screen kept on.

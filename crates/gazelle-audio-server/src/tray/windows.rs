@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Shutdown::{ShutdownBlockReasonCreate, ShutdownBlockReasonDestroy};
 use windows_sys::Win32::System::Registry::{
     RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
 };
@@ -30,7 +31,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, PostMessageW, PostQuitMessage,
     RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetMenuDefaultItem, TrackPopupMenu,
     TranslateMessage, HICON, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SW_SHOWNORMAL,
-    TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_NULL,
+    TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION,
+    WM_NULL, WM_QUERYENDSESSION,
     WNDCLASSW,
 };
 
@@ -207,6 +209,37 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             tracing::info!("asked to close; quitting");
             (state.context.quit)();
             DestroyWindow(hwnd);
+            0
+        }
+        // Windows is about to end the session: shutting down, restarting (an update, say), or
+        // signing out. This window is never shown, but it is a top-level window, so it is asked.
+        // A take being recorded must be finished rather than cut when the process is ended, so
+        // Windows is told why it will wait (its shutdown screen shows the reason), and the take is
+        // finished once the session really ends. The answer is always yes: Gazelle never stops a
+        // shutdown, it only asks for the time to close its files.
+        WM_QUERYENDSESSION => {
+            if let Some(end) = &state.context.end_session {
+                if (end.busy)() {
+                    tracing::info!("Windows is ending the session while recording is armed; asking it to wait while the take is finished");
+                    ShutdownBlockReasonCreate(hwnd, wide(super::END_SESSION_REASON).as_ptr());
+                }
+            }
+            1
+        }
+        // `wparam` is nonzero when the session really ends; zero when the shutdown was cancelled.
+        // After this returns, Windows may end the process at any moment, so everything that must be
+        // on disk is done before it does.
+        WM_ENDSESSION => {
+            if wparam != 0 {
+                crate::window::note_shutdown();
+                if let Some(end) = &state.context.end_session {
+                    if (end.busy)() {
+                        tracing::info!("the session is ending: finishing any take and letting go of the audio drivers");
+                    }
+                    (end.finish)();
+                }
+            }
+            ShutdownBlockReasonDestroy(hwnd);
             0
         }
         WM_DESTROY => {
