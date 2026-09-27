@@ -70,7 +70,7 @@
 
     <!-- The header bar with the wordmark, at the top of each of the app's own screens, as the
          web app's header: the panel colour, the wordmark at its start. -->
-    <style name="Widget.Gazelle.Header">
+    <style name="Widget.Gazelle.Header" parent="android:Widget.TextView">
         <item name="android:minHeight">56dp</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
@@ -82,7 +82,7 @@
     </style>
 
     <!-- A section's heading bar, as the web app's sections draw theirs, at touch size. -->
-    <style name="Widget.Gazelle.SectionBar">
+    <style name="Widget.Gazelle.SectionBar" parent="android:Widget.TextView">
         <item name="android:minHeight">48dp</item>
         <item name="android:paddingStart">12dp</item>
         <item name="android:paddingEnd">12dp</item>
