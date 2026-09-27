@@ -114,18 +114,12 @@
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <!-- A field's label (the web app's .label): secondary text. -->
+    <!-- A field's label (the web app's .label), and a note beside the main text: secondary text,
+         which reads clearly on the dark background where muted text is faint. -->
     <style name="TextAppearance.Gazelle.Label" parent="android:TextAppearance.Material">
         <item name="android:fontFamily">@font/inter</item>
         <item name="android:textSize">14sp</item>
         <item name="android:textColor">@color/text_secondary</item>
-    </style>
-
-    <!-- A note beside the main text (the web app's .muted). -->
-    <style name="TextAppearance.Gazelle.Muted" parent="android:TextAppearance.Material">
-        <item name="android:fontFamily">@font/inter</item>
-        <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/text_muted</item>
     </style>
 
     <!-- What went wrong while pairing, in the web app's warning colour. -->

@@ -148,11 +148,17 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # The Android app, Gazelle Remote (android/): lint, its unit tests and a debug build, on Ubuntu
-  # since nothing of it is Windows'. JDK 17 is what the Android Gradle Plugin 9 requires. There is
-  # no Gradle wrapper in the tree, so setup-gradle puts a pinned Gradle on the PATH; its "basic"
-  # cache is the open source one (the default, "enhanced", is a proprietary component with terms
-  # of its own). The Android SDK is the runner's own, through ANDROID_HOME.
+  # The Android app, Gazelle Remote (android/): lint, its unit tests and screenshot tests, and a
+  # debug build, on Ubuntu since nothing of it is Windows'. JDK 17 is what the Android Gradle
+  # Plugin 9 requires. Gradle is the project's own wrapper (android/gradlew, its distribution's
+  # checksum pinned); setup-gradle validates the wrapper jar against Gradle's published checksums
+  # (validate-wrappers, on by default) and caches, with its "basic" cache, the open source one (the
+  # default, "enhanced", is a proprietary component with terms of its own). The Android SDK is the
+  # runner's own, through ANDROID_HOME.
+  #
+  # verifyRoborazziDebug runs every unit test, and renders each of the app's own screens and
+  # compares it with the image committed under android/app/src/test/screenshots; a difference
+  # fails the job, and the comparison images are kept.
   android:
     name: Android app
     runs-on: ubuntu-latest
@@ -170,22 +176,24 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
-          gradle-version: "9.6.0"
           cache-provider: basic
-      - name: Lint, unit tests and the debug build
-        run: gradle --no-daemon :app:lintDebug :app:testDebugUnitTest :app:assembleDebug
+      - name: Lint, unit and screenshot tests, and the debug build
+        run: ./gradlew --no-daemon :app:lintDebug :app:verifyRoborazziDebug :app:assembleDebug
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gazelle-remote-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Keep the lint and test reports of a failure
+      - name: Keep the lint, test and screenshot comparison reports of a failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-reports
-          path: android/app/build/reports/
+          path: |
+            android/app/build/reports/
+            android/app/build/outputs/roborazzi/
+            android/app/build/test-results/
           retention-days: 14
           if-no-files-found: ignore
 

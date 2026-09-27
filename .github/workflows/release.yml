@@ -260,17 +260,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      # No cache, as everywhere in this workflow: a release is built from nothing.
+      # Gradle is the project's wrapper, whose jar setup-gradle validates against Gradle's
+      # published checksums. No cache, as everywhere in this workflow: a release is built from
+      # nothing.
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
-          gradle-version: "9.6.0"
           cache-disabled: true
       - name: Lint, unit tests and the release build
         env:
           VERSION: ${{ steps.version.outputs.version }}
           CODE: ${{ steps.version.outputs.code }}
         run: |
-          gradle --no-daemon :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease \
+          ./gradlew --no-daemon :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease \
             -PgazelleVersionName="$VERSION" -PgazelleVersionCode="$CODE"
           mapfile -t apks < <(find app/build/outputs/apk/release -name '*.apk')
           if [ "${#apks[@]}" -ne 1 ]; then

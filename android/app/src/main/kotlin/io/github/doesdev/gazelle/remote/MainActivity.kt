@@ -99,6 +99,16 @@ class MainActivity : ComponentActivity() {
     /** Where the reachability probes run: never on the main thread. */
     private val probes: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /**
+     * How the computer is asked, and whether Play services can scan: the real thing, always, in
+     * the app. They are properties only so the screenshot tests (src/test) can put each screen in
+     * a known state without a network or Play services; nothing in the app sets them.
+     */
+    internal var probe: (String) -> ProbeResult = { url -> Reach.probe(url) }
+    internal var scannerAvailable: (Context) -> Boolean = { context ->
+        GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+    }
+
     /** Each connection attempt's number; a late answer to an earlier attempt is ignored. */
     private var attempt = 0
 
@@ -340,7 +350,7 @@ class MainActivity : ComponentActivity() {
         awaiting = mine
         pageRequested = false
         probes.execute {
-            val result = Reach.probe("${origin.base}/")
+            val result = probe("${origin.base}/")
             runOnUiThread { probed(mine, url, origin, result) }
         }
     }
@@ -381,7 +391,7 @@ class MainActivity : ComponentActivity() {
         if (pairing != null) {
             showPair()
         } else {
-            showTrouble(getString(R.string.trouble_not_answering, paired?.base.orEmpty()), getString(R.string.trouble_cancelled))
+            showTrouble(getString(R.string.trouble_stopped, paired?.base.orEmpty()), getString(R.string.trouble_cancelled))
         }
     }
 
@@ -415,7 +425,7 @@ class MainActivity : ComponentActivity() {
         pairCurrent.isVisible = current != null
         pairBack.isVisible = current != null
         if (current != null) pairCurrent.text = getString(R.string.pair_current, current.base)
-        val canScan = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
+        val canScan = scannerAvailable(this)
         pairScan.isVisible = canScan
         pairScanUnavailable.isVisible = !canScan
         pairMessage.text = message

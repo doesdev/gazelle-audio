@@ -100,7 +100,7 @@ git push origin X.Y.Z
 | Job | What it does | Holds the signing key |
 |---|---|---|
 | `build` | `xtask check-version <tag>`; `xtask release-notes <version>`; checks the `GAZELLE_UPDATE_PUBKEY` variable is 64 hex digits; `pnpm install --frozen-lockfile` and `pnpm build`; the aggregate driver's release build; every suite (cargo test, clippy with `-D warnings`, the window check, pnpm test, e2e, docs:check); the release build with `--features window`, the public key and `GAZELLE_AGGREGATE_DLL` naming the driver just built; the import table test (`--test runtime`) on the release binaries, the driver beside them and the copy they carry; `xtask smoke` on both binaries; `pnpm docs:pdf` against the release binary; `xtask dist`; a release build of `xtask` itself. Uploads the unsigned directory, the helper and the notes as workflow artifacts. No build cache is restored: a release is built from nothing. | No |
-| `android` | On Ubuntu, in parallel with `build`: the version from the server's `Cargo.toml` (and, on a tag, the tag must be it), then `gradle :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease` with that version name and code, and uploads the **unsigned** APK. | No |
+| `android` | On Ubuntu, in parallel with `build`: the version from the server's `Cargo.toml` (and, on a tag, the tag must be it), then the project's Gradle wrapper (validated by `gradle/actions/setup-gradle`) runs `./gradlew :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease` with that version name and code, and uploads the **unsigned** APK. | No |
 | `sign` (tag pushes only) | Runs in the protected `release` environment, so it waits for approval. A fresh machine that checks nothing out and builds nothing: it runs the helper the build job made. First the Android app: decodes the `ANDROID_KEYSTORE_B64` secret into the runner's temporary directory, and `xtask sign-apk` checks the APK is this version, aligns, signs and verifies it with the Windows image's Android SDK build-tools into the release directory as `Gazelle-Remote.apk`; no keystore secret fails the release rather than shipping an unsigned app. Then writes the secret to the runner's temporary directory, checks its public half is the one the binaries carry (`xtask pubkey --expect`), signs (`xtask sign`), deletes the key, and verifies with the updater's own code (`xtask verify --require-apk`), whose output is the upload list. Then `gh release create <tag> --draft --verify-tag`, with `--prerelease` for a semver pre-release, uploading exactly the verified files. The only job with `contents: write`. | Yes, only after the build is finished |
 | `dry-run` (manual runs only) | The same signing and verification with throwaway keys made on the spot (the Android app's by `keytool`), and a summary of the release that would have been drafted. No secret, no environment, nothing created. | No |
 
@@ -187,11 +187,12 @@ GAZELLE_BIN=target/release/gazelle-audio-server.exe corepack pnpm -C web docs:pd
 #    the zip and the PDFs. It refuses a directory that already holds anything.
 cargo run -p xtask -- dist --out dist
 
-# 5b. Optionally, the Android app. It needs JDK 17, the Android SDK (ANDROID_HOME) and Gradle,
-#     and the app's keystore, outside the repository; a release by hand may leave it out, since
+# 5b. Optionally, the Android app. It needs JDK 17, the Android SDK (ANDROID_HOME) and the app's
+#     keystore, outside the repository; Gradle is the wrapper in android/ (android/README.md,
+#     Building). A release by hand may leave the app out, since
 #     verify only insists on it with --require-apk. Its version is the server's, and check-version
 #     printed its code (android_version_code).
-(cd android && gradle :app:assembleRelease -PgazelleVersionName=X.Y.Z -PgazelleVersionCode=<code>)
+(cd android && ./gradlew --no-daemon :app:assembleRelease -PgazelleVersionName=X.Y.Z -PgazelleVersionCode=<code>)
 ANDROID_KEYSTORE_PASSWORD=<its password> cargo run -p xtask -- sign-apk \
   --apk android/app/build/outputs/apk/release/app-release-unsigned.apk \
   --keystore <outside-the-repo>/gazelle-remote.p12 --out dist/Gazelle-Remote.apk

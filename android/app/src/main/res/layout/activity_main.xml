@@ -16,7 +16,6 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/surface_background"
     android:keepScreenOn="true">
 
     <WebView
@@ -48,6 +47,7 @@
             android:padding="16dp">
 
             <ProgressBar
+                android:id="@+id/connecting_progress"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:indeterminate="true"
@@ -112,7 +112,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:textAppearance="@style/TextAppearance.Gazelle.Muted"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Label"
                     android:visibility="gone" />
 
                 <Button
@@ -137,7 +137,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:text="@string/pair_scan_unavailable"
-                    android:textAppearance="@style/TextAppearance.Gazelle.Muted"
+                    android:textAppearance="@style/TextAppearance.Gazelle.Label"
                     android:visibility="gone" />
 
                 <TextView
@@ -243,7 +243,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="@string/trouble_hints"
-                    android:textAppearance="@style/TextAppearance.Gazelle.Muted" />
+                    android:textAppearance="@style/TextAppearance.Gazelle.Label" />
 
                 <Button
                     android:id="@+id/trouble_retry"

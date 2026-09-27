@@ -8,7 +8,6 @@
 <resources>
     <color name="surface_background">#FF1A1B1D</color>
     <color name="surface_panel">#FF232427</color>
-    <color name="surface_raised">#FF2C2E32</color>
     <color name="surface_inset">#FF131415</color>
     <color name="border_subtle">#FF34363A</color>
     <color name="border_strong">#FF4A4C51</color>

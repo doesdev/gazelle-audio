@@ -84,23 +84,51 @@ The user's side of it (getting it, installing it, pairing) is in the manual's
 
 ## Building
 
-You need JDK 17 (the Android Gradle Plugin's requirement), the Android SDK (API 36, found through
-`ANDROID_HOME` or a `local.properties` with `sdk.dir=...`), and Gradle 9.6.0 or later. From this
+You need JDK 17 (the Android Gradle Plugin's requirement) and the Android SDK with API 36 and
+build-tools 36.0.0, found through `ANDROID_HOME` or a `local.properties` with `sdk.dir=...`
+(ignored by git). Gradle itself comes from the wrapper in this directory (`gradlew`, Gradle 9.6.0,
+its download checked against the SHA-256 in `gradle/wrapper/gradle-wrapper.properties`). From this
 directory:
 
 ```
-gradle :app:assembleDebug
-gradle :app:testDebugUnitTest
-gradle :app:lintDebug
+./gradlew --no-daemon :app:lintDebug :app:verifyRoborazziDebug :app:assembleDebug
 ```
 
-The debug APK is `app/build/outputs/apk/debug/app-debug.apk`. There is no Gradle wrapper in the
-tree, since one cannot be generated without Gradle; `gradle wrapper --gradle-version 9.6.0` adds one
-whenever that is wanted.
+That is what CI runs: lint, every unit test with the screenshots checked, and the debug APK,
+`app/build/outputs/apk/debug/app-debug.apk`. On Windows the wrapper is `gradlew.bat`, and each
+path can be given for the one command, leaving the machine's own settings alone. For example,
+with the JDK and SDK where one Windows PC keeps them:
+
+```
+JAVA_HOME="$LOCALAPPDATA/Android/jdk-17" ANDROID_HOME="$LOCALAPPDATA/Android/Sdk" ./gradlew.bat --no-daemon :app:assembleDebug
+```
+
+### Screenshot tests
+
+`ScreensTest` renders every screen of the app's own on the JVM (Robolectric, in its native
+graphics mode, with Roborazzi) and compares each with the image committed in
+`app/src/test/screenshots`: pairing (empty, typed in, a refused code, while paired, without Play
+services, on a 360dp phone, at font scale 1.3), connecting, and the trouble screen (no answer in
+time, refused, phones not allowed, the page too slow, cancelled, and no answer at font scale 1.3).
+They are 411 by 891dp phones at mdpi, so one pixel is one dp. The network and Play services are
+stood in (the activity's `probe` and `scannerAvailable`); everything else is the app's own code.
+Downloadable fonts do not resolve there, so the images show the fallback sans serif. The tests
+also check that every button and field is at least 48dp tall.
+
+`verifyRoborazziDebug` fails on a difference and writes the comparison images under
+`app/build/outputs/roborazzi`, which CI keeps when it fails. After changing a screen on purpose,
+record the images again, look at them, and commit them with the change:
+
+```
+./gradlew --no-daemon :app:recordRoborazziDebug
+```
+
+Robolectric renders API 35 here: API 36 needs Java 21 under Robolectric, and the build's JDK is 17.
 
 The versions are pinned in `gradle/libs.versions.toml`: the Android Gradle Plugin 9.4.1, which
 compiles Kotlin itself (its "built-in Kotlin", at the Kotlin 2.2.10 it depends on), compile and
-target SDK 36, minimum SDK 26 (Android 8.0).
+target SDK 36, minimum SDK 26 (Android 8.0). The screenshot tests use Robolectric 4.17 and
+Roborazzi 1.75.0.
 
 A release passes the server's version: `-PgazelleVersionName=1.5.0 -PgazelleVersionCode=10500`,
 the code being `major * 10000 + minor * 100 + patch` (`xtask check-version` prints it as
@@ -108,10 +136,12 @@ the code being `major * 10000 + minor * 100 + patch` (`xtask check-version` prin
 
 ## How CI builds it
 
-- **Every change** (`.github/workflows/ci.yml`, job `android`, on Ubuntu): Temurin 17, Gradle
-  9.6.0 through `gradle/actions/setup-gradle`, then
-  `gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug`, and the debug APK kept as the
-  run's `gazelle-remote-debug` artifact.
+- **Every change** (`.github/workflows/ci.yml`, job `android`, on Ubuntu): Temurin 17,
+  `gradle/actions/setup-gradle` to validate the wrapper jar against Gradle's published checksums
+  and to cache (its open source "basic" cache), then
+  `./gradlew :app:lintDebug :app:verifyRoborazziDebug :app:assembleDebug`, the debug APK kept as
+  the run's `gazelle-remote-debug` artifact, and on a failure the reports and screenshot
+  comparisons kept as `android-reports`.
 - **A release** (`.github/workflows/release.yml`): the `android` job builds the release APK
   unsigned, with the server's version, beside the Windows build and holding no secret. The `sign`
   job, in the protected `release` environment, signs it with the app's key (`xtask sign-apk`, the

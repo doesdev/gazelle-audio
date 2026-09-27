@@ -7,7 +7,7 @@
     <!-- The pairing screen: first run, a revoked phone, or the icon's long press. -->
     <string name="pair_title">Pair with Gazelle</string>
     <string name="pair_intro">On the computer, open Gazelle\'s Workspace page. Under Phones, turn on Allow phones on this network, then choose Pair a phone.</string>
-    <string name="pair_current">This phone is paired with %1$s.</string>
+    <string name="pair_current">This phone is paired with\n%1$s.</string>
     <string name="pair_back">Back to Gazelle</string>
     <string name="pair_scan">Scan the code on your computer</string>
     <string name="pair_scan_unavailable">This phone has no Google Play services, so it cannot scan the code here. Type the address and the code instead.</string>
@@ -20,14 +20,14 @@
     <string name="pair_submit">Pair</string>
 
     <!-- While the computer is asked, and the page loads. -->
-    <string name="connecting">Connecting to %1$s...</string>
+    <string name="connecting">Connecting to\n%1$s...</string>
     <string name="connecting_cancel">Cancel</string>
 
-    <!-- When the page does not load. -->
-    <string name="trouble_not_answering">Gazelle is not answering at %1$s</string>
-    <string name="trouble_refused">Gazelle at %1$s did not let this phone in</string>
+    <!-- When the page does not load. The address is on a line of its own, so it never breaks at a dot. -->
+    <string name="trouble_not_answering">Gazelle is not answering at\n%1$s</string>
+    <string name="trouble_refused">Gazelle did not let this phone in, at\n%1$s</string>
     <string name="trouble_refused_detail">On the computer, turn on Allow phones on this network, on the Workspace page under Phones.</string>
-    <string name="trouble_http">Gazelle at %1$s answered with an error</string>
+    <string name="trouble_http">Gazelle answered with an error, at\n%1$s</string>
     <string name="trouble_http_detail">It said HTTP %1$d.</string>
     <string name="trouble_hints">Check that this phone is on the same network, that Allow phones on this network is on in Gazelle, and that Windows\' firewall lets Gazelle in.</string>
     <string name="trouble_timed_out">It did not answer within a few seconds. A firewall that drops connections looks like this, and so does a computer that is asleep or off.</string>
@@ -36,7 +36,8 @@
     <string name="trouble_unknown_host">This phone cannot find a computer by that name. Try the IP address Gazelle shows under Phones.</string>
     <string name="trouble_other">It could not connect: %1$s</string>
     <string name="trouble_page_slow">The computer answered, but the page did not load within 15 seconds.</string>
-    <string name="trouble_cancelled">You stopped waiting for it.</string>
+    <string name="trouble_stopped">Not connected to\n%1$s</string>
+    <string name="trouble_cancelled">You stopped waiting for Gazelle to answer.</string>
     <string name="trouble_retry">Retry</string>
     <string name="trouble_repair">Pair with another computer</string>
 

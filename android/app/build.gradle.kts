@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.roborazzi)
 }
 
 // The release workflow passes the server's version, so the app and the Gazelle it pairs with carry
@@ -43,6 +44,17 @@ android {
     lint {
         abortOnError = true
     }
+
+    testOptions {
+        // Robolectric renders the app's own layouts and styles in the screenshot tests.
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+// The screenshot tests' images: recorded with recordRoborazziDebug, checked with
+// verifyRoborazziDebug (CI), committed beside the tests.
+roborazzi {
+    outputDir.set(file("src/test/screenshots"))
 }
 
 dependencies {
@@ -50,4 +62,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.play.services.code.scanner)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
 }
