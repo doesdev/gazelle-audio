@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Three screens in one place, one shown at a time (MainActivity.show): the WebView with Gazelle's
-  own page, the pairing screen, and the screen for when the page does not load. The root takes the
+  Four screens in one place, one shown at a time (MainActivity.show): the WebView with Gazelle's
+  own page, "Connecting" while the computer is asked and the page loads (the WebView loading
+  unseen beneath it), the pairing screen, and the screen for when the page does not load. The root takes the
   system bar, cutout and keyboard insets as padding, and keeps the screen on while the app is in
   front.
 -->
@@ -16,6 +17,39 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
+
+    <!-- While the computer is asked whether it answers, and until the page first shows. -->
+    <LinearLayout
+        android:id="@+id/connecting_screen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/background"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/connecting_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:accessibilityLiveRegion="polite"
+            android:gravity="center"
+            android:textAppearance="?android:attr/textAppearanceMedium" />
+
+        <Button
+            android:id="@+id/connecting_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/connecting_cancel" />
+    </LinearLayout>
 
     <ScrollView
         android:id="@+id/pair_screen"

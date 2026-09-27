@@ -47,11 +47,13 @@ With a mouse the page behaves as the rest of Gazelle: a click on a bar jumps the
 
 **Pairing.** On the computer, turn on **Allow phones on this network** and choose **Pair a phone** (see [Phones on your network](05-the-app.md#phones-on-your-network)). In the app, choose **Scan the code on your computer** and point the phone at the QR code. Scanning uses Google Play services' own scanner, so the app never asks for the camera. On a phone without Play services, or if you would rather, type the address the Phones section shows, such as `192.168.1.20:8420`, and the code. The app then opens Gazelle's pairing page: give the phone a name and tap **Pair this phone**. From then on the app opens straight onto this page.
 
-**When it cannot connect**, it says **Gazelle is not answering at** the computer's address. Check that:
+**Connecting.** Each time it opens Gazelle, the app first says **Connecting to** the computer's address, with **Cancel**. The page appears as soon as it has loaded, usually at once.
+
+**When it cannot connect**, it gives up after a few seconds rather than wait on a blank page, and says **Gazelle is not answering at** the computer's address, with a line on why: no answer in time (a firewall silently dropping the connection looks like this, as does a computer that is asleep), nothing listening on that port, or no way to reach that address from the phone's network. If Gazelle answered that it is not letting phones in, the app says to turn on **Allow phones on this network**. Check that:
 
 - the phone is on the same Wi-Fi network as the computer, not on mobile data or a guest network;
 - Gazelle is running, with **Allow phones on this network** turned on;
-- Windows Firewall lets Gazelle in on private networks, and your network is set as a private one on the computer.
+- Windows Firewall lets Gazelle in. On a network Windows counts as **Public**, Windows blocks incoming connections until the firewall's question is answered for public networks, or the network is marked **Private** (Settings, Network and internet, the network's properties). Which to do is your choice; Gazelle never changes firewall settings.
 
 Then choose **Retry**. If the computer's address has changed (a router can hand it a new one after a restart), choose **Pair with another computer** and pair again; a reserved address for the computer in your router's settings stops that happening.
 

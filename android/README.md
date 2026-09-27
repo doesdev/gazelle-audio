@@ -31,9 +31,20 @@ The user's side of it (getting it, installing it, pairing) is in the manual's
 - **Full screen, edge to edge,** with the system bars, cutouts and keyboard as padding, and the bars
   dark or light with the phone's theme. The screen stays on while the app is in front. Back goes
   back through the page's history, then leaves.
-- **When the page does not load** (the computer is off, another network, phones not allowed), a
-  native screen says "Gazelle is not answering at http://host:port", with **Retry** and **Pair with
-  another computer**.
+- **Connecting, and giving up quickly.** Before the WebView gets an address, the app asks
+  `http://host:port/` itself (`Reach.kt`, unit tested against sockets of its own): a plain GET off
+  the main thread, 4 seconds to connect and 4 to answer. Meanwhile a native screen says
+  "Connecting to http://host:port..." with a spinner and **Cancel** (back to the pairing screen
+  when pairing, else to the trouble screen). Any HTTP answer, even an error, means Gazelle is
+  there, and the page loads unseen beneath that screen (so no white page), showing once it has
+  committed. A 403 `remote_off` means phones are not allowed, which the app says. A firewall that
+  drops connections (a network Windows counts as Public, until the firewall's question is answered
+  for public networks) would otherwise leave the WebView waiting a minute or more; now it gives up
+  after 4 seconds. If the page still has not shown 15 seconds after the computer answered, the app
+  gives up on it too.
+- **When the page does not load**, a native screen says "Gazelle is not answering at
+  http://host:port", why in a line (no answer in time, nothing listening on that port, no route,
+  an unknown name), what to check, and **Retry** and **Pair with another computer**.
 - **When the phone is no longer paired**, Gazelle's page links to `/pair`. The app opens its own
   pairing screen for that instead.
 - **The one menu** is a long press on the app's icon: **Pair with another computer**. The pairing
@@ -42,7 +53,8 @@ The user's side of it (getting it, installing it, pairing) is in the manual's
 
 ## Security model
 
-- **Plain HTTP on your network.** Gazelle has no certificate a phone could check for a private
+- **Plain HTTP on your network.** The network security config covers the app's own reachability
+  request as well as the WebView: it applies to the platform's whole HTTP stack. Gazelle has no certificate a phone could check for a private
   address, so the app allows cleartext traffic (`res/xml/network_security_config.xml`, in the base
   config, since a domain config can only list host names and cannot say "any private address").
   Anyone who can watch your network's traffic can see what the phone and Gazelle send, the key
@@ -50,7 +62,8 @@ The user's side of it (getting it, installing it, pairing) is in the manual's
 - **Confined to one origin.** The WebView loads pages only from the paired origin, scheme, host and
   port all equal (`Links.sameOrigin`, unit tested). A link anywhere else opens in the system browser
   (web and mail links only, and only when tapped), and any request the page makes to another origin
-  is refused with a 403. The app has no other network code.
+  is refused with a 403. The app's only other request is its own reachability check, a GET of
+  the same origin's `/`.
 - **The WebView is locked down:** JavaScript and DOM storage on (the page is a JavaScript app); file
   and content access off; mixed content never; no JavaScript interface; no pop-up windows;
   geolocation off; Safe Browsing left at its default.
@@ -101,9 +114,10 @@ the code being `major * 10000 + minor * 100 + patch` (`xtask check-version` prin
 
 | Path | What it is |
 |---|---|
-| `app/src/main/kotlin/.../MainActivity.kt` | The activity: the WebView, the pairing screen, the trouble screen |
+| `app/src/main/kotlin/.../MainActivity.kt` | The activity: the WebView, the connecting, pairing and trouble screens |
 | `app/src/main/kotlin/.../Links.kt` | Plain Kotlin: parsing scanned and typed addresses, and where the WebView may go |
-| `app/src/test/kotlin/.../LinksTest.kt` | JUnit 4 tests of `Links`, run by `testDebugUnitTest` |
+| `app/src/main/kotlin/.../Reach.kt` | Plain Kotlin: asking the computer whether it answers, and what the app shows next |
+| `app/src/test/kotlin/.../LinksTest.kt`, `ReachTest.kt` | JUnit 4 tests of both, run by `testDebugUnitTest`; `ReachTest` probes sockets of its own on 127.0.0.1 |
 | `app/src/main/res/xml/network_security_config.xml` | Cleartext allowed, and why |
 | `app/src/main/res/xml/shortcuts.xml` | The icon's long press menu |
 | `app/src/main/res/drawable/ic_launcher_foreground.xml` | The desktop icon's "G", as a vector |

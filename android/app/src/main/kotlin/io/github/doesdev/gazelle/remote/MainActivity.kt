@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -34,6 +36,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.io.ByteArrayInputStream
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * The whole app: Gazelle's own web page, full screen, confined to the one computer this phone is
@@ -44,10 +48,17 @@ import java.io.ByteArrayInputStream
  * the code for the phone's key, which the server sets as an HttpOnly cookie in the WebView's
  * cookie jar, and lands on `/#/remote`. The app remembers `http://host:port` once the WebView has
  * reached that page, and opens it there from then on.
+ *
+ * Before the WebView is given an address, the app asks the computer itself, with short timeouts
+ * ([Reach]), under a "Connecting" screen with a Cancel button: a firewall that drops connections
+ * would otherwise leave a white page for a minute or more. The WebView loads unseen beneath that
+ * screen, and shows once its page has committed; a page that has not within 15 seconds is given up.
  */
 class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
+    private lateinit var connectingScreen: View
+    private lateinit var connectingText: TextView
     private lateinit var pairScreen: View
     private lateinit var troubleScreen: View
     private lateinit var pairCurrent: TextView
@@ -81,6 +92,18 @@ class MainActivity : ComponentActivity() {
     /** The WebView's renderer has gone, so it must not be touched again. */
     private var webGone = false
 
+    private val handler = Handler(Looper.getMainLooper())
+
+    /** Where the reachability probes run: never on the main thread. */
+    private val probes: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Each connection attempt's number; a late answer to an earlier attempt is ignored. */
+    private var attempt = 0
+
+    /** The attempt the connecting screen is waiting on, and whether its page has been asked for. */
+    private var awaiting: Int? = null
+    private var pageRequested = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -98,6 +121,8 @@ class MainActivity : ComponentActivity() {
         }
 
         web = findViewById(R.id.web)
+        connectingScreen = findViewById(R.id.connecting_screen)
+        connectingText = findViewById(R.id.connecting_text)
         pairScreen = findViewById(R.id.pair_screen)
         troubleScreen = findViewById(R.id.trouble_screen)
         pairCurrent = findViewById(R.id.pair_current)
@@ -115,6 +140,7 @@ class MainActivity : ComponentActivity() {
         findViewById<Button>(R.id.pair_submit).setOnClickListener { typed() }
         findViewById<Button>(R.id.trouble_retry).setOnClickListener { retry() }
         findViewById<Button>(R.id.trouble_repair).setOnClickListener { forget { showPair() } }
+        findViewById<Button>(R.id.connecting_cancel).setOnClickListener { cancelConnecting() }
 
         setUpWebView()
         onBackPressedDispatcher.addCallback(this, back)
@@ -142,6 +168,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        probes.shutdownNow()
         if (!webGone) {
             webGone = true
             web.destroy()
@@ -165,6 +193,9 @@ class MainActivity : ComponentActivity() {
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
             setGeolocationEnabled(false)
+            // Draw the page while it is still hidden under the connecting screen, so that
+            // onPageCommitVisible fires there and the page appears whole, not white.
+            offscreenPreRaster = true
             // So Gazelle can tell this app from a browser: "GazelleRemote/1.5.0" at the end.
             userAgentString = "$userAgentString GazelleRemote/${BuildConfig.VERSION_NAME}"
         }
@@ -205,11 +236,18 @@ class MainActivity : ComponentActivity() {
         // onPageFinished does not fire when only the fragment changes, and the pair page reaches
         // `/#/remote` by navigating, which this sees either way.
         override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+            committed(url)
             val link = pairing ?: return
             if (url != null && Links.isRemotePage(url, link.origin)) pairedWith(link.origin)
         }
 
+        // The page has drawn: the connecting screen gives way to it.
+        override fun onPageCommitVisible(view: WebView?, url: String?) {
+            committed(url)
+        }
+
         override fun onPageFinished(view: WebView?, url: String?) {
+            committed(url)
             val origin = confinedTo ?: return
             if (clearHistoryOnLoad && url != null && Links.sameOrigin(url, origin)) {
                 // Back from the Remote page must not lead to the pair page, or to a blank one.
@@ -251,6 +289,7 @@ class MainActivity : ComponentActivity() {
     private val back = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             when {
+                connectingScreen.isVisible -> cancelConnecting()
                 // Leaving the pair page before it has paired: back to the native pairing screen.
                 web.isVisible && pairing != null -> showPair()
                 web.isVisible && web.canGoBack() -> web.goBack()
@@ -264,9 +303,87 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Show one of the three screens and hide the others. */
+    /**
+     * Show one screen and hide the others. Under the connecting screen the WebView is laid out but
+     * unseen, so it can load without a white page showing; leaving that screen ends the wait.
+     */
     private fun show(screen: View) {
-        for (each in listOf(web, pairScreen, troubleScreen)) each.isVisible = each === screen
+        for (each in listOf(connectingScreen, pairScreen, troubleScreen)) each.isVisible = each === screen
+        web.visibility = when {
+            screen === web -> View.VISIBLE
+            screen === connectingScreen -> View.INVISIBLE
+            else -> View.GONE
+        }
+        if (screen !== connectingScreen) {
+            awaiting = null
+            pageRequested = false
+        }
+    }
+
+    /**
+     * Open `url` on `origin`: first ask the computer whether it answers at all, off the main
+     * thread, under the connecting screen; then, if it does, load the page beneath that screen.
+     */
+    private fun connect(url: String, origin: Origin) {
+        if (isDestroyed) return
+        val mine = ++attempt
+        if (!webGone) web.stopLoading()
+        connectingText.text = getString(R.string.connecting, origin.base)
+        show(connectingScreen)
+        awaiting = mine
+        pageRequested = false
+        probes.execute {
+            val result = Reach.probe("${origin.base}/")
+            runOnUiThread { probed(mine, url, origin, result) }
+        }
+    }
+
+    private fun probed(mine: Int, url: String, origin: Origin, result: ProbeResult) {
+        if (isDestroyed || mine != attempt || awaiting != mine) return
+        when (val next = Reach.next(result)) {
+            AfterProbe.Load -> {
+                pageRequested = true
+                load(url)
+                handler.postDelayed({ watchdog(mine, origin) }, Reach.WATCHDOG_MS)
+            }
+            AfterProbe.PhonesOff ->
+                showTrouble(getString(R.string.trouble_refused, origin.base), getString(R.string.trouble_refused_detail))
+            is AfterProbe.NotAnswering ->
+                showTrouble(getString(R.string.trouble_not_answering, origin.base), noAnswerText(next))
+        }
+    }
+
+    /** The computer answered, but its page has still not shown: give up on it. */
+    private fun watchdog(mine: Int, origin: Origin) {
+        if (awaiting != mine) return
+        if (!webGone) web.stopLoading()
+        showTrouble(getString(R.string.trouble_not_answering, origin.base), getString(R.string.trouble_page_slow))
+    }
+
+    /** A page on the confined origin has committed: if the connecting screen waits for it, show it. */
+    private fun committed(url: String?) {
+        val origin = confinedTo ?: return
+        if (awaiting == null || !pageRequested || url == null || !Links.sameOrigin(url, origin)) return
+        show(web)
+    }
+
+    /** Cancel: back to the pairing screen when pairing, or else the trouble screen. */
+    private fun cancelConnecting() {
+        attempt++
+        if (!webGone) web.stopLoading()
+        if (pairing != null) {
+            showPair()
+        } else {
+            showTrouble(getString(R.string.trouble_not_answering, paired?.base.orEmpty()), getString(R.string.trouble_cancelled))
+        }
+    }
+
+    private fun noAnswerText(next: AfterProbe.NotAnswering): String = when (next.why) {
+        NoAnswer.TIMED_OUT -> getString(R.string.trouble_timed_out)
+        NoAnswer.REFUSED -> getString(R.string.trouble_port_refused)
+        NoAnswer.UNREACHABLE -> getString(R.string.trouble_unreachable)
+        NoAnswer.UNKNOWN_HOST -> getString(R.string.trouble_unknown_host)
+        NoAnswer.OTHER -> getString(R.string.trouble_other, next.detail)
     }
 
     private fun load(url: String) {
@@ -278,8 +395,7 @@ class MainActivity : ComponentActivity() {
         val origin = paired ?: return showPair()
         pairing = null
         confinedTo = origin
-        show(web)
-        load(origin.remote)
+        connect(origin.remote, origin)
     }
 
     /** The pairing screen: scan, or type. Says which computer this phone is paired with, if any. */
@@ -333,8 +449,7 @@ class MainActivity : ComponentActivity() {
             pairing = link
             confinedTo = link.origin
             clearHistoryOnLoad = true
-            show(web)
-            load(link.url)
+            connect(link.url, link.origin)
         }
     }
 
@@ -352,8 +467,7 @@ class MainActivity : ComponentActivity() {
     private fun retry() {
         val link = pairing
         if (link != null) {
-            show(web)
-            load(link.url)
+            connect(link.url, link.origin)
         } else {
             openRemote()
         }

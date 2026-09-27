@@ -9,8 +9,10 @@
 
   What keeps that narrow is the app, not this file: the WebView only ever loads the one origin it
   paired with (scheme, host and port), every other link opens in the system browser, and any
-  request the page makes to another origin is refused (MainActivity, Links.kt). The app has no
-  other network code.
+  request the page makes to another origin is refused (MainActivity, Links.kt). The app's only
+  other request is its own check that the computer answers, a GET of that same origin's `/`
+  (Reach.kt), which this base config covers too: it applies to HttpURLConnection as it does to
+  the WebView.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">

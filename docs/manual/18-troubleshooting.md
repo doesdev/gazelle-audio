@@ -45,6 +45,7 @@ A Gazelle built from source without first running `corepack pnpm -C web build` s
 - **Is Allow phones on this network on?** The Phones section on the Workspace page says whether Gazelle is listening, and the addresses to use.
 - **Is the phone on the same network?** Not on mobile data, and not on a guest Wi-Fi that keeps devices apart.
 - **Did Windows' firewall block it?** If you declined the firewall's question, or it never asked, allow Gazelle in Windows Security, Firewall and network protection, Allow an app through firewall, for private networks. Check that Windows counts your network as private.
+- **Is the network marked Public?** On a network Windows counts as Public, incoming connections are blocked until the firewall's question is answered for public networks, or the network is marked Private (Settings, Network and internet, the network's properties). The phone then just waits: a browser shows a blank page for a minute or more, and the Android app gives up after a few seconds with **Gazelle is not answering**. Which to change is your choice; Gazelle never changes firewall settings.
 - **"This device is not paired with Gazelle"** means the phone reached Gazelle but has no key, or was revoked: pair it again from the Phones section.
 - **"That code did not work"**: codes last 5 minutes and work once. Choose **Pair a phone** again for a new one.
 
