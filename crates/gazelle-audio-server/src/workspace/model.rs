@@ -399,8 +399,12 @@ pub struct SurfaceStrip {
 pub const STRIP_KINDS: &[&str] = &["channel", "master", "input", "output", "port", "label"];
 
 /// A cable the user says joins one device's digital output to another's input. It is a fact about
-/// the room, not a setting: it never routes, clocks or links anything, and only lets the app say
-/// where a digital input's signal comes from and warn when the two ends disagree.
+/// the room, not a setting: declaring one never routes, clocks or links anything, and only lets the
+/// app say where a digital input's signal comes from and warn when the two ends disagree.
+///
+/// The one exception is a cable the person gives over to the aggregate's phase measurement
+/// ([`Cable::dedicated`]): the page that does it routes the two ends for it, once, after a confirm,
+/// and from then on says when the routing no longer serves it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cable {
     pub id: String,
@@ -408,6 +412,25 @@ pub struct Cable {
     pub to: CableEnd,
     /// How many channels it carries, from each end's `first`.
     pub channels: u32,
+    /// Present while the cable is dedicated to the aggregate's phase measurement and the clock.
+    /// Additive: a workspace without it loads with none and writes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedicated: Option<CableDedication>,
+}
+
+/// The two channels a dedicated cable keeps for the phase measurement. The sending device is the
+/// aggregate's callback master and the receiving device a follower; the cable's own first channel
+/// carries the measurement, so it is not repeated here.
+///
+/// Both are the devices' own USB channel numbers from zero, the numbering
+/// [`AggregatePhase::master_output`] and [`AggregatePhase::input`] use, and while the dedication
+/// means anything they are exactly the follower's phase setup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CableDedication {
+    /// The sending device's USB playback channel routed straight to the cable's first channel.
+    pub phase_output: u32,
+    /// The receiving device's USB record channel that records the cable's first channel.
+    pub phase_input: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

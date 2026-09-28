@@ -9,9 +9,15 @@
 // under the page too, where dropping adds a channel per source to the dock's mix. A touch or a pen
 // drags them by pointer events instead, as before, onto cells only: a native drag needs a long
 // press on a touch screen, and would take over the quick drag that works there now.
+//
+// The channels of a cable dedicated to the aggregate's phase measurement are marked Phase, and a
+// change that would break that path (another source on the cable's output, its playback channel
+// sent anywhere else, or the follower's record channel taken for something else) is still allowed,
+// but waits behind a confirm that names the cable.
 
 import { h } from "../core/dom.ts";
-import { untracked } from "../core/signal.ts";
+import { computed, untracked } from "../core/signal.ts";
+import { breaks, dedicatedPaths, pathMarks, phasePathContext } from "../store/phase-path.ts";
 import type { RouteSlot } from "../store/routing.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
 import { activeSourceDrag, carriesSources, encodeSourceDrag, setActiveSourceDrag, SOURCE_MIME } from "./source-drag.ts";
@@ -44,6 +50,13 @@ export class GaRouting extends GaElement {
       .cell[data-drop] { outline: 2px solid var(--ga-accent); outline-offset: -2px; }
       .cell[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; }
       .tools button { min-height: 22px; padding: 0 6px; font-size: 10px; }
+      /* A channel a dedicated cable keeps for the phase measurement: outlined, with a small badge. */
+      .chip[data-phase], .cell[data-phase] { position: relative; padding-top: 10px; box-shadow: inset 0 0 0 1px var(--ga-state-solo); }
+      .chip[data-phase]::after, .cell[data-phase]::after { content: "PHASE"; position: absolute; top: 1px; left: 3px; padding: 0 2px; border-radius: 2px; background: var(--ga-state-solo); color: var(--ga-surface-inset); font-size: 7px; font-weight: 700; letter-spacing: 0.04em; line-height: 8px; }
+      .phase-confirm { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--ga-state-solo); border-radius: 4px; background: var(--ga-surface-inset); }
+      .phase-confirm p { margin: 0; font-size: 12px; }
+      .phase-confirm ul { margin: 0; padding: 0 0 0 18px; font-size: 11px; display: grid; gap: 2px; }
+      .phase-confirm .actions { display: flex; flex-wrap: wrap; gap: 8px; }
     `),
   ];
 
@@ -87,10 +100,47 @@ export class GaRouting extends GaElement {
       paint();
     };
     const readOnly = (destination: number) => topology.outputs[destination]?.type === "MIXER_IN";
+
+    // The dedicated cables' paths, and what this device's cells and chips are marked with.
+    const paths = computed(() => {
+      const context = phasePathContext(store);
+      return dedicatedPaths(store.workspace.value?.cables ?? [], { topology: context.topology, deviceName: context.deviceName });
+    });
+    const marks = computed(() => pathMarks(paths.value, deviceId));
+
+    // A change that would break a dedicated path waits here for its confirm; anything else goes at once.
+    const confirmBox = h("div", { class: "phase-confirm", role: "group", "aria-label": "Confirm a change that breaks the phase path", "data-testid": "routing-phase-confirm", hidden: true });
+    const settle = () => {
+      confirmBox.hidden = true;
+      confirmBox.replaceChildren();
+    };
+    const write = (destination: number, changes: { channel: number; source: RouteSlot | null }[]) => {
+      const said = breaks(paths.peek(), deviceId, destination, changes, routing.mute, topology);
+      if (said.length === 0) {
+        settle();
+        void routing.routeMany(destination, changes);
+        return;
+      }
+      const apply = h("button", { type: "button", "data-testid": "routing-phase-confirm-apply", "data-explain": "routing.phase-confirm-apply" }, "Change it anyway");
+      const cancel = h("button", { type: "button", "data-testid": "routing-phase-confirm-cancel", "data-explain": "routing.phase-confirm-cancel" }, "Cancel");
+      apply.addEventListener("click", () => {
+        settle();
+        void routing.routeMany(destination, changes);
+      });
+      cancel.addEventListener("click", settle);
+      confirmBox.replaceChildren(
+        h("p", {}, "This change breaks the phase path of a dedicated cable:"),
+        h("ul", { "data-testid": "routing-phase-confirm-lines" }, ...said.map((line) => h("li", {}, line))),
+        h("p", { class: "note" }, "The Aggregate page then says the path is broken and offers to put it back. To use these channels for something else, turn the cable's dedication off on the Workspace page first."),
+        h("div", { class: "actions" }, apply, cancel),
+      );
+      confirmBox.hidden = false;
+      apply.focus();
+    };
     const fill = (destination: number, channel: number, sources: RouteSlot[]) => {
       const group = topology.outputs[destination];
       if (group === undefined || readOnly(destination) || sources.length === 0) return;
-      void routing.routeMany(destination, sources.slice(0, group.channels - channel).map((source, i) => ({ channel: channel + i, source })));
+      write(destination, sources.slice(0, group.channels - channel).map((source, i) => ({ channel: channel + i, source })));
     };
 
     let suppressClick = false;
@@ -123,6 +173,19 @@ export class GaRouting extends GaElement {
 
     paint();
 
+    // The source chips a dedicated cable keeps: marked, and saying why in their tooltip.
+    this.watch(() => {
+      const kept = marks.value.sources;
+      chips.forEach((row, g) =>
+        row.forEach((chip, c) => {
+          const phase = kept.get(`${g}:${c}`);
+          chip.toggleAttribute("data-phase", phase !== undefined);
+          const base = `${topology.inputs[g]?.name ?? g} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`;
+          chip.title = phase === undefined ? base : `${base}. ${phase}`;
+        }),
+      );
+    });
+
     const destinationRows = topology.outputs.map((group, d) => {
       const locked = readOnly(d);
       const cells = Array.from({ length: group.channels }, (_, c) =>
@@ -141,19 +204,22 @@ export class GaRouting extends GaElement {
           },
           "on:keydown": (event) => {
             const key = (event as KeyboardEvent).key;
-            if (!locked && (key === "Delete" || key === "Backspace")) void routing.route(d, c, null);
+            if (!locked && (key === "Delete" || key === "Backspace")) write(d, [{ channel: c, source: null }]);
           },
         }),
       );
-      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, "data-explain": locked ? "routing.mute-row-mixer" : "routing.mute-row", title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${group.name} channel`, "on:click": () => void routing.routeMany(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
+      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, "data-explain": locked ? "routing.mute-row-mixer" : "routing.mute-row", title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${group.name} channel`, "on:click": () => write(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
       this.watch(() => {
         const slots = routing.destination(d).value;
+        const kept = marks.value.destinations;
         cells.forEach((cell, c) => {
           const slot = slots?.[c];
           const routed = slot !== undefined && slot.source !== routing.mute;
+          const phase = kept.get(`${d}:${c}`);
           cell.toggleAttribute("data-routed", routed);
+          cell.toggleAttribute("data-phase", phase !== undefined);
           cell.textContent = slot === undefined ? "?" : routed ? shortLabel(slot.source, slot.channel) : "off";
-          cell.title = slot === undefined ? `${group.name} ${c + 1}: not read from the device` : routed ? `${group.name} ${c + 1} ← ${topology.inputs[slot.source]?.name ?? "?"} ${slot.channel + 1}` : `${group.name} ${c + 1}: muted`;
+          cell.title = (slot === undefined ? `${group.name} ${c + 1}: not read from the device` : routed ? `${group.name} ${c + 1} ← ${topology.inputs[slot.source]?.name ?? "?"} ${slot.channel + 1}` : `${group.name} ${c + 1}: muted`) + (phase === undefined ? "" : `. ${phase}`);
           const colour = routed ? topology.inputs[slot.source]?.color : undefined;
           if (colour === undefined) cell.style.removeProperty("--source-colour");
           else cell.style.setProperty("--source-colour", colour);
@@ -166,6 +232,7 @@ export class GaRouting extends GaElement {
     const destinations = h("section", {}, h("h2", { "data-explain": "routing.destinations" }, "Destinations"), h("div", { class: "table" }, destinationRows));
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
+      confirmBox,
       h("p", { class: "note" }, "Pick sources (shift-click for a run) and click a destination cell, or drag them onto one; a run fills that cell and those after it. Delete mutes a cell. Mixer inputs are set on the Mixer page; drag sources onto the Mixer dock below to add them there as channels."),
       sources,
       destinations,

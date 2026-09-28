@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{Cable, ChannelLink, ControlRoom, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::model::{Cable, CableDedication, ChannelLink, ControlRoom, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
 use crate::workspace::topology;
 use crate::AppState;
 
@@ -212,6 +212,26 @@ fn check_cables(cables: &[Cable], families: &HashMap<DeviceId, String>) -> Resul
         for end in [&cable.from, &cable.to] {
             check_port_range(families.get(&end.device_id).map(String::as_str), &end.port, end.first, cable.channels).map_err(bad)?;
         }
+        if let Some(dedicated) = &cable.dedicated {
+            check_dedication(dedicated, families.get(&cable.from.device_id).map(String::as_str), families.get(&cable.to.device_id).map(String::as_str)).map_err(bad)?;
+        }
+    }
+    Ok(())
+}
+
+/// A dedicated cable's two channels are USB channels the two models have: a playback channel on the
+/// sending device and a record channel on the receiving one. A device that is not attached keeps
+/// what it names, as everywhere else in the workspace.
+fn check_dedication(dedicated: &CableDedication, from: Option<&str>, to: Option<&str>) -> Result<(), String> {
+    use crate::aggregate::naming::channel_counts;
+    use crate::workspace::model::AGGREGATE_CHANNEL_MAX;
+    let outputs = from.and_then(channel_counts).map_or(AGGREGATE_CHANNEL_MAX + 1, |(_, outputs)| outputs);
+    let inputs = to.and_then(channel_counts).map_or(AGGREGATE_CHANNEL_MAX + 1, |(inputs, _)| inputs);
+    if dedicated.phase_output >= outputs {
+        return Err(format!("the dedicated playback channel is {}, and the sending device has 0..{}", dedicated.phase_output, outputs - 1));
+    }
+    if dedicated.phase_input >= inputs {
+        return Err(format!("the dedicated record channel is {}, and the receiving device has 0..{}", dedicated.phase_input, inputs - 1));
     }
     Ok(())
 }

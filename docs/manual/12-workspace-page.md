@@ -14,7 +14,7 @@ Each surface is listed with its strip count and devices, a name you can edit in 
 
 ## Digital cables
 
-Declared connections between two devices' digital ports, each with a health line ("Nothing wrong reported", or a warning) and **Remove** (click twice). To declare one, choose the sending port (**From**), the receiving port of the same kind (**To**), how many **Channels**, and **Declare cable**. A cable routes nothing and changes no clock. See [Digital cables](16-surfaces-and-cables.md#digital-cables).
+Declared connections between two devices' digital ports, each with a health line ("Nothing wrong reported", or a warning) and **Remove** (click twice). To declare one, choose the sending port (**From**), the receiving port of the same kind (**To**), how many **Channels**, and **Declare cable**. Declaring a cable routes nothing and changes no clock. See [Digital cables](16-surfaces-and-cables.md#digital-cables). A cable from the aggregate's callback master to another of its interfaces also has **Dedicate to phase and clock**, which routes its two ends for the phase measurement once, after a confirm: see [Dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock).
 
 ## Groups
 

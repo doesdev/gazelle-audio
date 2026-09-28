@@ -435,14 +435,19 @@ async fn prepare(
     // the driver reads whenever it changes, so the store is wrapped rather than replaced and
     // every other route is untouched. `--no-persist` keeps its file out of the way too.
     let aggregate_path = default_aggregate_path(|k| std::env::var(k).ok());
-    let aggregate = AggregateService::for_this_pc(
-        devices.clone(),
-        driver.clone(),
-        aggregate_path.clone(),
-        std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
-        std::env::var("APPDATA").ok().map(std::path::PathBuf::from),
-        carried,
-    );
+    // A debug build run by the web app's end to end tests may be asked to run the aggregate on
+    // fakes instead (`aggregate::seam`); a release never is.
+    let aggregate = match gazelle_audio_server::aggregate::seam::test_service(&devices, &driver, &aggregate_path) {
+        Some(fake) => fake,
+        None => AggregateService::for_this_pc(
+            devices.clone(),
+            driver.clone(),
+            aggregate_path.clone(),
+            std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+            std::env::var("APPDATA").ok().map(std::path::PathBuf::from),
+            carried,
+        ),
+    };
     let store: Arc<dyn WorkspaceStore> = if args.no_persist {
         store
     } else {

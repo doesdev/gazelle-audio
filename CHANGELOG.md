@@ -18,6 +18,15 @@ version that has not been published yet.
   the others by the same amount, keeping the differences between them, and muting or soloing one
   does the same to the rest. It lasts until you press Clear or Escape, and it is never saved or sent
   to the device as a link.
+- **Dedicate a digital cable to the aggregate's phase measurement and the clock.** On the
+  Workspace page, a cable from the aggregate's callback master to another of its interfaces has
+  Dedicate to phase and clock. It lists every change first, then routes a free USB playback channel
+  straight to the cable's S/PDIF or ADAT output, has the other interface record the cable, and sets
+  that interface's phase setup to match, so the measurement has a path of its own that nothing
+  else uses. The Routing page marks those channels Phase and asks before a change that would break
+  the path, and the Aggregate page puts it back in one confirmed click. The channels the phase
+  measurement keeps are shown on the Aggregate page as kept and hidden from your DAW, instead of
+  just missing.
 
 ### Changed
 
@@ -25,6 +34,14 @@ version that has not been published yet.
   first and then overwrites that layout, instead of adding a second one with the same name.
   Choosing a saved layout in Start from fills in its name, so you can update it in two clicks.
   Layouts that already share a name are kept, and shown as "Name (2)" so you can tell them apart.
+
+### Fixed
+
+- **A phase path that no longer works is no longer silent.** When the routing stops joining the
+  channels an interface's phase is measured over, for example after the playback channel was put
+  into a mix or the S/PDIF output was muted, the Aggregate page now says so. It says plainly that
+  the short burst the driver plays at the start of every session then plays wherever that channel
+  goes, such as a mix towards your monitors, and that the measurement hears nothing.
 
 ## [2.0.0] - 2026-09-28
 

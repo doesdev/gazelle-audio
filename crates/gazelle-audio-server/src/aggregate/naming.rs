@@ -231,7 +231,7 @@ fn side(channel: u32, channels: u32) -> String {
 
 /// A group's channel as the Routing page names it: the group, and its number from one when it has
 /// more than one.
-fn group_channel(group: &Group, channel: u32) -> String {
+pub(crate) fn group_channel(group: &Group, channel: u32) -> String {
     if group.channels > 1 {
         format!("{} {}", group.name, channel + 1)
     } else {
@@ -245,7 +245,7 @@ fn hardware_name(group: &Group) -> Option<String> {
 }
 
 /// One channel of a hardware output as a person names it: "Monitor L", "HP1 R", "Line out 3".
-fn hardware_channel(group: &Group, channel: u32) -> Option<String> {
+pub(crate) fn hardware_channel(group: &Group, channel: u32) -> Option<String> {
     Some(format!("{} {}", hardware_name(group)?, side(channel, group.channels)))
 }
 

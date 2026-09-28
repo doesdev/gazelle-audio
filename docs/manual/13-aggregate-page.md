@@ -42,10 +42,12 @@ Each reason is marked **STOPS IT** or **WORTH KNOWING**. Only a reason that stop
 | Clocked from the wrong place | An interface is not clocked from the input its cable arrives on. **This is the trap**: an interface left on Internal quietly becomes USB clocked the moment a DAW opens it, and then it drifts |
 | Not locked | An interface says it is not locked to its clock. The cable, or the wrong input |
 | Phase not measured | An interface has a cable from the callback master and no phase setup, so every session lines it up by its driver's figures and it lands a different distance away each time. **Set up the phase** opens its card's [phase setup](#the-phase). A warning |
+| Phase path broken | A phase setup names channels the interfaces' own routing does not join: the callback master's playback channel does not reach the cable's digital output directly, that output is muted or plays something else, the playback channel also goes into a mix or another output, or the follower's record channel does not record the cable. The measurement then hears nothing, and the short burst it plays at the start of every session plays wherever that channel goes, a mix towards your monitors included. On a [dedicated cable](16-surfaces-and-cables.md#dedicated-to-phase-and-clock), **Put the phase path back** writes the routing back, after a confirming click; otherwise **Open the Workspace page** takes you to the cables, where dedicating one gives the measurement channels of its own. A warning. See [The routing it needs](#the-routing-it-needs) |
+| Dedication means nothing now | A cable is dedicated to the phase measurement, and its sending interface no longer drives the callback, one of its interfaces left the aggregate, or the follower's phase setup names other channels. Its routing stays as it was and nothing guards it. Turn it off on the Workspace page, or dedicate it again. A warning |
 
-Where Gazelle can put a reason right, there is a button beside it that does exactly that and nothing else: put an interface at the right rate, put it on the right clock input, match the buffer sizes, or register the driver. After it has run, the whole answer is read again, so what you then see is what the server makes of it.
+Where Gazelle can put a reason right, there is a button beside it that does exactly that and nothing else: put an interface at the right rate, put it on the right clock input, match the buffer sizes, register the driver, or put a dedicated cable's phase path back. After it has run, the whole answer is read again, so what you then see is what the server makes of it.
 
-**Matching buffer sizes asks twice**, the way 48V does: one click arms it, a second within three seconds does it. Every program using those drivers, a DAW included, restarts its audio when it happens, so a take being recorded is lost. Stop playback first.
+**Matching buffer sizes asks twice**, the way 48V does: one click arms it, a second within three seconds does it. Every program using those drivers, a DAW included, restarts its audio when it happens, so a take being recorded is lost. Stop playback first. **Putting a phase path back** asks twice as well, because it replaces routing somebody changed: it writes one routing group at a time, each read from the interface first, exactly as the Routing page does.
 
 ## Registering
 
@@ -125,13 +127,15 @@ Beside such an input, **Record it on USB A REC 9** routes it straight to the fir
 
 Turning a channel off keeps it out of the aggregate altogether, so a DAW never lists it. While every channel is exposed, nothing is recorded in the setup, which is what "all of them" means, and turning everything back on takes it out again.
 
+The two channels a [phase setup](#the-phase) names, the callback master's playback channel and the follower's record channel, read **Kept** and say **Kept for the phase measurement, hidden from your DAW**: the driver keeps them for itself whatever is exposed. They come back to the DAW when the phase setup names other channels or is cleared.
+
 Two interfaces of one model that you have not named come out with the same name, so the second is told apart by its place, **Zen Quadro Synergy Core (2)**, and in the DAW by a count, **Quadro 2**. Naming the devices is the better answer.
 
 ## Setup
 
 | Choice | What it does |
 |---|---|
-| **Callback master** | Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable. It is kept by the interface's audio driver, which renaming the device does not change, so a rename never loses it |
+| **Callback master** | Which interface drives the DAW's callback. Everything else is lined up against its clock, so it should be the one the others take their clock from over the cable. It is kept by the interface's audio driver, which renaming the device does not change, so a rename never loses it. A cable [dedicated to the phase measurement](16-surfaces-and-cables.md#dedicated-to-phase-and-clock) leaves the callback master, so choosing another one leaves its dedication meaning nothing, and a line under the menu says so at once |
 | **Alignment** | **Aligned** pads every interface so they all line up, at the cost of a little latency; **lowest latency** pads nothing, so interfaces of different latencies end up offset from each other. Aligned unless you are counting samples |
 | **Sample rate** | The rate to put every interface at. Left on **Whatever the interfaces are on**, it is the rate they are all running at. See [The rate](#the-rate) |
 | **Buffer size** | The buffer size the aggregate offers a DAW as its preferred one |
@@ -187,10 +191,12 @@ Once it is set up, the card says **Set up, no reference yet**. One measurement u
 
 This is the step that is easy to miss. The measurement travels on the digital cable, so **each interface's own routing has to carry it**:
 
-- On the **callback master**, the playback channel chosen under **Leaves the callback master on** has to be routed to the socket the cable leaves from, its S/PDIF out.
+- On the **callback master**, the playback channel chosen under **Leaves the callback master on** has to be routed straight to the socket the cable leaves from, its S/PDIF out, and **nowhere else**. The driver plays a short burst into it at the start of every session (four samples, quiet, but a click), and it plays wherever that channel goes: put it in a mix and it goes towards your monitors or headphones.
 - On the **follower**, the socket the cable arrives at, its S/PDIF in, has to be routed to the record channel chosen under **Arrives on**.
 
-A fresh setup has neither, and a path that is not routed reads as **nothing heard**, not as a missing route. Set both on the [Routing page](10-routing-page.md) before measuring.
+A fresh setup has neither, and a path that is not routed reads as **nothing heard**, not as a missing route. **Ready to use** says when the routing does not join the two channels (**Phase path broken**), from the routing Gazelle has seen.
+
+The easy way to get it right is to [dedicate the cable](16-surfaces-and-cables.md#dedicated-to-phase-and-clock) on the Workspace page: Gazelle picks a free playback channel, routes both ends, sets **Phase setup** to match, and from then on guards the path. **Phase setup** on the follower's card then names the cable and says it keeps the routing. You can still route it by hand on the [Routing page](10-routing-page.md).
 
 ### What each session made of it
 

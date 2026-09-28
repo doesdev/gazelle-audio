@@ -329,6 +329,7 @@ mod tests {
 
     struct Harness {
         app: Router,
+        devices: Arc<DeviceManager>,
         store: Arc<MemoryStore>,
         elevator: Arc<FakeElevator>,
         link: Arc<FakeLink>,
@@ -390,7 +391,7 @@ mod tests {
             bundled: crate::aggregate::bundled::Status::NotCarried,
         });
         let store = Arc::new(MemoryStore::default());
-        Harness { app: routes(service, store.clone(), false), store, elevator, link, quadro, studio }
+        Harness { app: routes(service, store.clone(), false), devices, store, elevator, link, quadro, studio }
     }
 
     /// The setup phase 0 measured, with the Quadro driving the callback.
@@ -419,6 +420,7 @@ mod tests {
                 from: CableEnd { device_id: DeviceId::from_serial(QUADRO), port: "SPDIF_OUT".into(), first: 0 },
                 to: CableEnd { device_id: DeviceId::from_serial(STUDIO), port: "SPDIF_IN".into(), first: 0 },
                 channels: 2,
+                dedicated: None,
             }],
             ..Workspace::default()
         }
@@ -600,6 +602,44 @@ mod tests {
         let drivers = body["drivers"].as_array().unwrap();
         assert_eq!(drivers.iter().filter(|d| d["configured"] == true).count(), 2);
         assert!(drivers.iter().any(|d| d["is_aggregate"] == true));
+    }
+
+    /// The owner's PC, through the route: the Quadro's USB 1 PLAY 3 put into Mix 1 and Mix 4 for a
+    /// headphone amp, its S/PDIF output muted, and the Studio+'s phase still set up over them. The
+    /// routing is what the server remembers of the writes it sent, as it would be at the devices.
+    #[tokio::test]
+    async fn a_phase_setup_whose_routing_no_longer_joins_the_cable_is_a_reason_in_the_answer() {
+        use gazelle_audio_protocol::payload::PayloadValues;
+        use crate::workspace::model::AggregatePhase;
+        let h = harness();
+        // Quadro: MIXER_IN0 is destination 8, MIXER_IN3 11, SPDIF_OUT0 6; USB 1 PLAY is source 1, MUTE 10.
+        // Studio+: USB_REC0 is destination 6; SPDIF IN is source 5, MUTE 11.
+        let write = |serial: &str, group: u32, mute: u8, slots: &[(usize, [u8; 2])]| {
+            let mut pairs = [[mute, 0]; 32];
+            for (at, slot) in slots {
+                pairs[*at] = *slot;
+            }
+            (DeviceId::from_serial(serial), PayloadValues::default().with_scalar("bank_idx", u64::from(group)).with_bytes("bank_configs", pairs.concat()))
+        };
+        for (id, values) in [
+            write(QUADRO, 8, 10, &[(4, [1, 2])]),
+            write(QUADRO, 11, 10, &[(9, [1, 2])]),
+            write(QUADRO, 6, 10, &[]),
+            write(STUDIO, 6, 11, &[(20, [5, 0])]),
+        ] {
+            h.devices.handle(&id).unwrap().request("set_routing", values, None, false).await.expect("the loopback takes it");
+        }
+        let mut config = pair();
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(2), input: Some(20), reference: Some(-37) });
+        h.store.save(&workspace_with(config)).unwrap();
+        let (status, body) = get(&h.app, "/api/v1/aggregate").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let reason = body["reasons"].as_array().unwrap().iter().find(|r| r["code"] == "phase_path_broken").cloned().unwrap_or_else(|| panic!("{body:#}"));
+        assert_eq!(reason["severity"], "warning");
+        assert_eq!(reason["device"], "Studio+");
+        let message = reason["message"].as_str().unwrap();
+        assert!(message.starts_with("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L is muted, not USB 1 PLAY 3; USB 1 PLAY 3 also goes to Mix 1 and Mix 4,"), "{message}");
+        assert!(reason.get("fix").is_none(), "the cable is not dedicated, so nothing is offered to undo the mixes");
     }
 
     /// Renaming the device in Gazelle is renaming the interface in the aggregate: the answer names it

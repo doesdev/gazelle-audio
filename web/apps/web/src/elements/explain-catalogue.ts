@@ -582,6 +582,12 @@ export const CATALOGUE: Catalogue = {
   "routing.cell-mixer": { title: "{name}", name: "Mixer input", what: "A mixer input and the source feeding it. Mixer inputs are set by the Mixer page's channels, so they are shown here and not changed." },
   "routing.mute-row": { title: "Mute row", what: "Mutes every channel of this destination on the device.", watch: "On an output you are listening through, it goes quiet at once." },
   "routing.mute-row-mixer": { title: "Mute row", what: "Mixer inputs are set by the Mixer page's channels, so this row cannot be muted here." },
+  "routing.phase-confirm-apply": {
+    title: "Change it anyway",
+    what: "Makes the change that breaks the phase path of a dedicated cable, exactly as it would have been made without asking.",
+    watch: "The phase measurement then hears nothing, and if the cable's playback channel now goes somewhere else, the short burst the driver plays into it at the start of every session plays there too. The Aggregate page says so and offers to put the path back.",
+  },
+  "routing.phase-confirm-cancel": { title: "Cancel", what: "Leaves the routing as it is. " + NOTHING_SENT },
 
   // The Effects page.
   "effects.read": { title: "Read from device", what: "Reads the chains, the reverb and its sends and returns from the device again." },
@@ -852,6 +858,22 @@ export const CATALOGUE: Catalogue = {
   },
   "workspace.cable-health": { title: "What is wrong along it", what: "Warnings from both devices' reports: sample rates that differ, a receiver not locked, or signal leaving one end and none arriving at the other." },
   "workspace.cable-remove": { title: "Remove the cable", what: "Removes the cable from the workspace. Click twice. Nothing changes on the devices." },
+  "workspace.cable-dedicate": {
+    title: "Dedicated to phase and clock",
+    what: "Gives a digital cable from the aggregate's callback master to another of its interfaces over to the phase measurement and the clock. Offered only for such a cable, with both interfaces connected; otherwise greyed, with the reason beside it.",
+    effect: "Turning it on reads the routing it needs and lists every change in a confirm before anything is written: a USB playback channel nothing uses goes straight to the cable's first channel, the pair's other side is muted on S/PDIF, the other interface records the cable on a USB record channel, and its phase setup names those two channels. Turning it off asks whether to keep the phase setup.",
+    watch: "A phase reference measured over another path is taken out, so measure the interfaces again on the Aggregate page. The clock is not changed here.",
+  },
+  "workspace.cable-dedicated": { title: "What the cable keeps", what: "The playback channel, the digital output and the record channel the dedicated cable keeps for the phase measurement. The Routing page marks them and asks before a change that would break the path." },
+  "workspace.cable-clock": {
+    title: "Put it on the cable's clock",
+    what: "Puts the receiving interface's clock on the input this cable arrives on, the same change the Aggregate page offers when its clock does not follow the cable.",
+    watch: "A clock change interrupts the audio, so it asks for a second click first.",
+  },
+  "workspace.cable-dedicate-apply": { title: "Dedicate", what: "Writes the routing changes listed above, one routing group at a time, each read from the device first, then marks the cable dedicated and writes the phase setup." },
+  "workspace.cable-dedicate-cancel": { title: "Cancel", what: "Closes the confirm without changing anything. " + NOTHING_SENT },
+  "workspace.cable-release-keep": { title: "Turn off, keep the phase setup", what: "Takes the dedication off and leaves the routing and the phase setup as they are, so the phase is still measured over the same channels. Only the guard on the Routing page goes. " + NOTHING_SENT },
+  "workspace.cable-release-clear": { title: "Turn off and clear the phase setup", what: "Takes the dedication off and clears the receiving interface's phase setup, which gives its two channels back to your DAW and stops the phase measurement. The routing stays as it is. " + NOTHING_SENT },
   "workspace.snapshot-name": { title: "Snapshot name", what: "The snapshot's name; edit it in place." },
   "workspace.snapshot-compare": { title: "Compare with now", what: "Reads every device again and shows what differs from the snapshot. Nothing is sent." },
   "workspace.snapshot-delete": { title: "Delete the snapshot", what: "Deletes the snapshot from the server. Click twice." },
@@ -923,14 +945,18 @@ export const CATALOGUE: Catalogue = {
   },
   "aggregate.fix": {
     title: "Put it right",
-    what: "Sends exactly the request the server prepared for this reason: matching the buffer sizes, putting a device on the right clock or rate, or registering the driver.",
+    what: "Sends exactly the request the server prepared for this reason: matching the buffer sizes, putting a device on the right clock or rate, registering the driver, or writing a dedicated cable's phase path back into the interfaces' routing.",
     effect: "Afterwards the whole answer is read again, so what you see is what the server makes of it, not what the button hoped for.",
-    watch: "Matching buffer sizes restarts the audio of every program using those drivers, so it asks for a second click first.",
+    watch: "Matching buffer sizes restarts the audio of every program using those drivers, and putting a phase path back replaces routing somebody changed, so both ask for a second click first.",
   },
   "aggregate.reason-goto-phase": {
     title: "Set up the phase",
     what: "Opens the phase setup on the card of the interface this reason is about, where you say which channel the digital cable leaves the callback master on and which it arrives on.",
     effect: "It only opens the card. Nothing is written until both channels are chosen there.",
+  },
+  "aggregate.reason-goto-workspace": {
+    title: "Open the Workspace page",
+    what: "Goes to the Workspace page, where the digital cables are: a dedication that no longer means anything is turned off there, and a cable is dedicated to the phase measurement there.",
   },
   "aggregate.outcome": { title: "What that came to", what: "What the last button pressed here actually did, in the server's own words." },
   "aggregate.registration": {
@@ -1026,6 +1052,11 @@ export const CATALOGUE: Catalogue = {
     title: "Record this input",
     what: "Routes this input straight to the first free USB record channels, ones routed from nothing, so the DAW can record it. A pair takes a pair, and a single socket one channel. Click twice.",
     effect: "One routing change to the USB record channels, the same as making it on the Routing page. Those channels were recording nothing, and the aggregate's input names follow the new routing.",
+  },
+  "aggregate.channel-kept": {
+    title: "Kept for the phase measurement",
+    what: "The driver keeps this channel for the phase measurement and hides it from your DAW, whatever is exposed: the callback master's output the short burst leaves on, or another interface's input it arrives on.",
+    effect: "It comes back to your DAW when the phase setup on the other interface's card names another channel or is cleared.",
   },
   "aggregate.channel-daw": {
     title: "In a DAW",

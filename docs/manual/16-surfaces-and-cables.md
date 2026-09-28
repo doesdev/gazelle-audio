@@ -51,4 +51,27 @@ A cable tells Gazelle that one device's S/PDIF or ADAT output is connected to an
 - labels a channel or input fed by it with where the signal comes from, for example "from Live room ADAT out 1", and, once the sender's routing is read, which source or mix it carries;
 - warns when the two devices' sample rates differ, when the receiver is not locked to its clock, and when signal leaves the sender but none arrives ("check the cable, the routing and the clock"). A cable into an S/PDIF input whose **Converter** is on is not warned about on either count: the rate is converted, and that device need not follow the sender's clock. Signal that never arrives is still reported.
 
-Cables change nothing on the devices. Switching clocks stays on the Devices page. Surfaces and cables have been tested against the emulator only.
+Declaring a cable changes nothing on the devices. Switching clocks stays on the Devices page. Surfaces and cables have been tested against the emulator only.
+
+### Dedicated to phase and clock
+
+A digital cable from the aggregate's callback master to another interface of the aggregate can be given over to the [phase measurement](13-aggregate-page.md#the-phase) and the clock, so it carries nothing else and nothing else takes its channels. Each cable on the [Workspace page](12-workspace-page.md#digital-cables) has **Dedicate to phase and clock**. It is offered only for such a cable, with both interfaces connected; otherwise it is greyed, with the reason beside it: the cable runs into the callback master, an interface is not in the aggregate, or another cable into that interface is dedicated already.
+
+Pressing it reads the routing it needs, then lists every change in a confirm before anything is written:
+
+- **On the callback master**, a USB playback channel nothing uses (no destination takes it and it is in no mix; the highest numbered one, such as **USB 1 PLAY 16**) is routed straight to the cable's first channel, **S/PDIF out L**. On S/PDIF the other side, **S/PDIF out R**, is muted, so the cable carries the measurement and nothing else. S/PDIF carries its clock whatever it plays, so muting it costs the clock nothing. On ADAT the other channels are left as they are.
+- **On the other interface**, a USB record channel records the cable's first channel, **S/PDIF in L**: one that already does, else the highest one that records nothing.
+- **In the aggregate's setup**, that interface's **Phase setup** names the two channels. A phase reference measured over another path is taken out, since it would line every session up to a state the new path was never in: measure the interfaces again under **Line the interfaces up** to give it one.
+- The two channels are then kept for the measurement and hidden from your DAW, and the ones the old phase setup named come back to it.
+
+**Write it and dedicate** writes each routing group once, read from the interface first, as the Routing page does. If the path is there already, nothing is written. The clock is not touched here: if the other interface is not clocked from the cable, **Put Studio+ on S/PDIF** (with its name) appears beside the cable, and asks twice, because a clock change interrupts the audio.
+
+While it is dedicated:
+
+- the cable's row says what it keeps: **Dedicated to phase and clock: Quadro USB 1 PLAY 16 → S/PDIF out L → Studio+ USB REC 21**;
+- the [Routing page](10-routing-page.md#dedicated-cables) marks those channels **PHASE**, and asks before a change that would break the path;
+- the Aggregate page's **Ready to use** says when the path is broken, and **Put the phase path back** restores it.
+
+A dedication means something only while its cable leaves the callback master and the other interface's phase setup names its two channels. Choose another callback master, take an interface out of the aggregate, or change the phase setup, and the row and the Aggregate page say the dedication means nothing now: its routing stays as it was and nothing guards it.
+
+**Turn off** writes nothing to the interfaces. **Turn off, keep the phase setup** leaves the routing and the phase setup as they are, so the phase is still measured over the same channels and they stay hidden from your DAW; only the guard goes. **Turn off and clear the phase setup** also clears the other interface's phase setup, which gives both channels back to your DAW and stops the measurement. Removing a dedicated cable removes its dedication with it.

@@ -112,6 +112,10 @@ export type FixRequest =
 
 const COMMAND_ROUTE = /^devices\/([^/]+)\/command\/([a-z0-9_]+)$/;
 
+/**
+ * `restore_phase_path` is not answered here: it is routing, which the Aggregate page writes itself
+ * through the routing model (`phase-path.ts`, which comes with the page), so this says nothing of it.
+ */
 export function fixRequest(fix: AggregateFix): FixRequest | undefined {
   const body = typeof fix.body === "object" && fix.body !== null ? (fix.body as Record<string, unknown>) : {};
   // The one the page makes itself, in the setup it keeps in the workspace.
@@ -140,7 +144,7 @@ export function fixRequest(fix: AggregateFix): FixRequest | undefined {
  * is offered here as one press: it is the fix for a reason that already says what it will do.
  */
 export function fixNeedsConfirming(fix: AggregateFix): boolean {
-  return fix.kind === "match_buffers" || fix.kind === "set_setup_rate";
+  return fix.kind === "match_buffers" || fix.kind === "set_setup_rate" || fix.kind === "restore_phase_path";
 }
 
 /** A rate in words: "96 kHz", "44.1 kHz". */
@@ -1191,6 +1195,15 @@ function phaseKept(config: Aggregate | undefined, input: boolean): Set<string> {
     else if (master !== undefined) kept.add(`${master}:${phase.master_output}`);
   }
   return kept;
+}
+
+/**
+ * Whether the driver keeps one channel of one interface for the phase measurement, which hides it
+ * from a DAW whatever the setup exposes: a follower's input the measurement arrives on, or the
+ * callback master's output it leaves from. The channel list says so rather than leaving it out.
+ */
+export function phaseKeptChannel(config: Aggregate | undefined, index: number, input: boolean, channel: number): boolean {
+  return phaseKept(config, input).has(`${index}:${channel}`);
 }
 
 /**
@@ -2273,6 +2286,22 @@ export class AggregateModel {
       this.#outcome.value = sent ? { text: `Sent ${request.command}.`, problem: false } : { text: `${request.command} was not sent.`, problem: true };
     } catch (error) {
       this.#outcome.value = { text: `${request.command} was not sent: ${message(error)}`, problem: true };
+    } finally {
+      this.#busy.value = undefined;
+    }
+    await this.refresh();
+  }
+
+  /**
+   * A fix the page makes itself (a phase path's routing): busy while it runs, what it came to said
+   * under the reasons, and the answer read again afterwards, as for every other fix.
+   */
+  async perform(task: () => Promise<{ text: string; problem: boolean }>): Promise<void> {
+    this.#busy.value = "fixing";
+    try {
+      this.#outcome.value = await task();
+    } catch (error) {
+      this.#outcome.value = { text: message(error), problem: true };
     } finally {
       this.#busy.value = undefined;
     }

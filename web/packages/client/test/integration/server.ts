@@ -64,6 +64,13 @@ export interface StartOptions {
    * (crates/gazelle-audio-server/src/remote/seam.rs), which is what this harness builds.
    */
   phoneSeams?: boolean;
+  /**
+   * Run the aggregate on the server's own fakes (a registry listing both models' drivers and
+   * Gazelle Aggregate, registered, and nothing of this machine's), so its readiness answer is worked
+   * out from the loopback's real routing rather than answered in the browser. Only a debug build of
+   * the server honours it (crates/gazelle-audio-server/src/aggregate/seam.rs).
+   */
+  aggregateFakes?: boolean;
 }
 
 /** The header a test sends to be a phone, when the server was started with `phoneSeams`. */
@@ -92,7 +99,11 @@ export async function startServer(extraArgs: readonly string[] = [], options: St
   }
   const binary = buildServer();
   const args = ["--bind", "127.0.0.1:0", "--no-persist", "--no-tray", ...(options.webUi ? [] : ["--no-web-ui"]), ...extraArgs];
-  const env = options.phoneSeams ? { ...childEnv(), GAZELLE_TEST_PHONE_LISTEN: "127.0.0.1", GAZELLE_TEST_PEER_HEADER: "1" } : childEnv();
+  const env = {
+    ...childEnv(),
+    ...(options.phoneSeams ? { GAZELLE_TEST_PHONE_LISTEN: "127.0.0.1", GAZELLE_TEST_PEER_HEADER: "1" } : {}),
+    ...(options.aggregateFakes ? { GAZELLE_TEST_AGGREGATE: "1" } : {}),
+  };
   const child = spawn(binary, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env });
   live.add(child);
   const exited = new Promise<void>((done) => child.once("exit", () => done()));

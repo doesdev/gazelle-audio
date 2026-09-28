@@ -258,13 +258,28 @@ export interface CableEnd {
 
 /**
  * A cable the user says joins one device's S/PDIF or ADAT output to another's input of the same
- * kind. It routes nothing; it tells the app where a digital input's signal comes from.
+ * kind. Declaring one routes nothing; it tells the app where a digital input's signal comes from.
+ * One can be dedicated to the aggregate's phase measurement and the clock (`dedicated`).
  */
 export interface Cable {
   id: string;
   from: CableEnd;
   to: CableEnd;
   channels: number;
+  /** Present while the cable is dedicated to the aggregate's phase measurement and the clock. */
+  dedicated?: CableDedication;
+}
+
+/**
+ * The two channels a dedicated cable keeps for the phase measurement, each the device's own USB
+ * channel from zero: the sender's (the callback master's) playback channel routed straight to the
+ * cable's first channel, and the receiver's (a follower's) record channel that records it. While
+ * the dedication means anything they are exactly the follower's `phase.master_output` and
+ * `phase.input`.
+ */
+export interface CableDedication {
+  phase_output: number;
+  phase_input: number;
 }
 
 /** What a surface strip shows. */

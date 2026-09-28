@@ -859,7 +859,27 @@ async fn cables_and_port_strips_round_trip_and_are_validated() {
     let (_, body) = get(app.clone(), "/api/v1/workspace").await;
     assert_eq!(body["cables"], good, "rejected saves change nothing");
 
-    let surface = |strip: Value| json!({"version": 1, "surfaces": [{"id": "s", "name": "S", "strips": [strip]}]});
+    // A cable dedicated to the aggregate's phase measurement keeps a USB playback channel of the
+    // sender and a USB record channel of the receiver: the Quadro has sixteen of each, the Studio+
+    // twenty-four.
+    let dedicated = |output: u32, input: u32| json!([{"id": "spdif", "from": end("loopback-0", "SPDIF_OUT", 0), "to": end("loopback-1", "SPDIF_IN", 0), "channels": 2, "dedicated": {"phase_output": output, "phase_input": input}}]);
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(dedicated(15, 23))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["cables"][0]["dedicated"], json!({"phase_output": 15, "phase_input": 23}));
+    for (output, input, message) in [
+        (16, 0, "cable 'spdif': the dedicated playback channel is 16, and the sending device has 0..15"),
+        (0, 24, "cable 'spdif': the dedicated record channel is 24, and the receiving device has 0..23"),
+    ] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", document(dedicated(output, input))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"]["message"], format!("bad value: {message}"));
+    }
+    let (status, _) = send(app.clone(), "PUT", "/api/v1/workspace", document(good.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    assert!(body["cables"][2].get("dedicated").is_none(), "a cable that is not dedicated says nothing about it");
+
+    let surface =|strip: Value| json!({"version": 1, "surfaces": [{"id": "s", "name": "S", "strips": [strip]}]});
     for strip in [json!({"id": "p", "kind": "port", "device_id": "loopback-0", "port": "SPDIF_OUT"}), json!({"id": "p", "kind": "port", "device_id": "loopback-1", "port": "ADAT_OUT", "first": 8})] {
         let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", surface(strip.clone())).await;
         assert_eq!(status, StatusCode::OK, "{strip}: {body}");

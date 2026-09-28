@@ -34,6 +34,7 @@ import {
   type SectionDiff,
 } from "../store/snapshots.ts";
 import { backupFileName, backupFileText, readWorkspaceFile, workspaceFileName, workspaceFileText, type WorkspaceSummary } from "../store/workspace-file.ts";
+import { dedicationPart, DEDICATION_STYLES } from "./cable-dedication.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
 import { phonesSection, PHONES_STYLES } from "./phones-section.ts";
 import { href } from "./router.ts";
@@ -115,6 +116,7 @@ export class GaWorkspace extends GaElement {
       .plan-nothing-sent { margin: 10px 0 0; padding: 6px 8px; border: 1px solid var(--ga-border-subtle); font-size: 11px; }
     `),
     sheet(PHONES_STYLES),
+    sheet(DEDICATION_STYLES),
   ];
 
   protected override render(): void {
@@ -310,7 +312,9 @@ export class GaWorkspace extends GaElement {
   /**
    * Digital cables: each declared cable with what is wrong along it (from both devices' reports,
    * followed while the page is open), removed behind a second click; and a form to declare one from
-   * a device's digital output to another's input. A cable routes nothing.
+   * a device's digital output to another's input. Declaring a cable routes nothing. A cable from the
+   * aggregate's callback master to a follower can be dedicated to its phase measurement and the
+   * clock (cable-dedication.ts), which routes its two ends once, after a confirm.
    */
   #cables(): HTMLElement {
     const store = useStore();
@@ -439,6 +443,7 @@ export class GaWorkspace extends GaElement {
               h("span", { class: "cable-label" }, store.cables.label(cable)),
               health,
               remove,
+              dedicationPart(store, cable, (dispose) => rows.push(dispose)),
             );
           }),
         );
@@ -451,7 +456,7 @@ export class GaWorkspace extends GaElement {
       list,
       h("div", { class: "actions" }, from, h("span", { "aria-hidden": "true" }, "→"), to, h("label", { class: "note" }, "Channels ", channels), declare),
       problem,
-      h("p", { class: "note" }, "A cable only says what is plugged in. It routes nothing and changes no clock; set those on each device."),
+      h("p", { class: "note" }, "Declaring a cable says what is plugged in. It routes nothing and changes no clock; set those on each device. A cable from the aggregate's callback master to another of its interfaces can be dedicated to the phase measurement and the clock, which routes its two ends once, after a confirm that lists every change."),
     );
   }
 

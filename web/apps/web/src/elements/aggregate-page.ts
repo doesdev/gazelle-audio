@@ -77,6 +77,7 @@ import {
   outcomeSummary,
   phaseChoices,
   phaseFromPicks,
+  phaseKeptChannel,
   phasePicks,
   phaseRefusedText,
   phaseRoutingNote,
@@ -120,9 +121,11 @@ import {
   type WitnessView,
 } from "../store/aggregate.ts";
 import { driverControls } from "../store/driver.ts";
+import { cableLabel, phasePathContext, reasonPage, restorePath, restoreWrites, staleness, storeRouteWriter } from "../store/phase-path.ts";
 import { displayName, SAMPLE_RATES, type Store } from "../store/store.ts";
 import { bindConfirm, confirmedChoice } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import { href } from "./router.ts";
 
 /** `SAMPLE_RATES` in Hz, which is how the aggregate's setup and the driver's file say a rate. */
 const RATE_HZ = [32000, 44100, 48000, 88200, 96000, 176400, 192000];
@@ -494,7 +497,7 @@ export class GaAggregate extends GaElement {
       reason.severity === "blocking" ? "STOPS IT" : "WORTH KNOWING",
     );
     const text = h("span", { "data-testid": `reason-${reason.code}` }, reason.message);
-    const fix = reason.fix === undefined ? undefined : this.#fixButton(model, reason, reason.fix);
+    const fix = reason.fix === undefined ? undefined : this.#fixButton(store, reason, reason.fix);
     // A reason the page can say more about, and point at the place on the page that answers it.
     const hint = reasonHint(reason);
     const goes = reasonCard(reason, store.workspace.peek()?.aggregate, untracked(() => this.#naming(store))) === undefined
@@ -513,7 +516,11 @@ export class GaAggregate extends GaElement {
           },
           "Set up the phase",
         );
-    const button = fix ?? goes;
+    const elsewhere =
+      reasonPage(reason) === undefined
+        ? undefined
+        : h("a", { class: "fix", href: href({ page: "workspace" }), "data-testid": `reason-page-${reason.code}`, "data-explain": "aggregate.reason-goto-workspace" }, "Open the Workspace page");
+    const button = fix ?? goes ?? elsewhere;
     return h(
       "li",
       { class: "reason", "data-testid": `reason-row-${reason.code}` },
@@ -537,15 +544,19 @@ export class GaAggregate extends GaElement {
    * The button for a reason the server already knows how to put right. It sends the request the
    * answer named and nothing else; one that interrupts a DAW asks for a second click first.
    */
-  #fixButton(model: Store["aggregate"], reason: AggregateReason, fix: AggregateFix): HTMLElement {
+  #fixButton(store: Store, reason: AggregateReason, fix: AggregateFix): HTMLElement {
+    const model = store.aggregate;
     const button = h("button", { type: "button", class: "fix", "data-testid": `reason-fix-${reason.code}`, "data-explain": "aggregate.fix", title: fix.label }, fix.label);
+    // A phase path's fix is routing, which this page writes as the Routing page does, each group read first.
+    const writes = restoreWrites(fix);
+    const apply = () => void (writes === undefined ? model.applyFix(fix) : model.perform(() => restorePath(writes, storeRouteWriter(store))));
     if (fixNeedsConfirming(fix)) {
-      button.title = `${fix.label}: ${RESTARTS}`;
+      button.title = fix.kind === "restore_phase_path" ? `${fix.label}: the routing it names is written back, click twice` : `${fix.label}: ${RESTARTS}`;
       // The disarm is not kept: the row is thrown away whole when the reasons change, and a
       // timer of three seconds on a button that is gone has nothing left to arm.
-      bindConfirm(button, fix.label, () => void model.applyFix(fix));
+      bindConfirm(button, fix.label, apply);
     } else {
-      button.addEventListener("click", () => void model.applyFix(fix));
+      button.addEventListener("click", apply);
     }
     return button;
   }
@@ -794,7 +805,9 @@ export class GaAggregate extends GaElement {
       channelsCheck.hidden = check === undefined;
       channelsCheck.textContent = check ?? "";
       const texts = (input: boolean, count: number | undefined) => Array.from({ length: count ?? 0 }, (_, channel) => channelName(device, naming, input, channel));
-      const shape = JSON.stringify([counts, named, naming?.dawName, texts(true, counts.inputs), texts(false, counts.outputs)]);
+      const config = store.workspace.value?.aggregate;
+      const kept = (input: boolean, count: number | undefined) => Array.from({ length: count ?? 0 }, (_, channel) => phaseKeptChannel(config, index, input, channel));
+      const shape = JSON.stringify([counts, named, naming?.dawName, texts(true, counts.inputs), texts(false, counts.outputs), kept(true, counts.inputs), kept(false, counts.outputs)]);
       if (shape !== built) {
         built = shape;
         untracked(() => {
@@ -836,6 +849,7 @@ export class GaAggregate extends GaElement {
       }),
     );
     const routing = h("p", { class: "note", "data-testid": `${testid}-phase-routing` });
+    const dedicated = h("p", { class: "note", "data-testid": `${testid}-phase-dedicated`, hidden: true });
     const pickers = h("div", { class: "field-grid" }, h("span", { class: "label" }, "Leaves the callback master on"), leaves, h("span", { class: "label" }, "Arrives on"), arrives);
 
     const pick = (key: keyof PhasePicks, value: string) => {
@@ -860,6 +874,7 @@ export class GaAggregate extends GaElement {
       note,
       pickers,
       h("div", { class: "add" }, clear),
+      dedicated,
       routing,
     );
     const opened = store.view<boolean>(`aggregate:${index}:phase-open`, false);
@@ -906,6 +921,20 @@ export class GaAggregate extends GaElement {
       const ownId = resolvedDeviceId(viewFor(answer, index), device);
       const from = masterDevice === undefined || at === undefined ? undefined : resolvedDeviceId(viewFor(answer, at), masterDevice);
       routing.textContent = phaseRoutingNote(master, own, cablePort(store.workspace.value?.cables, from, ownId));
+      // A cable dedicated to this interface's phase: the routing is the cable's, and it is guarded.
+      const context = phasePathContext(store);
+      const cable = (context.workspace?.cables ?? []).find((one) => one.dedicated !== undefined && one.to.device_id === ownId);
+      const stale = cable === undefined ? undefined : staleness(cable, context.workspace, context.deviceName);
+      dedicated.hidden = cable === undefined || isMaster;
+      if (cable !== undefined) {
+        const label = cableLabel(cable, context.deviceName);
+        dedicated.textContent =
+          stale === undefined
+            ? `These are the channels of the dedicated ${cablePort([cable], cable.from.device_id, cable.to.device_id) ?? "digital"} cable, ${label}. It keeps the routing they need, the Routing page asks before a change that would break it, and it is turned off on the Workspace page.`
+            : `The ${cablePort([cable], cable.from.device_id, cable.to.device_id) ?? "digital"} cable ${label} is dedicated to the phase measurement, and ${stale.charAt(0).toLowerCase()}${stale.slice(1)}`;
+        dedicated.classList.toggle("warning", stale !== undefined);
+        if (stale === undefined) routing.textContent = "The dedicated cable keeps the routing this needs: its playback channel straight to the digital output and nowhere else, and its digital input to the record channel.";
+      }
       const connected = store.connected.value;
       for (const control of [leaves, arrives, clear]) control.disabled = !connected;
     });
@@ -1032,20 +1061,24 @@ export class GaAggregate extends GaElement {
     const nameKey = input ? "input_names" : "output_names";
     const called = channelName(device, naming, input, channel);
     const exposed = isExposed(device[listKey], channel);
+    // A channel the phase measurement runs over: the driver hides it from a DAW whatever the setup
+    // says, so it is shown as kept rather than offered as exposed or left out without a word.
+    const kept = phaseKeptChannel(store.workspace.peek()?.aggregate, index, input, channel);
 
     const expose = h(
       "button",
       {
         type: "button",
         class: "expose",
-        "aria-pressed": String(exposed),
+        "aria-pressed": String(exposed && !kept),
         "aria-label": `Expose ${called.text}`,
-        title: exposed ? `${called.text} is one of the channels a DAW sees` : `${called.text} is kept out of what a DAW sees`,
+        title: kept ? `${called.text} is kept for the phase measurement, hidden from your DAW` : exposed ? `${called.text} is one of the channels a DAW sees` : `${called.text} is kept out of what a DAW sees`,
         "data-testid": `${testid}-expose`,
         "data-explain": "aggregate.channel-expose",
+        "data-kept": kept,
         "on:click": () => this.#editDevice(store, index, (current) => withField(current, listKey, withChannelExposed(current[listKey] as number[] | undefined, count, channel, !exposed))),
       },
-      exposed ? "On" : "Off",
+      kept ? "Kept" : exposed ? "On" : "Off",
     );
 
     const label = h("input", {
@@ -1065,14 +1098,15 @@ export class GaAggregate extends GaElement {
     showLabel(channelLabel(device[nameKey], channel));
 
     // The DAW's reference is the device's DAW name, its model's short form where nobody named it.
-    const daw = dawLine(naming?.dawName ?? named, channel, called);
+    const daw = kept ? undefined : dawLine(naming?.dawName ?? named, channel, called);
     return h(
       "div",
-      { class: "channel-row", "data-testid": testid },
+      { class: "channel-row", "data-testid": testid, "data-kept": kept },
       expose,
       h("span", { class: "channel-name readout", "data-testid": `${testid}-name`, "data-explain": "aggregate.channel-name" }, called.text),
       label,
       ...(daw === undefined ? [] : [h("span", { class: "daw readout", "data-testid": `${testid}-daw`, "data-explain": "aggregate.channel-daw" }, `In a DAW: ${daw}`)]),
+      ...(kept ? [h("span", { class: "daw readout kept", "data-testid": `${testid}-kept`, "data-explain": "aggregate.channel-kept" }, "Kept for the phase measurement, hidden from your DAW")] : []),
     );
   }
 
@@ -1118,9 +1152,11 @@ export class GaAggregate extends GaElement {
     );
     buffer.addEventListener("change", () => store.editAggregate((current) => withField(current, "buffer_size", buffer.value === "" ? undefined : Number(buffer.value))));
 
+    const dedications = h("p", { class: "note warning wide", role: "status", "data-testid": "aggregate-master-dedication", hidden: true });
     into.replaceChildren(
       h("span", { class: "label" }, "Callback master"),
       master,
+      dedications,
       h("span", { class: "label" }, "Alignment"),
       alignment,
       h("span", { class: "label" }, "Sample rate"),
@@ -1138,6 +1174,13 @@ export class GaAggregate extends GaElement {
       alignment.value = current?.alignment === "lowest_latency" ? "lowest_latency" : "aligned";
       rate.value = typeof current?.rate === "number" && RATE_HZ.includes(current.rate) ? String(current.rate) : "";
       buffer.value = typeof current?.buffer_size === "number" && BUFFER_SIZES.includes(current.buffer_size) ? String(current.buffer_size) : "";
+      const context = phasePathContext(store);
+      const stale = (context.workspace?.cables ?? []).flatMap((cable) => {
+        const why = staleness(cable, context.workspace, context.deviceName);
+        return why === undefined ? [] : [`The cable ${cableLabel(cable, context.deviceName)} is dedicated to the phase measurement: ${why}`];
+      });
+      dedications.hidden = stale.length === 0;
+      dedications.textContent = stale.join(" ");
       for (const control of [master, alignment, rate, buffer]) control.disabled = !store.connected.value;
     });
   }

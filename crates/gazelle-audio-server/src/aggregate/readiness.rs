@@ -61,6 +61,14 @@ pub enum ReasonCode {
     /// driver cannot measure where its capture actually started and will line it up by the figures
     /// its driver reports instead.
     PhaseNotMeasured,
+    /// A follower's phase setup names channels the interfaces' routing does not join: the master's
+    /// playback channel does not reach the cable directly, goes somewhere else as well, or the
+    /// follower's record channel does not record the cable (`crate::aggregate::phase_path`).
+    PhasePathBroken,
+    /// A cable is dedicated to the phase measurement and that no longer means anything: a device of
+    /// it left the aggregate, the sending one does not drive the callback, or the follower's phase
+    /// setup names other channels.
+    PhaseDedicationStale,
 }
 
 /// How much a reason matters. A warning is something to know; `ready` is false only when there is
@@ -75,9 +83,11 @@ pub enum Severity {
 /// A request the page can make to put one reason right.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Fix {
-    /// What it does: `match_buffers`, `set_clock_source`, `set_sample_rate`, `register`, or
-    /// `set_setup_rate`, which the page makes itself, by putting the rate into the setup it keeps in
-    /// the workspace: that is where the setup is edited, and the page's copy of it stays the truth.
+    /// What it does: `match_buffers`, `set_clock_source`, `set_sample_rate`, `register`, or one of
+    /// the two the page makes itself. `set_setup_rate` puts the rate into the setup it keeps in the
+    /// workspace: that is where the setup is edited, and the page's copy of it stays the truth.
+    /// `restore_phase_path` names routing writes, one channel each, which the page makes through its
+    /// routing model, reading each group before it writes it, as the Routing page does.
     pub kind: &'static str,
     pub method: &'static str,
     /// The route, relative to `/api/v1/`.
@@ -105,18 +115,18 @@ pub struct Reason {
 }
 
 impl Reason {
-    fn new(code: ReasonCode, severity: Severity, message: impl Into<String>) -> Reason {
+    pub(crate) fn new(code: ReasonCode, severity: Severity, message: impl Into<String>) -> Reason {
         Reason { code, severity, message: message.into(), device: None, device_index: None, device_id: None, fix: None }
     }
 
-    fn about(mut self, device: &DeviceReport) -> Reason {
+    pub(crate) fn about(mut self, device: &DeviceReport) -> Reason {
         self.device = Some(device.name.clone());
         self.device_index = Some(device.index);
         self.device_id.clone_from(&device.device_id);
         self
     }
 
-    fn with(mut self, fix: Fix) -> Reason {
+    pub(crate) fn with(mut self, fix: Fix) -> Reason {
         self.fix = Some(fix);
         self
     }
@@ -165,6 +175,7 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
     reasons.extend(buffers(devices));
     reasons.extend(clocks(devices, &workspace.cables));
     reasons.extend(phases(devices, &workspace.cables));
+    reasons.extend(crate::aggregate::phase_path::reasons(devices, workspace));
     reasons
 }
 
@@ -581,6 +592,7 @@ mod tests {
                 from: CableEnd { device_id: DeviceId::from_serial("Q"), port: "SPDIF_OUT".into(), first: 0 },
                 to: CableEnd { device_id: DeviceId::from_serial("S"), port: "SPDIF_IN".into(), first: 0 },
                 channels: 2,
+                dedicated: None,
             }],
             ..Workspace::default()
         }

@@ -158,21 +158,36 @@ export type AggregateReasonCode =
   | "no_cable"
   | "clock_not_cabled"
   | "not_locked"
-  | "phase_not_measured";
+  | "phase_not_measured"
+  | "phase_path_broken"
+  | "phase_dedication_stale";
 
 /** A request the page can make to put one reason right, already addressed and filled in. */
 export interface AggregateFix {
   /**
-   * `set_setup_rate` is made by the page itself: it puts `body.rate` into the aggregate's setup in
-   * the workspace, which is where the setup is edited. Every other kind is the request it names.
+   * Two are made by the page itself. `set_setup_rate` puts `body.rate` into the aggregate's setup in
+   * the workspace, which is where the setup is edited. `restore_phase_path` carries routing writes in
+   * `body.writes` ({@link AggregateRoutingWrite}), which the page makes through its routing model,
+   * reading each group before it writes it. Every other kind is the request it names.
    */
-  kind: "match_buffers" | "set_clock_source" | "set_sample_rate" | "register" | "set_setup_rate";
+  kind: "match_buffers" | "set_clock_source" | "set_sample_rate" | "register" | "set_setup_rate" | "restore_phase_path";
   method: "POST" | "PUT";
   /** Relative to the API root, as `Client` takes it. */
   route: string;
   body: unknown;
   /** What a button would say. */
   label: string;
+}
+
+/**
+ * One routing write a `restore_phase_path` fix names: one channel of one destination group of one
+ * device, and the source it takes as `[source group position, channel]`, or null for MUTE.
+ */
+export interface AggregateRoutingWrite {
+  device_id: string;
+  destination: number;
+  channel: number;
+  source: [number, number] | null;
 }
 
 export interface AggregateReason {
