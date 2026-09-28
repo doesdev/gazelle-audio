@@ -271,7 +271,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           CODE: ${{ steps.version.outputs.code }}
         run: |
-          ./gradlew --no-daemon :app:lintRelease :app:testReleaseUnitTest :app:assembleRelease \
+          ./gradlew --no-daemon :app:lintRelease :app:verifyRoborazziDebug :app:assembleRelease \
             -PgazelleVersionName="$VERSION" -PgazelleVersionCode="$CODE"
           mapfile -t apks < <(find app/build/outputs/apk/release -name '*.apk')
           if [ "${#apks[@]}" -ne 1 ]; then

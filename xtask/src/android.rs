@@ -183,6 +183,10 @@ pub fn sign_apk(options: &SignApk) -> Result<(), String> {
             .arg(keystore)
             .args(["--ks-type", "PKCS12", "--ks-key-alias", alias.as_str()])
             .args(["--ks-pass", ks_pass.as_str(), "--key-pass", key_pass.as_str()])
+            // v2 and v3 are what an install checks. v4 only serves `adb install --incremental`, and
+            // it is written as a separate `.idsig` file beside the APK, which the release directory
+            // would then carry and `verify` rightly refuses as unexpected.
+            .args(["--v4-signing-enabled", "false"])
             .arg("--out")
             .arg(out)
             .arg(&aligned);
