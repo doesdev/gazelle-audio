@@ -97,11 +97,16 @@ directory:
 That is what CI runs: lint, every unit test with the screenshots checked, and the debug APK,
 `app/build/outputs/apk/debug/app-debug.apk`. On Windows the wrapper is `gradlew.bat`, and each
 path can be given for the one command, leaving the machine's own settings alone. For example,
-with the JDK and SDK where one Windows PC keeps them:
+with the JDK and SDK where one Windows PC keeps them, in the user's own folder:
 
 ```
-JAVA_HOME="$LOCALAPPDATA/Android/jdk-17" ANDROID_HOME="$LOCALAPPDATA/Android/Sdk" ./gradlew.bat --no-daemon :app:assembleDebug
+JAVA_HOME="$USERPROFILE/Android/jdk-17" ANDROID_HOME="$USERPROFILE/Android/Sdk" ./gradlew.bat --no-daemon :app:assembleDebug
 ```
+
+Keep them out of `%LOCALAPPDATA%` when they are installed from inside a packaged (MSIX) Windows
+app, such as a terminal or an assistant running in one: Windows quietly redirects a new folder that
+app creates there into the app's own private storage, so the tools work from that app and are
+missing everywhere else.
 
 ### Screenshot tests
 
