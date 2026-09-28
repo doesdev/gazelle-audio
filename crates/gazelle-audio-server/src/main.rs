@@ -476,6 +476,13 @@ async fn prepare(
     // The recording settings come with it: auto-arm looks once a second, and does nothing while it
     // is off, which it is by default and always under --no-persist.
     let recording = RecordingService::for_backend_with(args.backend == Backend::Loopback, calibration.clone(), store.clone(), devices.clone(), studio);
+    // The metronome's settings, beside the recording settings; --no-persist keeps them in memory.
+    if !args.no_persist {
+        let path = gazelle_audio_server::studio::metronome::default_metronome_path(|k| std::env::var(k).ok());
+        if let Some(warning) = recording.load_metronome(StudioBacking::File(path)) {
+            tracing::warn!("{warning}");
+        }
+    }
     tokio::spawn(recording.clone().follow());
     tokio::spawn(recording.clone().follow_auto_arm());
 
@@ -483,6 +490,7 @@ async fn prepare(
         .merge(http::driver::routes(devices.clone(), driver, args.dry_run))
         .merge(http::aggregate::routes_sharing(aggregate, store, args.dry_run, calibration))
         .merge(http::recording::routes(recording.clone()))
+        .merge(http::metronome::routes(recording.clone()))
         .merge(http::studio::routes(recording.clone(), viewports))
         .merge(http::remote::routes(remote.clone()));
     // Every route sees the recorder: the WebSocket sends its live state, the workspace keeps the

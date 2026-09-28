@@ -35,6 +35,8 @@ use crate::names::{self, TakeWords};
 use crate::system::{Civil, Clock, Disk, FileOut};
 use crate::wav::{Bext, SampleFormat, WavWriter, RIFF_LIMIT};
 
+/// What the cue on the downbeat after a count-in is called.
+pub const CUE_LABEL: &str = "Downbeat";
 /// Below this many seconds of room left the page warns.
 pub const WARN_SECONDS: f64 = 600.0;
 /// The least room a take is stopped with, whatever its rate: enough to finish every file.
@@ -111,6 +113,10 @@ pub struct TakeRecord {
     pub overruns: u64,
     /// Blocks the aggregate lost while the take was running, every interface together.
     pub dropouts: u64,
+    /// After a count-in, where the downbeat after it is, in seconds into the take. Every file marks
+    /// it with a cue named "Downbeat".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downbeat_seconds: Option<f64>,
     /// Why Gazelle ended it, when it was not a person pressing Stop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stopped_by: Option<String>,
@@ -378,9 +384,15 @@ impl Drain {
             let line = lost_line(open.window.start, from, frames, rate);
             log(&mut open, &line);
         }
+        let start = open.window.start;
+        let cue = open.window.cue.filter(|&cue| cue >= start && cue < end).map(|cue| cue - start);
+        if let Some(at) = cue {
+            let line = format!("Count-in: the downbeat after it is sample {at} of the take ({}), marked in every file with a cue named {CUE_LABEL}.", clock_words(at as f64 / rate));
+            log(&mut open, &line);
+        }
         for (channel, file) in open.files.iter_mut().enumerate() {
             if let Some(writer) = file.take() {
-                if let Err(why) = writer.finish() {
+                if let Err(why) = writer.finish_with_cue(cue.map(|at| (at, CUE_LABEL))) {
                     let why = format!("{} could not be finished: {why}", open.paths[channel].display());
                     open.problem.get_or_insert(why);
                 }
@@ -425,6 +437,7 @@ impl Drain {
             preroll_seconds: (open.window.pressed_at - open.window.start) as f64 / rate,
             overruns: open.lost_blocks,
             dropouts,
+            downbeat_seconds: cue.map(|at| at as f64 / rate),
             stopped_by: open.stopped_by,
             problem: open.problem.clone(),
         };

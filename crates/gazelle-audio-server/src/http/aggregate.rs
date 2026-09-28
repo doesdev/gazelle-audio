@@ -226,12 +226,12 @@ async fn calibrate(
     if let Some(refusal) = refuse_unless_local(&request) {
         return Ok(refusal);
     }
-    // One owner of the aggregate: the recorder holds it from Arm to Disarm.
+    // One owner of the aggregate: the recorder holds it from Arm to Disarm, the metronome while it plays.
     if recording.is_some_and(|Extension(recording)| recording.is_active()) {
         return Ok(error(
             StatusCode::CONFLICT,
             "recording_armed",
-            "The Recording page is armed, so it has the interfaces. Disarm it there, and measure again.".into(),
+            "The Recording page is armed, or its metronome is playing, so it has the interfaces. Disarm and stop the metronome there, and measure again.".into(),
         ));
     }
     let body: Result<Json<Ask>, JsonRejection> = <Json<Ask> as axum::extract::FromRequest<()>>::from_request(request, &()).await;

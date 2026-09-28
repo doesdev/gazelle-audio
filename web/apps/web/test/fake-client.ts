@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type MetronomeSettings, type MetronomeStatus, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -269,6 +269,38 @@ export class FakeClient implements Client {
       if (which === "hub" && ask.full_screen !== undefined) this.recordingWindows = { ...this.recordingWindows, hub_full_screen: ask.full_screen };
       return this.recordingWindows;
     },
+    metronome: async (action: "start" | "stop" | "preview"): Promise<MetronomeStatus> => {
+      this.recordingCalls.push(`metronome ${action}`);
+      const refusal = this.recordingRefusal;
+      if (refusal !== undefined) {
+        this.recordingRefusal = undefined;
+        throw refusal;
+      }
+      const { started_by: _was, ...rest } = this.metronomeStatus;
+      this.metronomeStatus = action === "stop" ? { ...rest, running: false, open: false } : { ...rest, running: true, open: true, started_by: action === "start" ? "hand" : "preview" };
+      return this.metronomeStatus;
+    },
+    setMetronome: async (change: Partial<MetronomeSettings>): Promise<MetronomeSettings> => {
+      this.recordingCalls.push(`metronome settings ${JSON.stringify(change)}`);
+      const refusal = this.recordingRefusal;
+      if (refusal !== undefined) {
+        this.recordingRefusal = undefined;
+        throw refusal;
+      }
+      this.metronomeStatus = { ...this.metronomeStatus, settings: { ...this.metronomeStatus.settings, ...change } };
+      return this.metronomeStatus.settings;
+    },
+  };
+  /** The metronome the fake answers with. */
+  metronomeStatus: MetronomeStatus = {
+    running: false,
+    open: false,
+    beat: 0,
+    bar: 0,
+    beats_per_bar: 4,
+    beat_seconds: 0,
+    outputs: [],
+    settings: { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false },
   };
   /** The recording settings and windows the fake answers with. */
   recordingSettings: RecordingSettings = { auto_arm: false, auto_arm_preset: null, start_in_hub: false };

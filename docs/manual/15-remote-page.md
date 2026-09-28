@@ -12,6 +12,10 @@ At the top, the device the page controls: the one last selected, as on every pag
 
 The [Recording page](14-recording-page.md)'s transport, at thumb size: the **Preset**, the state in large letters (Off, Armed with a pulsing ring, or Recording in red with the time since Record), how much pre-roll is held, and **Arm**, **Record**, **Stop** and **Disarm**. It is the same recorder as the Recording page's, so a press on the phone shows on the computer at once. Record and Stop are one tap each; disarming while a take is being recorded takes a second tap. Presets are chosen here and changed on the computer.
 
+## Metronome
+
+The [metronome](14-recording-page.md#metronome), at thumb size: **Start** and **Stop**, the beat, the tempo with the minus and plus buttons and **Tap**, and the **Volume**. A phone may change those and nothing else about it: where it plays, its signature, sound, count-in and whether it follows Record are set on the computer. Starting it with nothing armed opens the interfaces and holds their drivers, as arming does. The first Start in the phone's browser reads **Confirm**, and its tooltip says where the click plays; after that it is one tap.
+
 ## Monitoring
 
 The sidebar's [Control Room](05-the-app.md#the-sidebar), larger: the outputs chosen for it on the [Outputs page](08-outputs-page.md) (Monitor, HP1 and HP2 until you choose), each with its volume, **Mute**, **Dim** on the Quadro, and **Mono**. On the Studio+, talkback too: **Talk** talks only while it is held, and lets go when your finger does.

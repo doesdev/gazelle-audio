@@ -18,6 +18,7 @@ import { signal } from "../core/signal.ts";
 import { autoArmShort, autoArmText, clockText, recordingModel, secondsText, stateLabel, warnings } from "../store/recording.ts";
 import { bindConfirm } from "./controls.ts";
 import { applyTheme, GaElement, sheet, useStore } from "./element.ts";
+import { METRONOME_STYLES, metronomeMini } from "./metronome-controls.ts";
 import { bindArm, followWorkspace, inWindow, toWindow, type TransportHost } from "./recording-transport.ts";
 
 /** What a press on these may not start: a drag. */
@@ -72,6 +73,11 @@ export class GaRecordingWidget extends GaElement {
       .record:not(:disabled):hover { background: var(--ga-notice-error); color: var(--ga-text-inverse); }
       .disarm { flex: none; padding: 0 8px; font-size: 11px; color: var(--ga-text-secondary); background: transparent; }
       .disarm[data-armed] { outline: 2px dashed var(--ga-notice-error); outline-offset: 1px; color: var(--ga-notice-error); }
+      ${METRONOME_STYLES}
+      .mini { flex: none; display: flex; align-items: center; gap: 4px; margin-left: auto; }
+      .mini .start { min-width: 0; min-height: 0; height: 20px; padding: 0 6px; font-size: 11px; font-weight: 600; border-radius: 9px; }
+      .mini .beats .dot, .mini .beats .dot.one { width: 10px; height: 10px; border-width: 2px; }
+      :host([data-state="counting_in"]) .label { color: var(--ga-notice-warning); }
       .warn { min-height: 1.3em; margin: 0; color: var(--ga-notice-warning); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; line-height: 1.3; }
     `),
   ];
@@ -113,7 +119,7 @@ export class GaRecordingWidget extends GaElement {
 
     this.root.replaceChildren(
       h("div", { class: "top" }, lamp, label, h("span", { class: "spacer" }), clock, close),
-      h("div", { class: "info" }, info, auto),
+      h("div", { class: "info" }, info, auto, metronomeMini(host)),
       h("div", { class: "buttons" }, arm, record, stop, disarm),
       warn,
     );
@@ -149,7 +155,7 @@ export class GaRecordingWidget extends GaElement {
       arm.disabled = !connected || busy !== undefined || state === "arming" || problem !== undefined;
       record.hidden = state !== "armed";
       record.disabled = !connected || busy !== undefined;
-      stop.hidden = state !== "recording";
+      stop.hidden = state !== "recording" && state !== "counting_in";
       stop.disabled = !connected || busy !== undefined;
       disarm.hidden = off || state === "arming";
       disarm.disabled = !connected || busy === "disarm" || state === "disarming";

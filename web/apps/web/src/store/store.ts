@@ -995,13 +995,16 @@ export class Store {
     setSettings: (change) => this.#local(() => this.#client.recording.setSettings(change)),
     windows: () => this.#local(() => this.#client.recording.windows()),
     setWindow: (which, ask) => this.#local(() => this.#client.recording.setWindow(which, ask)),
+    metronome: (action) => this.#client.recording.metronome(action),
+    setMetronome: (change) => this.#client.recording.setMetronome(change),
   };
 
   /**
-   * The aggregate's interfaces and every input it offers, named as the Aggregate page names them,
-   * for the Recording page's presets. Read inside a watch, it follows the names as they change.
+   * The aggregate's interfaces and every input (or output) it offers, named as the Aggregate page
+   * names them, for the Recording page's presets and the metronome's outputs. Read inside a watch, it
+   * follows the names as they change.
    */
-  aggregateInputs(): { devices: string[]; inputs: InterfaceChannel[] } {
+  aggregateInputs(input = true): { devices: string[]; inputs: InterfaceChannel[] } {
     const workspace = this.#workspace.value;
     const naming = aggregateNaming(workspace?.aggregate, this.phone ? undefined : this.aggregate.answer.value, {
       devices: this.#devices.value,
@@ -1009,7 +1012,7 @@ export class Store {
       layouts: workspace?.mixers,
       routing: (deviceId, destination) => (this.topology(deviceId) === undefined ? undefined : this.routing(deviceId).destination(destination).value),
     });
-    return { devices: interfaceNames(workspace?.aggregate, naming), inputs: interfaceChannels(workspace?.aggregate, naming, true) };
+    return { devices: interfaceNames(workspace?.aggregate, naming), inputs: interfaceChannels(workspace?.aggregate, naming, input) };
   }
 
   /**

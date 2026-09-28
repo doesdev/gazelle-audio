@@ -14,7 +14,12 @@
 //!     "fact"  4               frames            (32-bit float only)
 //!     "bext"  602 + history   description, originator, date, time, TimeReference, version 1
 //!     "data"  size            the samples       (size becomes 0xFFFFFFFF in RF64)
+//!     "cue "  28              one cue point     (only a take after a count-in: the downbeat)
+//!     "LIST"  "adtl"          its label, "labl"
 //! ```
+//!
+//! The cue and its label follow the audio and are written once, when the file is finished, so a DAW
+//! that reads cue points puts a marker on the downbeat after a count-in.
 //!
 //! The `JUNK` chunk is the room EBU Tech 3306 asks for, right after `WAVE`, so that a file that grows
 //! past 4 GB can become RF64 in place, without moving a byte of audio.
@@ -147,6 +152,8 @@ pub struct WavWriter<W: Write + Seek> {
     since_sizes: u64,
     sizes_every: u64,
     scratch: Vec<u8>,
+    /// Bytes of chunks after the audio: the cue and its label, once finished.
+    trailer: u64,
 }
 
 impl<W: Write + Seek> WavWriter<W> {
@@ -227,6 +234,7 @@ impl<W: Write + Seek> WavWriter<W> {
             since_sizes: 0,
             sizes_every: sizes_every.max(1),
             scratch: Vec::new(),
+            trailer: 0,
         };
         writer.write_sizes(false)?;
         Ok(writer)
@@ -304,8 +312,8 @@ impl<W: Write + Seek> WavWriter<W> {
     fn write_sizes(&mut self, padded: bool) -> io::Result<()> {
         self.since_sizes = 0;
         let pad = u64::from(padded && self.data_bytes % 2 == 1);
-        let riff = self.data_start + self.data_bytes + pad - 8;
-        let end = self.data_start + self.data_bytes + pad;
+        let riff = self.data_start + self.data_bytes + pad + self.trailer - 8;
+        let end = self.data_start + self.data_bytes + pad + self.trailer;
         if self.rf64 {
             self.at(0, b"RF64")?;
             self.at(4, &u32::MAX.to_le_bytes())?;
@@ -344,18 +352,60 @@ impl<W: Write + Seek> WavWriter<W> {
     }
 
     /// Finish the file: the pad byte an odd data chunk needs, and every size, for the last time.
-    pub fn finish(mut self) -> io::Result<W> {
-        if self.data_bytes % 2 == 1 {
+    pub fn finish(self) -> io::Result<W> {
+        self.finish_with_cue(None)
+    }
+
+    /// Finish the file with one cue point `at` samples into the audio, labelled `label`, which a DAW
+    /// shows as a marker. A cue past what a cue point can say (4 billion samples) is left out.
+    pub fn finish_with_cue(mut self, cue: Option<(u64, &str)>) -> io::Result<W> {
+        let padded = self.data_bytes % 2 == 1;
+        if padded {
             let riff_after = self.data_start + self.data_bytes + 1 - 8;
             if !self.rf64 && riff_after > self.limit {
                 self.rf64 = true;
             }
             self.out.write_all(&[0])?;
         }
+        if let Some((at, label)) = cue.filter(|(at, _)| *at <= u64::from(u32::MAX)) {
+            let trailer = cue_chunks(at as u32, label);
+            self.out.write_all(&trailer)?;
+            self.trailer = trailer.len() as u64;
+        }
         self.write_sizes(true)?;
         self.out.flush()?;
         Ok(self.out)
     }
+}
+
+/// A `cue ` chunk with one point at `at` samples into the data, and a `LIST` `adtl` chunk with its
+/// label.
+fn cue_chunks(at: u32, label: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(96);
+    out.extend_from_slice(b"cue ");
+    out.extend_from_slice(&28u32.to_le_bytes());
+    out.extend_from_slice(&1u32.to_le_bytes());
+    // dwName, dwPosition, fccChunk, dwChunkStart, dwBlockStart, dwSampleOffset.
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&at.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&at.to_le_bytes());
+    let mut text = ascii(label);
+    text.push(0);
+    let labl = 4 + text.len();
+    out.extend_from_slice(b"LIST");
+    out.extend_from_slice(&((4 + 8 + labl + labl % 2) as u32).to_le_bytes());
+    out.extend_from_slice(b"adtl");
+    out.extend_from_slice(b"labl");
+    out.extend_from_slice(&(labl as u32).to_le_bytes());
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&text);
+    if labl % 2 == 1 {
+        out.push(0);
+    }
+    out
 }
 
 /// Text for a `bext` field: ASCII, as the chunk is, with anything else as `?`.
@@ -562,6 +612,31 @@ mod tests {
         let data = chunks(&bytes).into_iter().find(|(id, _, _)| id == "data").unwrap();
         assert_eq!(data.2 as usize, 2_503 * 3);
         assert!(bytes[data.1 + 9..data.1 + 2_503 * 3].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn a_cue_after_the_audio_marks_the_downbeat_and_the_sizes_count_it() {
+        let mut writer = WavWriter::create(Cursor::new(Vec::new()), SampleFormat::Int24, 48_000, &bext()).unwrap();
+        writer.write(&[7 << 8; 5]).unwrap();
+        let bytes = writer.finish_with_cue(Some((3, "Downbeat"))).unwrap().into_inner();
+        assert_eq!(u32_at(&bytes, 4) as usize, bytes.len() - 8, "the RIFF size takes the cue in");
+        let found = chunks(&bytes);
+        let ids: Vec<&str> = found.iter().map(|(id, _, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["JUNK", "fmt ", "bext", "data", "cue ", "LIST"]);
+        let (_, cue, size) = found[4].clone();
+        assert_eq!(size, 28);
+        assert_eq!(u32_at(&bytes, cue), 1, "one cue point");
+        assert_eq!(u32_at(&bytes, cue + 8), 3, "at sample 3");
+        assert_eq!(&bytes[cue + 12..cue + 16], b"data");
+        assert_eq!(u32_at(&bytes, cue + 24), 3, "and its sample offset");
+        let (_, list, list_size) = found[5].clone();
+        assert_eq!(&bytes[list..list + 8], b"adtllabl");
+        assert_eq!(u32_at(&bytes, list + 12), 1, "the label names cue point 1");
+        assert_eq!(&bytes[list + 16..list + 25], b"Downbeat\0");
+        assert_eq!(list + list_size as usize + (list_size as usize % 2), bytes.len(), "and it is the last thing in the file");
+        let (_, data, data_size) = found[3].clone();
+        assert_eq!(data_size, 15, "the audio is untouched");
+        assert_eq!(&bytes[data..data + 3], &[7, 0, 0]);
     }
 
     #[test]

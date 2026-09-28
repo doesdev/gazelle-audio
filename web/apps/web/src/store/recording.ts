@@ -7,7 +7,7 @@
 // one press too, and the page explains it the first time (`ARM_EXPLAINED_KEY`). Disarming while a
 // take is running asks first, on the page and at the server (`confirm_disarm`).
 
-import { GazelleError, type RecordingAutoArm, type RecordingPreset, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows } from "gazelle-audio-client";
+import { GazelleError, type MetronomeSettings, type MetronomeStatus, type RecordingAutoArm, type RecordingPreset, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows } from "gazelle-audio-client";
 
 import { signal, type ReadonlySignal } from "../core/signal.ts";
 
@@ -29,6 +29,9 @@ export interface RecorderApi {
   /** The recording widget and hub windows; the computer's only. */
   windows(): Promise<RecordingWindows>;
   setWindow(which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows>;
+  /** The metronome: start, stop, or preview one bar. */
+  metronome(action: "start" | "stop" | "preview"): Promise<MetronomeStatus>;
+  setMetronome(change: Partial<MetronomeSettings>): Promise<MetronomeSettings>;
 }
 
 /** Remembered in this browser once Arm has been explained, so it is explained once. */
@@ -39,7 +42,7 @@ export const PRESET_KEY = "gazelle.recording.preset";
 export const TAKES_POLL_MS = 1_500;
 
 /** The press being sent, so its button waits for the answer. */
-export type RecordingAction = "arm" | "record" | "stop" | "disarm";
+export type RecordingAction = "arm" | "record" | "stop" | "disarm" | "metronome";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -159,12 +162,43 @@ export class RecordingModel {
     return done;
   }
 
-  /** Record when armed, Stop when recording: what Space does on the Recording page. */
+  /** Record when armed, Stop when recording or counting in: what Space does on the Recording page. */
   toggle(): Promise<boolean> | undefined {
     const state = this.#status.peek()?.state;
     if (state === "armed") return this.record();
-    if (state === "recording") return this.stop();
+    if (state === "recording" || state === "counting_in") return this.stop();
     return undefined;
+  }
+
+  /** Start or stop the metronome, or preview a bar; a refusal is the model's problem, as a press's is. */
+  async metronome(action: "start" | "stop" | "preview"): Promise<boolean> {
+    this.#busy.value = "metronome";
+    this.#problem.value = undefined;
+    try {
+      const metronome = await this.#api.metronome(action);
+      const status = this.#status.peek();
+      if (status !== undefined) this.#status.value = { ...status, metronome };
+      return true;
+    } catch (error) {
+      this.#problem.value = message(error);
+      return false;
+    } finally {
+      this.#busy.value = undefined;
+    }
+  }
+
+  /** Change the metronome's settings; they come back on the next frame, and at once here. */
+  async setMetronome(change: Partial<MetronomeSettings>): Promise<boolean> {
+    this.#problem.value = undefined;
+    try {
+      const settings = await this.#api.setMetronome(change);
+      const status = this.#status.peek();
+      if (status?.metronome !== undefined) this.#status.value = { ...status, metronome: { ...status.metronome, settings } };
+      return true;
+    } catch (error) {
+      this.#problem.value = message(error);
+      return false;
+    }
   }
 
   /** Auto-arm and starting in the hub, once read; undefined on a phone, which may not read them. */
@@ -267,6 +301,10 @@ export function stateLabel(status: RecordingStatus | undefined): string {
       return "Recording";
     case "armed":
       return "Armed";
+    case "counting_in": {
+      const count = status.metronome?.count_in;
+      return count === undefined || count.bar === 0 ? "Count-in" : `Count-in ${count.bar} of ${count.bars}`;
+    }
     case "arming":
       return "Arming…";
     case "disarming":

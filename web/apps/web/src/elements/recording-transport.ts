@@ -41,6 +41,8 @@ export const TRANSPORT_STYLES = `
   .transport .state { display: flex; align-items: center; gap: 12px; min-width: 220px; }
   .transport .lamp { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--ga-text-muted); box-sizing: border-box; }
   .transport[data-state="armed"] .lamp, .transport[data-state="arming"] .lamp { border-color: var(--ga-notice-error); background: transparent; animation: ga-armed 1.2s ease-in-out infinite; }
+  .transport[data-state="counting_in"] .lamp { border-color: var(--ga-notice-warning); animation: ga-armed 0.5s ease-in-out infinite; }
+  .transport[data-state="counting_in"] .label { color: var(--ga-notice-warning); }
   .transport[data-state="recording"] .lamp { border-color: var(--ga-notice-error); background: var(--ga-notice-error); box-shadow: 0 0 12px var(--ga-notice-error); }
   @keyframes ga-armed { 50% { opacity: 0.35; } }
   @media (prefers-reduced-motion: reduce) { .transport .lamp { animation: none !important; } }
@@ -189,10 +191,10 @@ export function recordingTransport(host: TransportHost, compact: boolean): HTMLE
     arm.disabled = !connected || busy !== undefined || state === "arming" || presetProblem(chosen) !== undefined;
     arm.title = presetProblem(chosen) ?? "Open the interfaces and start holding a pre-roll";
     record.disabled = !connected || state !== "armed";
-    stop.disabled = !connected || state !== "recording";
+    stop.disabled = !connected || (state !== "recording" && state !== "counting_in");
     // At thumb size only what can be pressed now is shown, so the one that matters is the big one.
     record.hidden = compact && state !== "armed";
-    stop.hidden = compact && state !== "recording";
+    stop.hidden = compact && state !== "recording" && state !== "counting_in";
     disarm.hidden = off || state === "arming";
     disarm.disabled = !connected || busy === "disarm" || state === "disarming";
     bar.style.setProperty("--fill", String(prerollFill(status)));

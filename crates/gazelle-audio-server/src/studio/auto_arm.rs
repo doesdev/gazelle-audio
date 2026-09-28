@@ -58,7 +58,7 @@ impl Recorder {
         match state {
             "off" => Recorder::Off,
             "armed" => Recorder::Armed,
-            "recording" => Recorder::Recording,
+            "recording" | "counting_in" => Recorder::Recording,
             _ => Recorder::Busy,
         }
     }

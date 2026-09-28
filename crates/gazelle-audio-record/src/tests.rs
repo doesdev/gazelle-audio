@@ -1,4 +1,4 @@
-//! The recorder end to end, against the aggregate's own devices made of data.
+//! The recorder and the metronome end to end, against the aggregate's own devices made of data.
 //!
 //! Nothing here opens a driver. The aggregate is the real one (its plan, padding, rings, delays and
 //! audio path); the vendor drivers are the aggregate crate's fakes, whose callbacks the test fires
@@ -16,7 +16,8 @@ use gazelle_aggregate::sub::Host;
 use gazelle_calibrate::Pick;
 
 use crate::capture::Capture;
-use crate::host::{ArmRequest, Session, MEASURING};
+use crate::host::{ArmRequest, Armed, OpenRequest, Session, MEASURING};
+use crate::metronome::{Params, Then};
 use crate::recorder::{Environment, Preset, Recorder, CONFIRM_DISARM};
 use crate::sim::Timing;
 use crate::system::{Clock, Disk, LocalClock, Memory, ThisPcDisk};
@@ -62,6 +63,18 @@ fn request(picks: Vec<Pick>) -> ArmRequest {
     ArmRequest { picks, percent: 1.0, cap_seconds: Some(5.0), config: config(), source: "a test".into() }
 }
 
+fn open(pc: &Arc<FakePc>, outputs: Vec<Pick>, params: Params) -> Result<Session, String> {
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(pc) });
+    Session::open(host, &OpenRequest { config: config(), source: "a test".into(), outputs, params }, Arc::new(Reporter::silent()))
+}
+
+/// Arm an open session: the preset's channels, sized and reserved, the tap on the callback.
+fn arm(session: &Session, picks: Vec<Pick>, memory: u64) -> Result<Armed, String> {
+    let armed = Armed::prepare(&session.opened, &request(picks), &FreeMemory(Some(memory)))?;
+    session.shared().attach(Arc::clone(&armed.tap))?;
+    Ok(armed)
+}
+
 /// A counting ramp in the top 24 bits, which every file format keeps whole.
 fn ramp(n: u64) -> i32 {
     (((n % (1 << 22)) as i32) + 1) << 8
@@ -95,16 +108,7 @@ impl Converters {
 }
 
 fn settings(channels: Vec<String>, format: SampleFormat) -> TakeSettings {
-    TakeSettings {
-        folder: PathBuf::from("C:/Takes"),
-        pattern: crate::names::DEFAULT_PATTERN.into(),
-        preset: "Band".into(),
-        format,
-        rate: RATE,
-        channels,
-        originator: "Gazelle test".into(),
-        rf64_limit: RF64_AT,
-    }
+    TakeSettings { folder: PathBuf::from("C:/Takes"), pattern: crate::names::DEFAULT_PATTERN.into(), preset: "Band".into(), format, rate: RATE, channels, originator: "Gazelle test".into(), rf64_limit: RF64_AT }
 }
 
 /// The 24-bit samples of a finished file.
@@ -114,6 +118,12 @@ fn samples(bytes: &[u8]) -> Vec<i32> {
     bytes[data..data + size].chunks(3).map(|b| i32::from_le_bytes([0, b[0], b[1], b[2]])).collect()
 }
 
+/// A file's cue point, in samples into its audio, if it has one.
+fn cue(bytes: &[u8]) -> Option<u32> {
+    let at = bytes.windows(4).rposition(|w| w == b"cue ")? + 8;
+    Some(u32::from_le_bytes(bytes[at + 24..at + 28].try_into().unwrap()))
+}
+
 /// **The whole path**: through the aggregate, round the ring many times while armed, Record, and on
 /// into live audio across more laps. Every file is the ramp, sample by sample, with nothing missing
 /// at the press or at any wrap, and the two interfaces' files agree on every sample.
@@ -121,24 +131,22 @@ fn samples(bytes: &[u8]) -> Vec<i32> {
 fn a_take_through_the_aggregate_is_continuous_across_the_press_and_the_wraps_and_lined_up_across_interfaces() {
     let _one = hosting();
     let pc = two_interfaces();
-    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let mut session = Session::open(host, &request(vec![Pick::new(0, 1), Pick::new(1, 0)]), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).expect("armed");
-    assert_eq!(session.opened.channels.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["A 2", "B 1"], "named as a DAW names them");
-    let capture = session.capture();
+    let mut session = open(&pc, vec![], Params::default()).expect("open");
+    let armed = arm(&session, vec![Pick::new(0, 1), Pick::new(1, 0)], GB).expect("armed");
+    assert_eq!(armed.channels.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["A 2", "B 1"], "named as a DAW names them");
+    let capture = Arc::clone(armed.tap.capture());
     let ring_blocks = capture.capacity_frames() / BLOCK as u64;
     let disk = Arc::new(MemoryDisk::default());
-    let names = session.opened.channels.iter().map(|c| c.name.clone()).collect();
+    let names = armed.channels.iter().map(|c| c.name.clone()).collect();
     let mut drain = Drain::new(settings(names, SampleFormat::Int24), disk.clone(), Arc::new(StoppedClock), session.dropouts());
     let mut converters = Converters::of(&pc);
 
-    // Armed for two and a half laps of the ring.
     for _ in 0..ring_blocks * 5 / 2 {
         converters.block();
         drain.step(&capture);
     }
     assert!((capture.snapshot().held_frames as f64 / RATE - 5.0).abs() < 0.01, "a full five seconds held");
     capture.want_recording(true);
-    // And recording for another lap and a half.
     for _ in 0..ring_blocks * 3 / 2 {
         converters.block();
         drain.step(&capture);
@@ -152,6 +160,7 @@ fn a_take_through_the_aggregate_is_continuous_across_the_press_and_the_wraps_and
     let take = drain.state().lock().unwrap().takes[0].clone();
     assert_eq!(take.overruns, 0);
     assert_eq!(take.dropouts, 0, "the aggregate lost nothing either");
+    assert_eq!(take.downbeat_seconds, None, "no count-in, no cue");
     let files: Vec<Vec<i32>> = take.files.iter().map(|f| samples(&disk.read(Path::new(f)))).collect();
     let expected = (capture.preroll_frames() + ring_blocks * 3 / 2 * BLOCK as u64) as usize;
     assert_eq!(files[0].len(), expected, "the pre-roll and everything after the press");
@@ -166,11 +175,12 @@ fn a_take_through_the_aggregate_is_continuous_across_the_press_and_the_wraps_and
 }
 
 #[test]
-fn the_recorder_plays_silence_on_every_output_of_every_interface() {
+fn with_no_metronome_outputs_every_output_of_every_interface_is_silence() {
     let _one = hosting();
     let pc = two_interfaces();
-    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let mut session = Session::open(host, &request(vec![Pick::new(0, 0)]), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).expect("armed");
+    let mut session = open(&pc, vec![], Params::default()).expect("open");
+    let _armed = arm(&session, vec![Pick::new(0, 0)], GB).expect("armed");
+    session.shared().generator.start();
     let mut converters = Converters::of(&pc);
     for _ in 0..20 {
         converters.block();
@@ -187,56 +197,81 @@ fn the_recorder_plays_silence_on_every_output_of_every_interface() {
 }
 
 #[test]
-fn arming_while_a_measurement_has_the_aggregate_is_refused_and_the_other_way_round() {
+fn the_metronome_plays_to_the_outputs_picked_and_every_other_output_stays_silent() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    // B's second output: a pair would be two picks, and each gets the same click.
+    let mut session = open(&pc, vec![Pick::new(1, 1), Pick::new(0, 0)], Params::default()).expect("open");
+    assert_eq!(session.opened.outputs.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["B 2", "A 1"], "named as the aggregate names them");
+    assert_eq!(session.opened.outputs_problem, None);
+    let mut converters = Converters::of(&pc);
+    let mut heard = [[Vec::new(), Vec::new()], [Vec::new(), Vec::new()]];
+    session.shared().generator.start();
+    for n in 0..40 {
+        converters.block();
+        let half = (n & 1) as usize;
+        for (d, device) in [&converters.a, &converters.b].into_iter().enumerate() {
+            for (channel, into) in heard[d].iter_mut().enumerate() {
+                into.extend(device.output(channel, half));
+            }
+        }
+    }
+    session.close();
+    let peak = |s: &[i32]| s.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+    assert!(heard[0][1].iter().all(|&s| s == 0), "A 2 is not picked: silence");
+    assert!(heard[1][0].iter().all(|&s| s == 0), "B 1 is not picked: silence");
+    assert!(peak(&heard[0][0]) > 0 && peak(&heard[1][1]) > 0, "both picks play the click");
+    let ceiling = 10f64.powf(-6.0 / 20.0) * f64::from(i32::MAX);
+    assert!(f64::from(peak(&heard[0][0])) <= ceiling);
+    let expected = 10f64.powf(-18.0 / 20.0) * f64::from(i32::MAX);
+    assert!((f64::from(peak(&heard[0][0])) - expected).abs() < expected * 0.001, "at -18 dBFS by default");
+}
+
+#[test]
+fn an_output_the_aggregate_has_not_got_is_left_out_and_said_so_without_stopping_the_session() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let session = open(&pc, vec![Pick::new(0, 7), Pick::new(1, 0)], Params::default()).expect("the recorder can still arm");
+    assert_eq!(session.opened.outputs.len(), 1);
+    assert!(session.opened.outputs_problem.as_deref().unwrap().contains("A has no output 8"), "{:?}", session.opened.outputs_problem);
+}
+
+#[test]
+fn opening_while_a_measurement_has_the_aggregate_is_refused_and_the_other_way_round() {
     let _one = hosting();
     {
         let _measuring = gazelle_calibrate::session::one_at_a_time();
-        let host: Box<dyn Host> = Box::new(FakeHost { pc: two_interfaces() });
-        let refused = Session::open(host, &request(vec![Pick::new(0, 0)]), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).err().unwrap();
+        let refused = open(&two_interfaces(), vec![], Params::default()).err().unwrap();
         assert_eq!(refused, MEASURING);
     }
-    let pc = two_interfaces();
-    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let session = Session::open(host, &request(vec![Pick::new(0, 0)]), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).expect("armed");
-    assert!(gazelle_calibrate::session::try_one_at_a_time().is_none(), "a measurement cannot have the turn while armed");
+    let session = open(&two_interfaces(), vec![], Params::default()).expect("open");
+    assert!(gazelle_calibrate::session::try_one_at_a_time().is_none(), "a measurement cannot have the turn while open");
     drop(session);
-    assert!(gazelle_calibrate::session::try_one_at_a_time().is_some(), "and can once disarmed");
+    assert!(gazelle_calibrate::session::try_one_at_a_time().is_some(), "and can once closed");
 }
 
 #[test]
-fn a_channel_the_aggregate_has_not_got_is_refused_by_name_and_nothing_is_left_open() {
+fn a_channel_the_aggregate_has_not_got_is_refused_by_name() {
     let _one = hosting();
     let pc = two_interfaces();
-    let open = |picks| {
-        let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-        Session::open(host, &request(picks), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).err().unwrap()
-    };
-    assert!(open(vec![Pick::new(4, 0)]).contains("the aggregate has 2"));
-    let refused = open(vec![Pick::new(0, 7)]);
+    let session = open(&pc, vec![], Params::default()).expect("open");
+    let refuse = |picks| Armed::prepare(&session.opened, &request(picks), &FreeMemory(Some(GB))).err().unwrap();
+    assert!(refuse(vec![Pick::new(4, 0)]).contains("the aggregate has 2"));
+    let refused = refuse(vec![Pick::new(0, 7)]);
     assert!(refused.starts_with("A has 2 inputs in the aggregate, and input 8 is not one of them"), "{refused}");
-    assert!(open(vec![]).contains("no channels"));
-    assert!(open(vec![Pick::new(0, 0), Pick::new(0, 0)]).contains("chosen twice"));
-    assert!(!pc.device("Device A").has_buffers());
-}
-
-#[test]
-fn too_little_memory_is_refused_before_anything_starts() {
-    let _one = hosting();
-    let pc = two_interfaces();
-    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let refused = Session::open(host, &request(vec![Pick::new(0, 0), Pick::new(1, 1)]), &FreeMemory(Some(1 << 20)), Arc::new(Reporter::silent())).err().unwrap();
-    assert!(refused.contains("only 1 MB of memory is free"), "{refused}");
-    assert!(!pc.device("Device A").is_started(), "nothing was started");
-    assert!(!pc.device("Device A").has_buffers());
+    assert!(refuse(vec![]).contains("no channels"));
+    assert!(refuse(vec![Pick::new(0, 0), Pick::new(0, 0)]).contains("chosen twice"));
+    let tight = Armed::prepare(&session.opened, &request(vec![Pick::new(0, 0), Pick::new(1, 1)]), &FreeMemory(Some(1 << 20))).err().unwrap();
+    assert!(tight.contains("only 1 MB of memory is free"), "{tight}");
 }
 
 #[test]
 fn a_float_take_is_the_driver_samples_over_2_to_the_31() {
     let _one = hosting();
     let pc = two_interfaces();
-    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
-    let mut session = Session::open(host, &request(vec![Pick::new(0, 0)]), &FreeMemory(Some(GB)), Arc::new(Reporter::silent())).unwrap();
-    let capture = session.capture();
+    let mut session = open(&pc, vec![], Params::default()).unwrap();
+    let armed = arm(&session, vec![Pick::new(0, 0)], GB).unwrap();
+    let capture = Arc::clone(armed.tap.capture());
     let disk = Arc::new(MemoryDisk::default());
     let mut drain = Drain::new(settings(vec!["A 1".into()], SampleFormat::Float32), disk.clone(), Arc::new(StoppedClock), session.dropouts());
     let mut converters = Converters::of(&pc);
@@ -256,6 +291,102 @@ fn a_float_take_is_the_driver_samples_over_2_to_the_31() {
     let last = *values.last().unwrap();
     assert!(last > 0.0 && last < 1.0);
     assert_eq!(f64::from(last) * 2_147_483_648.0 % 256.0, 0.0, "exactly a 24-bit value");
+}
+
+/// A cable from A's first output into A's second input: what the metronome plays comes back into
+/// the take, a fixed number of samples later.
+struct Cable {
+    converters: Converters,
+    carried: Vec<i32>,
+}
+
+impl Cable {
+    fn block(&mut self) {
+        let half = ((self.converters.next / BLOCK as u64) & 1) as usize;
+        self.converters.a.set_input(1, half, &self.carried);
+        self.converters.b.fire(half);
+        self.converters.a.fire(half);
+        self.carried = self.converters.a.output(0, half);
+        self.converters.next += BLOCK as u64;
+    }
+}
+
+/// The first sample at or after `from` that is not silence.
+fn first_sound(file: &[i32], from: usize) -> usize {
+    from + file[from..].iter().position(|&s| s != 0).expect("a click after it")
+}
+
+/// **Record with a count-in, sample for sample.** The take starts on the downbeat after the count-in
+/// and reaches back into the pre-roll, so the count-in is in it; its clock counts from the press; and
+/// the cue in every file is exactly one bar after the press, where the click on the downbeat is,
+/// through the same path as the click on the press.
+#[test]
+fn a_take_after_a_count_in_starts_on_the_downbeat_holds_the_count_in_and_marks_the_downbeat_to_the_sample() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    // 150 BPM in 3/4: a bar is 57 600 samples, which is not a whole number of 64-sample blocks.
+    let params = Params { tempo_tenths: 1_500, numerator: 3, ..Params::default() };
+    let mut session = open(&pc, vec![Pick::new(0, 0)], params).expect("open");
+    let armed = arm(&session, vec![Pick::new(0, 1)], GB).expect("armed");
+    let capture = Arc::clone(armed.tap.capture());
+    let disk = Arc::new(MemoryDisk::default());
+    let mut drain = Drain::new(settings(vec!["A 2".into()], SampleFormat::Int24), disk.clone(), Arc::new(StoppedClock), session.dropouts());
+    let mut cable = Cable { converters: Converters::of(&pc), carried: vec![0; BLOCK as usize] };
+    for _ in 0..1_003 {
+        cable.block();
+        drain.step(&capture);
+    }
+    let shared = session.shared();
+    let generator = &shared.generator;
+    generator.count_in(1, Then::Record, false);
+    for _ in 0..1_000 {
+        cable.block();
+        drain.step(&capture);
+    }
+    assert!(capture.wants_recording(), "the take started on its own, on the downbeat");
+    capture.want_recording(false);
+    cable.block();
+    while drain.step(&capture) {}
+    session.close();
+
+    let take = drain.state().lock().unwrap().takes[0].clone();
+    let bytes = disk.read(Path::new(&take.files[0]));
+    let file = samples(&bytes);
+    let pressed = (take.preroll_seconds * RATE).round() as usize;
+    let downbeat = cue(&bytes).expect("a cue on the downbeat") as usize;
+    assert_eq!(downbeat - pressed, 57_600, "exactly one bar of 3/4 at 150 after the press");
+    assert_eq!((take.downbeat_seconds.unwrap() * RATE).round() as usize, downbeat);
+    assert!(pressed > 0, "the take reaches back before the press, into the pre-roll");
+    // The click on the press and the click on the downbeat come back through the same path.
+    let latency = first_sound(&file, pressed) - pressed;
+    assert_eq!(first_sound(&file, downbeat) - downbeat, latency, "the cue is on the downbeat's click, to the sample");
+    assert!(file[..pressed].iter().all(|&s| s == 0), "nothing before the press: the click was not playing");
+    let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+    assert!(log.contains(&format!("the downbeat after it is sample {downbeat} of the take")), "{log}");
+}
+
+#[test]
+fn stop_during_a_count_in_cancels_it_and_starts_no_take() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let mut session = open(&pc, vec![Pick::new(0, 0)], Params::default()).expect("open");
+    let armed = arm(&session, vec![Pick::new(0, 1)], GB).expect("armed");
+    let capture = Arc::clone(armed.tap.capture());
+    let mut cable = Cable { converters: Converters::of(&pc), carried: vec![0; BLOCK as usize] };
+    let shared = session.shared();
+    let generator = &shared.generator;
+    generator.count_in(2, Then::Record, false);
+    for _ in 0..500 {
+        cable.block();
+    }
+    generator.cancel_count_in();
+    capture.want_recording(false);
+    for _ in 0..4_000 {
+        cable.block();
+    }
+    assert!(capture.take().is_none() && !capture.wants_recording(), "no take");
+    assert!(generator.beat().running, "the click it started is left for the recorder to stop");
+    session.close();
 }
 
 /// A PC made of the two fake interfaces, for the whole recorder with its threads, writing real
@@ -299,13 +430,10 @@ fn wait_for(what: &str, mut until: impl FnMut() -> bool) {
     }
 }
 
-#[test]
-fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
-    let _one = hosting();
-    let folder = std::env::temp_dir().join(format!("gazelle-record-states-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&folder);
+fn recorder_in(folder: &Path) -> (Recorder, impl Fn(&str) -> Preset) {
     let recorder = Recorder::new(Arc::new(Fakes { pc: Mutex::new(None) }));
-    let preset = |id: &str| Preset {
+    let folder = folder.to_path_buf();
+    let preset = move |id: &str| Preset {
         id: id.into(),
         name: format!("Preset {id}"),
         request: request(vec![Pick::new(0, 0), Pick::new(1, 1)]),
@@ -313,6 +441,20 @@ fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
         pattern: crate::names::DEFAULT_PATTERN.into(),
         format: SampleFormat::Int24,
     };
+    (recorder, preset)
+}
+
+fn temp(name: &str) -> PathBuf {
+    let folder = std::env::temp_dir().join(format!("gazelle-record-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    folder
+}
+
+#[test]
+fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
+    let _one = hosting();
+    let folder = temp("states");
+    let (recorder, preset) = recorder_in(&folder);
     assert_eq!(recorder.status().state, "off");
     assert!(recorder.record().unwrap_err().contains("not armed"));
     recorder.arm(preset("one")).expect("armed");
@@ -340,7 +482,6 @@ fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
     }
     assert!(std::fs::read_to_string(&take.log).unwrap().contains("Preset: Preset one"));
 
-    // Recording again and disarming, confirmed, stops that take and finishes it too.
     recorder.record().unwrap();
     wait_for("the second take to open", || recorder.status().take.is_some_and(|t| t.number == Some(2)));
     assert!(recorder.disarm(true).unwrap());
@@ -348,6 +489,143 @@ fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
     let takes = recorder.takes();
     assert_eq!(takes.iter().map(|t| t.number).collect::<Vec<_>>(), vec![2, 1], "both kept for the page after the disarm");
     assert!(gazelle_calibrate::session::try_one_at_a_time().is_some(), "the turn is given back");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+fn metronome(recorder: &Recorder, params: Params, bars: u32, follow: bool) {
+    recorder.set_metronome(params, vec![Pick::new(0, 0), Pick::new(0, 1)], bars, follow).expect("the metronome's choices");
+}
+
+/// **One session, two users**: whichever starts first opens it, the other joins it, stopping one
+/// leaves the other running, and it closes only when neither needs it.
+#[test]
+fn the_recorder_and_the_metronome_share_one_session_and_it_closes_when_neither_needs_it() {
+    let _one = hosting();
+    let folder = temp("shared");
+    let (recorder, preset) = recorder_in(&folder);
+    metronome(&recorder, Params::default(), 0, false);
+    let engine = Arc::clone(recorder.engine());
+
+    // The metronome alone.
+    recorder.metronome_start(&config(), "a test").expect("started with nothing armed");
+    assert!(engine.is_open() && recorder.holds_the_aggregate());
+    assert!(gazelle_calibrate::session::try_one_at_a_time().is_none(), "it holds the turn, as arming does");
+    wait_for("the click", || recorder.metronome_status().running && recorder.metronome_status().since_beat_seconds.is_some());
+    assert_eq!(recorder.metronome_status().outputs.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["A 1", "A 2"]);
+    assert!(recorder.metronome_stop());
+    assert!(!engine.is_open(), "stopped with nothing armed: closed");
+    assert!(gazelle_calibrate::session::try_one_at_a_time().is_some());
+
+    // The metronome first, then Arm joins its session.
+    recorder.metronome_start(&config(), "a test").unwrap();
+    recorder.arm(preset("one")).expect("armed, joining the metronome's session");
+    assert_eq!(engine.sessions_opened(), 2, "one session each time, not a second one for Arm");
+    assert!(recorder.metronome_status().running, "arming did not interrupt the click");
+    assert!(recorder.metronome_stop());
+    assert!(engine.is_open(), "the recorder still has it");
+    assert_eq!(recorder.status().state, "armed");
+    assert!(recorder.disarm(false).unwrap());
+    assert!(!engine.is_open(), "and now neither has");
+
+    // Arm first, then the metronome uses the armed session; disarm, and the click plays on.
+    recorder.arm(preset("one")).unwrap();
+    recorder.metronome_start(&config(), "a test").unwrap();
+    assert_eq!(engine.sessions_opened(), 3);
+    assert!(recorder.disarm(false).unwrap());
+    assert!(engine.is_open() && recorder.metronome_status().running, "the click keeps the interfaces");
+    assert!(recorder.metronome_stop());
+    assert!(!engine.is_open());
+
+    // The outputs cannot change while the session is open.
+    recorder.arm(preset("one")).unwrap();
+    assert!(recorder.set_metronome(Params::default(), vec![Pick::new(1, 0)], 0, false).unwrap_err().contains("fixed while the interfaces are open"));
+    recorder.disarm(false).unwrap();
+    metronome(&recorder, Params::default(), 0, false);
+
+    // A measurement has the aggregate: the metronome is refused, as Arm is.
+    {
+        let _measuring = gazelle_calibrate::session::one_at_a_time();
+        assert_eq!(recorder.metronome_start(&config(), "a test").unwrap_err(), MEASURING);
+        assert!(recorder.arm(preset("one")).unwrap_err().contains("measurement"));
+        assert!(!engine.is_open());
+    }
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn a_metronome_with_no_outputs_does_not_start_and_says_where_to_choose_them() {
+    let _one = hosting();
+    let (recorder, _) = recorder_in(&temp("no-outputs"));
+    assert!(recorder.metronome_start(&config(), "a test").unwrap_err().contains("no outputs"));
+    recorder.set_metronome(Params::default(), vec![Pick::new(0, 9)], 0, false).unwrap();
+    assert!(recorder.metronome_start(&config(), "a test").unwrap_err().contains("A has no output 10"));
+    assert!(!recorder.engine().is_open(), "and nothing is left open");
+}
+
+#[test]
+fn record_with_a_count_in_counts_then_records_and_stop_stops_the_click_it_started() {
+    let _one = hosting();
+    let folder = temp("count-in");
+    let (recorder, preset) = recorder_in(&folder);
+    // 400 BPM in 2/4: a bar is 0.3 s.
+    metronome(&recorder, Params { tempo_tenths: 4_000, numerator: 2, ..Params::default() }, 2, false);
+    recorder.arm(preset("one")).unwrap();
+    recorder.record().unwrap();
+    assert_eq!(recorder.state(), "counting_in");
+    let status = recorder.metronome_status();
+    assert_eq!(status.started_by, Some("count_in"));
+    wait_for("the take to start on the downbeat", || recorder.state() == "recording");
+    wait_for("some of the take", || recorder.status().take.is_some_and(|t| t.elapsed_seconds > 0.8));
+    assert!(recorder.stop());
+    assert!(!recorder.metronome_status().running, "the click the count-in started stops with the take");
+    wait_for("the take to be written", || !recorder.takes().is_empty());
+    let take = recorder.takes()[0].clone();
+    let downbeat = take.downbeat_seconds.expect("a cue on the downbeat");
+    assert!((downbeat - take.preroll_seconds - 0.6).abs() < 1e-9, "two bars after the press: {downbeat} against {}", take.preroll_seconds);
+
+    // Stop during a count-in: no take, and the click goes.
+    recorder.record().unwrap();
+    assert_eq!(recorder.state(), "counting_in");
+    assert!(recorder.stop());
+    assert_eq!(recorder.state(), "armed");
+    std::thread::sleep(Duration::from_millis(900));
+    assert_eq!(recorder.takes().len(), 1, "no take was started");
+    assert!(!recorder.metronome_status().running);
+
+    // A click started by hand is left alone by Stop and by Disarm.
+    metronome(&recorder, Params { tempo_tenths: 4_000, numerator: 2, ..Params::default() }, 1, false);
+    recorder.metronome_start(&config(), "a test").unwrap();
+    recorder.record().unwrap();
+    wait_for("the take", || recorder.state() == "recording");
+    assert_eq!(recorder.metronome_status().started_by, Some("hand"));
+    recorder.stop();
+    assert!(recorder.metronome_status().running, "started by hand, stopped by hand");
+    recorder.disarm(true).unwrap();
+    assert!(recorder.metronome_status().running);
+    recorder.metronome_stop();
+    assert!(!recorder.engine().is_open());
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn a_click_that_follows_record_runs_with_the_take_and_stops_with_it() {
+    let _one = hosting();
+    let folder = temp("follow");
+    let (recorder, preset) = recorder_in(&folder);
+    metronome(&recorder, Params::default(), 0, true);
+    recorder.arm(preset("one")).unwrap();
+    assert!(!recorder.metronome_status().running);
+    recorder.record().unwrap();
+    assert_eq!(recorder.state(), "recording", "no count-in: at once");
+    let status = recorder.metronome_status();
+    assert!(status.running);
+    assert_eq!(status.started_by, Some("follow"));
+    recorder.stop();
+    assert!(!recorder.metronome_status().running);
+    assert!(recorder.metronome_preview().is_ok(), "a preview, while armed");
+    assert_eq!(recorder.metronome_status().started_by, Some("preview"));
+    recorder.disarm(true).unwrap();
+    assert!(recorder.metronome_preview().unwrap_err().contains("only while Gazelle is armed"), "a preview never opens the interfaces");
     let _ = std::fs::remove_dir_all(&folder);
 }
 

@@ -1320,6 +1320,49 @@ export const CATALOGUE: Catalogue = {
   "recording.hub-full-screen": { title: "Full screen", what: "Takes the hub in or out of full screen. Esc leaves it too." },
   "recording.hub-close": { title: "Close the hub", what: "Closes the hub window. The Recording page and the tray open it again." },
 
+  // The metronome, on the Recording page, the hub, the widget and the Remote page.
+  "recording.metronome": {
+    title: "Metronome",
+    what: "A click Gazelle plays into the outputs you choose, locked to the interfaces' own samples, with a count-in before a take if you want one.",
+    watch: "Running it opens the interfaces and holds their audio drivers, as arming does, even with nothing armed. It is never in a take unless you route its outputs back into an input you record.",
+  },
+  "remote.metronome": { title: "Metronome", what: "Start and stop the click, its tempo with Tap, the beat, and its volume. Where it plays and everything else about it is set on the computer. Folding it is remembered in this browser." },
+  "metronome.start": {
+    title: "Start or stop the metronome",
+    what: "Starts the click on a downbeat, or stops it; the last click rings out.",
+    effect: "The first Start in a browser says which outputs it plays to before it starts. After that it is one press.",
+    watch: "With nothing armed, Start opens the interfaces and holds their audio drivers until you stop it.",
+  },
+  "metronome.beats": { title: "Beat", what: "Lights the beat the click is on, the first of the bar larger. Amber during a count-in." },
+  "metronome.state": { title: "Metronome state", what: "Stopped, playing, playing for a take, or which bar of a count-in it is on." },
+  "metronome.tempo": { title: "Tempo", what: "Quarter notes a minute, 20 to 400, in steps of 0.1. A change takes effect at the next beat, with no gap and no click." },
+  "metronome.tempo-step": { title: "Tempo down or up", what: "One BPM slower or faster, at the next beat." },
+  "metronome.tap": { title: "Tap tempo", what: "Tap along with the beat: the tempo is the average of your last few taps. A pause of two seconds starts again." },
+  "metronome.volume": {
+    title: "Metronome volume",
+    what: "The loudest click's peak in dBFS: the downbeat's when it is accented. Other beats are 4 dB under it and the clicks between beats 12 dB under.",
+    watch: "Starts at -18 dBFS, and Gazelle never plays it louder than -6 dBFS, whatever is asked.",
+  },
+  "metronome.signature": { title: "Time signature", what: "Beats in a bar, and the note a beat is. A click is one beat, so 6/8 clicks eighth notes. A change starts a new bar at the next beat." },
+  "metronome.accent": { title: "Accent", what: "Plays the first beat of each bar as a brighter, louder variant of the sound." },
+  "metronome.subdivision": { title: "Clicks between the beats", what: "Two, three or four quieter clicks in each beat: eighths, triplets or sixteenths when a beat is a quarter note." },
+  "metronome.sound": { title: "Sound", what: "Click, beep, woodblock, cowbell or tick. Gazelle makes each one itself; a change takes effect at the next click." },
+  "metronome.count-in": {
+    title: "Count-in",
+    what: "Bars the click plays before a take. Record starts the click if it is not playing, counts, and starts the take on the downbeat after the count-in.",
+    effect: "The take reaches back into the pre-roll as any take does, so the count-in is in it, and every file marks the downbeat with a cue named Downbeat. Stop during the count-in starts no take.",
+  },
+  "metronome.follow": { title: "Follows Record", what: "The click plays whenever a take is recording, and stops when the take does. A click you started yourself is left alone." },
+  "metronome.preview": { title: "Preview a bar", what: "Plays one bar, 12 dB under the volume, then stops.", watch: "Only while armed, so a preview never opens the interfaces by itself." },
+  "metronome.explained-go": { title: "Start", what: "Starts the metronome, and this browser does not explain it again." },
+  "metronome.explained-cancel": { title: "Not now", what: "Closes the explanation without starting anything." },
+  "metronome.output": {
+    title: "{name}",
+    name: "Output",
+    what: "An output the click plays to. Tick one for mono, or both of a pair to hear it on both sides; every other output stays silent.",
+    watch: "Fixed while the interfaces are open: stop the metronome and disarm to change them.",
+  },
+
   // Notices.
   "notices.error": { title: "Error", what: "Something the app tried did not work. It stays until you dismiss it." },
   "notices.warning": { title: "Warning", what: "Something worth knowing, such as the server not finding the devices. It stays until you dismiss it." },

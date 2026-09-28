@@ -22,7 +22,12 @@
 //!   [`RecordingService::arm`] is a person's and resumes it.
 //! - **A normal shutdown finishes the take** ([`RecordingService::shutdown`]): Quit, Ctrl-C, and the
 //!   restart into an update all disarm before the process ends, so every file of a take is closed
-//!   with its sizes and its log is complete.
+//!   with its sizes and its log is complete. The metronome stops with it.
+//! - **The metronome** (`gazelle_record::metronome`) shares the recorder's session: running it with
+//!   nothing armed opens the aggregate and holds the drivers, exactly as arming does, and a
+//!   measurement is refused while it plays. Its settings are this PC's, in `metronome.json`
+//!   (`crate::studio::metronome`). A phone may start and stop it and change its tempo and volume;
+//!   everything else about it, the outputs above all, is the computer's (`crate::http::metronome`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -44,6 +49,8 @@ use crate::aggregate::naming::{device_of, family_words};
 use crate::config::{default_recordings_dir, loopback_recordings_dir};
 use crate::device::manager::DeviceManager;
 use crate::studio::auto_arm::{self, AutoArm, Inputs, Phase, Step};
+use crate::studio::metronome::{MetronomeSettings, MetronomeStore};
+use crate::studio::settings::Backing;
 use crate::studio::{Studio, StudioSettings};
 use crate::workspace::model::{Aggregate, AggregateDevice, AggregateKnown, Recording, RecordingPreset, Workspace, RECORDING_CAP_MAX, RECORDING_FORMATS, RECORDING_PATTERN_DEFAULT, RECORDING_PERCENT_DEFAULT};
 use crate::workspace::store::WorkspaceStore;
@@ -91,6 +98,7 @@ pub struct RecordingService {
     presence: Mutex<Option<Presence>>,
     /// Set by [`RecordingService::shutdown`]: nothing arms from then on.
     stopping: std::sync::atomic::AtomicBool,
+    metronome: MetronomeStore,
 }
 
 impl RecordingService {
@@ -129,7 +137,9 @@ impl RecordingService {
             auto: Mutex::new(Auto { rules: AutoArm::new(), preset_name: None }),
             presence: Mutex::new(None),
             stopping: std::sync::atomic::AtomicBool::new(false),
+            metronome: MetronomeStore::in_memory(),
         });
+        service.apply_metronome(&service.metronome.get());
         service.publish();
         service
     }
@@ -151,9 +161,9 @@ impl RecordingService {
         self.auto.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Whether the recorder holds the aggregate, or is about to.
+    /// Whether the recorder or the metronome holds the aggregate, or is about to.
     pub fn is_active(&self) -> bool {
-        self.recorder.is_active()
+        self.recorder.holds_the_aggregate()
     }
 
     /// Everything the page shows: the recorder's state, the preset it offers first, and where files
@@ -165,8 +175,106 @@ impl RecordingService {
             object.insert("default_folder".into(), json!(self.default_folder().display().to_string()));
             object.insert("loopback".into(), json!(self.loopback));
             object.insert("auto_arm".into(), self.auto_arm_answer());
+            object.insert("metronome".into(), self.metronome_answer());
         }
         answer
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The metronome.
+    // ---------------------------------------------------------------------------------------------
+
+    /// Read the metronome's settings from `backing` and keep them there from now on. A warning to
+    /// log when the file could not be used.
+    pub fn load_metronome(&self, backing: Backing) -> Option<String> {
+        let warning = self.metronome.load(backing);
+        self.apply_metronome(&self.metronome.get());
+        self.publish();
+        warning
+    }
+
+    fn apply_metronome(&self, settings: &MetronomeSettings) {
+        if let Err(why) = self.recorder.set_metronome(settings.params(), settings.outputs.clone(), settings.count_in_bars, settings.follow_record) {
+            tracing::warn!("the metronome's settings were not taken up: {why}");
+        }
+    }
+
+    pub fn metronome_settings(&self) -> MetronomeSettings {
+        self.metronome.get()
+    }
+
+    /// The metronome as the pages show it: its settings, and where the click is. While it runs,
+    /// `at_ms` is when that was, so a page can move its beat light between answers.
+    pub fn metronome_answer(&self) -> Value {
+        let status = self.recorder.metronome_status();
+        let running = status.running;
+        let mut answer = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
+        answer["settings"] = serde_json::to_value(self.metronome.get()).unwrap_or(Value::Null);
+        if running {
+            let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+            answer["at_ms"] = json!(now);
+        }
+        answer
+    }
+
+    /// Change the metronome's settings: checked, handed to the engine, then kept. Outputs are
+    /// refused while the aggregate is open with others.
+    pub fn change_metronome(&self, change: impl FnOnce(&mut MetronomeSettings)) -> Result<MetronomeSettings, Refusal> {
+        let mut next = self.metronome.get();
+        change(&mut next);
+        next.tempo = (next.tempo * 10.0).round() / 10.0;
+        if let Some(why) = next.problem() {
+            return Err(Refusal::new("bad_value", why));
+        }
+        self.recorder
+            .set_metronome(next.params(), next.outputs.clone(), next.count_in_bars, next.follow_record)
+            .map_err(|why| Refusal::new(if why == gazelle_record::engine::OUTPUTS_FIXED { "outputs_fixed" } else { "bad_value" }, why))?;
+        self.metronome.put(next.clone()).map_err(|why| Refusal::new("storage_error", why))?;
+        self.publish();
+        Ok(next)
+    }
+
+    /// **Start the click** by hand. With nothing armed this opens the aggregate and holds the drivers,
+    /// as arming does. Blocks while the drivers open: call it off the runtime.
+    pub fn metronome_start(&self) -> Result<(), Refusal> {
+        if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Refusal::new("metronome_refused", "Gazelle is stopping"));
+        }
+        if self.calibration.is_running() {
+            return Err(Refusal::new("measuring", gazelle_record::host::MEASURING));
+        }
+        let workspace = self.store.load().map_err(|e| Refusal::new("metronome_refused", e.to_string()))?;
+        let config = self.config_for(&workspace).map_err(|why| Refusal::new("metronome_refused", why))?;
+        let source = if self.loopback { "the loopback's interfaces" } else { "Gazelle's workspace" };
+        let started = self.recorder.metronome_start(&config, source);
+        self.publish();
+        match started {
+            Ok(()) => {
+                let settings = self.metronome.get();
+                tracing::info!("metronome started at {} BPM, {}/{}", settings.tempo, settings.numerator, settings.denominator);
+                Ok(())
+            }
+            Err(why) if why == gazelle_record::host::MEASURING => Err(Refusal::new("measuring", why)),
+            Err(why) => Err(Refusal::new("metronome_refused", why)),
+        }
+    }
+
+    /// **Stop the click** by hand. Blocks while the last click rings out and, when nothing is armed,
+    /// the drivers are let go: call it off the runtime.
+    pub fn metronome_stop(&self) -> bool {
+        let stopped = self.recorder.metronome_stop();
+        if stopped {
+            tracing::info!("metronome stopped");
+        }
+        self.publish();
+        stopped
+    }
+
+    /// One bar, quietly, while armed.
+    pub fn metronome_preview(&self) -> Result<(), Refusal> {
+        let previewed = self.recorder.metronome_preview();
+        self.publish();
+        previewed.map_err(|why| Refusal::new("metronome_refused", why))
     }
 
     /// Auto-arm as the pages show it: whether it is on, with which preset, and where it has got to.
@@ -225,9 +333,9 @@ impl RecordingService {
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             every.tick().await;
-            if self.recorder.is_active() || !self.live.borrow().get("state").is_some_and(|s| s == "off") {
-                self.publish();
-            }
+            self.recorder.tidy();
+            // Only a change is sent, so this costs nothing while everything is off.
+            self.publish();
         }
     }
 
@@ -296,13 +404,15 @@ impl RecordingService {
             std::thread::sleep(Duration::from_millis(50));
         }
         let state = self.recorder.state();
-        if state == "off" {
-            return;
+        if state != "off" {
+            tracing::info!("shutting down while {state}: finishing any take and letting go of the audio drivers");
+            match self.recorder.disarm(true) {
+                Ok(_) => tracing::info!("the recorder is disarmed, and every file it was writing is finished"),
+                Err(why) => tracing::warn!("the recorder did not disarm at shutdown: {why}"),
+            }
         }
-        tracing::info!("shutting down while {state}: finishing any take and letting go of the audio drivers");
-        match self.recorder.disarm(true) {
-            Ok(_) => tracing::info!("the recorder is disarmed, and every file it was writing is finished"),
-            Err(why) => tracing::warn!("the recorder did not disarm at shutdown: {why}"),
+        if self.recorder.metronome_stop() {
+            tracing::info!("shutting down: the metronome is stopped");
         }
         self.publish();
     }

@@ -12,6 +12,7 @@ The **Transport** at the top shows where the recorder is, in large letters:
 
 - **Off**, with a grey light. Choose a **Preset** and press **Arm**.
 - **Armed**, with a hollow red ring that pulses. The interfaces are open, and the **pre-roll** is filling: the bar and the line under it say how many seconds are held and how many it can hold. Nothing is written to disk yet.
+- **Count-in**, in amber, when Record was pressed with a [count-in](#a-count-in-before-a-take): the metronome counts its bars before the take starts.
 - **Recording**, in red, with a solid red light and the time since you pressed Record.
 
 **Arm** opens the interfaces and reserves the memory for the pre-roll. The first time you press it in a browser, the page says what it does and asks once; after that it is one press. If it cannot arm, it says why in a sentence: a channel the aggregate does not have, too little free memory, an interface that would not open, or a measurement running.
@@ -63,6 +64,43 @@ The **Takes** list shows the takes recorded since Gazelle started, newest first,
 
 Gazelle checks the free space when you press Record and refuses a take with less than a minute of room. While recording it looks every second: below about ten minutes of room the transport warns, and before the disk is full it stops the take the ordinary way and finishes its files while there is still room to. If a write fails anyway, the take stops, and what was written is kept. Each file's size is written into its header every two seconds, so a file cut short by a crash still opens.
 
+## Metronome
+
+The **Metronome** section plays a click into the outputs you choose, from inside the same session the recorder uses, so it is locked to the interfaces' own samples: every click lands on its beat to the sample, however long it runs, and never drifts from the audio you record.
+
+> **Warning.** Running the metronome opens the interfaces through Gazelle Aggregate and holds their audio drivers, exactly as arming does, **even with nothing armed**. A DAW may not be able to use them until you stop it (and disarm), and a measurement on the Aggregate page cannot run while it plays.
+
+**Start** and **Stop** are one button. The first time you press Start in a browser, the section says which outputs it plays to and that it holds the drivers, and starts from there; after that it is one press. Stopping lets the last click ring out. Beside the button, a light for each beat of the bar, the first one larger, shows where the click is.
+
+- **Outputs.** Tick where it plays, interface by interface, named as the Aggregate page names them: one output for mono, or both of a pair, such as the two your headphones are on, to hear it on both sides. Every other output stays silent. The outputs are fixed while the interfaces are open, by the metronome or by Arm: stop the metronome and disarm to change them.
+- **Tempo**, in quarter notes a minute, from 20 to 400 in steps of 0.1: type it, step it one BPM at a time with the minus and plus buttons, or **Tap** along with the beat; the tempo is the average of your last few taps, and a pause of two seconds starts the taps again.
+- **Time signature.** Beats in a bar, 1 to 16, and the note a beat is: 2, 4, 8 or 16. A click is one beat, so 6/8 clicks eighth notes, as a DAW does, and at a tempo of 120 that is 240 clicks a minute.
+- **Accent the first beat of the bar** plays the downbeat as a brighter, louder variant of the sound.
+- **Clicks between the beats**: none, or two, three or four quieter ones in each beat (eighths, triplets or sixteenths when a beat is a quarter note).
+- **Sound**: click, beep, woodblock, cowbell or tick. Gazelle makes each one itself; there are no sample files.
+- **Volume**, in dBFS, from -60 to -6: the peak of the loudest click, the downbeat when it is accented. Other beats are 4 dB under it and the clicks between the beats 12 dB under. It starts at -18 dBFS, and **Gazelle never plays it louder than -6 dBFS**, whatever it is asked, in the engine itself and not only on this page.
+- **Preview a bar** plays one bar, 12 dB under the volume, and stops. It works only while armed, so it never opens the interfaces by itself.
+
+A change of tempo, signature or clicks between the beats takes effect at the next beat, and a change of sound, accent or volume at the next click, with no gap and no click of its own. A change of signature starts a new bar.
+
+**The metronome is never in a take** unless you route its outputs back into an input you record, on the Routing page or with a cable.
+
+### A count-in before a take
+
+**Count-in before a take** is 0 to 4 bars. With a count-in, **Record** starts the click if it is not already playing, plays the bars, and starts the take on the downbeat after them; the transport says **Count-in** meanwhile, and which bar it is on. A click that is already playing counts from its next downbeat.
+
+The take starts as if Record had been pressed on that downbeat: it **reaches back into the pre-roll**, which holds the count-in, so nothing you played during it is lost, and the take starts where the pre-roll starts. Its clock counts from the moment you pressed Record. **The downbeat is marked**: every file of the take carries a cue point named **Downbeat** on that sample, which a DAW that reads cue points shows as a marker to snap to, and the take's log says which sample it is.
+
+**Stop during the count-in** cancels it, and no take is started. **Stop** after it ends the take and, when the count-in started the click, stops the click too. A click you started yourself keeps playing until you stop it.
+
+### Follows Record
+
+Tick **Follows Record** and the click plays whenever a take is recording and stops when it does. With a count-in as well, the count-in starts it.
+
+### Where the metronome's settings are kept
+
+In `metronome.json`, in `%APPDATA%\gazelle` beside `recording.json`: one metronome for this computer, not one per preset and not in the workspace. Its outputs are this computer's wiring, so a workspace carried to another computer does not start playing a click into whatever that computer has on those outputs. A phone may start and stop the metronome and change its tempo and volume; everything else about it is changed on the computer.
+
 ## Widget, hub and auto-arm
 
 The page's **Widget, hub and auto-arm** section is for a computer that should be ready to record at any moment. It is shown on the computer only: a phone does not see it, and cannot change it. The same things are in the tray menu.
@@ -75,6 +113,7 @@ The page's **Widget, hub and auto-arm** section is for a computer that should be
 - the preset, and the pre-roll held;
 - **Auto: Band** (or whichever preset) while auto-arm is on; press it twice to turn auto-arm off;
 - one big button for what can be done now, **Arm**, **Record** or **Stop**, and a small **Disarm** beside it, which asks for a second press while recording;
+- a small metronome button with its tempo on it, which starts and stops the click, and a light that flashes on every beat;
 - a line that says what is wrong, when something is: audio lost, a disk getting full, a refusal, or the connection to Gazelle gone.
 
 Drag it anywhere by its body; the buttons are pressed as usual. It arms with the preset the Transport would offer, or with auto-arm's preset while that is on. The first time Arm is pressed in the widget it reads **Confirm**, and a second press arms: there is no room in it for the explanation the page gives, which its tooltip carries instead.
@@ -90,6 +129,7 @@ The widget remembers where it was and how big, and whether it was open: open whe
 - beside them, how long the disk would keep recording at this rate and number of channels, and the last few takes;
 - every channel's meter, by the name Gazelle gives it;
 - **Arm**, **Record** and **Stop** as big buttons, and **Disarm** small and off to the side, so it is not pressed by accident. While a take is recording it asks for a second press, as everywhere;
+- the metronome, with **Start** and **Stop**, its tempo with **Tap**, and its beat;
 - auto-arm, when it is on, with a button that turns it off.
 
 **Space** records and stops, as on the page, even when a button has the focus, so it never presses a button by mistake. **Esc** leaves full screen, and the hub stays open as an ordinary window; **Full screen** (or F11) puts it back, and **Close the hub** closes it. It opens full screen on the monitor it was last on, or on the main monitor if that one has gone.

@@ -6,6 +6,8 @@
 // - **Transport** (`recording-transport.ts`): the preset, the state, the pre-roll, and Arm, Record,
 //   Stop and Disarm. Space presses Record while armed and Stop while recording, whenever the page is
 //   shown and a field or button does not have the focus (nothing else in the app uses Space).
+// - **Metronome** (`metronome-controls.ts`): the click, its tempo, signature, sound, volume, outputs,
+//   count-in and whether it follows Record.
 // - **Channels**: what is being recorded, each named as the aggregate names it, with its level.
 // - **Presets**: the list and the editor. A preset holds the channels (by interface and input, as
 //   the Aggregate page names them), the folder, the file names, 24-bit or 32-bit float, and how much
@@ -19,6 +21,7 @@ import { fileOf, folderOf, newPreset, PATTERN_DEFAULT, PERCENT_DEFAULT, PERCENTS
 import type { Store } from "../store/store.ts";
 import { bindConfirm } from "./controls.ts";
 import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import { METRONOME_STYLES, metronomeSection } from "./metronome-controls.ts";
 import { CHANNEL_STYLES, channelMeters, recordingTransport, remembered, spaceToggles, TRANSPORT_STYLES, type TransportHost } from "./recording-transport.ts";
 
 /** What auto-arm means for the drivers, and for this PC's other work, said beside the setting. */
@@ -32,6 +35,7 @@ export class GaRecording extends GaElement {
       .sections { display: grid; gap: 12px; max-width: 980px; }
       ${TRANSPORT_STYLES}
       ${CHANNEL_STYLES}
+      ${METRONOME_STYLES}
       .empty { margin: 0; font-size: 13px; color: var(--ga-text-muted); }
       .computer { display: grid; gap: 8px; }
       .computer .check { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
@@ -71,6 +75,7 @@ export class GaRecording extends GaElement {
         "div",
         { class: "sections" },
         section("transport", "Transport", "recording.transport", recordingTransport(host, false)),
+        section("metronome", "Metronome", "recording.metronome", metronomeSection(host)),
         section("channels", "Channels", "recording.channels", channels),
         // The windows and the settings are this computer's: a phone is not shown them.
         store.phone ? false : section("computer", "Widget, hub and auto-arm", "recording.computer", this.#computer(store, host)),
@@ -269,7 +274,7 @@ export class GaRecording extends GaElement {
     );
 
     // The channels, by interface, as the Aggregate page names them.
-    const { devices, inputs } = untracked(() => store.aggregateInputs());
+    const { devices, inputs } = untracked(() => store.aggregateInputs(true));
     const chosen = new Set((preset.channels ?? []).map((c) => `${c.device}:${c.channel}`));
     const picker = h("div", { class: "picker", "data-testid": "recording-preset-channels" });
     if (inputs.length === 0) {

@@ -16,6 +16,7 @@ import { signal } from "../core/signal.ts";
 import { autoArmText, clockText, diskLeftText, prerollFill, prerollText, recordingModel, stateLabel, takeLine, timeOfDay, warnings } from "../store/recording.ts";
 import { bindConfirm } from "./controls.ts";
 import { applyTheme, GaElement, sheet, useStore } from "./element.ts";
+import { METRONOME_STYLES, metronomeCompact } from "./metronome-controls.ts";
 import { autoArmOffButton, bindArm, CHANNEL_STYLES, channelMeters, followWorkspace, inWindow, spaceToggles, toWindow, type TransportHost } from "./recording-transport.ts";
 
 /** How many takes the hub lists. */
@@ -64,6 +65,15 @@ export class GaRecordingHub extends GaElement {
       .takes li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ga-text-secondary); }
       .takes li:first-child { color: var(--ga-text-primary); }
       ${CHANNEL_STYLES}
+      ${METRONOME_STYLES}
+      .side .metronome { gap: 1vh; font-size: clamp(12px, 1.8vh, 22px); }
+      .side .metronome .said, .side .metronome .tempo .unit { font-size: inherit; }
+      .side .metronome .start, .side .metronome .tempo button { min-height: clamp(32px, 5vh, 64px); min-width: clamp(40px, 5vh, 72px); font-size: clamp(14px, 2.4vh, 30px); }
+      .side .metronome .tempo input { font-size: clamp(16px, 3vh, 40px); width: 4.2em; }
+      .side .metronome .beats .dot { width: clamp(12px, 2.2vh, 30px); height: clamp(12px, 2.2vh, 30px); }
+      .side .metronome .beats .dot.one { width: clamp(16px, 2.8vh, 38px); height: clamp(16px, 2.8vh, 38px); }
+      :host([data-state="counting_in"]) .label { color: var(--ga-notice-warning); }
+      :host([data-state="counting_in"]) .lamp { border-color: var(--ga-notice-warning); animation: ga-armed 0.5s ease-in-out infinite; }
       .meters .channels { grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr)); gap: 1vh 3vw; max-height: 26vh; overflow: auto; }
       .meters .channel { grid-template-columns: minmax(0, 48%) minmax(0, 1fr) 4.6em; font-size: clamp(13px, 2vh, 24px); }
       .meters .channel .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -143,7 +153,7 @@ export class GaRecordingHub extends GaElement {
         "div",
         { class: "middle" },
         h("div", { class: "big" }, h("div", { class: "state" }, lamp, label), elapsed, h("div", { class: "preroll" }, h("div", { class: "track meter", role: "img", "aria-label": "Pre-roll held", "data-explain": "recording.preroll" }, fill), prerollLine)),
-        h("div", { class: "side" }, h("div", {}, h("h2", { "data-explain": "recording.hub-disk" }, "Disk left"), disk, diskNote), h("div", {}, h("h2", { "data-explain": "recording.takes" }, "Last takes"), takes)),
+        h("div", { class: "side" }, h("div", {}, h("h2", { "data-explain": "recording.hub-disk" }, "Disk left"), disk, diskNote), h("div", {}, h("h2", { "data-explain": "recording.takes" }, "Last takes"), takes), h("div", {}, h("h2", { "data-explain": "recording.metronome" }, "Metronome"), metronomeCompact(host, "hub", false))),
       ),
       h("div", { class: "meters" }, channelMeters(host, "hub-channel", "Arm to see every channel's level here.")),
       h("div", { class: "controls" }, arm, record, stop, h("div", { class: "aside" }, disarm, fullScreen, close)),
@@ -194,10 +204,11 @@ export class GaRecordingHub extends GaElement {
 
       arm.hidden = !off && state !== "arming";
       arm.disabled = !connected || busy !== undefined || state === "arming" || problem !== undefined;
-      record.hidden = !(state === "armed" || state === "recording");
+      const taking = state === "recording" || state === "counting_in";
+      record.hidden = !(state === "armed" || taking);
       record.disabled = !connected || busy !== undefined || state !== "armed";
-      stop.hidden = !(state === "armed" || state === "recording");
-      stop.disabled = !connected || busy !== undefined || state !== "recording";
+      stop.hidden = !(state === "armed" || taking);
+      stop.disabled = !connected || (busy !== undefined && busy !== "metronome") || !taking;
       disarm.hidden = off || state === "arming";
       disarm.disabled = !connected || busy === "disarm" || state === "disarming";
 

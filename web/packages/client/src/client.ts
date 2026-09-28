@@ -7,7 +7,7 @@
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
 import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
-import type { RecordingSettings, RecordingStatus, RecordingTake, RecordingWindows } from "./recording.ts";
+import type { MetronomeSettings, MetronomeStatus, RecordingSettings, RecordingStatus, RecordingTake, RecordingWindows } from "./recording.ts";
 import type { RemotePairing, RemoteStatus } from "./remote.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
@@ -226,6 +226,10 @@ export interface Client {
     /** The recording widget and hub windows; `no_window` (409) from a Gazelle without windows. */
     windows(): Promise<RecordingWindows>;
     setWindow(which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows>;
+    /** The metronome: start it (opening the interfaces if nothing has), stop it, or preview one bar while armed. */
+    metronome(action: "start" | "stop" | "preview"): Promise<MetronomeStatus>;
+    /** Changes what it names; a phone may change only `tempo` and `volume_db` (`not_local` otherwise). */
+    setMetronome(change: Partial<MetronomeSettings>): Promise<MetronomeSettings>;
   };
   /**
    * The in-app updater. Answered only to a caller on the server's own machine: a phone gets
@@ -442,6 +446,8 @@ class Connection implements Client {
     setSettings: async (change: Partial<RecordingSettings>): Promise<RecordingSettings> => (await this.#http("PUT", "recording/settings", change)) as RecordingSettings,
     windows: async (): Promise<RecordingWindows> => (await this.#http("GET", "window/widget")) as RecordingWindows,
     setWindow: async (which: "widget" | "hub", ask: { open?: boolean; full_screen?: boolean }): Promise<RecordingWindows> => (await this.#http("POST", `window/${which}`, ask)) as RecordingWindows,
+    metronome: async (action: "start" | "stop" | "preview"): Promise<MetronomeStatus> => (await this.#http("POST", `metronome/${action}`, {})) as MetronomeStatus,
+    setMetronome: async (change: Partial<MetronomeSettings>): Promise<MetronomeSettings> => (await this.#http("PUT", "metronome/settings", change)) as MetronomeSettings,
   };
 
   readonly update = {

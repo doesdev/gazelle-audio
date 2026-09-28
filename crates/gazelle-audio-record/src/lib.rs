@@ -25,12 +25,15 @@
 //! by page at Arm, so it cannot fail later or wait for memory to be brought in.
 
 pub mod capture;
+pub mod engine;
 pub mod env;
 pub mod host;
+pub mod metronome;
 pub mod names;
 pub mod recorder;
 pub mod sim;
 pub mod sizing;
+pub mod sounds;
 pub mod system;
 pub mod wav;
 pub mod writer;

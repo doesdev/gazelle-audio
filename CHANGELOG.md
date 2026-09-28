@@ -68,6 +68,16 @@ version that has not been published yet.
   to use them. Quitting Gazelle, restarting it to update, and Windows shutting down, restarting
   or signing you out all finish any take being recorded first; Windows shows "Finishing a
   recording" while it waits.
+- **A metronome.** The Recording page has a Metronome section: a click played into the outputs you
+  choose, such as the pair your headphones are on, landing exactly on the beat however long it
+  runs. Set the tempo from 20 to 400 BPM by typing, stepping or tapping, the time signature, an
+  accent on the first beat, quieter clicks between the beats, and one of five sounds: click, beep,
+  woodblock, cowbell or tick. It starts at -18 dBFS and never plays louder than -6 dBFS, whatever
+  you ask. A count-in of up to 4 bars makes Record count before the take starts on the downbeat,
+  with the count-in kept in the take and the downbeat marked in every file for your DAW to snap
+  to; or have the click follow Record. The hub, the widget and a phone's Remote page start and
+  stop it, and a phone changes its tempo and volume. Running it opens the interfaces and holds
+  their drivers, as arming does, and it is never in a take unless you route its outputs there.
 - **Gazelle Remote, an app for Android phones.** Each release now carries `Gazelle-Remote.apk`:
   install it on your phone (Android asks you to allow installing it from your browser), scan the
   QR code on the computer, and Gazelle's Remote page opens full screen, with the screen kept on.

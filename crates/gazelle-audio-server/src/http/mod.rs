@@ -5,6 +5,7 @@ pub mod commands;
 pub mod devices;
 pub mod driver;
 pub mod health;
+pub mod metronome;
 pub mod recall;
 pub mod recording;
 pub mod remote;

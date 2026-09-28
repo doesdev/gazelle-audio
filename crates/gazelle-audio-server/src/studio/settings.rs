@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// The file's contents.
@@ -49,20 +50,31 @@ pub enum Backing {
 impl Backing {
     /// Read the file. A missing file is the defaults with nothing to say.
     pub fn load(&self) -> (StudioSettings, Option<String>) {
-        let Backing::File(path) = self else { return (StudioSettings::default(), None) };
+        self.load_as("recording settings", "auto-arm is off")
+    }
+
+    /// Read the file as `T`. A missing file is the defaults with nothing to say; an unreadable one is
+    /// the defaults and a warning, which ends with `meanwhile`.
+    pub fn load_as<T: DeserializeOwned + Default>(&self, what: &str, meanwhile: &str) -> (T, Option<String>) {
+        let Backing::File(path) = self else { return (T::default(), None) };
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (StudioSettings::default(), None),
-            Err(e) => return (StudioSettings::default(), Some(format!("reading {}: {e}; auto-arm is off until it can be read", path.display()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (T::default(), None),
+            Err(e) => return (T::default(), Some(format!("reading {}: {e}; {meanwhile} until it can be read", path.display()))),
         };
         match serde_json::from_str(&text) {
             Ok(settings) => (settings, None),
-            Err(e) => (StudioSettings::default(), Some(format!("{} is not valid recording settings ({e}); auto-arm is off until it is fixed or replaced", path.display()))),
+            Err(e) => (T::default(), Some(format!("{} is not valid {what} ({e}); {meanwhile} until it is fixed or replaced", path.display()))),
         }
     }
 
     /// Write the file whole: to a temporary file beside it, then renamed over it.
     pub fn save(&self, settings: &StudioSettings) -> std::io::Result<()> {
+        self.save_as(settings)
+    }
+
+    /// Write any settings whole, as [`Backing::save`] does.
+    pub fn save_as<T: Serialize>(&self, settings: &T) -> std::io::Result<()> {
         let Backing::File(path) = self else { return Ok(()) };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;

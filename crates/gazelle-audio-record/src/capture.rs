@@ -65,8 +65,11 @@ const PAGE: usize = 4096;
 pub struct Window {
     /// Its first sample, as a position in the stream.
     pub start: u64,
-    /// Where the stream was when Record took effect: everything before this is pre-roll.
+    /// Where the stream was when Record took effect: everything before this is pre-roll. After a
+    /// count-in, where it was when Record was pressed.
     pub pressed_at: u64,
+    /// The downbeat after a count-in, when the take started from one: a position in the stream.
+    pub cue: Option<u64>,
 }
 
 /// What the ring says about itself, read off the audio thread.
@@ -108,6 +111,11 @@ pub struct Capture {
     recording: AtomicBool,
     take_start: AtomicU64,
     pressed_at: AtomicU64,
+    /// A take the callback starts after a count-in: when Record was pressed, and the downbeat. Taken
+    /// by the take that starts next.
+    pending_pressed: AtomicU64,
+    pending_cue: AtomicU64,
+    take_cue: AtomicU64,
     started_any: AtomicBool,
     overruns: AtomicU64,
     last_overrun: AtomicU64,
@@ -184,6 +192,9 @@ impl Capture {
             recording: AtomicBool::new(false),
             take_start: AtomicU64::new(0),
             pressed_at: AtomicU64::new(0),
+            pending_pressed: AtomicU64::new(PARKED),
+            pending_cue: AtomicU64::new(PARKED),
+            take_cue: AtomicU64::new(PARKED),
             started_any: AtomicBool::new(false),
             overruns: AtomicU64::new(0),
             last_overrun: AtomicU64::new(PARKED),
@@ -233,8 +244,10 @@ impl Capture {
         } else if want && !recording && self.read.load(Ordering::Acquire) == PARKED {
             // The oldest block still held, but nothing the last take already has.
             let start = self.floor.load(Ordering::Relaxed).max(at.saturating_sub(self.preroll));
+            let pressed = self.pending_pressed.swap(PARKED, Ordering::Relaxed);
             self.take_start.store(start, Ordering::Relaxed);
-            self.pressed_at.store(at, Ordering::Relaxed);
+            self.pressed_at.store(if pressed == PARKED { at } else { pressed.clamp(start, at) }, Ordering::Relaxed);
+            self.take_cue.store(self.pending_cue.swap(PARKED, Ordering::Relaxed), Ordering::Relaxed);
             self.keep_until.store(PARKED, Ordering::Relaxed);
             self.started_any.store(true, Ordering::Relaxed);
             self.recording.store(true, Ordering::Relaxed);
@@ -275,7 +288,20 @@ impl Capture {
     /// block. Asking twice is asking once; a stop and a record in the same block leave the take
     /// running, which loses nothing.
     pub fn want_recording(&self, on: bool) {
+        if !on {
+            self.pending_pressed.store(PARKED, Ordering::Relaxed);
+            self.pending_cue.store(PARKED, Ordering::Relaxed);
+        }
         self.want.store(on, Ordering::Release);
+    }
+
+    /// **On the callback, before its block is pushed**: a take after a count-in. It starts at this
+    /// block as any take does, reaching back into the pre-roll, and remembers `pressed` (when Record
+    /// was pressed, which is where its clock counts from) and `downbeat`, both stream positions.
+    pub fn start_take_counted(&self, pressed: u64, downbeat: u64) {
+        self.pending_pressed.store(pressed, Ordering::Relaxed);
+        self.pending_cue.store(downbeat, Ordering::Relaxed);
+        self.want.store(true, Ordering::Release);
     }
 
     pub fn wants_recording(&self) -> bool {
@@ -301,6 +327,7 @@ impl Capture {
         let window = self.started_any.load(Ordering::Acquire).then(|| Window {
             start: self.take_start.load(Ordering::Relaxed),
             pressed_at: self.pressed_at.load(Ordering::Relaxed),
+            cue: Some(self.take_cue.load(Ordering::Relaxed)).filter(|&cue| cue != PARKED),
         });
         let held_frames = match (recording, window) {
             (true, Some(window)) => window.pressed_at - window.start,
@@ -332,6 +359,7 @@ impl Capture {
         (self.read.load(Ordering::Acquire) != PARKED).then(|| Window {
             start: self.take_start.load(Ordering::Relaxed),
             pressed_at: self.pressed_at.load(Ordering::Relaxed),
+            cue: Some(self.take_cue.load(Ordering::Relaxed)).filter(|&cue| cue != PARKED),
         })
     }
 
@@ -587,6 +615,34 @@ mod tests {
         let mut taken = Vec::new();
         assert!(drain(&capture, &mut taken));
         assert_eq!(taken.len(), 3);
+    }
+
+    #[test]
+    fn a_take_after_a_count_in_reaches_back_as_any_take_and_keeps_the_press_and_the_downbeat() {
+        let capture = Capture::allocate(CHANNELS, BLOCK, 16 * BLOCK as u64, 10 * BLOCK as u64).unwrap();
+        let mut source = Source { next: 0 };
+        for _ in 0..20 {
+            source.push(&capture);
+        }
+        // Pressed at block 16, the downbeat seven samples into block 20, which is now.
+        capture.start_take_counted(16 * BLOCK as u64, 20 * BLOCK as u64 + 7);
+        source.push(&capture);
+        let window = capture.take().unwrap();
+        assert_eq!(window, Window { start: 10 * BLOCK as u64, pressed_at: 16 * BLOCK as u64, cue: Some(20 * BLOCK as u64 + 7) });
+        capture.want_recording(false);
+        source.push(&capture);
+        let mut taken = Vec::new();
+        assert!(drain(&capture, &mut taken));
+        // A press before the pre-roll reaches is held to the take's start; a plain take has no cue.
+        capture.start_take_counted(0, 22 * BLOCK as u64);
+        source.push(&capture);
+        assert_eq!(capture.take().unwrap().pressed_at, capture.take().unwrap().start);
+        capture.want_recording(false);
+        source.push(&capture);
+        assert!(drain(&capture, &mut taken));
+        capture.want_recording(true);
+        source.push(&capture);
+        assert_eq!(capture.take().unwrap().cue, None);
     }
 
     #[test]
