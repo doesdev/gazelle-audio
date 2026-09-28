@@ -20,7 +20,7 @@ import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { bindConfirm } from "./controls.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
-import { LINK_STYLES, linkBar } from "./link-bar.ts";
+import { clearSoftLinkOnEscape, LINK_STYLES, linkBar, SOFT_STYLES, softLinkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { replaceRoute } from "./router.ts";
 import { keepOpen, keepScroll } from "./view-state.ts";
@@ -155,6 +155,7 @@ export class GaMixer extends GaElement {
       .starts .save-as { margin-left: 12px; }
       .starts button[data-armed] { outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
       ${LINK_STYLES}
+      ${SOFT_STYLES}
     `),
   ];
 
@@ -243,38 +244,65 @@ export class GaMixer extends GaElement {
       }
       const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
       const saved = channels.savedLayouts();
-      let saveAs: HTMLElement[] = [];
-      if (setUp) {
-        // This row is rebuilt as the channels change, so the name typed so far is kept outside it.
-        const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "data-explain": "mixer.layout-name", "on:input": () => (layoutName.value = name.value) });
-        const save = h(
-          "button",
-          {
-            type: "button",
-            "data-testid": "layout-save",
-            "data-explain": "mixer.layout-save",
-            title: "Save these channels, groups and mix names as a layout any device of this model can start from",
-            "on:click": () => {
-              try {
-                channels.saveLayout(name.value);
-                layoutName.value = "";
-              } catch (error) {
-                failed(error);
-              }
-            },
-          },
-          "Save layout",
-        );
-        saveAs = [h("span", { class: "caption save-as" }, "Save as"), name, save];
-      }
       const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
       const select = h(
         "select",
         { "aria-label": "Starting layout", "data-testid": "profile-select", "data-explain": "mixer.profile" },
         h("optgroup", { label: "Starting layouts" }, choices.map((p) => h("option", { value: p.id, title: p.description }, p.name))),
-        saved.length > 0 ? h("optgroup", { label: "Saved" }, saved.map((l) => h("option", { value: `saved:${l.id}` }, l.name))) : undefined,
+        saved.length > 0 ? h("optgroup", { label: "Saved" }, saved.map((l) => h("option", { value: `saved:${l.id}` }, channels.savedLayoutLabel(l)))) : undefined,
       );
       const chosenSaved = () => (select.value.startsWith("saved:") ? select.value.slice("saved:".length) : undefined);
+      const chosen = startFrom.peek();
+      if (chosen !== undefined && [...select.options].some((o) => o.value === chosen)) select.value = chosen;
+      let saveAs: HTMLElement[] = [];
+      let fillName = (_id: string) => {};
+      if (setUp) {
+        // This row is rebuilt as the channels change, so the name typed so far is kept outside it.
+        const name = h("input", { type: "text", value: layoutName.peek(), placeholder: "Layout name", "aria-label": "Name for the saved layout", "data-testid": "layout-save-name", "data-explain": "mixer.layout-name" });
+        // Names are unique per model: a name already saved makes Save a Replace of that layout, in
+        // place, behind a confirming click. The one chosen in Start from wins among an older
+        // workspace's duplicates, so each of them can be replaced.
+        const target = () => {
+          const chosen = saved.find((l) => l.id === chosenSaved());
+          return chosen !== undefined && chosen.name.trim().toLowerCase() === name.value.trim().toLowerCase() ? chosen : channels.savedLayoutNamed(name.value);
+        };
+        const save = h("button", { type: "button", "data-testid": "layout-save", "data-explain": "mixer.layout-save" });
+        const disarm = bindConfirm(
+          save,
+          () => (target() === undefined ? "Save layout" : "Replace"),
+          () => {
+            try {
+              channels.saveLayout(name.value, target()?.id);
+              layoutName.value = "";
+            } catch (error) {
+              failed(error);
+            }
+          },
+          () => target() !== undefined,
+        );
+        const sync = () => {
+          const replacing = target();
+          disarm();
+          save.title =
+            replacing === undefined
+              ? "Save these channels, groups and mix names as a layout any device of this model can start from"
+              : `Replace the saved layout ${channels.savedLayoutLabel(replacing)} with these channels, groups and mix names: click twice`;
+        };
+        name.addEventListener("input", () => {
+          layoutName.value = name.value;
+          sync();
+        });
+        // Choosing a saved layout in Start from offers its name here, so Save replaces it, unless a
+        // new name is being typed.
+        fillName = (id) => {
+          const chosen = saved.find((l) => l.id === id);
+          if (chosen === undefined || (name.value.trim() !== "" && channels.savedLayoutNamed(name.value) === undefined)) return;
+          name.value = layoutName.value = chosen.name;
+          sync();
+        };
+        sync();
+        saveAs = [h("span", { class: "caption save-as" }, "Save as"), name, save];
+      }
       const apply = h(
         "button",
         {
@@ -310,9 +338,11 @@ export class GaMixer extends GaElement {
         "Delete",
       );
       const syncRemove = () => (remove.hidden = chosenSaved() === undefined);
-      const chosen = startFrom.peek();
-      if (chosen !== undefined && [...select.options].some((o) => o.value === chosen)) select.value = chosen;
-      select.addEventListener("change", () => (startFrom.value = select.value));
+      select.addEventListener("change", () => {
+        startFrom.value = select.value;
+        const id = chosenSaved();
+        if (id !== undefined) fillName(id);
+      });
       select.addEventListener("change", syncRemove);
       syncRemove();
       starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove, ...saveAs);
@@ -362,12 +392,14 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
     this.root.replaceChildren(
-      h("div", { class: "bar" }, h("div", { class: "width" }, h("span", { class: "caption", "aria-hidden": "true" }, "Mix"), mixGroup, showAllButton), h("span", { class: "spacer" }), width, lastSent),
+      h("div", { class: "bar" }, h("div", { class: "width" }, h("span", { class: "caption", "aria-hidden": "true" }, "Mix"), mixGroup, showAllButton), softLinkBar((fn) => this.watch(fn), () => deviceId), h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
       strips,
     );
+
+    this.onDisconnect(clearSoftLinkOnEscape());
 
     // A device without a layout imports one from its routing, once the workspace has loaded.
     let imported = false;

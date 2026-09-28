@@ -509,13 +509,38 @@ export class ChannelsModel {
     return this.#context.saved.value.filter((l) => l.family === this.#context.family);
   }
 
-  /** Saves the current mixer layout by name for this model; returns the new layout's id. */
-  saveLayout(name: string): string | undefined {
+  /** This model's saved layout called `name`, trimmed and in any case: the first, where an older workspace has two. */
+  savedLayoutNamed(name: string): SavedLayout | undefined {
+    const wanted = name.trim().toLowerCase();
+    return this.savedLayouts().find((l) => l.name.trim().toLowerCase() === wanted);
+  }
+
+  /**
+   * What the Start from menu calls a saved layout: its name, and where an older workspace holds two
+   * of one name, "Name (2)" for the second and so on, so each can be told apart and deleted.
+   */
+  savedLayoutLabel(layout: SavedLayout): string {
+    const same = this.savedLayouts().filter((l) => l.name.trim().toLowerCase() === layout.name.trim().toLowerCase());
+    const n = same.findIndex((l) => l.id === layout.id);
+    return n > 0 ? `${layout.name.trim()} (${n + 1})` : layout.name;
+  }
+
+  /**
+   * Saves the current mixer layout by name for this model and returns its id. Names are unique per
+   * model, so a name already saved is refused unless `replace` names that layout: it is then
+   * overwritten in place, keeping its id, and takes the name as typed.
+   */
+  saveLayout(name: string, replace?: string): string | undefined {
     const trimmed = name.trim();
     if (trimmed === "") throw new RangeError("a saved layout needs a name");
-    const id = this.#newId("layout");
-    const mixer = structuredClone(this.layout.peek());
-    return this.#context.editSaved((layouts) => [...layouts, { id, name: trimmed, family: this.#context.family, mixer }]) ? id : undefined;
+    const target = replace === undefined ? undefined : this.savedLayouts().find((l) => l.id === replace);
+    if (replace !== undefined && target === undefined) throw new RangeError(`no saved ${this.#context.family} layout ${replace}`);
+    const taken = this.savedLayoutNamed(trimmed);
+    const same = (a: string) => a.trim().toLowerCase() === trimmed.toLowerCase();
+    if (taken !== undefined && taken.id !== replace && !(target !== undefined && same(target.name))) throw new RangeError(`a layout called ${taken.name} is saved already`);
+    const id = target?.id ?? this.#newId("layout");
+    const layout = { id, name: trimmed, family: this.#context.family, mixer: structuredClone(this.layout.peek()) };
+    return this.#context.editSaved((layouts) => (target === undefined ? [...layouts, layout] : layouts.map((l) => (l.id === id ? layout : l)))) ? id : undefined;
   }
 
   /** Starts from a saved layout, as `applyProfile` starts from a built-in one: fresh ids, routed channels. */

@@ -10,7 +10,8 @@ The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels rout
 - **Show all channels** shows every channel you have made, not only the ones in this mix. The ones outside it are dimmed, with no meter; their heads still work, so you can put one in the mix from there. Off, the page shows only what is routed to the mix, plus any channel that is not set up yet. The choice is remembered per device in this browser.
 - **Width**: **Auto** fits the strips to the window; **Fixed** sets a width in pixels.
 - **How this mixer works** opens a short explanation.
-- **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from.
+- **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from. Names are unique for each model: type a name already saved, in any case, and **Save layout** becomes **Replace**. Its first click reads **Confirm**, and a second within three seconds overwrites that layout in place, so it keeps its place in the list. Choosing a saved layout in **Start from** puts its name in the field, so saving replaces it; a new name you are typing is left alone. A workspace from before names were unique may hold two layouts of one name: the list shows the second as "Name (2)", so you can tell them apart, replace or delete either.
+- **N channels soft-linked** appears once channels are selected for a [soft link](#soft-link), with **Clear**.
 
 **Start from** offers the starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones, whether or not channels are set up. **Apply** replaces the channels and routes them. With channels already set up it asks first: the first click reads **Confirm**, and a second within three seconds replaces them, so save the current ones as a layout before you switch if you want them back. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
 
@@ -39,7 +40,7 @@ Below the head is the **strip**:
 - **M** (mute), **S** (solo), **⇆** (link).
 - **The fader**, this channel's level in the selected mix, 0 dB at the top down to -90 dB, on an audio taper so the useful range has most of the travel. Double-click resets it to **-20 dB**, and Ctrl+click (Cmd+click) puts it at **0 dB**, unity. The header's **Double-click** menu can make double-click unity instead.
 - **The meter** shows the channel's input before its fader: the signal arriving. It is shared by every channel on that input. A channel on an effect return is metered by the last effect in its chain, or, when the chain is empty, by the source feeding the chain; the tooltip says which. Some inputs report no meter, and say so.
-- The level and peak readouts, and the name bar in the channel's colour.
+- The level and peak readouts, and the name bar in the channel's colour. Clicking the name bar selects the channel for a [soft link](#soft-link).
 
 A channel with no input or no main mix is greyed, and stays on the row whichever mix is picked: it belongs to none of them yet, and it is the channel you are still making. A channel that belongs to another mix is hidden unless **Show all channels** is on, and is then dimmed and unmetered.
 
@@ -70,3 +71,13 @@ Links make a change to one channel follow on others, on the mixer or on the inpu
 4. **Save**. A linked badge reads ⇆1, ⇆2 and so on. Open it again to change the link or **Unlink** it.
 
 Linked mixer strips follow each other's level, mute and solo; each keeps its own pan. Links live in Gazelle's workspace: Gazelle carries them out by sending each member its own change, which is how a link can span two devices.
+
+## Soft link
+
+A soft link makes several channels move together for a while, like Cubase's Q-Link, without making a link you have to undo.
+
+1. Click a channel's **name bar**, at the foot of its strip, to select it. **Ctrl+click** (Cmd+click) adds or removes a channel, and **Shift+click** selects every channel between the last one clicked and this one. On a touch screen a tap adds or removes a channel; swiping along the row still scrolls it. Selected strips are outlined in the accent colour.
+2. With two or more selected, the bar at the top reads **N channels soft-linked**. Moving the fader or the pan of any of them moves the others by the same step, keeping the differences between them; a channel that reaches the top or bottom of its range stops there while the rest carry on. Clicking **M** or **S** on one sets the others to the same state.
+3. **Clear**, or Escape, ends it. So does a plain click on the only channel still selected.
+
+A soft link acts in the mix you are working in, on the channels of one device: a selected channel that is not in that mix is left alone, and selecting a channel on another device starts a new selection there. It works the same way in the mixer dock, but not on the Remote page or on a surface. Each channel is sent the same command its own control would send. A channel that is also in a saved link moves once, not twice, and that link's other members follow it as they always do. A soft link is never saved in the workspace and never sent to the device: reloading the page ends it.

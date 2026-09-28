@@ -9,6 +9,8 @@
 // meter by type, from its own mixer channel meters (the store's `stripMeter`).
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
 // name and the doubled badge, without pan, send, link or the peak readout.
+// A channel strip's name bar selects its channel for the soft link (`selectable`), and its fader,
+// pan, mute and solo move the soft-linked channels with it, on the Mixer page and in the dock alike.
 // Attributes are read when the strip renders: change them by replacing the strip.
 
 import { h } from "../core/dom.ts";
@@ -125,6 +127,10 @@ export class GaStrip extends GaElement {
         text-overflow: ellipsis;
       }
       :host([inactive]) .name { background: var(--ga-control-disabled); color: var(--ga-control-disabled-text); }
+      /* Selected for the soft link: outlined in the accent, the name bar underlined in it. */
+      :host([data-selected]) .strip { box-shadow: inset 0 0 0 2px var(--ga-accent); }
+      :host([data-selected]) .name { box-shadow: inset 0 -3px 0 var(--ga-accent); }
+      .name[role="button"] { cursor: pointer; }
       /* Narrow strips drop the fader scale (the readout still shows the level) and widen the meter's share. */
       @container strip (max-width: 60px) {
         :host(:not([strip="master"])) .scale { display: none; }
@@ -171,11 +177,11 @@ export class GaStrip extends GaElement {
 
     const cap = h("div", { class: "cap" });
     const fader = h("div", { class: "fader", role: "slider", tabindex: 0, "aria-label": `${label} level`, "aria-valuemin": -LEVEL_MAX, "aria-valuemax": 0, "data-testid": `fader-${testId}`, "data-explain": id === "master" ? "strip.master-fader" : "strip.fader", "data-explain-name": label }, h("div", { class: "groove" }), cap);
-    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v), enabled, valueAt: levelAtFaderPosition, positionOf: faderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
+    bindControl(fader, { axis: "y", min: 0, max: LEVEL_MAX, up: -1, page: 6, reset: SAFE_LEVEL, get: () => state.peek().level, set: (v) => mixer.setLevel(id, v, true), enabled, valueAt: levelAtFaderPosition, positionOf: faderPosition, inset: FADER_CAP_PX / 2, level: levelReset(store.doubleClickUnity, (fn) => this.watch(fn)) });
     // Marks share the cap's travel, so the cap's centre line sits on the mark for its level.
     const scale = h("div", { class: "scale", "aria-hidden": "true" }, FADER_MARKS.map((mark) => h("span", { style: `top: calc(${FADER_CAP_PX / 2}px + (100% - ${FADER_CAP_PX}px) * ${faderPosition(mark)})` }, mark === 0 ? "0" : `-${mark}`)));
     const levelReadout = h("span", { class: "readout", "data-testid": `level-${testId}`, "data-explain": "strip.level" });
-    const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "data-explain": id === "master" ? "strip.master-mute" : "strip.mute", "data-explain-name": label, "on:click": () => mixer.toggleMute(id) }, "M");
+    const mute = h("button", { class: "toggle mute", type: "button", "aria-label": `${label} mute`, "data-explain": id === "master" ? "strip.master-mute" : "strip.mute", "data-explain-name": label, "on:click": () => mixer.toggleMute(id, true) }, "M");
 
     const buttons: HTMLElement[] = [mute];
     const top: HTMLElement[] = [];
@@ -183,7 +189,7 @@ export class GaStrip extends GaElement {
     const readouts = h("div", { class: "readouts" }, levelReadout);
 
     if (id !== "master") {
-      const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "data-explain": "strip.solo", "data-explain-name": label, "on:click": () => mixer.toggleSolo(id) }, "S");
+      const solo = h("button", { class: "toggle solo", type: "button", "aria-label": `${label} solo`, "data-explain": "strip.solo", "data-explain-name": label, "on:click": () => mixer.toggleSolo(id, true) }, "S");
       buttons.push(solo);
       this.watch(() => {
         solo.setAttribute("aria-pressed", String(state.value.solo));
@@ -196,7 +202,7 @@ export class GaStrip extends GaElement {
         const panValue = h("span", { class: "value" });
         const pan = h("div", { class: "bar pan", role: "slider", tabindex: 0, "aria-label": `${label} pan`, "aria-valuemin": PAN_MIN - PAN_CENTRE, "aria-valuemax": PAN_MAX - PAN_CENTRE, "data-testid": `pan-${testId}`, "data-explain": "strip.pan", "data-explain-name": label }, h("div", { class: "centre" }), panFill, panValue);
         // While the mix is mono the device is centred; the control shows and moves the pan it returns to.
-        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, valueAt: panAtPosition, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v), enabled });
+        bindControl(pan, { axis: "x", min: PAN_MIN, max: PAN_MAX, up: 1, page: 5, reset: PAN_CENTRE, valueAt: panAtPosition, get: () => mixer.monoPan(id) ?? state.peek().pan, set: (v) => mixer.setPan(id, v, true), enabled });
         top.push(pan);
         this.watch(() => {
           const monoPan = mixer.monoPan(id);
@@ -290,9 +296,9 @@ export class GaStrip extends GaElement {
       });
     }
 
-    this.root.replaceChildren(
-      h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, h("div", { class: "name", title: label, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1))),
-    );
+    const nameBar = h("div", { class: "name", title: label, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1));
+    if (id !== "master" && !inactive) selectable(nameBar, deviceId, Number(this.getAttribute("mixer") ?? "0"), id, label, (fn) => this.watch(fn), this);
+    this.root.replaceChildren(h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, nameBar));
 
     this.watch(() => {
       const s = state.value;
@@ -308,6 +314,40 @@ export class GaStrip extends GaElement {
       for (const control of this.root.querySelectorAll('[role="slider"]')) control.setAttribute("aria-disabled", String(!usable));
     });
   }
+}
+
+/**
+ * Makes a strip's name bar select its channel for the soft link, as a Cubase channel's name does:
+ * a click selects only it, Ctrl or Cmd adds or removes it, Shift selects the range from the last one
+ * clicked, and Enter or Space does the same from the keyboard. A tap adds or removes, since a finger
+ * has no modifier keys; a swipe along the row is a scroll, not a tap, so it selects nothing.
+ */
+function selectable(bar: HTMLElement, deviceId: string, mix: number, slot: number, label: string, watch: (fn: () => void) => void, host: HTMLElement): void {
+  const store = useStore();
+  bar.setAttribute("role", "button");
+  bar.tabIndex = 0;
+  bar.setAttribute("data-testid", `select-${slot}`);
+  bar.setAttribute("aria-label", `Select ${label} for the soft link`);
+  let touch = false;
+  const pick = (event: MouseEvent | KeyboardEvent) => {
+    const order = store.channels(deviceId).inMix(mix).map((c) => c.slot);
+    store.softLink.select(deviceId, slot, event.shiftKey ? "range" : event.ctrlKey || event.metaKey || touch ? "toggle" : "only", order);
+  };
+  bar.addEventListener("pointerdown", (event) => (touch = event.pointerType === "touch"));
+  // Shift and a click would otherwise stretch the page's text selection across the heads between.
+  bar.addEventListener("mousedown", (event) => event.shiftKey && event.preventDefault());
+  bar.addEventListener("click", pick);
+  bar.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    touch = false;
+    pick(event);
+  });
+  watch(() => {
+    const on = store.softLink.selected(deviceId, slot);
+    host.toggleAttribute("data-selected", on);
+    bar.setAttribute("aria-pressed", String(on));
+  });
 }
 
 declare global {

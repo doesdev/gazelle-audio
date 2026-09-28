@@ -10,6 +10,22 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **Soft link on the Mixer.** Select channels by clicking their names on the Mixer page or in the
+  mixer dock: Ctrl or Cmd and a click adds one, Shift and a click selects a range, and on a touch
+  screen a tap adds one. While two or more are selected, moving one channel's fader or pan moves
+  the others by the same amount, keeping the differences between them, and muting or soloing one
+  does the same to the rest. It lasts until you press Clear or Escape, and it is never saved or sent
+  to the device as a link.
+
+### Changed
+
+- **Saved Mixer layouts can be replaced.** Saving under a name you have already used now asks
+  first and then overwrites that layout, instead of adding a second one with the same name.
+  Choosing a saved layout in Start from fills in its name, so you can update it in two clicks.
+  Layouts that already share a name are kept, and shown as "Name (2)" so you can tell them apart.
+
 ## [2.0.0] - 2026-09-28
 
 Phones and recording. Pair a phone and drive Gazelle from it, with Gazelle Remote for Android;

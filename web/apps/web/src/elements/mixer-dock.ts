@@ -14,8 +14,9 @@
 // On the Mixer page it is hidden and builds nothing, since the page shows the same strips in full,
 // and on the Remote page, whose Mix section shows what the dock would;
 // a surface in the dock is hidden, likewise, on that surface's own page.
-// While hidden or collapsed it follows nothing: the report watch, the mix reads and the strips are
-// released, as they are when another device comes into view. Whether it is collapsed is kept per
+// Its strips select channels for the soft link as the Mixer page's do, and its bar shows how many
+// are selected, with Clear. While hidden or collapsed it follows nothing: the report watch, the mix
+// reads and the strips are released, as they are when another device comes into view. Whether it is collapsed is kept per
 // browser; until someone chooses, it starts collapsed at phone width, where open it would take a
 // quarter of the screen.
 //
@@ -27,13 +28,14 @@
 // waits behind Confirm, as the Input menu's does. Held over a folded dock, the drag opens it.
 
 import { h } from "../core/dom.ts";
-import { effect, untracked } from "../core/signal.ts";
+import { effect, signal, untracked } from "../core/signal.ts";
 import { meterDeflection } from "../store/mixer.ts";
 import { displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { channelStrip } from "./channel.ts";
 import { CONFIRM_MS } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
+import { clearSoftLinkOnEscape, SOFT_STYLES, softLinkBar } from "./link-bar.ts";
 import { isReady, loadElement } from "./lazy.ts";
 import { href, route } from "./router.ts";
 import type { GaSection } from "./section.ts";
@@ -82,6 +84,7 @@ export class GaMixerDock extends GaElement {
       .strips.empty { height: auto; padding: 0; }
       .empty .placeholder { flex: 1; padding: 4px 8px; font-size: 11px; }
       .empty a { color: var(--ga-accent); }
+      ${SOFT_STYLES}
     `),
   ];
 
@@ -90,7 +93,10 @@ export class GaMixerDock extends GaElement {
     const device = h("span", { class: "device muted" });
     const mixSelect = h("select", { "aria-label": "Dock mix", "data-testid": "dock-mix-select", "data-explain": "dock.mix" });
     const sourceSelect = h("select", { "aria-label": "Dock shows", "data-testid": "dock-source-select", "data-explain": "dock.source", "on:change": () => store.setMixerDockSurface(sourceSelect.value === "" ? undefined : sourceSelect.value) });
-    const actions = h("div", { class: "actions", slot: "actions" }, sourceSelect, device, mixSelect);
+    // The soft link's state shows for the device shown; a surface has none.
+    const softDevice = signal<string | undefined>(undefined);
+    const soft = softLinkBar((fn) => this.watch(fn), () => softDevice.value);
+    const actions = h("div", { class: "actions", slot: "actions" }, sourceSelect, device, mixSelect, soft);
     const strips = h("div", { class: "strips", "data-testid": "dock-strips" });
     const dropReason = h("span", { class: "reason", "data-testid": "dock-drop-reason" });
     const dropConfirm = h("button", { type: "button", "data-testid": "dock-drop-confirm", "data-explain": "dock.drop-confirm" }, "Confirm");
@@ -118,6 +124,8 @@ export class GaMixerDock extends GaElement {
     const follow = (deviceId: string): (() => void)[] => {
       const channels = store.channels(deviceId);
       const own: (() => void)[] = followMix(store, deviceId);
+      softDevice.value = deviceId;
+      own.push(clearSoftLinkOnEscape(), () => (softDevice.value = undefined));
       own.push(
         effect(() => {
           const entry = store.devices.value.find((d) => d.id === deviceId);

@@ -358,6 +358,40 @@ test("a mixer can be saved as a layout for its model, applied later like a start
   await assert.rejects(channels.applySavedLayout(id), RangeError);
 });
 
+test("a saved layout's name is unique for its model: the same name is refused unless replacing, which keeps the id", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  await channels.applyProfile("tracking");
+  const first = channels.layout.value.channels[0];
+  assert.ok(first);
+  const id = channels.saveLayout("Session") as string;
+  assert.throws(() => channels.saveLayout("  session "), /called Session is saved already/, "trimmed, in any case");
+  assert.equal(channels.savedLayoutNamed(" SESSION")?.id, id);
+  assert.equal(channels.savedLayoutNamed("Other"), undefined);
+
+  channels.rename(first.id, "Vox");
+  assert.equal(channels.saveLayout("session", id), id, "replaced in place");
+  assert.deepEqual(channels.savedLayouts().map((l) => [l.id, l.name, l.mixer.channels[0]?.name]), [[id, "session", "Vox"]], "one entry, new content, the name as typed");
+  assert.throws(() => channels.saveLayout("x", "nope"), RangeError, "only a saved layout can be replaced");
+  const other = channels.saveLayout("Other") as string;
+  assert.throws(() => channels.saveLayout("Session", other), /saved already/, "replacing never makes a duplicate");
+  assert.equal(store.channels(S).savedLayoutNamed("session"), undefined, "names are per model");
+});
+
+test("duplicates an older workspace holds are kept, numbered so each can be told apart, replaced or deleted", async () => {
+  const { store } = await setup();
+  const channels = store.channels(Q);
+  await channels.applyProfile("tracking");
+  const mixer = structuredClone(channels.layout.peek());
+  assert.ok(store.editWorkspace((w) => ({ ...w, layouts: [{ id: "a", name: "Live", family: "quadro", mixer }, { id: "b", name: "live ", family: "quadro", mixer }, { id: "c", name: "Live", family: "studio", mixer }] })));
+  assert.deepEqual(channels.savedLayouts().map((l) => channels.savedLayoutLabel(l)), ["Live", "live (2)"]);
+  assert.equal(channels.savedLayoutNamed("live")?.id, "a", "the first of them");
+  assert.equal(channels.saveLayout("Live", "b"), "b", "the second can be replaced by its own name");
+  assert.deepEqual(channels.savedLayouts().map((l) => l.id), ["a", "b"], "nothing was dropped");
+  assert.equal(channels.removeSavedLayout("b"), true);
+  assert.deepEqual(channels.savedLayouts().map((l) => channels.savedLayoutLabel(l)), ["Live"]);
+});
+
 test("a channel with no name of its own is called by its input's name, and a typed name replaces it", async () => {
   const { store } = await setup();
   const channels = store.channels(Q);

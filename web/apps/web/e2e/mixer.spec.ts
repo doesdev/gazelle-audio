@@ -740,6 +740,96 @@ test("a set-up mixer can be saved as a layout, and an empty mixer offers saved l
   await expect(page.getByTestId("name-6")).toHaveValue("Vox");
 });
 
+test("saving a name already saved asks first, then replaces that layout in place; picking a saved layout offers its name", async ({ page }) => {
+  await layout({ "loopback-0": { mixes: [{ name: "Monitors" }], channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const saved = async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { layouts: { id: string; name: string; mixer: { channels: { name: string }[] } }[] }).layouts.map((l) => [l.id, l.name, l.mixer.channels.map((c) => c.name)]);
+  const name = page.getByTestId("layout-save-name");
+  const save = page.getByTestId("layout-save");
+  await name.fill("Booth");
+  await expect(save).toHaveText("Save layout");
+  await save.click();
+  await expect.poll(saved).toEqual([[expect.any(String), "Booth", ["Vox"]]]);
+  const [[id]] = (await saved()) as [[string]];
+
+  await page.getByTestId("name-6").fill("Lead");
+  await page.getByTestId("name-6").press("Enter");
+  // The same name, in another case: Save becomes Replace, and the first click only arms it.
+  await name.fill(" booth");
+  await expect(save).toHaveText("Replace");
+  await expect(save).toHaveAttribute("title", /Replace the saved layout Booth/);
+  await save.click();
+  await expect(save).toHaveText("Confirm");
+  expect(await saved()).toEqual([[id, "Booth", ["Vox"]]]);
+  await save.click();
+  await expect.poll(saved).toEqual([[id, "booth", ["Lead"]]]);
+  await expect(page.getByTestId("profile-select").locator("option", { hasText: "booth" })).toHaveCount(1);
+
+  // Choosing it in Start from puts its name in the Save as field, so Save replaces it.
+  await page.getByTestId("profile-select").selectOption(`saved:${id}`);
+  await expect(name).toHaveValue("booth");
+  await expect(save).toHaveText("Replace");
+  // A new name being typed is left alone.
+  await name.fill("Stage");
+  await page.getByTestId("profile-select").selectOption("tracking");
+  await page.getByTestId("profile-select").selectOption(`saved:${id}`);
+  await expect(name).toHaveValue("Stage");
+  await expect(save).toHaveText("Save layout");
+});
+
+test("soft link: select three channels by name, move one fader and all three move by the same dB, with their own bytes; Escape clears", async ({ page }) => {
+  const frames = recordFrames(page);
+  const ch = (id: string, slot: number) => ({ id, name: "", slot, source: { group: 0, channel: slot - 6 }, main_mix: 0, sends: [] });
+  await layout({ "loopback-0": { channels: [ch("a", 6), ch("b", 7), ch("c", 8), ch("d", 9)] } });
+  await page.goto(`${server.url}/#/mixer/loopback-0`);
+  const fader = (slot: number) => page.getByTestId(`fader-${slot}`);
+  await expect(fader(8)).toHaveAttribute("aria-disabled", "false");
+  // An offset first, on its own: slot 8 at -12 dB.
+  await fader(8).focus();
+  await fader(8).press("PageDown");
+  await fader(8).press("PageDown");
+  await expect(page.getByTestId("level-8")).toHaveText("-12 dB");
+
+  // The dock, hidden on this page, has a bar of its own.
+  const bar = page.locator("ga-mixer").getByTestId("soft-link-bar");
+  await expect(bar).toBeHidden();
+  await page.getByTestId("select-6").click();
+  await expect(bar).toContainText("1 channel selected");
+  await page.getByTestId("select-8").click({ modifiers: ["Shift"] });
+  await expect(bar.getByTestId("soft-link-count")).toHaveText("3 channels soft-linked");
+  for (const slot of [6, 7, 8]) await expect(page.locator(`ga-strip[strip="${slot}"]`)).toHaveAttribute("data-selected", "");
+  await expect(page.locator('ga-strip[strip="9"]')).not.toHaveAttribute("data-selected", "");
+
+  const sentFrom = frames.length;
+  await fader(7).focus();
+  await fader(7).press("PageDown");
+  await expect(page.getByTestId("level-6")).toHaveText("-6 dB");
+  await expect(page.getByTestId("level-7")).toHaveText("-6 dB");
+  await expect(page.getByTestId("level-8")).toHaveText("-18 dB");
+  await expect(page.getByTestId("level-9")).toHaveText("0 dB");
+  const mixerFrames = () => frames.slice(sentFrom).filter((f) => f.command === "set_mixer").map((f) => [f.args?.["channel"], f.args?.["level"]]);
+  await expect.poll(mixerFrames).toEqual([[8, 6], [7, 6], [9, 18]]);
+  // The last of them, as the strip's own fader would send it.
+  await expect(lastSent(page)).toContainText(dryRun("set_mixer", mixerHex("quadro", { mixer: 0, channel: 9, level: 18 })));
+  expect(frames.some((f) => f.command === "set_stereo_link")).toBe(false);
+
+  // Escape clears it, and each fader moves on its own again.
+  await page.keyboard.press("Escape");
+  await expect(bar).toBeHidden();
+  await expect(page.locator("ga-strip[data-selected]")).toHaveCount(0);
+  await fader(7).press("PageDown");
+  await expect(page.getByTestId("level-7")).toHaveText("-12 dB");
+  await expect(page.getByTestId("level-6")).toHaveText("-6 dB");
+  // Ctrl-click adds and removes one at a time, and Clear deselects.
+  await page.getByTestId("select-6").click({ modifiers: ["ControlOrMeta"] });
+  await page.getByTestId("select-9").click({ modifiers: ["ControlOrMeta"] });
+  await expect(bar.getByTestId("soft-link-count")).toHaveText("2 channels soft-linked");
+  await bar.getByTestId("soft-link-clear").click();
+  await expect(bar).toBeHidden();
+  const workspace = (await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { links: unknown[] };
+  expect(workspace.links).toEqual([]);
+});
+
 test("Mono on a mix master centres its channels' pans, takes 6 dB off the master, keeps pan moves for later and restores both when turned off", async ({ page }) => {
   const frames = recordFrames(page);
   await layout({ "loopback-0": { channels: [{ id: "a", name: "Vox", slot: 6, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } });

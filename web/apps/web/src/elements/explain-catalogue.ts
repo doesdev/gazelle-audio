@@ -293,7 +293,7 @@ export const CATALOGUE: Catalogue = {
     title: "{name}",
     name: "Channel",
     what: "The channel's name and colour. The colour is its group's if the group has one, else its own, else its input's colour from the Routing page.",
-    effect: "Greyed when the channel is not set up in the mix you picked.",
+    effect: "Click it to select the channel for a soft link: Ctrl or Cmd and a click adds or removes one, Shift and a click selects a range, and on a touch screen a tap adds or removes. With two or more selected, moving the fader, pan, mute or solo of one of them moves them all. Greyed when the channel is not set up in the mix you picked.",
   },
 
   // A channel's head on the Mixer page.
@@ -400,6 +400,13 @@ export const CATALOGUE: Catalogue = {
   "link.save": { title: "Save the link", what: "Makes the link, kept in the workspace. Where a link joins exactly one pair on a device, the device's own link flag is set to match, which changes only the vendor panel's controls, not the audio." },
   "link.unlink": { title: "Unlink", what: "Removes the link. Every member keeps its current value." },
   "link.cancel": { title: "Cancel", what: "Closes the link bar without changing anything." },
+  "link.soft": {
+    title: "Soft link",
+    what: "The channels selected by their names. While two or more are selected, a fader or pan moved on one moves the others by the same step, keeping the differences between them, each held inside its own range; mute and solo set the others the same as the one clicked.",
+    effect: "Each channel is sent the same command its own control would send. A channel also in a saved link moves once, not twice, and that link's other members follow it as usual.",
+    watch: "It is temporary: kept in this browser tab only, never saved in the workspace and never sent to the device as a stereo link. Moving an unselected channel moves only that one.",
+  },
+  "link.soft-clear": { title: "Clear the soft link", what: "Deselects every channel, so each moves on its own again. Escape does the same. " + NOTHING_SENT },
 
   // The Mixer page.
   "mixer.mix": {
@@ -413,8 +420,12 @@ export const CATALOGUE: Catalogue = {
     effect: "Remembered per device in this browser. It changes nothing on the device.",
   },
   "mixer.notes": { title: "How this mixer works", what: "A short note on channels, the mix the faders act on, which channels are shown, and whether the device's levels have been read." },
-  "mixer.layout-name": { title: "Layout name", what: "A name for saving these channels, groups and mix names as a layout." },
-  "mixer.layout-save": { title: "Save layout", what: "Saves these channels, groups and mix names as a layout any device of this model can start from. " + NOTHING_SENT },
+  "mixer.layout-name": { title: "Layout name", what: "A name for saving these channels, groups and mix names as a layout. Choosing a saved layout in Start from puts its name here, so Save replaces it." },
+  "mixer.layout-save": {
+    title: "Save layout",
+    what: "Saves these channels, groups and mix names as a layout any device of this model can start from. " + NOTHING_SENT,
+    effect: "Names are unique for each model. A name already saved turns it into Replace: the first click arms it and reads Confirm, and a second click within a few seconds overwrites that layout in place.",
+  },
   "mixer.profile": { title: "Start from", what: "A starting layout for this model, or one you saved, to build this mixer from." },
   "mixer.profile-apply": {
     title: "Apply the layout",

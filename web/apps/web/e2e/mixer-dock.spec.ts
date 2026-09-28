@@ -220,3 +220,22 @@ test.describe("on a phone", () => {
     expect((await dock(page).getByTestId("dock-strips").boundingBox())?.height, "one line at 375 px").toBeLessThanOrEqual(32);
   });
 });
+
+test("channels are soft-linked in the dock as on the Mixer page: selected by name, moved together, cleared by Escape", async ({ page }) => {
+  await putWorkspace(server, { mixers: MIXERS });
+  await page.goto(`${server.url}/#/inputs/loopback-0`);
+  await expect.poll(() => slots(page)).toEqual(["8", "6"]);
+  const soft = dock(page).getByTestId("soft-link-bar");
+  await dock(page).getByTestId("select-8").click();
+  await dock(page).getByTestId("select-6").click({ modifiers: ["ControlOrMeta"] });
+  await expect(soft).toContainText("2 channels soft-linked");
+  await dock(page).getByTestId("fader-6").focus();
+  await dock(page).getByTestId("fader-6").press("PageDown");
+  await expect(dock(page).getByTestId("level-8")).toHaveText("-6 dB");
+  // Muting one mutes both.
+  await dock(page).locator('ga-strip[strip="8"] .mute').click();
+  await expect(dock(page).locator('ga-strip[strip="6"] .mute')).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(soft).toBeHidden();
+  await expect(dock(page).locator("ga-strip[data-selected]")).toHaveCount(0);
+});

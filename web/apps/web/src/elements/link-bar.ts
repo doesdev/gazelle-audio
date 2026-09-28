@@ -37,6 +37,13 @@ export const LINK_STYLES = `
   .link-bar .modes button[aria-pressed="true"] { position: relative; border-color: var(--ga-accent); background: var(--ga-accent); color: var(--ga-accent-text); }
 `;
 
+/** The soft link's state and Clear, as `softLinkBar` makes them. */
+export const SOFT_STYLES = `
+  .soft-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; white-space: nowrap; }
+  .soft-bar[hidden] { display: none; }
+  .soft-bar button { min-height: 20px; padding: 0 8px; font-size: 11px; }
+`;
+
 const isRef = (m: ChannelRef, deviceId: string, channel: number) => m.device_id === deviceId && m.channel === channel;
 
 /** A channel's name, with its device's when that is not the device shown. */
@@ -150,4 +157,36 @@ export function linkButton(watch: Watch, kind: LinkKind, deviceId: string, chann
     button.setAttribute("aria-label", drafting ? `${inDraft ? "Remove" : "Add"} ${name} ${inDraft ? "from" : "to"} the link` : button.title);
   });
   return button;
+}
+
+/**
+ * The soft link's state for a device: how many channels are selected and whether they move
+ * together yet, with Clear. Hidden while none of its channels are selected. `deviceId` is read in
+ * the watch, so a view that changes device follows.
+ */
+export function softLinkBar(watch: Watch, deviceId: () => string | undefined): HTMLElement {
+  const store = useStore();
+  const text = h("span", { "data-testid": "soft-link-count" });
+  const clear = h("button", { type: "button", "data-testid": "soft-link-clear", "data-explain": "link.soft-clear", title: "Clear the selection (Esc)", "on:click": () => store.softLink.clear() }, "Clear");
+  const bar = h("div", { class: "soft-bar", role: "status", "data-testid": "soft-link-bar", "data-explain": "link.soft" }, text, clear);
+  watch(() => {
+    const selection = store.softLink.selection.value;
+    const id = deviceId();
+    const count = selection !== undefined && selection.deviceId === id ? selection.slots.length : 0;
+    bar.hidden = count === 0;
+    text.textContent = count >= 2 ? `${count} channels soft-linked` : "1 channel selected; select another to soft-link";
+  });
+  return bar;
+}
+
+/** Clears the soft link on Escape, unless something else took the key or it was typed in a field. Returns the undo. */
+export function clearSoftLinkOnEscape(): () => void {
+  const store = useStore();
+  const onKey = (event: KeyboardEvent) => {
+    const target = event.composedPath()[0];
+    if (event.key !== "Escape" || event.defaultPrevented || (target instanceof HTMLElement && target.matches("input, select, textarea"))) return;
+    store.softLink.clear();
+  };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
 }

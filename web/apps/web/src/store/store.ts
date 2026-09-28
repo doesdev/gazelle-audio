@@ -21,6 +21,7 @@ import { ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
+import { SoftLinkModel } from "./soft-link.ts";
 import { CONTROL_ROOM_DEFAULT, OutputsModel } from "./outputs.ts";
 import { LEVEL_MAX, MixerModel } from "./mixer.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
@@ -793,6 +794,13 @@ export class Store {
           if (peerFamily === undefined || peerFamily === null || index >= topologies[peerFamily].mixers.count || peer.channel >= topologies[peerFamily].mixers.channels) return [];
           return [{ model: this.mixer(peer.deviceId, index), strip: peer.channel, mode: peer.mode }];
         }),
+      // The selected channels that are in this mix: one outside it has no strip here to move.
+      softPeers: (strip) => {
+        const peers = this.softLink.peers(deviceId, strip);
+        if (peers.length === 0) return peers;
+        const channels = this.channels(deviceId);
+        return peers.filter((slot) => channels.inMix(index).some((c) => c.slot === slot));
+      },
       monoPans: () => this.#workspace.value?.mixers?.[deviceId]?.mixes?.[index]?.mono?.pans,
       rememberPan: (strip, pan) => {
         this.editWorkspace((workspace) => {
@@ -876,6 +884,9 @@ export class Store {
     this.#channels.set(deviceId, model);
     return model;
   }
+
+  /** The Mixer's soft link: channels selected to move together, for this tab only. */
+  readonly softLink = new SoftLinkModel();
 
   /** Workspace channel links. */
   readonly links: LinksModel = new LinksModel({

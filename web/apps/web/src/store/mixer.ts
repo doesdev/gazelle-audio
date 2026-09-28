@@ -76,6 +76,11 @@ export function formatSend(send: number): string {
   return send >= SEND_MAX ? "-inf" : send === 0 ? "0 dB" : `-${send} dB`;
 }
 
+/** A level held to the fader's range, in whole dB. */
+function clampLevel(level: number): number {
+  return Math.min(LEVEL_MAX, Math.max(0, Math.round(level)));
+}
+
 /** A pan held to the byte's range, every step of it: the wheel and keys move one step (3%) at a time. */
 export function clampPan(value: number): number {
   return Math.min(PAN_MAX, Math.max(PAN_MIN, Math.round(value)));
@@ -124,6 +129,9 @@ export interface StripState {
 
 export type StripId = number | "master";
 
+/** Some of a strip's values, as a change to it is built up. */
+type StripChange = { -readonly [K in keyof StripState]?: StripState[K] };
+
 export type MixerInvoke = (command: string, args: Record<string, number>, options: { coalesce?: string }) => Promise<boolean>;
 
 /** Reads a command's reply (`ext3` for selectors); `response` is null in dry run or when it failed (which the store reports). */
@@ -140,6 +148,8 @@ export interface MixerContext {
   watch(): () => void;
   /** The other members of a strip's workspace link, as their strips in this mix on their devices (LinksModel). */
   peers(strip: number): readonly { model: MixerModel; strip: number; mode: "absolute" | "relative" }[];
+  /** The other strips of this mix soft-linked with this one (SoftLinkModel); empty when it is not. */
+  softPeers(strip: number): readonly number[];
   /** While this mix is mono: the pans to restore, by strip. Reading it is reactive. */
   monoPans(): Readonly<Record<string, number>> | undefined;
   /** Saves a pan to restore when mono ends, instead of sending it. */
@@ -256,18 +266,24 @@ export class MixerModel {
     return this.#context.watch();
   }
 
-  setLevel(id: StripId, level: number): void {
-    this.#update(id, { level: Math.min(LEVEL_MAX, Math.max(0, Math.round(level))) });
+  /**
+   * Sets a strip's level. `together` is a control of the Mixer page or the dock, whose change goes
+   * to the strips soft-linked with it as well (`#update`).
+   */
+  setLevel(id: StripId, level: number, together = false): void {
+    this.#update(id, { level: clampLevel(level) }, together);
   }
 
-  /** Sets a strip's pan; while the mix is mono it is saved for when mono ends, not sent. */
-  setPan(id: StripId, pan: number): void {
+  /** Sets a strip's pan; while the mix is mono it is saved for when mono ends, not sent, and so are the soft-linked strips' pans. */
+  setPan(id: StripId, pan: number, together = false): void {
     if (id !== "master" && this.#context.monoPans() !== undefined) {
-      this.#check(id);
-      this.#context.rememberPan(id, clampPan(pan));
+      const from = this.monoPan(id) ?? this.#signal(id).peek().pan;
+      const to = clampPan(pan);
+      this.#context.rememberPan(id, to);
+      if (together) for (const s of this.#context.softPeers(id)) this.#context.rememberPan(s, clampPan((this.monoPan(s) ?? this.#signal(s).peek().pan) + to - from));
       return;
     }
-    this.#update(id, { pan: clampPan(pan) });
+    this.#update(id, { pan: clampPan(pan) }, together);
   }
 
   /** Sends a pan whether or not the mix is mono: how mono centres and restores its channels. */
@@ -285,12 +301,12 @@ export class MixerModel {
     this.#update(id, { send: Math.min(SEND_MAX, Math.max(0, Math.round(send))) });
   }
 
-  toggleMute(id: StripId): void {
-    this.#update(id, { mute: !this.#signal(id).peek().mute });
+  toggleMute(id: StripId, together = false): void {
+    this.#update(id, { mute: !this.#signal(id).peek().mute }, together);
   }
 
-  toggleSolo(id: StripId): void {
-    this.#update(id, { solo: !this.#signal(id).peek().solo });
+  toggleSolo(id: StripId, together = false): void {
+    this.#update(id, { solo: !this.#signal(id).peek().solo }, together);
   }
 
   /** Sets the device link flag of strips `first` and `first + 1`. Which strips change together is the workspace's (LinksModel). */
@@ -320,22 +336,54 @@ export class MixerModel {
     return this.#strips[id] as Signal<StripState>;
   }
 
-  #update(id: StripId, change: Partial<StripState>, follow = true): void {
+  /**
+   * Changes a strip and sends it, then the strips that follow it, each changed and sent once:
+   *
+   * - with `soft`, the other soft-linked strips (SoftLinkModel): level and pan move by the step this
+   *   one moved, each held inside its range, and mute and solo take this one's new state;
+   * - then the other members of the workspace link of any strip changed so far: level, mute and
+   *   solo in this mix, keeping their own pan and send (as the panels treat a linked pair), levels
+   *   the same (absolute) or by the same step (relative).
+   *
+   * A strip in both kinds of link is changed once, as a soft-linked one, so nothing moves twice.
+   */
+  #update(id: StripId, change: Partial<StripState>, soft = false, follow = true): void {
     const strip = this.#signal(id);
     const before = strip.peek();
     strip.value = { ...before, ...change };
     void this.#send(id);
     if (!follow || id === "master") return;
-    // Other members of the strip's link follow level, mute and solo in this mix, but keep their own
-    // pan and send (as the panels treat a linked pair); relative links move levels by the same step.
-    const followed: Partial<StripState> = {};
-    for (const key of ["level", "mute", "solo"] as const) if (key in change) Object.assign(followed, { [key]: change[key] });
-    if (Object.keys(followed).length === 0) return;
+    const changed = [{ model: this as MixerModel, strip: id, before, after: strip.peek() }];
+    const done = new Set([`${this.deviceId}:${id}`]);
+    const move = (target: { model: MixerModel; strip: number }, values: Partial<StripState>) => {
+      const was = target.model.strip(target.strip).peek();
+      target.model.#update(target.strip, values, false, false);
+      changed.push({ ...target, before: was, after: target.model.strip(target.strip).peek() });
+    };
     const after = strip.peek();
-    for (const peer of this.#context.peers(id)) {
-      const values = { ...followed };
-      if (values.level !== undefined && peer.mode === "relative") values.level = Math.min(LEVEL_MAX, Math.max(0, peer.model.strip(peer.strip).peek().level + (after.level - before.level)));
-      peer.model.#update(peer.strip, values, false);
+    for (const other of soft ? this.#context.softPeers(id) : []) {
+      if (done.has(`${this.deviceId}:${other}`)) continue;
+      done.add(`${this.deviceId}:${other}`);
+      const now = this.#signal(other).peek();
+      const values: StripChange = {};
+      if ("level" in change) values.level = clampLevel(now.level + after.level - before.level);
+      if ("pan" in change) values.pan = clampPan(now.pan + after.pan - before.pan);
+      if ("mute" in change) values.mute = after.mute;
+      if ("solo" in change) values.solo = after.solo;
+      move({ model: this, strip: other }, values);
+    }
+    if (!("level" in change || "mute" in change || "solo" in change)) return;
+    for (const leader of [...changed]) {
+      for (const peer of leader.model.#context.peers(leader.strip)) {
+        const key = `${peer.model.deviceId}:${peer.strip}`;
+        if (done.has(key)) continue;
+        done.add(key);
+        const values: StripChange = {};
+        if ("level" in change) values.level = peer.mode === "relative" ? clampLevel(peer.model.strip(peer.strip).peek().level + leader.after.level - leader.before.level) : leader.after.level;
+        if ("mute" in change) values.mute = leader.after.mute;
+        if ("solo" in change) values.solo = leader.after.solo;
+        move(peer, values);
+      }
     }
   }
 
