@@ -809,8 +809,11 @@ test("soft link: select three channels by name, move one fader and all three mov
   await expect(page.getByTestId("level-9")).toHaveText("0 dB");
   const mixerFrames = () => frames.slice(sentFrom).filter((f) => f.command === "set_mixer").map((f) => [f.args?.["channel"], f.args?.["level"]]);
   await expect.poll(mixerFrames).toEqual([[8, 6], [7, 6], [9, 18]]);
-  // The last of them, as the strip's own fader would send it.
-  await expect(lastSent(page)).toContainText(dryRun("set_mixer", mixerHex("quadro", { mixer: 0, channel: 9, level: 18 })));
+  // Each of them is exactly what that strip's own fader would send. The "last sent" line shows
+  // whichever answer came back last, and the three can come back in any order, so any of them.
+  const sentBytes = [[8, 6], [7, 6], [9, 18]].map(([channel, level]) => mixerHex("quadro", { mixer: 0, channel, level }));
+  await expect(lastSent(page)).toContainText(/Dry run, would send set_mixer: /);
+  await expect(lastSent(page)).toContainText(new RegExp(`(${sentBytes.join("|")})`));
   expect(frames.some((f) => f.command === "set_stereo_link")).toBe(false);
 
   // Escape clears it, and each fader moves on its own again.
