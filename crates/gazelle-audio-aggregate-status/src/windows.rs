@@ -34,17 +34,19 @@ pub struct Section {
 impl Section {
     /// Make the section, or take the one that is already there. The driver calls this.
     pub fn create() -> Result<Section, String> {
-        Section::open_or_make(true)
+        Section::open_or_make(true, &names::section_name())
     }
 
     /// Open a section somebody else made. Gazelle calls this, and gets a plain refusal when the
     /// driver is not running.
     pub fn open() -> Result<Section, String> {
-        Section::open_or_make(false)
+        Section::open_or_make(false, &names::section_name())
     }
 
-    fn open_or_make(make: bool) -> Result<Section, String> {
-        let name = names::wide(&names::section_name());
+    /// Either, under a name other than the driver's. The tests use one of their own, so a Gazelle
+    /// or a DAW starting while they run never finds the test's record in place of the real one.
+    fn open_or_make(make: bool, name: &str) -> Result<Section, String> {
+        let name = names::wide(name);
         let bytes = RECORD_BYTES;
         let (handle, created) = if make {
             // Safety: a named mapping backed by the page file, of a size this process chose.
@@ -115,7 +117,14 @@ impl ReloadEvent {
     /// Make the event, or take the one that is there. Automatic reset, so one signal wakes one
     /// wait and the flag does not stay set behind it.
     pub fn create() -> Result<ReloadEvent, String> {
-        let name = names::wide(&names::reload_event_name());
+        Self::create_named(&names::reload_event_name())
+    }
+
+    /// The same under another name. The tests use one of their own: the real name is shared with
+    /// the driver in any DAW or Gazelle running on this PC, and a test waiting on it could take a
+    /// reload meant for them, or signalling it could make them reload.
+    fn create_named(name: &str) -> Result<ReloadEvent, String> {
+        let name = names::wide(name);
         // Safety: a named automatic reset event, initially clear.
         let handle = unsafe { CreateEventW(null(), 0, 0, name.as_ptr()) };
         if handle.is_null() {
@@ -170,18 +179,23 @@ mod tests {
     use crate::read::Reader;
 
     // These make a real named section and a real named event, which costs a page of memory and a
-    // handle and touches no device, no file and no registry.
+    // handle and touches no device, no file and no registry. Each has a name of the test's own,
+    // never the driver's: a driver loaded in a DAW, or in a Gazelle that is armed, shares the real
+    // ones, and a test must neither read, signal nor stand in for them.
+
+    /// A name no other process uses: the kind, this process and the moment.
+    fn test_name(kind: &str) -> String {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        format!("Local\\GazelleTest{kind}-{}-{nanos}", std::process::id())
+    }
 
     #[test]
     fn a_real_section_carries_the_record_between_two_ends_of_it() {
-        let Ok(section) = Section::create() else { return };
-        if !section.created() {
-            // Something else on this machine already has the section open, which on a developer's
-            // PC means a driver is loaded in a DAW. Leave it alone.
-            return;
-        }
+        let name = test_name("Status");
+        let Ok(section) = Section::open_or_make(true, &name) else { return };
+        assert!(section.created(), "a name of our own is ours alone");
         let publisher = Publisher::map(Box::new(section)).expect("our own section");
-        let Ok(opened) = Section::open() else { panic!("the section we just made is there") };
+        let Ok(opened) = Section::open_or_make(false, &name) else { panic!("the section we just made is there") };
         let reader = Reader::map(Box::new(opened)).expect("the header is ours");
         publisher.update(|area| {
             area.device_count = 2;
@@ -197,7 +211,7 @@ mod tests {
 
     #[test]
     fn a_real_event_wakes_a_wait_and_times_out_when_nobody_signals() {
-        let Ok(event) = ReloadEvent::create() else { return };
+        let Ok(event) = ReloadEvent::create_named(&test_name("Reload")) else { return };
         assert_eq!(event.wait(0), Wake::TimedOut, "nothing has happened yet");
         event.signal();
         assert_eq!(event.wait(0), Wake::Signalled);
