@@ -10,6 +10,13 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-28
+
+Phones and recording. Pair a phone and drive Gazelle from it, with Gazelle Remote for Android;
+record both interfaces from Gazelle itself, keeping the moments before you press Record; and a
+metronome locked to the take. **One change can break an existing setup:** Gazelle opened to the
+network with `--bind` now asks every other device to pair first.
+
 ### Added
 
 - **Phones on your network.** The Workspace page has a new Phones section, and the tray a new

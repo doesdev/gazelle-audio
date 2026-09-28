@@ -28,7 +28,7 @@ A DAW opens one audio driver at a time, so two interfaces are ordinarily two sep
 
 ## How much it has been tested
 
-Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. Version 1.4.1.
+Plainly: **one person's two units**, one Zen Quadro Synergy Core and one Zen Studio+, on one Windows 11 PC. No other unit, firmware version, computer or operating system has been tried. Version 2.0.0.
 
 Over a thousand automated tests run against a built-in emulator of both devices, and every command's bytes are checked against reference bytes generated from the vendor software's own command definitions. That shows Gazelle sends what it means to send; it cannot show what your device does with it.
 
@@ -40,7 +40,7 @@ Over a thousand automated tests run against a built-in emulator of both devices,
 
 **Written and tested against the emulator only, never on a device:** all other effect settings, the Studio+ Equalizer, the reverb controls, Control Room mono and talkback, surfaces and digital cables in use, unplugging a device while Gazelle runs, Start on boot, the installer and the updater.
 
-**Not yet tried on a phone:** Gazelle Remote, the Android app. It is built and its address checks are tested on every change, but nobody has installed it yet.
+**Phones and recording, on the real devices:** on 2026-09-28 a phone paired with Gazelle and drove it from the Remote page while Gazelle recorded both interfaces from the Recording page, together. **Not yet tried on the devices:** the metronome and its count-in, the recording widget and hub windows, auto-arm across an interface being unplugged, and whether a DAW can use the drivers while Gazelle holds them.
 
 If your unit behaves differently, you have probably found something nobody has seen yet. Please [report it](docs/manual/19-troubleshooting.md#reporting-a-problem).
 
