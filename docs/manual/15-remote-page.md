@@ -1,6 +1,6 @@
 # The Remote page
 
-The Remote page (`#/remote`) is a remote for the session: what you reach for away from the desk, laid out for a phone held upright. A paired phone opens on it (see [Phones on your network](05-the-app.md#phones-on-your-network)), and on a phone it is the first tab. It works in a desktop window as well, as one column in the middle of the page. Every other page is still a tab away.
+The Remote page (`#/remote`) is a remote for the session: what you reach for away from the desk, laid out for a phone held upright. A paired phone opens on it (see [Phones on your network](05-the-app.md#phones-on-your-network)), and on a phone it is the first tab. It works in a desktop window as well, as one column in the middle of the page, though a wide window on the computer shows no tab for it: open it at `#/remote`. Every other page is still a tab away.
 
 Its controls are the ones the rest of Gazelle already has, at a size a thumb can use. What you change here shows on the other pages at once, and the other way round.
 

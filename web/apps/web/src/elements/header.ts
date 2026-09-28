@@ -52,6 +52,12 @@ export class GaHeader extends GaElement {
          since it is the page laid out for one; every other page stays a tab along from it. */
       :host([phone]) nav a[data-page="remote"] { order: -1; }
       :host([phone]) nav a[data-page="remote"]:not([aria-current]) { color: var(--ga-accent); }
+      /* On the computer's own wide window Remote is not a tab: it is the page for a phone, and the
+         desktop has every page it gathers. It stays reachable by its address, and its tab shows
+         while it is the page open. */
+      @media (min-width: ${DRAWER_MAX_PX + 1}px) {
+        :host(:not([phone])) nav a[data-page="remote"]:not([aria-current]) { display: none; }
+      }
       .spacer { flex: 1; }
       .badge {
         padding: 2px 7px;

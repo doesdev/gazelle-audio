@@ -32,7 +32,7 @@ Starting Gazelle while it is already running brings the running window to the fr
 
 ## The header
 
-Along the top: the page tabs, then three things worth a glance. On a phone, or in a window of phone width, **Remote** is the first tab, in the accent colour; see [The Remote page](15-remote-page.md).
+Along the top: the page tabs, then three things worth a glance. On a phone, or in a window of phone width, **Remote** is the first tab, in the accent colour; see [The Remote page](15-remote-page.md). In a wider window on the computer there is no Remote tab, since every page it gathers is already there; it still opens at its address, `#/remote`.
 
 - **The backend badge.** **USB** (in the warning colour) when Gazelle drives real interfaces; **LOOPBACK** when it runs the emulator.
 - **Dry run**, shown only when Gazelle was started with `--dry-run`: commands report the bytes they would send, and nothing is written to a device.

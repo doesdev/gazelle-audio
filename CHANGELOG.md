@@ -23,8 +23,8 @@ version that has not been published yet.
 - **The Remote page, for a phone.** A remote for the session, laid out for a phone held upright:
   the Control Room's outputs and talkback, the Quadro's hard mute kept apart, the mix the dock shows
   as a fader per channel with its meter, and each preamp's gain, 48V and phase. A phone opens on
-  it once paired, and Remote is the first tab on a phone; every other page is still there. It
-  works in a desktop window too.
+  it once paired, and Remote is the first tab on a phone; every other page is still there. A wide
+  window on the computer has no Remote tab, but the page still opens at `#/remote`.
 - **Faders are safe under a finger.** On a touch screen a tap on a fader, volume or gain changes
   nothing, a drag moves it from where it was, and a flick cannot make it loud: it gets louder no
   faster than a steady drag. A swipe that starts on a fader scrolls the page instead. A mouse still

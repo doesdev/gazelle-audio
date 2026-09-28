@@ -421,3 +421,19 @@ async function shots(browser: Browser): Promise<void> {
     }
   }
 }
+
+test("the computer's own wide window has no Remote tab, and the page still opens at its address", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${server.url}/#/devices`);
+  const tab = page.locator('ga-header nav a[data-page="remote"]');
+  await expect(page.locator('ga-header nav a[data-page="devices"]')).toBeVisible();
+  await expect(tab).toBeHidden();
+  // Opened by its address, its tab shows while it is the page open.
+  await page.goto(`${server.url}/#/remote`);
+  await expect(page.locator("ga-remote")).toBeVisible();
+  await expect(tab).toBeVisible();
+  // A window of phone width keeps it, first.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${server.url}/#/devices`);
+  await expect(tab).toBeVisible();
+});
