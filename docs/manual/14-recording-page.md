@@ -60,6 +60,44 @@ The log, named like the files with `log` for the channel, says when the take sta
 
 The **Takes** list shows the takes recorded since Gazelle started, newest first, with their folder and files.
 
+## Into Cubase
+
+> **Not yet tried in Cubase.** The archive Gazelle writes has the shape Cubase 15.0.20 itself writes when it exports a folder with its group, and Gazelle checks that it holds together, but nobody has imported one into Cubase yet. Until someone has, treat the steps below as the plan, and check the points at the end of this section the first time.
+
+With a **Cubase seed** set, every take also gets a **Cubase track archive** beside its files: an XML file named like them with `Cubase` for the channel, such as `2026-09-27 T001 Cubase.xml`. File > Import > Track Archive brings the whole take into a Cubase project in one step: a folder track with its own group channel, and in it one mono track per channel of the take, named after the channel, routed to that group, with its recording starting at the project start. The tracks play the take's own WAV files where they are; nothing is copied.
+
+### The seed
+
+The seed is a track archive you export once from your own tracking template, and every take's archive is made from it. So everything you set up on the template's tracks, their inserts, sends, colours and the routing into the group, is on the take's tracks too.
+
+1. Open a project made from your tracking template. Its recording folder is a folder with group ("Recorded"), with at least one mono audio track in it ("Audio 01"), routed to that group.
+2. Record a few seconds on that mono track. The seed needs a track with a recording on it, because the recording is what Gazelle copies for each channel. It does not matter what you record.
+3. Select the folder track itself and choose File > Export > Selected Tracks. Save the archive somewhere it will stay, such as `C:\Cubase\Recorded.xml`. Referencing the files or copying them makes no difference to Gazelle.
+4. On the Recording page, under **Into Cubase**, paste the archive's whole path and press Enter (a path in quotes, as Explorer's Copy as path gives it, is fine). Gazelle checks it at once and says what it found: the folder, its group, and how many mono tracks with a recording it can copy. A file that will not do is refused with the reason, and nothing changes.
+
+If the folder has several mono tracks, the take's first channel gets a copy of the first, the second of the second, and so on; once they run out, the last one is used again. The seed's own recordings and any stereo tracks in it are left out.
+
+**No seed** stops the archives. The seed is this computer's, kept in `recording.json` with auto-arm, and is set on the computer only. Gazelle reads the seed again for each take, so a seed set while armed counts from the next take, and a seed file that has since changed or gone is shown on the page.
+
+### Importing a take
+
+Because the archive brings its own folder and group, the project you import into should not already have them, or you get two.
+
+1. Once: keep a copy of your tracking template without the Recorded folder (select the folder and delete it, which takes its group and "Audio 01" with it, then save it as a template). The imported folder takes the place of that folder, and its tracks the place of "Audio 01". Or delete the folder in a new project before each import.
+2. Make a project from that template, at the rate the take was recorded at.
+3. Choose File > Import > Track Archive and pick the take's `Cubase.xml`.
+4. In Cubase's options for the import, leave copying the files into the project off, so the tracks keep playing the take's files in their own folder. If Cubase offers to convert the files, the take's rate or format differs from the project's: make the project match instead.
+5. Cubase may ask where the archive's group and inputs connect in this project. Keep the group as the archive's own, and give the inputs whatever you record from.
+
+### What to check the first time
+
+- The folder and its group arrive, named as in the seed, and the group plays out of your main output.
+- There is one track per channel of the take, named after its channel, and each track's output is the folder's group.
+- Every recording starts at the very start of the project, runs the length of the take, and plays the take's own file (the Pool shows its folder, and nothing is reported missing).
+- A take recorded in 32-bit float plays as well as a 24-bit one: Gazelle names the format as Cubase does for 24-bit files, and this has not been tried with 32-bit float.
+
+If a take's archive cannot be made, the take is not affected: its files and log are complete, and the log says why there is no archive.
+
 ## The disk
 
 Gazelle checks the free space when you press Record and refuses a take with less than a minute of room. While recording it looks every second: below about ten minutes of room the transport warns, and before the disk is full it stops the take the ordinary way and finishes its files while there is still room to. If a write fails anyway, the take stops, and what was written is kept. Each file's size is written into its header every two seconds, so a file cut short by a crash still opens.
@@ -153,7 +191,7 @@ Tick **Start in the recording hub** and Gazelle opens the hub full screen whenev
 
 ### Where these are kept
 
-The widget and hub windows remember their places in `recording-widget.json` and `recording-hub.json`, and auto-arm and starting in the hub are kept in `recording.json`, all in `%APPDATA%\gazelle` beside `remote.json`. They are this computer's, not the workspace's: a workspace carried to another computer, or restored from a backup, does not start holding that computer's drivers or filling its screen.
+The widget and hub windows remember their places in `recording-widget.json` and `recording-hub.json`, and auto-arm, starting in the hub and the [Cubase seed](#into-cubase) are kept in `recording.json`, all in `%APPDATA%\gazelle` beside `remote.json`. They are this computer's, not the workspace's: a workspace carried to another computer, or restored from a backup, does not start holding that computer's drivers or filling its screen.
 
 ## Quitting while recording
 

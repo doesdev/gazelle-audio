@@ -15,6 +15,11 @@ gazelle-audio-aggregate = { path = "../gazelle-audio-aggregate" }
 gazelle-audio-calibrate = { path = "../gazelle-audio-calibrate" }
 gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
 serde = { version = "1", features = ["derive"] }
+# Reading the Cubase track archive a take's own archive is made from (`cubase`): a read-only tree
+# that keeps where every element and attribute was in the text, so whatever Gazelle does not change
+# is copied through byte for byte. MIT OR Apache-2.0, no dependencies beyond memchr, which the
+# workspace already has.
+roxmltree = "0.21"
 
 # How much memory is free (`GlobalMemoryStatusEx`), how much room a disk has left
 # (`GetDiskFreeSpaceExW`), and what the local time is (`FileTimeToLocalFileTime`,

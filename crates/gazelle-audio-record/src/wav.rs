@@ -296,6 +296,11 @@ impl<W: Write + Seek> WavWriter<W> {
         self.frames
     }
 
+    /// Where the audio starts in the file, in bytes. It never moves, RF64 or not.
+    pub fn data_start(&self) -> u64 {
+        self.data_start
+    }
+
     /// Bytes of audio written so far.
     pub fn data_bytes(&self) -> u64 {
         self.data_bytes

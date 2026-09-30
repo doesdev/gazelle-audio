@@ -149,10 +149,10 @@ test("the settings and the windows are read and changed through the model, and a
   const { client, store } = withStore();
   const model = new RecordingModel(store.recorder);
   await model.readComputer();
-  assert.deepEqual(model.settings.value, { auto_arm: false, auto_arm_preset: null, start_in_hub: false });
+  assert.deepEqual(model.settings.value, { auto_arm: false, auto_arm_preset: null, start_in_hub: false, cubase_seed: null, cubase_seed_check: null });
   assert.equal(model.windows.value?.available, true);
   assert.equal(await model.setSettings({ auto_arm: true, auto_arm_preset: "band" }), true);
-  assert.deepEqual(model.settings.value, { auto_arm: true, auto_arm_preset: "band", start_in_hub: false });
+  assert.deepEqual(model.settings.value, { auto_arm: true, auto_arm_preset: "band", start_in_hub: false, cubase_seed: null, cubase_seed_check: null });
   assert.equal(await model.setWindow("widget", { open: true }), true);
   assert.equal(model.windows.value?.widget, true);
   assert.equal(await model.setWindow("hub", { open: true }), true);

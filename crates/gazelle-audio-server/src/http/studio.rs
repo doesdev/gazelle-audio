@@ -7,9 +7,13 @@
 //! - `POST /api/v1/window/hub` with `{"open": ...}` and, or, `{"full_screen": ...}`: open the hub
 //!   full screen on the monitor it was last on, close it, or take it in or out of full screen.
 //!   Without windows (`--no-window`, `--no-tray`, a build without them) both answer 409 `no_window`.
-//! - `GET /api/v1/recording/settings`: `{"auto_arm", "auto_arm_preset", "start_in_hub"}`.
-//! - `PUT /api/v1/recording/settings`: any of those three; what is left out stays as it is. Turning
-//!   auto-arm on needs a preset that is in the workspace (409 `no_preset` otherwise).
+//! - `GET /api/v1/recording/settings`: `{"auto_arm", "auto_arm_preset", "start_in_hub",
+//!   "cubase_seed", "cubase_seed_check"}`. `cubase_seed_check` is `{"ok", "message"}` for the seed
+//!   set, read again whenever the file has changed, or `null` with none set.
+//! - `PUT /api/v1/recording/settings`: any of the first four; what is left out stays as it is.
+//!   Turning auto-arm on needs a preset that is in the workspace (409 `no_preset` otherwise). A
+//!   Cubase seed is a whole path to a track archive a take's archive can be made from, checked
+//!   before it is kept (400 `bad_seed` otherwise); `null` or `""` sets none.
 //!
 //! **This machine only**, every one of them: the windows are on someone's desk, and the settings
 //! decide whether this PC's audio drivers are held. The gate (`remote::guard::LOCAL_ONLY`) refuses
@@ -141,7 +145,20 @@ async fn settings(Extension(studio): Extension<Studio>, request: Request) -> Res
     if let Some(refusal) = refuse_unless_local(&request) {
         return refusal;
     }
-    Json(studio.recording.studio().get()).into_response()
+    Json(settings_answer(&studio.recording, studio.recording.studio().get())).into_response()
+}
+
+/// The settings, and what the Cubase seed set is found to be.
+fn settings_answer(recording: &RecordingService, settings: crate::studio::StudioSettings) -> Value {
+    let mut answer = serde_json::to_value(settings).unwrap_or_else(|_| json!({}));
+    answer["cubase_seed_check"] = json!(recording.cubase_seed_check());
+    answer
+}
+
+/// A path as a person pastes it: trimmed, and without the quotes Explorer's "Copy as path" adds.
+fn pasted_path(text: &str) -> String {
+    let trimmed = text.trim();
+    trimmed.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(trimmed).trim().to_string()
 }
 
 #[derive(Deserialize)]
@@ -154,6 +171,9 @@ struct Change {
     auto_arm_preset: Option<Option<String>>,
     #[serde(default)]
     start_in_hub: Option<bool>,
+    /// `null` or `""` sets none; left out, it stays.
+    #[serde(default, deserialize_with = "some")]
+    cubase_seed: Option<Option<String>>,
 }
 
 /// A field that is there, even as `null`, is `Some`.
@@ -179,6 +199,15 @@ async fn set_settings(Extension(studio): Extension<Studio>, request: Request) ->
             return refuse(StatusCode::CONFLICT, refusal.code, refusal.message);
         }
     }
+    let seed = change.cubase_seed.as_ref().map(|seed| seed.as_deref().map(pasted_path).filter(|path| !path.is_empty()));
+    if let Some(Some(path)) = &seed {
+        if !std::path::Path::new(path).is_absolute() {
+            return refuse(StatusCode::BAD_REQUEST, "bad_seed", r"Give the seed's whole path, such as C:\Cubase\Recorded.xml.".into());
+        }
+        if let Err(why) = crate::recording::check_seed_file(std::path::Path::new(path)) {
+            return refuse(StatusCode::BAD_REQUEST, "bad_seed", why);
+        }
+    }
     let result = studio.recording.change_settings(|settings| {
         if let Some(on) = change.auto_arm {
             settings.auto_arm = on;
@@ -189,9 +218,12 @@ async fn set_settings(Extension(studio): Extension<Studio>, request: Request) ->
         if let Some(hub) = change.start_in_hub {
             settings.start_in_hub = hub;
         }
+        if let Some(seed) = seed {
+            settings.cubase_seed = seed;
+        }
     });
     match result {
-        Ok(settings) => Json(settings).into_response(),
+        Ok(settings) => Json(settings_answer(&studio.recording, settings)).into_response(),
         Err(why) => refuse(StatusCode::INTERNAL_SERVER_ERROR, "storage_error", why),
     }
 }
@@ -300,7 +332,7 @@ mod tests {
         let app = app(None);
         let (status, body) = send(&app, "GET", "/api/v1/recording/settings", None, HERE).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({"auto_arm": false, "auto_arm_preset": null, "start_in_hub": false}), "off by default");
+        assert_eq!(body, json!({"auto_arm": false, "auto_arm_preset": null, "start_in_hub": false, "cubase_seed": null, "cubase_seed_check": null}), "off by default");
 
         let (status, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"auto_arm":true}"#), HERE).await;
         assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_value")), "on, with nothing to arm with");
@@ -309,15 +341,52 @@ mod tests {
 
         let (status, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"auto_arm":true,"auto_arm_preset":"band"}"#), HERE).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, json!({"auto_arm": true, "auto_arm_preset": "band", "start_in_hub": false}));
+        assert_eq!(body, json!({"auto_arm": true, "auto_arm_preset": "band", "start_in_hub": false, "cubase_seed": null, "cubase_seed_check": null}));
         let (_, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"start_in_hub":true}"#), HERE).await;
-        assert_eq!(body, json!({"auto_arm": true, "auto_arm_preset": "band", "start_in_hub": true}), "what is left out stays");
+        assert_eq!(body, json!({"auto_arm": true, "auto_arm_preset": "band", "start_in_hub": true, "cubase_seed": null, "cubase_seed_check": null}), "what is left out stays");
         let (_, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"auto_arm":false}"#), HERE).await;
         assert_eq!(body["auto_arm_preset"], "band", "off keeps the preset for next time");
         let (_, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"auto_arm_preset":null}"#), HERE).await;
         assert_eq!(body["auto_arm_preset"], Value::Null);
         let (status, _) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"auto_arm":1}"#), HERE).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn a_cubase_seed_is_checked_before_it_is_kept_and_again_when_it_changes() {
+        let app = app(None);
+        let dir = std::env::temp_dir().join(format!("gazelle-cubase-seed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("Recorded.xml");
+        std::fs::write(&good, include_str!("../../../gazelle-audio-record/testdata/cubase-seed.xml")).unwrap();
+        let bad = dir.join("Other.xml");
+        std::fs::write(&bad, r#"<tracklist2><list name="track" type="obj"/></tracklist2>"#).unwrap();
+        let put = |path: &std::path::Path| json!({ "cubase_seed": format!("\"{}\"", path.display()) }).to_string();
+
+        let (status, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(&put(&good)), HERE).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["cubase_seed"], json!(good.display().to_string()), "Explorer's quotes are taken off");
+        assert_eq!(body["cubase_seed_check"]["ok"], true);
+        assert!(body["cubase_seed_check"]["message"].as_str().unwrap().contains("\"Recorded\" with its group"), "{body}");
+
+        let (status, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(&put(&bad)), HERE).await;
+        assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_seed")));
+        assert!(body["error"]["message"].as_str().unwrap().contains("no folder track"), "{body}");
+        let (status, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"cubase_seed":"Recorded.xml"}"#), HERE).await;
+        assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_seed")), "a whole path, or nothing");
+        let (_, body) = send(&app, "GET", "/api/v1/recording/settings", None, HERE).await;
+        assert_eq!(body["cubase_seed"], json!(good.display().to_string()), "a refused seed changes nothing");
+
+        // The file changes under it: the check says so, and the setting stays for when it is put right.
+        std::fs::write(&good, "not a track archive at all").unwrap();
+        let (_, body) = send(&app, "GET", "/api/v1/recording/settings", None, HERE).await;
+        assert_eq!(body["cubase_seed_check"]["ok"], false, "{body}");
+        assert_eq!(body["cubase_seed"], json!(good.display().to_string()));
+
+        let (_, body) = send(&app, "PUT", "/api/v1/recording/settings", Some(r#"{"cubase_seed":null}"#), HERE).await;
+        assert_eq!((body["cubase_seed"].clone(), body["cubase_seed_check"].clone()), (Value::Null, Value::Null));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

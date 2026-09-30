@@ -99,6 +99,28 @@ pub struct RecordingService {
     /// Set by [`RecordingService::shutdown`]: nothing arms from then on.
     stopping: std::sync::atomic::AtomicBool,
     metronome: MetronomeStore,
+    /// The Cubase seed last checked, and what was found, until the file changes.
+    seed_seen: Mutex<Option<SeedSeen>>,
+}
+
+/// A seed as it was when it was checked: its path, when it was changed and how long it was, and
+/// what the check found.
+type SeedSeen = (PathBuf, Option<SystemTime>, u64, SeedCheck);
+
+/// What the page is told about this PC's Cubase seed.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct SeedCheck {
+    /// Whether a take's archive can be made from it.
+    pub ok: bool,
+    /// What it holds, or why it will not do.
+    pub message: String,
+}
+
+/// Whether the file at `path` will do as a Cubase seed: what it holds, or why not, in a sentence.
+pub fn check_seed_file(path: &std::path::Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| sentence(&format!("{} could not be read: {e}", path.display())))?;
+    let text = String::from_utf8(bytes).map_err(|_| sentence(&format!("{} is not a Cubase track archive: it is not text", path.display())))?;
+    gazelle_record::cubase::check_seed(&text).map(|summary| summary.words()).map_err(|why| sentence(&format!("{} will not do: {why}", path.display())))
 }
 
 impl RecordingService {
@@ -138,8 +160,10 @@ impl RecordingService {
             presence: Mutex::new(None),
             stopping: std::sync::atomic::AtomicBool::new(false),
             metronome: MetronomeStore::in_memory(),
+            seed_seen: Mutex::new(None),
         });
         service.apply_metronome(&service.metronome.get());
+        service.recorder.set_cubase_seed(service.studio.get().cubase_seed.map(PathBuf::from));
         service.publish();
         service
     }
@@ -432,8 +456,35 @@ impl RecordingService {
         if before.start_in_hub != after.start_in_hub {
             tracing::info!("start in the recording hub: {}", if after.start_in_hub { "on" } else { "off" });
         }
+        if before.cubase_seed != after.cubase_seed {
+            match &after.cubase_seed {
+                Some(path) => tracing::info!("Cubase seed: {path}; each take gets a track archive made from it"),
+                None => tracing::info!("Cubase seed cleared; takes get no track archive"),
+            }
+            self.recorder.set_cubase_seed(after.cubase_seed.as_ref().map(PathBuf::from));
+        }
         self.publish();
         Ok(after)
+    }
+
+    /// Whether this PC's Cubase seed will do, read again only when the file has changed; nothing
+    /// when none is set.
+    pub fn cubase_seed_check(&self) -> Option<SeedCheck> {
+        let path = PathBuf::from(self.studio.get().cubase_seed?);
+        let meta = std::fs::metadata(&path).ok();
+        let (modified, len) = (meta.as_ref().and_then(|m| m.modified().ok()), meta.as_ref().map_or(0, |m| m.len()));
+        let mut seen = self.seed_seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((was, when, size, check)) = seen.as_ref() {
+            if *was == path && *when == modified && *size == len && meta.is_some() {
+                return Some(check.clone());
+            }
+        }
+        let check = match check_seed_file(&path) {
+            Ok(message) => SeedCheck { ok: true, message },
+            Err(message) => SeedCheck { ok: false, message },
+        };
+        *seen = Some((path, modified, len, check.clone()));
+        Some(check)
     }
 
     /// The name of the workspace's preset `id`, if it has one.
@@ -801,7 +852,7 @@ mod tests {
         devices.attach_loopbacks(&[crate::registry_set::PID_QUADRO, crate::registry_set::PID_STUDIO], 64);
         let store = Arc::new(MemoryStore::default());
         store.save(&with_presets(vec![preset_with_room("band")])).unwrap();
-        let studio = Arc::new(Studio::in_memory(StudioSettings { auto_arm: true, auto_arm_preset: Some(preset.into()), start_in_hub: false }));
+        let studio = Arc::new(Studio::in_memory(StudioSettings { auto_arm: true, auto_arm_preset: Some(preset.into()), ..StudioSettings::default() }));
         let service = RecordingService::for_backend_with(true, Arc::new(Calibration::this_pc()), store, devices, studio);
         let here = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let seen = here.clone();

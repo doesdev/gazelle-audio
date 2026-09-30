@@ -4,7 +4,10 @@
 //
 // Screenshots for the report are written when asked for (RECORDING_SCREENSHOTS=<directory>).
 
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
@@ -28,6 +31,9 @@ test.afterAll(async () => {
 
 const api = (path: string, init?: RequestInit) => fetch(`${server.url}/api/v1/${path}`, init);
 const post = (path: string, body: unknown = {}) => api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+const put = (path: string, body: unknown) => api(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+/** The trimmed Cubase export the record crate's own tests use as a seed. */
+const SEED = fileURLToPath(new URL("../../../../crates/gazelle-audio-record/testdata/cubase-seed.xml", import.meta.url));
 
 /** Both interfaces in the aggregate, named as Gazelle names them, and one preset recording from each. */
 async function setUp(): Promise<void> {
@@ -115,6 +121,62 @@ test("Arm explains itself once, then Record reaches back into the pre-roll, Stop
   await expect(page.getByTestId("recording-preset")).toBeEnabled();
 });
 
+test("a Cubase seed is checked on the page, and a take then gets a track archive beside its files", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "gazelle-e2e-cubase-"));
+  const seed = join(dir, "Recorded.xml");
+  copyFileSync(SEED, seed);
+  const other = join(dir, "Other.xml");
+  writeFileSync(other, "<tracklist2/>");
+  try {
+    await page.addInitScript(() => localStorage.setItem("gazelle.recording.armExplained", "1"));
+    await page.goto(`${server.url}/#/recording`);
+    const section = page.getByTestId("recording-section-cubase");
+    const field = section.getByTestId("recording-cubase-seed");
+    const check = section.getByTestId("recording-cubase-check");
+    await expect(check).toHaveText("No seed: takes get no Cubase track archive.");
+
+    // One that will not do is refused where it was typed, and nothing is kept.
+    await field.fill(other);
+    await field.press("Enter");
+    await expect(check).toContainText("holds no tracks");
+    await expect(check).toHaveAttribute("data-ok", "false");
+    expect(((await (await api("recording/settings")).json()) as { cubase_seed: string | null }).cubase_seed).toBeNull();
+
+    // A good one, pasted as Explorer copies a path, in quotes.
+    await field.fill(`"${seed}"`);
+    await field.press("Enter");
+    await expect(check).toHaveText('The folder "Recorded" with its group "Recorded", and 2 mono tracks to copy, 96 kHz.');
+    await expect(check).toHaveAttribute("data-ok", "true");
+    await expect(field).toHaveValue(seed);
+
+    // A take now gets its archive, which names its files where they are.
+    await page.getByTestId("recording-arm").click();
+    await expect(page.getByTestId("recording-state")).toHaveText("Armed");
+    await page.waitForTimeout(800);
+    await page.getByTestId("recording-record").click();
+    await expect(page.getByTestId("recording-state")).toHaveText("Recording");
+    await page.waitForTimeout(800);
+    await page.getByTestId("recording-stop").click();
+    const listed = page.getByTestId("recording-take-cubase").first();
+    await expect(listed).toContainText("Cubase.xml", { timeout: 10_000 });
+    const { takes } = (await (await api("recording/takes")).json()) as { takes: { files: string[]; cubase?: string }[] };
+    const archive = takes[0]?.cubase ?? "";
+    expect(existsSync(archive), archive).toBe(true);
+    const xml = readFileSync(archive, "utf8");
+    for (const file of takes[0]?.files ?? []) expect(xml).toContain(basename(file));
+    expect(xml).toContain("Vocal mic (Quadro 1)");
+    await post("recording/disarm", { confirm: true });
+
+    // No seed: no more archives.
+    await section.getByTestId("recording-cubase-clear").click();
+    await expect(check).toHaveText("No seed: takes get no Cubase track archive.");
+    await expect(field).toHaveValue("");
+  } finally {
+    await put("recording/settings", { cubase_seed: null });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a preset is made and edited on the page, saved in the workspace, and the armed one cannot change", async ({ page }) => {
   await open(page, "recording");
   await page.getByTestId("recording-preset-new").click();
@@ -193,6 +255,7 @@ test("a phone arms, records, stops and disarms from the Remote page's transport,
   await expect(page.getByTestId("recording-state")).toHaveText("Off");
   await expect(page.getByTestId("recording-preset-new")).toBeHidden();
   await expect(page.getByTestId("recording-preset-name")).toBeDisabled();
+  await expect(page.getByTestId("recording-section-cubase"), "the Cubase seed is a file on the computer").toHaveCount(0);
   await context.close();
 
   if (SHOTS) {

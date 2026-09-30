@@ -21,6 +21,14 @@
 //! ordinary way and its files finished, while there is still room to finish them. A disk that fails
 //! a write anyway stops the take too, and the files keep everything up to the last time their sizes
 //! were written (`crate::wav`).
+//!
+//! # Into Cubase
+//!
+//! When this PC has a Cubase seed set ([`TakeSettings::cubase_seed`]), a finished take gets a track
+//! archive beside its files, `<take> Cubase.xml`, made from the seed ([`crate::cubase`]). It is
+//! written whole or not at all, and never over a file that is there. Anything that goes wrong making
+//! it is a line in the take's log: the take itself is already finished by then and is never failed
+//! by it.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -31,6 +39,7 @@ use gazelle_aggregate::status::Glitches;
 use serde::Serialize;
 
 use crate::capture::{Capture, Window, PARKED};
+use crate::cubase::{self, TakeFile};
 use crate::names::{self, TakeWords};
 use crate::system::{Civil, Clock, Disk, FileOut};
 use crate::wav::{Bext, SampleFormat, WavWriter, RIFF_LIMIT};
@@ -75,7 +84,13 @@ pub struct TakeSettings {
     pub originator: String,
     /// The RIFF size past which a file becomes RF64. 4 GB except in a test.
     pub rf64_limit: u64,
+    /// The Cubase track archive each take's archive is made from, when this PC has one set. Read
+    /// when a take finishes, so a seed set while armed counts from the next take.
+    pub cubase_seed: SeedSlot,
 }
+
+/// Where this PC's Cubase seed is, shared by the recorder and every take it writes.
+pub type SeedSlot = Arc<Mutex<Option<PathBuf>>>;
 
 impl TakeSettings {
     /// Bytes a second, across every file.
@@ -103,6 +118,9 @@ pub struct TakeRecord {
     /// The WAV files, whole paths, in the preset's channel order.
     pub files: Vec<String>,
     pub log: String,
+    /// The take's Cubase track archive, when one was made.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cubase: Option<String>,
     pub date: String,
     pub time: String,
     /// How long it is, pre-roll and all.
@@ -151,6 +169,8 @@ struct Open {
     paths: Vec<PathBuf>,
     log: Option<Box<dyn FileOut>>,
     log_path: PathBuf,
+    /// Where the take's Cubase track archive goes, if one is made.
+    cubase_path: PathBuf,
     date: String,
     time: String,
     lost_blocks: u64,
@@ -292,6 +312,7 @@ impl Drain {
             paths: Vec::new(),
             log: None,
             log_path: PathBuf::new(),
+            cubase_path: PathBuf::new(),
             date: date.clone(),
             time: time.clone(),
             lost_blocks: 0,
@@ -316,6 +337,7 @@ impl Drain {
         self.next_take = number + 1;
         open.number = number;
         open.log_path = log_path.clone();
+        open.cubase_path = names::cubase_path(&settings.folder, &settings.pattern, &words);
         open.paths = paths.clone();
         let time_reference = (civil.since_midnight() * settings.rate).round() as u64;
         let rate = settings.rate.round() as u32;
@@ -390,11 +412,17 @@ impl Drain {
             let line = format!("Count-in: the downbeat after it is sample {at} of the take ({}), marked in every file with a cue named {CUE_LABEL}.", clock_words(at as f64 / rate));
             log(&mut open, &line);
         }
+        // What the Cubase archive needs of each file that was made: its length, and where its audio starts.
+        let mut made = Vec::with_capacity(open.files.len());
         for (channel, file) in open.files.iter_mut().enumerate() {
             if let Some(writer) = file.take() {
-                if let Err(why) = writer.finish_with_cue(cue.map(|at| (at, CUE_LABEL))) {
-                    let why = format!("{} could not be finished: {why}", open.paths[channel].display());
-                    open.problem.get_or_insert(why);
+                let layout = (channel, writer.frames(), writer.data_start());
+                match writer.finish_with_cue(cue.map(|at| (at, CUE_LABEL))) {
+                    Ok(_) => made.push(layout),
+                    Err(why) => {
+                        let why = format!("{} could not be finished: {why}", open.paths[channel].display());
+                        open.problem.get_or_insert(why);
+                    }
                 }
             }
         }
@@ -422,6 +450,11 @@ impl Drain {
             let line = format!("Stopped by Gazelle: {why}.");
             log(&mut open, &line);
         }
+        let mut cubase = None;
+        if let Some((line, written)) = self.write_cubase(&open, &made) {
+            log(&mut open, &line);
+            cubase = written.then(|| open.cubase_path.display().to_string());
+        }
         if let Some(mut out) = open.log.take() {
             let _ = out.flush();
         }
@@ -431,6 +464,7 @@ impl Drain {
             folder: self.settings.folder.display().to_string(),
             files: open.paths.iter().map(|p| p.display().to_string()).collect(),
             log: open.log_path.display().to_string(),
+            cubase,
             date: open.date,
             time: open.time,
             seconds,
@@ -450,6 +484,35 @@ impl Drain {
                 state.problem = Some(problem);
             }
         });
+    }
+
+    /// The take's Cubase track archive, when this PC has a seed: the log's line about it and whether
+    /// it was written, or nothing when there is no seed. Never fails the take.
+    fn write_cubase(&self, open: &Open, made: &[(usize, u64, u64)]) -> Option<(String, bool)> {
+        let seed = self.settings.cubase_seed.lock().ok().and_then(|seed| seed.clone())?;
+        let settings = &self.settings;
+        let files: Vec<TakeFile> = made
+            .iter()
+            .map(|&(channel, frames, data_offset)| TakeFile {
+                channel: settings.channels[channel].clone(),
+                path: open.paths[channel].clone(),
+                frames,
+                rate: settings.rate,
+                format: settings.format,
+                data_offset,
+            })
+            .collect();
+        let written = self
+            .disk
+            .read_file(&seed)
+            .map_err(|why| format!("the seed {} could not be read: {why}", seed.display()))
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|_| format!("the seed {} is not UTF-8 text", seed.display())))
+            .and_then(|text| cubase::build(&text, &files).map_err(|why| format!("it could not be made from the seed {}: {why}", seed.display())))
+            .and_then(|xml| self.disk.write_new(&open.cubase_path, xml.as_bytes()).map_err(|why| format!("{} could not be written: {why}", open.cubase_path.display())));
+        Some(match written {
+            Ok(()) => (format!("Cubase track archive: {} ({} tracks, from the seed {}).", open.cubase_path.display(), files.len(), seed.display()), true),
+            Err(why) => (format!("No Cubase track archive for this take: {why}. The take itself is complete."), false),
+        })
     }
 
     /// Free space, once a second: while writing, stop a take before the disk is full.
@@ -532,6 +595,7 @@ mod tests {
             channels: (0..channels).map(|c| format!("In {}", c + 1)).collect(),
             originator: "Gazelle 9.9.9".into(),
             rf64_limit: RF64_AT,
+            cubase_seed: SeedSlot::default(),
         }
     }
 
@@ -601,6 +665,75 @@ mod tests {
                 assert_eq!(*sample, ramp(30 * BLOCK as u64 + i as u64, channel), "channel {channel}, sample {i}: continuous across the press");
             }
         }
+    }
+
+    /// A short take of `channels` channels on `disk`, with the Cubase seed at `seed`, if any.
+    fn take_with_seed(disk: &Arc<MemoryDisk>, channels: usize, seed: Option<&str>) -> TakeRecord {
+        let settings = settings(channels);
+        *settings.cubase_seed.lock().unwrap() = seed.map(PathBuf::from);
+        let mut drain = Drain::new(settings, disk.clone(), Arc::new(StoppedClock), Arc::new(Mutex::new(Vec::new())));
+        let capture = Capture::allocate(channels, BLOCK, 16 * BLOCK as u64, 4 * BLOCK as u64).unwrap();
+        let mut next = 0;
+        capture.want_recording(true);
+        for _ in 0..5 {
+            push(&capture, &mut next);
+            drain.step(&capture);
+        }
+        capture.want_recording(false);
+        push(&capture, &mut next);
+        while drain.step(&capture) {}
+        let take = drain.state().lock().unwrap().takes[0].clone();
+        take
+    }
+
+    #[test]
+    fn with_a_seed_a_take_gets_a_cubase_track_archive_beside_its_files() {
+        let disk = Arc::new(MemoryDisk::default());
+        let seed = "C:/Seeds/Recorded.xml";
+        disk.write_new(Path::new(seed), include_bytes!("../testdata/cubase-seed.xml")).unwrap();
+        let take = take_with_seed(&disk, 3, Some(seed));
+        let archive = PathBuf::from("C:/Takes").join("2026-09-27 T001 Cubase.xml");
+        assert_eq!(take.cubase.as_deref(), Some(archive.display().to_string().as_str()));
+        let xml = String::from_utf8(disk.read(&archive)).unwrap();
+        assert_eq!(cubase::check_archive(&xml).unwrap().listed, 3);
+        for (channel, file) in take.files.iter().enumerate() {
+            let name = Path::new(file).file_name().unwrap().to_str().unwrap();
+            assert!(xml.contains(&format!("value=\"{name}\"")), "the clip names {name}");
+            assert!(xml.contains(&format!("value=\"In {}\"", channel + 1)), "the track is named after its channel");
+        }
+        // The length and the audio's place in the file are the files' own.
+        let wav = disk.read(Path::new(&take.files[0]));
+        let data = wav.windows(4).position(|w| w == b"data").unwrap() + 8;
+        assert!(xml.contains(&format!("<int name=\"DataOffset\" value=\"{data}\"/>")), "the audio starts at byte {data}");
+        let frames = samples(&wav).len();
+        assert!(xml.contains(&format!("<int name=\"FrameCount\" value=\"{frames}\"/>")));
+        assert!(xml.contains("<float name=\"Rate\" value=\"48000\"/>"));
+        let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+        assert!(log.contains(&format!("Cubase track archive: {} (3 tracks", archive.display())), "{log}");
+    }
+
+    #[test]
+    fn a_seed_that_fails_is_a_line_in_the_log_and_the_take_is_whole() {
+        let disk = Arc::new(MemoryDisk::default());
+        let take = take_with_seed(&disk, 2, Some("C:/Seeds/Gone.xml"));
+        assert_eq!(take.cubase, None);
+        assert_eq!(take.problem, None, "the take is not failed by it");
+        assert!(take.files.iter().all(|f| !disk.read(Path::new(f)).is_empty()));
+        let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+        assert!(log.contains("No Cubase track archive for this take: the seed C:/Seeds/Gone.xml could not be read"), "{log}");
+        assert!(log.contains("The take itself is complete."), "{log}");
+
+        let disk = Arc::new(MemoryDisk::default());
+        disk.write_new(Path::new("C:/Seeds/Bad.xml"), b"<tracklist2/>").unwrap();
+        let take = take_with_seed(&disk, 1, Some("C:/Seeds/Bad.xml"));
+        let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+        assert!(log.contains("it could not be made from the seed"), "{log}");
+        assert!(!disk.exists(&PathBuf::from("C:/Takes").join("2026-09-27 T001 Cubase.xml")));
+
+        let disk = Arc::new(MemoryDisk::default());
+        let take = take_with_seed(&disk, 1, None);
+        let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+        assert!(!log.contains("Cubase"), "no seed, nothing said: {log}");
     }
 
     #[test]

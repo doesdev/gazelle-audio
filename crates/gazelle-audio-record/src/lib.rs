@@ -25,6 +25,7 @@
 //! by page at Arm, so it cannot fail later or wait for memory to be brought in.
 
 pub mod capture;
+pub mod cubase;
 pub mod engine;
 pub mod env;
 pub mod host;

@@ -9,6 +9,8 @@
 // - **Metronome** (`metronome-controls.ts`): the click, its tempo, signature, sound, volume, outputs,
 //   count-in and whether it follows Record.
 // - **Channels**: what is being recorded, each named as the aggregate names it, with its level.
+// - **Into Cubase** (the computer only): the Cubase seed, a track archive exported from the
+//   owner's tracking template, from which each take gets its own archive beside its files.
 // - **Presets**: the list and the editor. A preset holds the channels (by interface and input, as
 //   the Aggregate page names them), the folder, the file names, 24-bit or 32-bit float, and how much
 //   memory the pre-roll takes. Presets live in the workspace. On a phone they are shown but not
@@ -40,6 +42,11 @@ export class GaRecording extends GaElement {
       .computer { display: grid; gap: 8px; }
       .computer .check { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
       .computer .note[hidden] { display: none; }
+      .cubase { display: grid; gap: 8px; }
+      .cubase .seed { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .cubase .seed input { flex: 1 1 320px; min-width: 0; font-family: ui-monospace, "Cascadia Mono", monospace; }
+      .cubase .check[data-ok="false"] { color: var(--ga-notice-warning); }
+      .cubase .check[hidden] { display: none; }
       .presets { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 12px; }
       .list { display: grid; gap: 4px; align-content: start; }
       .list button { text-align: left; }
@@ -79,6 +86,7 @@ export class GaRecording extends GaElement {
         section("channels", "Channels", "recording.channels", channels),
         // The windows and the settings are this computer's: a phone is not shown them.
         store.phone ? false : section("computer", "Widget, hub and auto-arm", "recording.computer", this.#computer(store, host)),
+        store.phone ? false : section("cubase", "Into Cubase", "recording.cubase", this.#cubase(store, host)),
         section("presets", "Presets", "recording.presets", this.#presets(store)),
         section("takes", "Takes", "recording.takes", this.#takes(store)),
       ),
@@ -156,6 +164,58 @@ export class GaRecording extends GaElement {
       h("p", { class: "note" }, AUTO_ARM_HELP),
       h("label", { class: "check" }, startInHub, "Start in the recording hub"),
       h("p", { class: "note" }, "When Gazelle starts, including at login with Start on boot, it opens the hub full screen on the monitor it was last on. The app's own window still starts in the tray at login."),
+    );
+  }
+
+  /**
+   * The Cubase seed: a track archive of the owner's tracking template's recording folder, which each
+   * take's own archive is made from. The settings it lives in are read by `#computer`.
+   */
+  #cubase(store: Store, host: TransportHost): HTMLElement {
+    const model = recordingModel(store);
+    const refused = signal<string | undefined>(undefined);
+    const saved = () => model.settings.peek()?.cubase_seed ?? "";
+    const input = h("input", { type: "text", placeholder: "C:\\Cubase\\Recorded.xml", spellcheck: false, "aria-label": "Cubase seed", "data-testid": "recording-cubase-seed", "data-explain": "recording.cubase-seed" });
+    const send = async (value: string) => {
+      refused.value = undefined;
+      const ok = await model.setSettings({ cubase_seed: value.trim() === "" ? null : value });
+      if (!ok) refused.value = model.problem.peek() ?? "That seed was not taken.";
+    };
+    const show = commitOnEnter(input, (value) => void send(value), saved);
+    const clear = h("button", { type: "button", "data-testid": "recording-cubase-clear", "data-explain": "recording.cubase-clear" }, "No seed");
+    clear.addEventListener("click", () => {
+      input.value = "";
+      void send("");
+    });
+    const check = h("p", { class: "note check", "data-testid": "recording-cubase-check", hidden: true });
+
+    host.watch(() => {
+      const settings = model.settings.value;
+      const connected = store.connected.value;
+      const problem = refused.value;
+      untracked(() => {
+        // Not over what is being typed, nor over a path the server refused, which stays to be put right.
+        if (problem === undefined) show(settings?.cubase_seed ?? "");
+      });
+      input.disabled = !connected || settings === undefined;
+      clear.disabled = !connected || settings === undefined || settings.cubase_seed === null;
+      const seen = settings?.cubase_seed_check ?? null;
+      const text = problem ?? seen?.message ?? (settings?.cubase_seed === null ? "No seed: takes get no Cubase track archive." : "");
+      check.textContent = text;
+      check.hidden = text === "";
+      check.dataset.ok = String(problem === undefined && seen?.ok !== false);
+    });
+
+    return h(
+      "div",
+      { class: "cubase" },
+      h("div", { class: "seed" }, input, clear),
+      check,
+      h(
+        "p",
+        { class: "note" },
+        "With a seed set, every take gets a Cubase track archive beside its files, named like them with Cubase for the channel. In Cubase, File > Import > Track Archive brings the take in as the seed's folder with its group, one track per channel, each starting at the project start and playing the take's own files where they are. The seed is a track archive of your tracking template's recording folder: record a few seconds on its mono track, then select the folder and use File > Export > Selected Tracks. Paste the file's whole path here and press Enter.",
+      ),
     );
   }
 
@@ -325,7 +385,7 @@ export class GaRecording extends GaElement {
             { class: "take", "data-testid": `recording-take-${take.number}` },
             h("span", { class: "line", "data-explain": "recording.take" }, `${takeLine(take)} · ${take.preset}`),
             h("span", { class: "where", "data-explain": "recording.take-folder" }, take.folder === "" ? folderOf(take.files[0] ?? "") : take.folder),
-            h("ul", { class: "files" }, ...take.files.map((file) => h("li", {}, fileOf(file))), h("li", {}, fileOf(take.log))),
+            h("ul", { class: "files" }, ...take.files.map((file) => h("li", {}, fileOf(file))), h("li", {}, fileOf(take.log)), take.cubase === undefined ? false : h("li", { "data-testid": "recording-take-cubase" }, fileOf(take.cubase))),
             take.overruns + take.dropouts > 0 ? h("span", { class: "problem" }, `${take.overruns + take.dropouts} blocks were lost in this take; its log says where.`) : false,
             take.stopped_by === undefined ? false : h("span", { class: "problem" }, `Stopped by Gazelle: ${take.stopped_by}.`),
             take.problem === undefined ? false : h("span", { class: "problem" }, take.problem),

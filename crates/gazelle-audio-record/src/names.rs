@@ -84,6 +84,12 @@ pub fn take_paths(folder: &Path, pattern: &str, words: &TakeWords, channels: &[S
     (files, log)
 }
 
+/// Where a take's Cubase track archive goes: beside its files, named as a channel called "Cubase"
+/// would be, as an XML file.
+pub fn cubase_path(folder: &Path, pattern: &str, words: &TakeWords) -> PathBuf {
+    folder.join(format!("{}.xml", file_name(pattern, words, "Cubase")))
+}
+
 /// The first take number from `from` whose files and log are all new, and those paths. Two channels
 /// with one name (a person named two channels alike) are told apart by their number in the take.
 pub fn next_take(

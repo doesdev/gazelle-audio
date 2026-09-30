@@ -49,6 +49,11 @@ pub trait Disk: Send + Sync {
     fn create_new(&self, path: &Path) -> io::Result<Box<dyn FileOut>>;
     /// Bytes free on the disk `dir` is on, for this user. `None` when it cannot be read.
     fn free_bytes(&self, dir: &Path) -> Option<u64>;
+    /// The whole of a file.
+    fn read_file(&self, path: &Path) -> io::Result<Vec<u8>>;
+    /// A whole new file, **never over one that is already there**, and never half written: it is
+    /// written under a temporary name beside it and renamed into place once it is all on the disk.
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 }
 
 /// How much a file is buffered before it reaches the disk. A second of 24-bit audio at 96 kHz is
@@ -70,6 +75,32 @@ impl Disk for ThisPcDisk {
     fn create_new(&self, path: &Path) -> io::Result<Box<dyn FileOut>> {
         let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
         Ok(Box::new(io::BufWriter::with_capacity(FILE_BUFFER, file)))
+    }
+
+    fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut partial = path.as_os_str().to_owned();
+        partial.push(".partial");
+        let partial = std::path::PathBuf::from(partial);
+        let written = (|| {
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&partial)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            drop(file);
+            // A rename replaces what is there on Windows: the name is looked at first, and a take's
+            // names are new ones, so only a person racing Gazelle could lose that.
+            if path.exists() {
+                return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} is already there", path.display())));
+            }
+            std::fs::rename(&partial, path)
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&partial);
+        }
+        written
     }
 
     #[cfg(windows)]
@@ -245,6 +276,21 @@ mod tests {
         let second = ThisPcDisk.create_new(&path);
         assert_eq!(second.err().map(|e| e.kind()), Some(io::ErrorKind::AlreadyExists));
         assert_eq!(std::fs::read(&path).unwrap(), b"kept", "and what was there is untouched");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_whole_file_goes_in_at_once_and_never_over_another() {
+        let path = std::env::temp_dir().join(format!("gazelle-record-whole-{}.xml", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        ThisPcDisk.write_new(&path, b"<first/>").unwrap();
+        assert_eq!(ThisPcDisk.read_file(&path).unwrap(), b"<first/>");
+        let again = ThisPcDisk.write_new(&path, b"<second/>");
+        assert_eq!(again.err().map(|e| e.kind()), Some(io::ErrorKind::AlreadyExists));
+        assert_eq!(std::fs::read(&path).unwrap(), b"<first/>", "what was there is untouched");
+        let mut partial = path.as_os_str().to_owned();
+        partial.push(".partial");
+        assert!(!std::path::Path::new(&partial).exists(), "and nothing is left beside it");
         let _ = std::fs::remove_file(&path);
     }
 }

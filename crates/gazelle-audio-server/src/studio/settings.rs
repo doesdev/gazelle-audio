@@ -1,12 +1,14 @@
 //! What this PC does about recording when nobody is looking: `recording.json` in the config
 //! directory, beside `remote.json` and `update.json` (`%APPDATA%\gazelle\recording.json` on
-//! Windows).
+//! Windows). It also names this PC's Cubase seed, the track archive each take's own is made from.
 //!
 //! **Why here and not in the workspace.** The presets are the workspace's, because a preset is part
 //! of a setup and travels with a backup. These two are about this computer: whether it holds the
 //! audio drivers from the moment it starts, and what it shows when it does. A workspace carried to
 //! another machine, or restored from a backup, must not start holding that machine's drivers or
-//! filling its screen. They are also not a phone's to change, and the workspace is.
+//! filling its screen. They are also not a phone's to change, and the workspace is. The Cubase seed
+//! is a file on this PC, exported from this PC's Cubase template, so it is this PC's too: one
+//! setting for every preset, which a workspace carried elsewhere does not point at a missing file.
 //!
 //! A missing file is the defaults: auto-arm off, starting in the ordinary window. An unreadable one
 //! is the same **and a warning**, so a damaged file never leaves Gazelle holding the drivers.
@@ -30,6 +32,9 @@ pub struct StudioSettings {
     pub auto_arm_preset: Option<String>,
     /// Open straight into the full-screen recording hub when Gazelle starts, login starts included.
     pub start_in_hub: bool,
+    /// The Cubase track archive each take's own archive is made from: a whole path, or nothing for
+    /// no archive.
+    pub cubase_seed: Option<String>,
 }
 
 impl StudioSettings {
@@ -120,6 +125,9 @@ impl Studio {
         if next.auto_arm_preset.as_deref().is_some_and(|id| id.trim().is_empty()) {
             next.auto_arm_preset = None;
         }
+        if next.cubase_seed.as_deref().is_some_and(|path| path.trim().is_empty()) {
+            next.cubase_seed = None;
+        }
         self.backing.save(&next).map_err(|e| format!("saving the recording settings: {e}"))?;
         *settings = next.clone();
         Ok(next)
@@ -171,12 +179,14 @@ mod tests {
             s.auto_arm = true;
             s.auto_arm_preset = Some("band".into());
             s.start_in_hub = true;
+            s.cubase_seed = Some(r"C:\Cubase\Recorded.xml".into());
         })
         .unwrap();
         assert!(!path.with_extension("json.tmp").exists(), "renamed into place");
         let (again, _) = Studio::new(Backing::File(path.clone()));
         assert_eq!(again.get().auto_arm_with(), Some("band"));
         assert!(again.get().start_in_hub);
+        assert_eq!(again.get().cubase_seed.as_deref(), Some(r"C:\Cubase\Recorded.xml"));
 
         std::fs::write(&path, r#"{"auto_arm": tru"#).unwrap();
         let (damaged, warning) = Studio::new(Backing::File(path.clone()));

@@ -54,7 +54,7 @@ use crate::sim::Timing;
 use crate::sizing::Sizing;
 use crate::system::{Clock, Disk, Memory};
 use crate::wav::SampleFormat;
-use crate::writer::{self, Drain, TakeRecord, TakeSettings, WriterState, RF64_AT};
+use crate::writer::{self, Drain, SeedSlot, TakeRecord, TakeSettings, WriterState, RF64_AT};
 
 /// Everything the recorder needs from the PC, behind one trait: the real one opens this PC's
 /// drivers, the loopback's is made of data, and a test's is whatever it says.
@@ -304,6 +304,8 @@ pub struct Recorder {
     problem: Mutex<Option<String>>,
     /// The preset last armed with, which the page offers first.
     last_preset: Mutex<Option<String>>,
+    /// This PC's Cubase seed, which every take's writer reads when the take finishes.
+    cubase_seed: SeedSlot,
 }
 
 /// How long the writer waits when there is nothing to write.
@@ -314,7 +316,24 @@ const RING_OUT: Duration = Duration::from_millis(300);
 impl Recorder {
     pub fn new(env: Arc<dyn Environment>) -> Recorder {
         let engine = Arc::new(Engine::new(Arc::clone(&env)));
-        Recorder { env, engine, phase: Mutex::new(Phase::Off), click: Mutex::new(Click::default()), history: Mutex::new(Vec::new()), problem: Mutex::new(None), last_preset: Mutex::new(None) }
+        Recorder {
+            env,
+            engine,
+            phase: Mutex::new(Phase::Off),
+            click: Mutex::new(Click::default()),
+            history: Mutex::new(Vec::new()),
+            problem: Mutex::new(None),
+            last_preset: Mutex::new(None),
+            cubase_seed: SeedSlot::default(),
+        }
+    }
+
+    /// The Cubase track archive each take's own archive is made from, or none: no archive is made.
+    /// A take that is being recorded uses what is set when it finishes.
+    pub fn set_cubase_seed(&self, seed: Option<PathBuf>) {
+        if let Ok(mut slot) = self.cubase_seed.lock() {
+            *slot = seed;
+        }
     }
 
     fn phase(&self) -> std::sync::MutexGuard<'_, Phase> {
@@ -428,6 +447,7 @@ impl Recorder {
             channels: armed.channels.iter().map(|channel| channel.name.clone()).collect(),
             originator: self.env.originator(),
             rf64_limit: RF64_AT,
+            cubase_seed: Arc::clone(&self.cubase_seed),
         };
         let mut drain = Drain::new(settings, self.env.disk(), self.env.clock(), Arc::clone(&lease.dropouts));
         let writer_state = drain.state();

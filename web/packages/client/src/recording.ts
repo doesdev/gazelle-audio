@@ -160,6 +160,16 @@ export interface RecordingSettings {
   auto_arm: boolean;
   auto_arm_preset: string | null;
   start_in_hub: boolean;
+  /** The Cubase track archive each take's own is made from, as a whole path; null for none. */
+  cubase_seed: string | null;
+  /** What the seed set was found to be when last read; null with none set. Read only. */
+  cubase_seed_check: RecordingSeedCheck | null;
+}
+
+/** Whether a Cubase seed will do, and what it holds or why not. */
+export interface RecordingSeedCheck {
+  ok: boolean;
+  message: string;
 }
 
 /** `/api/v1/window/widget` and `/api/v1/window/hub`: the recording widget and hub windows. */
@@ -190,4 +200,6 @@ export interface RecordingTake {
   /** Why Gazelle ended it, when a person did not. */
   stopped_by?: string;
   problem?: string;
+  /** The take's Cubase track archive, when this computer has a seed and one was made. */
+  cubase?: string;
 }

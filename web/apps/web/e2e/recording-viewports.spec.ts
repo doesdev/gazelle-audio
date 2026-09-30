@@ -325,7 +325,7 @@ test("the Recording page opens the widget and the hub where there are windows, s
   await expect(page.getByTestId("recording-auto-arm-preset")).toHaveValue("band");
   await expect(section).toContainText("a DAW may not be able to use them");
   await page.getByTestId("recording-auto-arm").check();
-  await expect.poll(async () => (await (await api("recording/settings")).json()) as unknown).toEqual({ auto_arm: true, auto_arm_preset: "band", start_in_hub: false });
+  await expect.poll(async () => (await (await api("recording/settings")).json()) as unknown).toEqual({ auto_arm: true, auto_arm_preset: "band", start_in_hub: false, cubase_seed: null, cubase_seed_check: null });
   // Auto-arm arms, and the transport says it is on.
   await expect(page.getByTestId("recording-state")).toHaveText("Armed", { timeout: 10_000 });
   await expect(page.getByTestId("recording-auto-arm")).toBeChecked();

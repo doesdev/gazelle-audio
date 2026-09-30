@@ -75,6 +75,17 @@ impl Disk for MemoryDisk {
     fn free_bytes(&self, _dir: &Path) -> Option<u64> {
         *self.free.lock().unwrap()
     }
+    fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.files.lock().unwrap().get(path).map(|b| b.lock().unwrap().clone()).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not there"))
+    }
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut files = self.files.lock().unwrap();
+        if files.contains_key(path) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "already there"));
+        }
+        files.insert(path.to_path_buf(), Arc::new(Mutex::new(bytes.to_vec())));
+        Ok(())
+    }
 }
 
 impl MemoryDisk {

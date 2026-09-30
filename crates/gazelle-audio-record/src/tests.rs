@@ -108,7 +108,7 @@ impl Converters {
 }
 
 fn settings(channels: Vec<String>, format: SampleFormat) -> TakeSettings {
-    TakeSettings { folder: PathBuf::from("C:/Takes"), pattern: crate::names::DEFAULT_PATTERN.into(), preset: "Band".into(), format, rate: RATE, channels, originator: "Gazelle test".into(), rf64_limit: RF64_AT }
+    TakeSettings { folder: PathBuf::from("C:/Takes"), pattern: crate::names::DEFAULT_PATTERN.into(), preset: "Band".into(), format, rate: RATE, channels, originator: "Gazelle test".into(), rf64_limit: RF64_AT, cubase_seed: Default::default() }
 }
 
 /// The 24-bit samples of a finished file.
@@ -481,13 +481,26 @@ fn off_armed_recording_armed_off_with_real_threads_and_real_files() {
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize, bytes.len() - 8, "finished");
     }
     assert!(std::fs::read_to_string(&take.log).unwrap().contains("Preset: Preset one"));
+    assert_eq!(take.cubase, None, "no seed, no archive");
 
+    // A seed set while armed counts from the next take.
+    let seed = folder.join("seed.xml");
+    std::fs::write(&seed, include_str!("../testdata/cubase-seed.xml")).unwrap();
+    recorder.set_cubase_seed(Some(seed));
     recorder.record().unwrap();
     wait_for("the second take to open", || recorder.status().take.is_some_and(|t| t.number == Some(2)));
     assert!(recorder.disarm(true).unwrap());
     assert_eq!(recorder.status().state, "off");
     let takes = recorder.takes();
     assert_eq!(takes.iter().map(|t| t.number).collect::<Vec<_>>(), vec![2, 1], "both kept for the page after the disarm");
+    let archive = takes[0].cubase.clone().expect("the second take has its archive");
+    assert!(archive.ends_with("T002 Cubase.xml"), "{archive}");
+    let xml = std::fs::read_to_string(&archive).unwrap();
+    assert_eq!(crate::cubase::check_archive(&xml).unwrap().listed, 2, "a track for each of its two files");
+    for file in &takes[0].files {
+        let name = Path::new(file).file_name().unwrap().to_str().unwrap();
+        assert!(xml.contains(name), "{name}");
+    }
     assert!(gazelle_calibrate::session::try_one_at_a_time().is_some(), "the turn is given back");
     let _ = std::fs::remove_dir_all(&folder);
 }
