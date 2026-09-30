@@ -147,6 +147,74 @@ async function shoot(page: Page, name: string, options: { fullPage?: boolean; cl
   console.log(`  ${name}.png`);
 }
 
+/** One command to an emulated device, which answers as the device would. */
+async function deviceCommand(server: RunningServer, device: string, name: string, body: object): Promise<void> {
+  const response = await fetch(`${server.url}/api/v1/devices/${device}/command/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(`${name} failed: ${response.status} ${await response.text()}`);
+}
+const quadroCommand = (server: RunningServer, name: string, body: object) => deviceCommand(server, QUADRO, name, body);
+
+/**
+ * Both devices' mixes routed exactly as the sample session lays them out, so the general pictures
+ * show no mix playing more than its channels. Each mix's inputs are listed by slot as [topology
+ * group, channel]; every other slot is set to MUTE. On the Quadro, layout slots play at -8 dB and
+ * the rest sit at the floor. The mixes' input groups start at 8 on the Quadro and 10 on the Studio+.
+ */
+async function seedSampleRouting(server: RunningServer): Promise<void> {
+  type Slots = Record<number, [number, number]>;
+  const seed = async (device: string, firstGroup: number, mute: number, mixes: Slots[]) => {
+    for (const [mixer, slots] of mixes.entries()) {
+      const pairs = Array.from({ length: 32 }, (_, at) => slots[at] ?? [mute, 0]).flat();
+      await deviceCommand(server, device, "set_routing", { bank_idx: firstGroup + mixer, bank_configs: pairs });
+      // The Studio+ strips keep the emulator's own levels: with every other slot on MUTE, nothing
+      // plays outside the layout whatever they are.
+      if (device !== QUADRO) continue;
+      for (let slot = 0; slot < 32; slot++) {
+        await deviceCommand(server, device, "set_mixer", { mixer_id: mixer, channel: slot + 1, level: slot >= 6 && slots[slot] ? 8 : 90, pan: 32, mute: 0, solo: 0 });
+      }
+    }
+  };
+  // Quadro: PREAMP 0, USB 1 PLAY 1, ADAT IN 3, AFX OUT 5, MUTE 10. The first six slots of every
+  // mix carry the effect returns, at the floor.
+  const afx: Slots = Object.fromEntries(Array.from({ length: 6 }, (_, k) => [k, [5, k]]));
+  const shared: Slots = { ...afx, 6: [0, 0], 7: [0, 1], 8: [1, 0], 9: [1, 1] };
+  await seed(QUADRO, 8, 10, [{ ...shared, 10: [3, 0] }, { ...shared, 11: [1, 2] }, afx, afx]);
+  // Studio+: PREAMP 0, LINE IN 1, USB PLAY 3, ADAT IN 4, MUTE 11.
+  const artist: Slots = { 0: [0, 0], 1: [0, 1], 4: [1, 0], 5: [4, 0], 6: [3, 0] };
+  await seed(STUDIO, 10, 11, [{ ...artist, 2: [0, 2], 3: [0, 3] }, { ...artist, 7: [0, 4] }, {}, {}]);
+}
+
+/**
+ * The Quadro's Monitors and Cue mixes as the sample session lays them out, plus what the layout
+ * does not show: Monitors' effect returns 5 and 6 soloed (and muted), and Cue playing USB 1 PLAY 5
+ * and 6 at unity on inputs 15 and 16. Topology positions: PREAMP 0, USB 1 PLAY 1, ADAT IN 3,
+ * AFX OUT 5, MUTE 10; the mixes' input groups are 8 and 9.
+ */
+async function seedHiddenState(server: RunningServer): Promise<void> {
+  const afx: [number, number][] = Array.from({ length: 6 }, (_, k) => [5, k]);
+  const channels: [number, number][] = [[0, 0], [0, 1], [1, 0], [1, 1]];
+  const mix = (slots: Record<number, [number, number]>) => Array.from({ length: 32 }, (_, at) => slots[at] ?? [10, 0]).flat();
+  const monitors = { ...Object.fromEntries(afx.map((pair, at) => [at, pair])), ...Object.fromEntries(channels.map((pair, at) => [6 + at, pair])), 10: [3, 0] as [number, number] };
+  const cue = { ...Object.fromEntries(afx.map((pair, at) => [at, pair])), ...Object.fromEntries(channels.map((pair, at) => [6 + at, pair])), 11: [1, 2] as [number, number], 14: [1, 4] as [number, number], 15: [1, 5] as [number, number] };
+  await quadroCommand(server, "set_routing", { bank_idx: 8, bank_configs: mix(monitors) });
+  await quadroCommand(server, "set_routing", { bank_idx: 9, bank_configs: mix(cue) });
+  // The session uses two mixes; the other two hold only their effect returns, at the floor, so only
+  // the two mixes the picture is about are marked.
+  for (const group of [10, 11]) await quadroCommand(server, "set_routing", { bank_idx: group, bank_configs: mix(Object.fromEntries(afx.map((pair, at) => [at, pair]))) });
+  for (const mixer of [2, 3]) for (let slot = 0; slot < 32; slot++) await quadroCommand(server, "set_mixer", { mixer_id: mixer, channel: slot + 1, level: 90, pan: 32, mute: 0, solo: 0 });
+  const strip = (mixer: number, slot: number, level: number, mute = 0, solo = 0) => quadroCommand(server, "set_mixer", { mixer_id: mixer, channel: slot + 1, level, pan: 32, mute, solo });
+  for (const mixer of [0, 1]) {
+    for (let slot = 0; slot < 32; slot++) await strip(mixer, slot, 90);
+    for (const slot of [6, 7, 8, 9]) await strip(mixer, slot, 8);
+  }
+  await strip(0, 10, 12);
+  await strip(1, 11, 14);
+  await strip(0, 4, 2, 1, 1);
+  await strip(0, 5, 2, 1, 1);
+  await strip(1, 14, 0);
+  await strip(1, 15, 0);
+}
+
 /** Takes a snapshot once both emulated devices have reported everything a snapshot records. */
 async function takeSnapshot(server: RunningServer, name: string): Promise<string> {
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -169,6 +237,7 @@ async function main(): Promise<void> {
   const browser = await chromium.launch();
   try {
     await putWorkspace(server, workspace());
+    await seedSampleRouting(server);
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
     await steady(context);
     const page = await context.newPage();
@@ -316,6 +385,22 @@ async function main(): Promise<void> {
     await small.screenshot({ path: join(IMAGES, "phone-mixer.png") });
     console.log("  phone-mixer.png");
     await phone.close();
+
+    // What a mix plays outside its channels: the same session, with the device holding what the
+    // layout does not show. Monitors has its effect returns 5 and 6 soloed, which silences the rest
+    // of it; Cue plays USB 1 PLAY 5 and 6 at unity on two inputs none of its channels use. Last,
+    // so every picture above shows a tidy device.
+    await seedHiddenState(server);
+    await go(`#/mixer/${QUADRO}/1`, page.locator("ga-mix-notice").getByTestId("mix-notice-items"));
+    await page.getByTestId("mix-0").waitFor({ state: "visible" });
+    await page.locator('[data-testid="mix-0"][data-warning]').waitFor({ state: "attached", timeout: 20_000 });
+    await shoot(page, "mix-health");
+    await page.locator("ga-mix-notice").getByTestId("mix-tidy").click();
+    await page.locator("ga-mix-notice").getByTestId("mix-tidy-plan").waitFor({ state: "visible" });
+    await shoot(page, "mix-tidy", { clip: page.locator("ga-mix-notice") });
+    await page.locator("ga-mix-notice").getByTestId("mix-tidy-cancel").click();
+    await go(`#/mixer/${QUADRO}/0`, page.locator("ga-effect-returns ga-strip").first());
+    await shoot(page, "effect-returns");
     await context.close();
   } finally {
     await browser.close();

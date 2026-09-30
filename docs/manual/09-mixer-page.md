@@ -67,6 +67,8 @@ The page shows the channels of your layout. The device keeps its own routing and
 
 A mix with a stray or a solo gets a **!** on its Mix button, and the selected mix shows a notice above the channels listing each one by slot and source.
 
+![The Mixer on its Cue mix: Monitors and Cue are marked with an exclamation mark, and a notice above the channels says Cue plays more than its channels show, listing USB 1 PLAY 5 and 6 at 0 dB on slots 15 and 16, with a Tidy this mix button.](../images/mix-health.png)
+
 ### Tidy this mix
 
 **Tidy this mix** on the notice lists every change it would make, and makes none until you press **Tidy**:
@@ -75,11 +77,17 @@ A mix with a stray or a solo gets a **!** on its Mix button, and the selected mi
 - a channel on the wrong input is routed to its layout input again, as applying the layout would;
 - every solo in the mix is cleared, keeping each strip's level and mute.
 
+![The notice after Tidy this mix: the list of changes to be sent, setting slots 15 and 16 to MUTE in place of USB 1 PLAY 5 and 6, with Tidy and Cancel.](../images/mix-tidy.png)
+
 Effect returns are left alone unless you tick **Also mute the effect returns**. The routing changes go to the device as one write for the mix, read fresh first, so routes made elsewhere in that mix are kept. Afterwards Gazelle reads the mix back from the device and says **Tidied: N changes**, and what is left, if anything. **Cancel** closes the list and changes nothing.
 
 ### Effect returns on the Quadro
 
-On the Quadro, the first six inputs of every mix carry the effect returns, AFX OUT 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix. The **Effect returns** rail beside them shows or hides them by hand; that choice is remembered per device in this browser. The Studio+ has no fixed effect returns: an effect output there is a channel like any other, and one playing on a slot outside the mix's channels is listed as a stray.
+On the Quadro, the first six inputs of every mix carry the effect returns, AFX OUT 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix.
+
+![The Monitors mix with its six effect return strips before the channels: AFX OUT 5 and 6 are muted and soloed at -2 dB, and the notice says each silences every other channel in the mix.](../images/effect-returns.png)
+
+The **Effect returns** rail beside them shows or hides them by hand; that choice is remembered per device in this browser. The Studio+ has no fixed effect returns: an effect output there is a channel like any other, and one playing on a slot outside the mix's channels is listed as a stray.
 
 ## Groups
 
