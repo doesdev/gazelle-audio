@@ -761,8 +761,14 @@ test("saving a name already saved asks first, then replaces that layout in place
   await save.click();
   await expect(save).toHaveText("Confirm");
   expect(await saved()).toEqual([[id, "Booth", ["Vox"]]]);
+  // A channel change while it is armed, and the workspace coming back from the server, leave the
+  // Confirm standing.
+  await page.getByTestId("name-6").fill("Lead vocal");
+  await page.getByTestId("name-6").press("Enter");
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()) as { mixers: Record<string, { channels: { name: string }[] }> }).mixers["loopback-0"]?.channels[0]?.name).toBe("Lead vocal");
+  await expect(save).toHaveText("Confirm");
   await save.click();
-  await expect.poll(saved).toEqual([[id, "booth", ["Lead"]]]);
+  await expect.poll(saved).toEqual([[id, "booth", ["Lead vocal"]]]);
   await expect(page.getByTestId("profile-select").locator("option", { hasText: "booth" })).toHaveCount(1);
 
   // Choosing it in Start from puts its name in the Save as field, so Save replaces it.

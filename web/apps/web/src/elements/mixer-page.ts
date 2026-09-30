@@ -240,13 +240,20 @@ export class GaMixer extends GaElement {
     // over channels that are set up replaces them and re-routes, so that takes a confirming click.
     const starts = h("div", { class: "starts" });
     const failed = (error: unknown) => store.reportError(error instanceof Error ? error.message : String(error));
+    // The row is rebuilt only when what it offers changes, not on every workspace or channel
+    // change, so an armed Replace or Apply keeps its Confirm while a rename is being saved.
+    let built: string | undefined;
     this.watch(() => {
       if (store.workspace.value === undefined) {
+        built = undefined;
         starts.replaceChildren();
         return;
       }
       const setUp = channels.layout.value.channels.some((c) => channels.isActive(c));
       const saved = channels.savedLayouts();
+      const offers = JSON.stringify([setUp, saved.map((l) => [l.id, l.name])]);
+      if (offers === built) return;
+      built = offers;
       const choices = topology.family === "quadro" || topology.family === "studio" ? PROFILES[topology.family] : [];
       const select = h(
         "select",

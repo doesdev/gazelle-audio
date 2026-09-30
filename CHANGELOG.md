@@ -10,6 +10,12 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such
+  as renaming a channel, could put the button back, so the second click asked again instead of
+  going ahead.
+
 ## [2.1.0] - 2026-09-30
 
 Takes that go straight into Cubase, a soft link on the Mixer, a cable of its own for phase and
