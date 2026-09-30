@@ -10,6 +10,11 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-30
+
+Takes that go straight into Cubase, a soft link on the Mixer, a cable of its own for phase and
+clock, and a Mixer that shows what a mix plays beyond its channels, with one click to tidy it.
+
 ### Added
 
 - **Takes go into Cubase in one step.** Export your tracking template's recording folder from
