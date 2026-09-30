@@ -130,7 +130,9 @@ export class GaMixerDock extends GaElement {
         effect(() => {
           const entry = store.devices.value.find((d) => d.id === deviceId);
           device.textContent = entry === undefined ? "" : displayName(entry, store.workspace.value);
-          mixSelect.replaceChildren(...Array.from({ length: channels.mixCount }, (_, mix) => h("option", { value: String(mix) }, channels.mixName(mix))));
+          // A mix playing something its channels do not show is marked, as on the Mixer page's buttons.
+          const warnings = Array.from({ length: channels.mixCount }, (_, mix) => store.mixWarning(deviceId, mix));
+          mixSelect.replaceChildren(...warnings.map((warning, mix) => h("option", { value: String(mix), title: warning }, `${channels.mixName(mix)}${warning === undefined ? "" : " (!)"}`)));
           mixSelect.value = String(channels.meteredMix.value);
         }),
       );

@@ -6,7 +6,7 @@ The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels rout
 
 ## The top bar
 
-- **Mix** is a row of buttons, one per mix, with exactly one active. Click one, or move between them with the arrow keys, Home and End. It ignores the mouse wheel, because one accidental notch would move every strip to another mix. The choice is kept per device and in the page's address, so `#/mixer/<device>/1` opens mix 2, and the mixer dock follows it.
+- **Mix** is a row of buttons, one per mix, with exactly one active. Click one, or move between them with the arrow keys, Home and End. It ignores the mouse wheel, because one accidental notch would move every strip to another mix. The choice is kept per device and in the page's address, so `#/mixer/<device>/1` opens mix 2, and the mixer dock follows it. A mix marked **!** plays something its channels do not show; its tooltip counts what, and choosing it lists them (see [What a mix plays outside its channels](#what-a-mix-plays-outside-its-channels)). The dock's mix menu marks the same mixes with **(!)**.
 - **Show all channels** shows every channel you have made, not only the ones in this mix. The ones outside it are dimmed, with no meter; their heads still work, so you can put one in the mix from there. Off, the page shows only what is routed to the mix, plus any channel that is not set up yet. The choice is remembered per device in this browser.
 - **Width**: **Auto** fits the strips to the window; **Fixed** sets a width in pixels.
 - **How this mixer works** opens a short explanation.
@@ -46,7 +46,7 @@ A channel with no input or no main mix is greyed, and stays on the row whichever
 
 A mix with nothing routed to it says so, in the strip row, and says how to put something there.
 
-The **+** after the last channel adds one. Each mix has 32 inputs; on the Quadro the first six carry the effect returns.
+The **+** after the last channel adds one. Each mix has 32 inputs; on the Quadro the first six carry the effect returns (see [Effect returns](#effect-returns-on-the-quadro)).
 
 ## The mix master
 
@@ -56,6 +56,30 @@ At the right of the row:
 - **Mono**, which sums the mix to mono by centring every channel's pan and lowering the mix by as much as that gains (6 dB on the Studio+, less on the Quadro with its centre attenuation), so the level stays about the same; both are put back when it is turned off. It is the same Mono as the Control Room's;
 - **Outputs**: where the mix plays, as chips. The chip's × stops the mix feeding that output at once; **+ Output...** adds one;
 - the master fader and **M**.
+
+## What a mix plays outside its channels
+
+The page shows the channels of your layout. The device keeps its own routing and strip settings besides, left there by the vendor's panel or by an older setup, and they still play even though no strip here shows them. Once a mix's routing and levels have been read from the device (so never in dry run), Gazelle looks for three things:
+
+- **A strip playing outside this mix's channels.** A mix input that is routed, not muted and above -90 dB, on a slot none of this mix's channels uses: for example "Slot 7: USB 1 PLAY 3 plays at 0 dB but is not one of this mix's channels". It also catches a channel whose input on the device is not the one your layout gives it.
+- **A solo.** A soloed strip silences every other channel of its mix, even when that strip is muted, and even when no strip here shows it: "AFX OUT 5 (slot 5) is soloed, which silences every other channel in this mix". Every solo in the mix is listed, shown or not.
+- **Effect returns playing** (Quadro). These are listed on a line of their own and do not mark the mix, since you may well want them.
+
+A mix with a stray or a solo gets a **!** on its Mix button, and the selected mix shows a notice above the channels listing each one by slot and source.
+
+### Tidy this mix
+
+**Tidy this mix** on the notice lists every change it would make, and makes none until you press **Tidy**:
+
+- a strip on a slot none of this mix's channels uses has its route set to MUTE, the way Gazelle leaves a slot unused;
+- a channel on the wrong input is routed to its layout input again, as applying the layout would;
+- every solo in the mix is cleared, keeping each strip's level and mute.
+
+Effect returns are left alone unless you tick **Also mute the effect returns**. The routing changes go to the device as one write for the mix, read fresh first, so routes made elsewhere in that mix are kept. Afterwards Gazelle reads the mix back from the device and says **Tidied: N changes**, and what is left, if anything. **Cancel** closes the list and changes nothing.
+
+### Effect returns on the Quadro
+
+On the Quadro, the first six inputs of every mix carry the effect returns, AFX OUT 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix. The **Effect returns** rail beside them shows or hides them by hand; that choice is remembered per device in this browser. The Studio+ has no fixed effect returns: an effect output there is a channel like any other, and one playing on a slot outside the mix's channels is listed as a stray.
 
 ## Groups
 

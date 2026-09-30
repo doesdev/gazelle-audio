@@ -297,7 +297,8 @@ export class GaStrip extends GaElement {
     }
 
     const nameBar = h("div", { class: "name", title: label, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1));
-    if (id !== "master" && !inactive) selectable(nameBar, deviceId, Number(this.getAttribute("mixer") ?? "0"), id, label, (fn) => this.watch(fn), this);
+    // A `fixed` strip (an effect return) is not a channel, so it takes no part in the soft link.
+    if (id !== "master" && !inactive && !this.hasAttribute("fixed")) selectable(nameBar, deviceId, Number(this.getAttribute("mixer") ?? "0"), id, label, (fn) => this.watch(fn), this);
     this.root.replaceChildren(h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, nameBar));
 
     this.watch(() => {

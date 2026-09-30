@@ -24,6 +24,7 @@ import { clearSoftLinkOnEscape, LINK_STYLES, linkBar, SOFT_STYLES, softLinkBar }
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { replaceRoute } from "./router.ts";
 import { keepOpen, keepScroll } from "./view-state.ts";
+import { loadElement } from "./lazy.ts";
 
 export class GaMixer extends GaElement {
   static override styles = [
@@ -88,6 +89,8 @@ export class GaMixer extends GaElement {
       .mixes .mix:first-child { border-radius: 3px 0 0 3px; }
       .mixes .mix:last-child { border-radius: 0 3px 3px 0; }
       .mixes .mix[aria-checked="true"] { position: relative; border-color: var(--ga-accent); background: var(--ga-accent); color: var(--ga-accent-text); }
+      /* A mix playing something its channels do not show (store/mix-health.ts): a small warning mark. */
+      .mixes .mix[data-warning]::after { content: "!"; display: inline-block; width: 13px; height: 13px; margin-left: 5px; border-radius: 50%; background: var(--ga-notice-warning); color: var(--ga-surface-inset); font-size: 10px; line-height: 13px; text-align: center; }
       .show-all { min-height: 26px; padding: 0 10px; font-size: 11px; color: var(--ga-text-secondary); white-space: nowrap; }
       .show-all[aria-pressed="true"] { border-color: var(--ga-accent); color: var(--ga-text-primary); }
       .spacer { flex: 1; }
@@ -348,6 +351,10 @@ export class GaMixer extends GaElement {
       starts.replaceChildren(h("span", { class: "caption" }, "Start from"), select, apply, remove, ...saveAs);
     });
 
+    // What the selected mix plays outside its channels, and the Quadro's effect returns: a lazy chunk.
+    const notice = h("ga-mix-notice", { "device-id": deviceId, hidden: true });
+    const returns = topology.family === "quadro" ? h("ga-effect-returns", { "device-id": deviceId }) : undefined;
+    void loadElement("ga-mix-notice").catch(() => undefined);
     const strips = h("div", { class: "strips" });
     const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "data-explain": "mixer.add-channel", "on:click": () => channels.add() }, "+");
     const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
@@ -396,6 +403,7 @@ export class GaMixer extends GaElement {
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
+      notice,
       strips,
     );
 
@@ -433,6 +441,12 @@ export class GaMixer extends GaElement {
     const outputGroups = [...new Set(channels.outputPairs().map((pair) => pair.destination))];
     this.watch(() => {
       if (store.routesToRead(deviceId, outputGroups)) untracked(() => void store.readRoutes(deviceId, outputGroups));
+    });
+    // The mixes' own input routing, for what they play outside their channels: once a layout exists,
+    // since importing one reads these groups itself.
+    const mixInputs = Array.from({ length: channels.mixCount }, (_, mix) => store.mixInput(deviceId, mix));
+    this.watch(() => {
+      if (store.workspace.value?.mixers?.[deviceId] !== undefined && store.routesToRead(deviceId, mixInputs)) untracked(() => void store.readRoutes(deviceId, mixInputs));
     });
 
     // Drag to move: a channel's grip starts it; where it is dropped among the other channels sets its
@@ -524,7 +538,7 @@ export class GaMixer extends GaElement {
           return element;
         });
         for (const groupKey of [...groupElements.keys()]) if (!kept.has(groupKey)) groupElements.delete(groupKey);
-        strips.replaceChildren(emptyMix, ...children.flat(), add, masters, indicator);
+        strips.replaceChildren(emptyMix, ...(returns === undefined ? [] : [returns]), ...children.flat(), add, masters, indicator);
       }
       add.disabled = list.length >= 32 - channels.firstSlot;
 
@@ -609,6 +623,9 @@ export class GaMixer extends GaElement {
       mixButtons.forEach((button, mix) => {
         button.setAttribute("aria-checked", String(mix === chosen));
         button.tabIndex = mix === chosen ? 0 : -1;
+        const warning = store.mixWarning(deviceId, mix);
+        button.toggleAttribute("data-warning", warning !== undefined);
+        button.title = `Show ${names[mix] ?? ""}${warning === undefined ? "" : `: ${warning}`}`;
       });
     });
     this.watch(() => {

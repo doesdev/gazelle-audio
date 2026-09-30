@@ -207,7 +207,7 @@ export const CATALOGUE: Catalogue = {
     watch: "It adds only to the device the sources belong to: while it shows a surface or another device it refuses the drop and says why.",
   },
   "dock.source": { title: "Dock shows", what: "This device's selected mix, or one of your surfaces, so strips from any device can sit under every page. Remembered in this browser." },
-  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix buttons: changing one changes the other." },
+  "dock.mix": { title: "Dock mix", what: "Which of the device's mixes the dock shows. It is the same choice as the Mixer page's Mix buttons: changing one changes the other.", watch: "A mix marked (!) plays something its channels do not show, as the Mixer page lists. It is marked once the Mixer page has read the mix's routing." },
   "dock.open-mixer": { title: "Open the Mixer page", what: "No channel is set up in this mix yet; channels are set up on the Mixer page." },
   "dock.drop-confirm": {
     title: "Confirm",
@@ -413,6 +413,33 @@ export const CATALOGUE: Catalogue = {
     title: "Mix",
     what: "Which of the device's four hardware mixes the page shows. One mix is always chosen. Every strip's fader, pan, mute and solo act on that mix, and the meters follow it; each channel keeps its own settings in each mix.",
     effect: "Remembered per device and put in the address, and shared with the mixer dock. Choosing a mix sends nothing.",
+    watch: "A mix marked ! plays something its channels do not show: a soloed strip, which silences everything else in it, or a strip the device routes into it that is not one of its channels. The button's tooltip counts them; choose the mix to see them listed.",
+  },
+  "mixer.notice": {
+    title: "What this mix plays that its channels do not show",
+    what: "The device keeps routing and strip settings outside Gazelle's layout, and they still play: a route left on a slot none of this mix's channels uses, a channel whose input on the device is not the one the layout gives it, and solos, which silence every other channel in the mix even on a strip that is muted or not shown. On the Quadro it also lists the effect returns that are playing.",
+    effect: "Worked out from the mix's routing and strips as read from the device. Nothing is known until they have been read, so it never shows in dry run.",
+    watch: "Effect returns are listed but not warned about: the vendor keeps AFX OUT 1 to 6 in every mix, and you may want them there.",
+  },
+  "mixer.tidy": {
+    title: "Tidy this mix",
+    what: "Lists the changes that would undo what the notice found, and asks before making any. Nothing is sent to the device until you confirm.",
+  },
+  "mixer.tidy-confirm": {
+    title: "Tidy",
+    what: "Makes the listed changes: a route no channel of this mix uses is set to MUTE, a channel on the wrong input is routed to its layout input again, and every solo in the mix is cleared.",
+    effect: "One routing write for the mix's group, read fresh first so routes made elsewhere are kept, and one mixer command per strip changed. The mix is then read back from the device, and the notice says how many changes were made and what is left.",
+  },
+  "mixer.tidy-cancel": { title: "Cancel", what: "Closes the list without changing anything. " + NOTHING_SENT },
+  "mixer.tidy-returns": {
+    title: "Also mute the effect returns",
+    what: "Mutes the effect returns that are playing in this mix as part of the tidy. Off unless you tick it, since effect returns are often wanted.",
+    effect: "Mutes them only; their levels are kept, and their strips unmute them again.",
+  },
+  "mixer.effect-returns": {
+    title: "Effect returns",
+    what: "Shows or hides the Quadro's effect returns: AFX OUT 1 to 6, which the vendor keeps on slots 1 to 6 of every mix, as slim strips with a fader, mute and solo. They show by themselves while one of them is playing or soloed.",
+    effect: "Showing or hiding them is remembered per device in this browser and sends nothing. Their controls send the same mixer command as any strip.",
   },
   "mixer.show-all": {
     title: "Show all channels",
@@ -1355,6 +1382,16 @@ export const CATALOGUE: Catalogue = {
   },
   "recording.auto-arm-preset": { title: "Auto-arm preset", what: "The preset auto-arm arms with. It is kept while auto-arm is off, so the tray can turn it on again." },
   "recording.start-in-hub": { title: "Start in the recording hub", what: "Opens the hub full screen whenever Gazelle starts, including at login with Start on boot. The app's own window still starts in the tray at login." },
+  "recording.cubase": {
+    title: "Into Cubase",
+    what: "A Cubase track archive for every take, made from a seed you export from your own tracking template, so File > Import > Track Archive brings a take into Cubase in one step. Shown on the computer only.",
+  },
+  "recording.cubase-seed": {
+    title: "Cubase seed",
+    what: "The whole path of a track archive of your template's recording folder: a folder with its own group, holding at least one mono track with a few seconds recorded on it. Each take's archive is a copy of that folder, with one of its tracks for each channel.",
+    effect: "Checked as soon as you press Enter or leave the field, and kept only if an archive can be made from it. Takes recorded from then on get an archive beside their files.",
+  },
+  "recording.cubase-clear": { title: "No seed", what: "Stops making Cubase track archives. Takes already recorded keep theirs." },
   "recording.widget-close": { title: "Close", what: "Closes the widget. The Recording page and the tray open it again." },
   "recording.widget-info": { title: "Preset and pre-roll", what: "The preset Arm uses, or is armed with, and how much pre-roll is held." },
   "recording.hub-clock": { title: "Time of day", what: "This computer's clock." },

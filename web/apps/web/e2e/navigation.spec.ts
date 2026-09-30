@@ -203,14 +203,15 @@ test("the Mixer reads every mix again when the connection to the server comes ba
   await expect(page.getByTestId("connection")).toHaveText("Reconnecting…");
   await expect(page.getByTestId("connection")).toHaveText("Connected", { timeout: 15_000 });
   await expect.poll(() => count("get_mixer"), "while the page is open").toBe(8);
-  // Where each mix plays, too: the 10 output groups, not the mix inputs the first visit imported from.
-  await expect.poll(() => count("get_routing"), "routing while the page is open").toBe(24);
+  // Where each mix plays, too: the 10 output groups, and the 4 mix inputs, which the page reads once
+  // a layout exists to find what each mix plays outside its channels.
+  await expect.poll(() => count("get_routing"), "routing while the page is open").toBe(28);
   await expect(page.getByText(/could not be read/), "and not tried while the connection was down").toHaveCount(0);
   await open(page, "inputs");
   await open(page, "mixer");
   await page.waitForTimeout(500);
   expect(count("get_mixer"), "and once only").toBe(8);
-  expect(count("get_routing"), "routing once only").toBe(24);
+  expect(count("get_routing"), "routing once only").toBe(28);
 });
 
 test("a half-typed name is a draft: leaving the page keeps it without saving it, until Enter or Escape", async ({ page }) => {

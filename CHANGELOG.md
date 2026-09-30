@@ -12,6 +12,13 @@ version that has not been published yet.
 
 ### Added
 
+- **Takes go into Cubase in one step.** Export your tracking template's recording folder from
+  Cubase once as a track archive, and set it as the Cubase seed on the Recording page, under Into
+  Cubase. Every take then gets a Cubase track archive beside its files: File > Import > Track
+  Archive brings in the folder with its group and one track per channel, named after the channel
+  and set up like the template's track, each playing the take's own file from the project start.
+  The page checks the seed as soon as you give it and says what it found. Making the archive never
+  affects the take: if it cannot be made, the take's log says why. Not yet tried in Cubase itself.
 - **Soft link on the Mixer.** Select channels by clicking their names on the Mixer page or in the
   mixer dock: Ctrl or Cmd and a click adds one, Shift and a click selects a range, and on a touch
   screen a tap adds one. While two or more are selected, moving one channel's fader or pan moves
@@ -27,6 +34,16 @@ version that has not been published yet.
   the path, and the Aggregate page puts it back in one confirmed click. The channels the phase
   measurement keeps are shown on the Aggregate page as kept and hidden from your DAW, instead of
   just missing.
+- **The Mixer shows what a mix plays outside its channels, and can tidy it.** A mix whose device
+  settings play something your channels do not show is marked with a ! on its Mix button, and
+  choosing it lists each one in plain words: a strip playing on a slot none of the mix's channels
+  uses, a channel on a different input from the one you gave it, or a solo, which silences the rest
+  of the mix. Tidy this mix lists every change it would make, and only after you confirm mutes those
+  leftover routes, puts channels back on their inputs and clears the solos, then reads the mix back
+  from the device to check.
+- **Effect returns on the Quadro's Mixer.** AFX OUT 1 to 6, which sit on the first six inputs of
+  every Quadro mix, now show as slim strips before the channels, with a fader, mute and solo. They
+  appear by themselves while one of them is playing or soloed, and a switch shows or hides them.
 
 ### Changed
 
@@ -37,6 +54,10 @@ version that has not been published yet.
 
 ### Fixed
 
+- **Hidden solos and leftover routing are now shown.** A solo on a strip the Mixer did not show,
+  such as an effect return, could silence a whole mix with nothing on screen to say why, and a
+  route left over from the vendor's panel could play in a mix, such as a headphone mix, without
+  appearing on it. Both are now listed on the Mixer page.
 - **A phase path that no longer works is no longer silent.** When the routing stops joining the
   channels an interface's phase is measured over, for example after the playback channel was put
   into a mix or the S/PDIF output was muted, the Aggregate page now says so. It says plainly that

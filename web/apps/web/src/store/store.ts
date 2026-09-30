@@ -24,6 +24,7 @@ import { LinksModel } from "./links.ts";
 import { SoftLinkModel } from "./soft-link.ts";
 import { CONTROL_ROOM_DEFAULT, OutputsModel } from "./outputs.ts";
 import { LEVEL_MAX, MixerModel } from "./mixer.ts";
+import { mixHealth, mixWarning, type MixHealth } from "./mix-health.ts";
 import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
@@ -1621,6 +1622,44 @@ export class Store {
   }
 
   readonly #doubled = new Map<string, ReadonlySignal<string | undefined>>();
+
+  /**
+   * What a mix plays that its channels do not show (`mix-health.ts`): strays, solos and, on the
+   * Quadro, audible effect returns. Undefined until both the mix's input routing and its strips
+   * have been read, so never in dry run. Reading it is reactive.
+   */
+  mixHealth(deviceId: string, mix: number): ReadonlySignal<MixHealth | undefined> {
+    const key = `${deviceId}|${mix}`;
+    let health = this.#health.get(key);
+    if (health === undefined) {
+      health = computed(
+        () => {
+          const topology = this.topology(deviceId);
+          if (topology === undefined || mix >= topology.mixers.count) return undefined;
+          const slots = this.routing(deviceId).destination(this.mixInput(deviceId, mix)).value;
+          const mixer = this.mixer(deviceId, mix);
+          if (slots === undefined || !mixer.stateKnown.value) return undefined;
+          return mixHealth(topology, slots, (slot) => mixer.strip(slot).value, this.channels(deviceId).inMix(mix));
+        },
+        (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      );
+      this.#health.set(key, health);
+    }
+    return health;
+  }
+
+  /** The mix buttons' warning for a mix: its solos and strays counted, or undefined. Reading it is reactive. */
+  mixWarning(deviceId: string, mix: number): string | undefined {
+    return mixWarning(this.mixHealth(deviceId, mix).value);
+  }
+
+  /** A mix's input routing group: its position among the topology's destinations. */
+  mixInput(deviceId: string, mix: number): number {
+    const topology = this.topology(deviceId);
+    return topology === undefined ? -1 : topology.outputs.findIndex((g) => g.id === topology.mixers.inputGroups[mix]);
+  }
+
+  readonly #health = new Map<string, ReadonlySignal<MixHealth | undefined>>();
 
   /**
    * Whether putting `source` into a mix would bring in audio the mix already has on another

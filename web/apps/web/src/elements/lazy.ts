@@ -43,6 +43,16 @@ const loaders: Readonly<Record<string, () => Promise<Definitions>>> = {
       ["ga-surface", page.GaSurface],
     ];
   },
+  // The Mixer page's notice about what a mix plays outside its channels, and the Quadro's effect
+  // return strips: one chunk, fetched when the Mixer page first opens.
+  "ga-mix-notice": async () => {
+    const health = await import("./mix-health.ts");
+    return [
+      ["ga-effect-returns", health.GaEffectReturns],
+      ["ga-mix-notice", health.GaMixNotice],
+    ];
+  },
+  "ga-effect-returns": async () => [["ga-effect-returns", (await import("./mix-health.ts")).GaEffectReturns]],
   "ga-surface-strip": async () => [["ga-surface-strip", (await import("./surface-strip.ts")).GaSurfaceStrip]],
 };
 

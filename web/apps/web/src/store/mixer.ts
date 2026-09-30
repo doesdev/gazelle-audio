@@ -309,6 +309,16 @@ export class MixerModel {
     this.#update(id, { solo: !this.#signal(id).peek().solo }, together);
   }
 
+  /**
+   * Changes one strip's mute or solo and sends it, and nothing else: no soft or permanent link
+   * follows. For a change planned strip by strip, as tidying a mix is. Resolves true when sent.
+   */
+  setAlone(strip: number, change: { mute?: boolean; solo?: boolean }): Promise<boolean> {
+    const target = this.#signal(strip);
+    target.value = { ...target.peek(), ...change };
+    return this.#send(strip);
+  }
+
   /** Sets the device link flag of strips `first` and `first + 1`. Which strips change together is the workspace's (LinksModel). */
   setPairLinked(first: number, linked: boolean): void {
     this.#check(first);
