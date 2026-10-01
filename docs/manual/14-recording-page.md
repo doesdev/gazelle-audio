@@ -62,8 +62,6 @@ The **Takes** list shows the takes recorded since Gazelle started, newest first,
 
 ## Into Cubase
 
-> **Not yet tried in Cubase.** The archive Gazelle writes has the shape Cubase 15.0.20 itself writes when it exports a folder with its group, and Gazelle checks that it holds together, but nobody has imported one into Cubase yet. Until someone has, treat the steps below as the plan, and check the points at the end of this section the first time.
-
 With a **Cubase seed** set, every take also gets a **Cubase track archive** beside its files: an XML file named like them with `Cubase` for the channel, such as `2026-09-27 T001 Cubase.xml`. File > Import > Track Archive brings the whole take into a Cubase project in one step: a folder track with its own group channel, and in it one mono track per channel of the take, named after the channel, routed to that group, with its recording starting at the project start. The tracks play the take's own WAV files where they are; nothing is copied.
 
 ### The seed
@@ -81,20 +79,13 @@ If the folder has several mono tracks, the take's first channel gets a copy of t
 
 ### Importing a take
 
-Because the archive brings its own folder and group, the project you import into should not already have them, or you get two.
+1. Open a project made from your tracking template, at the rate the take was recorded at. It can keep its Recorded folder.
+2. Choose File > Import > Track Archive and pick the take's `Cubase.xml`.
+3. Cubase asks how to bring the archive in. Point the archive's folder at the project's existing Recorded folder: the take's tracks are added inside it, one per channel, and no second folder or group is made. Leave copying the files into the project off, so the tracks keep playing the take's files in their own folder. If Cubase offers to convert the files, the take's rate or format differs from the project's: make the project match instead.
 
-1. Once: keep a copy of your tracking template without the Recorded folder (select the folder and delete it, which takes its group and "Audio 01" with it, then save it as a template). The imported folder takes the place of that folder, and its tracks the place of "Audio 01". Or delete the folder in a new project before each import.
-2. Make a project from that template, at the rate the take was recorded at.
-3. Choose File > Import > Track Archive and pick the take's `Cubase.xml`.
-4. In Cubase's options for the import, leave copying the files into the project off, so the tracks keep playing the take's files in their own folder. If Cubase offers to convert the files, the take's rate or format differs from the project's: make the project match instead.
-5. Cubase may ask where the archive's group and inputs connect in this project. Keep the group as the archive's own, and give the inputs whatever you record from.
+Each track is named after its channel, and its recording starts at the very start of the project and plays the take's own file.
 
-### What to check the first time
-
-- The folder and its group arrive, named as in the seed, and the group plays out of your main output.
-- There is one track per channel of the take, named after its channel, and each track's output is the folder's group.
-- Every recording starts at the very start of the project, runs the length of the take, and plays the take's own file (the Pool shows its folder, and nothing is reported missing).
-- A take recorded in 32-bit float plays as well as a 24-bit one: Gazelle names the format as Cubase does for 24-bit files, and this has not been tried with 32-bit float.
+This was first done in Cubase on 2026-09-30, with all 28 inputs of a take. Not yet tried: a take recorded in 32-bit float. Gazelle names the format as Cubase does for 24-bit files.
 
 If a take's archive cannot be made, the take is not affected: its files and log are complete, and the log says why there is no archive.
 
