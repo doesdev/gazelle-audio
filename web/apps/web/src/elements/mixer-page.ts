@@ -436,7 +436,7 @@ export class GaMixer extends GaElement {
     // bank so that strip has a level too.
     this.watch(() => store.mixer(deviceId, channels.meteredMix.value).activate());
     this.watch(() => store.pointMeterBank(deviceId, channels.meteredMix.value));
-    // A strip fed by AFX OUT is metered by its chain's last effect, which needs the chains read and
+    // A strip fed by AFX Out is metered by its chain's last effect, which needs the chains read and
     // the effect-meter report followed while the page is open.
     this.watch(() => store.effects(deviceId).activate());
 
@@ -450,7 +450,7 @@ export class GaMixer extends GaElement {
     });
     this.onDisconnect(() => heads.disconnect());
     // Where each mix plays is read once, as the mixes are, and again once the connection or the
-    // device has come back. The pairs are every destination but the mixer inputs, so AFX IN comes
+    // device has come back. The pairs are every destination but the mixer inputs, so AFX In comes
     // with them, which is what a strip on an empty chain needs: it meters whatever feeds that chain.
     const outputGroups = [...new Set(channels.outputPairs().map((pair) => pair.destination))];
     this.watch(() => {

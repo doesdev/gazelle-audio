@@ -106,13 +106,13 @@ test("each card shows the device's clock, power, preset and input level from its
   }
 });
 
-test("the right panel meters the device's outputs: Monitor, HP1, HP2 and Line out on the Quadro; the Studio+ reports none", async ({ page }) => {
+test("the right panel meters the device's outputs: Monitor, HP1, HP2 and Line Out on the Quadro; the Studio+ reports none", async ({ page }) => {
   await page.goto(`${server.url}/#/inputs/loopback-0`);
   const meters = page.locator("ga-output-meters");
   await expect(meters.locator("[data-output]")).toHaveCount(4);
-  await expect(meters.locator("[data-output]").locator(".output-name")).toHaveText(["Monitor", "HP1", "HP2", "Line out"]);
+  await expect(meters.locator("[data-output]").locator(".output-name")).toHaveText(["Monitor", "HP1", "HP2", "Line Out"]);
   // The loopback's report bytes cycle, so the meter moves.
-  const bar = meters.locator('[data-output="Line out"] .mask').first();
+  const bar = meters.locator('[data-output="Line Out"] .mask').first();
   const first = await bar.evaluate((el) => (el as HTMLElement).style.width);
   await expect.poll(() => bar.evaluate((el) => (el as HTMLElement).style.width)).not.toBe(first);
 
@@ -139,11 +139,11 @@ test("clip lights: click one to clear it, Clear clears them all, and they clear 
       socket.send(message);
     });
   });
-  // One channel on PREAMP 1, whose strip meters that input.
+  // One channel on Preamp 1, whose strip meters that input.
   await putWorkspace(server, { mixers: { "loopback-0": { channels: [{ id: "a", name: "", slot: 0, source: { group: 0, channel: 0 }, main_mix: 0, sends: [] }] } } });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   const panel = page.locator("ga-output-meters");
-  const lineOut = page.getByTestId("output-clip-Line out");
+  const lineOut = page.getByTestId("output-clip-Line Out");
   const monitor = page.getByTestId("output-clip-Monitor");
   const strip = page.locator("ga-strip .clip[data-on]");
   await expect(page.getByTestId("clip-auto-clear")).toHaveValue("5000");

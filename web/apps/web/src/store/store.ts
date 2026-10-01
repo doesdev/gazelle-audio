@@ -227,7 +227,7 @@ const EFFECT_METER_REPORT = "0x83";
 /**
  * The topology input type a mixer strip is fed from when it carries an effect chain's output, and
  * the destination type routing feeds that chain through. The channel is the chain index in both
- * models, so AFX OUT k is what chain k plays and AFX IN k is what it processes.
+ * models, so AFX Out k is what chain k plays and AFX In k is what it processes.
  */
 const AFX_OUT = "AFX_OUT";
 const AFX_IN = "AFX_IN";
@@ -282,7 +282,7 @@ export function mixNeedsMeterBank(family: "quadro" | "studio", sources: readonly
  */
 function doublingText(topology: Topology, source: RouteSource, times: number, chain: number | undefined): string {
   const label = sourceLabel(topology, source);
-  const how = chain === undefined ? `${label} is in this mix twice` : `${label} also reaches this mix through AFX OUT ${chain + 1}`;
+  const how = chain === undefined ? `${label} is in this mix twice` : `${label} also reaches this mix through AFX Out ${chain + 1}`;
   return `${how}, so it is summed ${times === 2 ? "twice (about +6 dB)" : `${times} times`}`;
 }
 
@@ -306,7 +306,7 @@ const QUADRO_OUTPUT_METERS: readonly (readonly [name: string, field: string])[] 
   ["Monitor", "peaks_monitor"],
   ["HP1", "peaks_hp1"],
   ["HP2", "peaks_hp2"],
-  ["Line out", "line_out"],
+  ["Line Out", "line_out"],
 ];
 
 /** A device at a glance, for its card in the devices panel. */
@@ -1544,12 +1544,12 @@ export class Store {
   }
 
   /**
-   * The meter of a mixer strip fed by AFX OUT k: what that strip actually carries.
+   * The meter of a mixer strip fed by AFX Out k: what that strip actually carries.
    *
    * A chain with effects is metered by its **last effect**, the chain's output as far as the device
    * reports it. An **empty chain passes its input straight through** (the user, at the hardware,
-   * 2026-09-18: a mix carrying a preamp and an AFX OUT fed from that preamp is about 6 dB louder),
-   * so the strip is carrying audio and is metered by whatever routing feeds **AFX IN k**, on the
+   * 2026-09-18: a mix carrying a preamp and an AFX Out fed from that preamp is about 6 dB louder),
+   * so the strip is carrying audio and is metered by whatever routing feeds **AFX In k**, on the
    * ordinary input path (`INPUT_METER_FIELDS`), as if the strip sat on that input. A source with no
    * meter of its own -- MUTE, another chain's output, a mixer output, or an input the status report
    * does not meter -- shows none, and the title says which it is. Routing is what was read
@@ -1584,7 +1584,7 @@ export class Store {
    * Why a strip's audio reaches its mix twice, or undefined when it does not (the user, at the
    * hardware, 2026-09-18: "if I add a preamp channel to a mix and an AFX Out channel that is routed
    * to, my signal will be 6 dB higher"). Two channels of one mix carry the same audio when they
-   * share a source, or when one is an **empty** AFX OUT chain fed by the other's source -- an empty
+   * share a source, or when one is an **empty** AFX Out chain fed by the other's source -- an empty
    * chain passes its input straight through, so the mix sums the same signal twice, about 6 dB
    * louder and comb-filtered by whatever delay the chain adds.
    *
@@ -1714,7 +1714,7 @@ export class Store {
   }
 
   /**
-   * What an empty chain passes through: the meter of the input routing feeds AFX IN k, with what to
+   * What an empty chain passes through: the meter of the input routing feeds AFX In k, with what to
    * say about it in the strip's title. Reading it is reactive, so the strip follows a re-route.
    */
   #chainInput(deviceId: string, chain: number): { note: string; meter?: InputMeter; source?: RouteSource } {

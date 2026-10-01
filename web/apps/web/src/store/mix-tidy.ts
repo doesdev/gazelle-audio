@@ -69,7 +69,7 @@ export function planLines(plan: TidyPlan, naming: Naming, name: (channel: string
   return [
     ...plan.routes.map((r) =>
       r.to === null || r.channel === undefined
-        ? `Slot ${r.slot + 1}: route MUTE in place of ${slotLabel(naming, { slot: r.slot, source: r.from })}, which is not one of this mix's channels`
+        ? `Slot ${r.slot + 1}: route Mute in place of ${slotLabel(naming, { slot: r.slot, source: r.from })}, which is not one of this mix's channels`
         : `Slot ${r.slot + 1}: route ${name(r.channel)}'s input ${naming.source(r.to)} again, in place of ${slotLabel(naming, { slot: r.slot, source: r.from })}, as applying the layout would`,
     ),
     ...plan.solos.map((s) => `${slotLabel(naming, s)} (slot ${s.slot + 1}): clear its solo`),

@@ -12,6 +12,7 @@ use serde_json::Value as Json;
 use std::collections::BTreeSet;
 
 use crate::snapshot::model::{DeviceSnapshot, Snapshot, Unreadable, SECTIONS};
+use crate::workspace::topology::proper_case;
 
 /// One difference, in one section.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -272,7 +273,7 @@ fn label(section: &str, path: &str) -> String {
     let mixer = section == "mixer";
     for (at, part) in path.split('.').enumerate() {
         // A routing section's first part is the destination group's topology id, which is the
-        // device's own name for it and not worth rewording beyond its underscores.
+        // device's own name for it and not worth rewording beyond its underscores and capitals.
         if section == "routing" && at == 0 {
             parts.push(group_name(part));
             continue;
@@ -309,18 +310,19 @@ fn split_indices(part: &str) -> (&str, Vec<usize>) {
     (name, indices)
 }
 
-/// `MIXER_IN0` as `MIXER IN 0`. Public because recall labels its routing steps the same way.
+/// `MIXER_IN0` as `Mixer In 0`. Public because recall labels its routing steps the same way.
 pub fn group_title(id: &str) -> String {
     group_name(id)
 }
 
-/// `MIXER_IN0` as `MIXER IN 0`.
+/// `MIXER_IN0` as `Mixer In 0`, in plain case as every name a person reads ([`proper_case`]).
 fn group_name(id: &str) -> String {
     let spaced = id.replace('_', " ");
-    match spaced.char_indices().rev().take_while(|(_, c)| c.is_ascii_digit()).last() {
+    let spaced = match spaced.char_indices().rev().take_while(|(_, c)| c.is_ascii_digit()).last() {
         Some((at, _)) if at > 0 => format!("{} {}", &spaced[..at], &spaced[at..]),
         _ => spaced,
-    }
+    };
+    proper_case(&spaced)
 }
 
 fn words(name: &str) -> String {
@@ -445,7 +447,7 @@ mod tests {
         assert_eq!(mixer[0].label, "Mixer · Mix 1 · strip 1 · level");
         assert_eq!((mixer[0].from.clone(), mixer[0].to.clone()), (Some(json!(40)), Some(json!(50))));
 
-        assert_eq!(only(&changed, "routing")[0].label, "Routing · MIXER IN 0 · slot 1 · source channel");
+        assert_eq!(only(&changed, "routing")[0].label, "Routing · Mixer In 0 · slot 1 · source channel");
         assert_eq!(only(&changed, "inputs")[0].label, "Inputs · preamp 1 · 48V");
         assert_eq!(only(&changed, "outputs")[0].label, "Outputs · volumes 3");
         assert_eq!(only(&changed, "clock")[0].label, "Clock · clock source");
@@ -502,9 +504,9 @@ mod tests {
 
     #[test]
     fn group_and_field_names_read_as_the_app_says_them() {
-        assert_eq!(group_name("MIXER_IN0"), "MIXER IN 0");
-        assert_eq!(group_name("SPDIF_OUT0"), "SPDIF OUT 0");
-        assert_eq!(group_name("MUTE0"), "MUTE 0");
+        assert_eq!(group_name("MIXER_IN0"), "Mixer In 0");
+        assert_eq!(group_name("SPDIF_OUT0"), "S/PDIF Out 0");
+        assert_eq!(group_name("MUTE0"), "Mute 0");
         assert_eq!(label("inputs", "links.preamp"), "Inputs · links · preamp");
         assert_eq!(label("outputs", "talkback.to_hp1"), "Outputs · talkback · to HP1");
         assert_eq!(label("clock", "spdif_src"), "Clock · S/PDIF sample-rate converter");

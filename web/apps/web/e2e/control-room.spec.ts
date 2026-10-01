@@ -120,7 +120,7 @@ test("the panel sets volume, mute and dim for Monitor, HP1 and HP2 on the Quadro
     await expect(lastSent(page)).toContainText(quadro("set_dim", { 17: id, 18: 1 }));
     await expect(page.getByTestId(`out-dim-${id}`)).toHaveAttribute("aria-pressed", "true");
   }
-  // Line out is not a Control Room output until chosen.
+  // Line Out is not a Control Room output until chosen.
   await expect(panel(page).getByTestId("cr-volume-3")).toHaveCount(0);
   // The Quadro has no talkback commands, so nothing of it shows.
   await expect(panel(page).getByTestId("cr-talk")).toHaveCount(0);
@@ -184,17 +184,17 @@ test("the Outputs page chooses which outputs the Quadro's Control Room shows, sa
   }
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
   // A toggle button beside Mute and Dim, as they are (the user, 2026-09-18), not a checkbox.
-  const lineOut = page.getByTestId("output-3").getByRole("button", { name: "Line out in the Control Room" });
+  const lineOut = page.getByTestId("output-3").getByRole("button", { name: "Line Out in the Control Room" });
   await expect(lineOut).toHaveText("CR");
   await expect(lineOut).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("output-3").locator('input[type="checkbox"]')).toHaveCount(0);
   await expect(page.getByTestId("output-3").locator(".toggles > *").evaluateAll((els) => els.map((e) => e.textContent))).resolves.toEqual(["Mute", "Dim", "CR"]);
   const before = frames.length;
 
-  // Line out joins, after HP2 in the device's order, with its volume, mute and dim.
+  // Line Out joins, after HP2 in the device's order, with its volume, mute and dim.
   await page.getByTestId("out-in-cr-3").click();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2", "cr-output-3"]);
-  await expect(panel(page).getByTestId("cr-output-3")).toContainText("Line out");
+  await expect(panel(page).getByTestId("cr-output-3")).toContainText("Line Out");
   await expect.poll(controlRoomSaved).toEqual({ "loopback-0": { outputs: [0, 1, 2, 3] } });
   await page.getByTestId("out-in-cr-1").click();
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-2", "cr-output-3"]);
@@ -221,7 +221,7 @@ test("the Outputs page chooses which outputs the Quadro's Control Room shows, sa
   await expect.poll(shown).toEqual(["cr-output-0", "cr-output-1", "cr-output-2"]);
 });
 
-test("the Studio+ Control Room can show Reamp and Line out, without dim, and every output can be left out", async ({ page }) => {
+test("the Studio+ Control Room can show Reamp and Line Out, without dim, and every output can be left out", async ({ page }) => {
   const studio = (command: string, fields: Record<number, number>) => sentText("ground_truth_studio.json", command, fields);
   await putWorkspace(server, { control_room: { "loopback-1": { outputs: [4, 0] } } });
   await page.goto(`${server.url}/#/outputs/loopback-1`);
@@ -302,7 +302,7 @@ async function answerRouting(page: Page, groups: Record<string, Record<number, R
 }
 
 // Studio+ sources: USB PLAY 3, MIX1 L/R 7, MIX2 L/R 8. Destinations: LINE OUT 0, HP1 1, HP2 2, MONITOR 3, REAMP 4, USB REC 6.
-// Mix 1 plays in Monitor, HP1 and USB REC 1/2; Mix 2 in HP2 and Reamp (not shown in the panel); Line out plays USB PLAY 1/2.
+// Mix 1 plays in Monitor, HP1 and USB Rec 1/2; Mix 2 in HP2 and Reamp (not shown in the panel); Line Out plays USB Play 1/2.
 const MIX1: Record<number, Slot> = { 0: [7, 0], 1: [7, 1] };
 const STUDIO_ROUTING = { "loopback-1": { 3: MIX1, 1: MIX1, 6: { 0: [7, 0], 1: [7, 1] } as Record<number, Slot>, 2: { 0: [8, 0], 1: [8, 1] } as Record<number, Slot>, 0: { 0: [3, 0], 1: [3, 1] } as Record<number, Slot>, 4: { 0: [8, 0], 1: [8, 1] } as Record<number, Slot> } };
 
@@ -346,21 +346,21 @@ test("each Control Room output fed by a mix has a Mono button for that mix, nami
   expect(Math.max(routingRead, mixesRead), "both before the pans are kept and centred").toBeLessThan(centred);
   await expect.poll(() => monoMixes("loopback-1")).toEqual([true, false]);
 
-  // HP1 plays the same mix, so it is mono too, and each names the other; USB REC 1/2 plays it as well.
+  // HP1 plays the same mix, so it is mono too, and each names the other; USB Rec 1/2 plays it as well.
   await expect(mono(1)).toHaveAttribute("aria-pressed", "true");
-  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono, so HP1 and USB REC 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
-  await expect(mono(1)).toHaveAttribute("title", "Sums Mix 1 to mono, so Monitor and USB REC 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
-  await expect(mono(0)).toHaveAttribute("aria-label", "Monitor mono (Mix 1, also HP1 and USB REC 1/2)");
+  await expect(mono(0)).toHaveAttribute("title", "Sums Mix 1 to mono, so HP1 and USB Rec 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
+  await expect(mono(1)).toHaveAttribute("title", "Sums Mix 1 to mono, so Monitor and USB Rec 1/2 go mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
+  await expect(mono(0)).toHaveAttribute("aria-label", "Monitor mono (Mix 1, also HP1 and USB Rec 1/2)");
   await expect(panel(page).getByTestId("cr-feed-0")).toHaveText("Mix 1");
   // HP2 plays the named Mix 2, which is not mono; so does Reamp, which the panel does not show.
   await expect(mono(2)).toBeEnabled();
   await expect(mono(2)).toHaveAttribute("aria-pressed", "false");
   await expect(mono(2)).toHaveAttribute("title", "Sums Mix 2: Cue to mono, so Reamp goes mono too: pans its channels to centre and lowers that mix by 6 dB, so the level stays about the same. Both are put back when it is turned off.");
   await expect(panel(page).getByTestId("cr-feed-2")).toHaveText("Mix 2: Cue");
-  // Line out plays USB straight: no mix to sum.
+  // Line Out plays USB straight: no mix to sum.
   await expect(mono(3)).toBeDisabled();
-  await expect(mono(3)).toHaveAttribute("title", "No mix feeds Line out: it plays USB PLAY 1 and USB PLAY 2, so there is no mix to sum to mono.");
-  await expect(panel(page).getByTestId("cr-feed-3")).toHaveText("USB PLAY 1 and USB PLAY 2");
+  await expect(mono(3)).toHaveAttribute("title", "No mix feeds Line Out: it plays USB Play 1 and USB Play 2, so there is no mix to sum to mono.");
+  await expect(panel(page).getByTestId("cr-feed-3")).toHaveText("USB Play 1 and USB Play 2");
 
   // The mix master agrees.
   await page.goto(`${server.url}/#/mixer/loopback-1`);
@@ -424,6 +424,6 @@ test("an output the Studio+ plays from two mixes has Mono disabled, naming both"
   const mono = panel(page).getByTestId("cr-mono-3");
   await mono.click();
   await expect(mono).toBeDisabled();
-  await expect(mono).toHaveAttribute("title", "Line out plays Mix 1 and Mix 2: sum each to mono with the Mono on its master, on the Mixer page.");
+  await expect(mono).toHaveAttribute("title", "Line Out plays Mix 1 and Mix 2: sum each to mono with the Mono on its master, on the Mixer page.");
   await expect(panel(page).getByTestId("cr-feed-3")).toHaveText("Mix 1 and Mix 2");
 });

@@ -16,9 +16,10 @@
 //! So a channel is named for what it carries, then by that USB channel. An input is named for what
 //! Gazelle's routing sends to its record channel, in Gazelle's own words (the person's name for a
 //! Mixer channel or a mix where they gave one, else the source as the Routing page shows it):
-//! "Vocal mic, USB A REC 1". An output is named for where the routing sends its playback channel:
-//! the hardware output it reaches, directly or through a mix ("Monitor L, USB 1 PLAY 1"), else the
-//! mix channel it lands in ("Click in Cue, USB 1 PLAY 3"), else nowhere ("USB 1 PLAY 5, not routed").
+//! "Vocal mic, USB A Rec 1". An output is named for where the routing sends its playback channel:
+//! the hardware output it reaches, directly or through a mix ("Monitor L, USB 1 Play 1"), else the
+//! mix channel it lands in ("Click in Cue, USB 1 Play 3"), else nowhere ("USB 1 Play 5, not routed").
+//! The devices' own names are shown in plain case throughout ([`Group::display_name`]).
 //! Re-routing changes the name, which is the point: it says where the audio goes.
 //!
 //! The driver is given the short half of that, the label (`input_names` and `output_names` in its
@@ -40,26 +41,20 @@ use crate::workspace::topology::{self, Group};
 pub const USB_GROUPS: &[(&str, &str, &str)] = &[("quadro", "COM_REC0", "COM_PLAY0"), ("studio", "USB_REC0", "USB_PLAY0")];
 
 /// The destination group kinds that are sockets on the interface, which is where an output's audio
-/// ends up, with what Gazelle calls each (`None` is the group's own name, as with HP1 and HP2).
+/// ends up. Each is called by its group's name in plain case ([`Group::display_name`]): "Monitor",
+/// "Line Out", "HP1".
 ///
 /// **In the order an output is named by.** A channel that reaches several sockets is named for the
 /// first of them in this list, whatever order the device lists its groups in: the monitors are what
 /// a person listens on, so a channel feeding both the monitors and a pair of headphones reads
 /// "Monitor L +1", not "HP1 L +1". Two headphone groups keep their own order, HP1 before HP2. The web
 /// page ranks them from the same list.
-const HARDWARE_OUTPUTS: &[(&str, Option<&str>)] = &[
-    ("MONITOR", Some("Monitor")),
-    ("LINE_OUT", Some("Line out")),
-    ("HEADPHONES", None),
-    ("SPDIF_OUT", Some("S/PDIF out")),
-    ("ADAT_OUT", Some("ADAT out")),
-    ("REAMP", Some("Reamp")),
-];
+const HARDWARE_OUTPUTS: &[&str] = &["MONITOR", "LINE_OUT", "HEADPHONES", "SPDIF_OUT", "ADAT_OUT", "REAMP"];
 
 /// Where a hardware output group comes in the order outputs are named by, or nothing for a group
 /// that is not one.
 fn hardware_rank(group: &Group) -> Option<usize> {
-    HARDWARE_OUTPUTS.iter().position(|(kind, _)| *kind == group.kind)
+    HARDWARE_OUTPUTS.iter().position(|kind| *kind == group.kind)
 }
 
 /// The routing groups a device's channels are named from, by topology id, each as its slots.
@@ -202,8 +197,7 @@ pub fn counted(names: Vec<String>) -> Vec<String> {
 
 /// What a routing source is called, in Gazelle's own words, with the person's own names first: the
 /// Mixer channel they named that takes this source, else the mix they named when the source is a
-/// mix's output, else the source as the Routing page and the Mixer show it ("AFX OUT 3",
-/// "USB 1 PLAY 5"), except a preamp, which the Aggregate page calls "Preamp 1" wherever it names one.
+/// mix's output, else the source as every page shows it ("Preamp 1", "AFX Out 3", "USB 1 Play 5").
 /// MUTE is nothing, and so is a source the model does not have.
 pub fn source_name(family: &str, source: u8, channel: u8, mixer: Option<&DeviceMixer>) -> Option<String> {
     let group = topology::source_groups(family)?.get(usize::from(source))?;
@@ -218,9 +212,6 @@ pub fn source_name(family: &str, source: u8, channel: u8, mixer: Option<&DeviceM
     if let Some(name) = mix.and_then(|mix| mixer?.mixes.get(mix)?.name.clone()).filter(|name| !name.trim().is_empty()) {
         return Some(format!("{} {}", plain(&name), side(u32::from(channel), 2)));
     }
-    if group.kind == "PREAMP" {
-        return Some(format!("Preamp {}", u32::from(channel) + 1));
-    }
     Some(group_channel(group, u32::from(channel)))
 }
 
@@ -233,22 +224,22 @@ fn side(channel: u32, channels: u32) -> String {
     }
 }
 
-/// A group's channel as the Routing page names it: the group, and its number from one when it has
-/// more than one.
+/// A group's channel as the Routing page names it: the group in plain case, and its number from one
+/// when it has more than one ("USB A Rec 1", "Mute").
 pub(crate) fn group_channel(group: &Group, channel: u32) -> String {
     if group.channels > 1 {
-        format!("{} {}", group.name, channel + 1)
+        format!("{} {}", group.display_name(), channel + 1)
     } else {
-        group.name.clone()
+        group.display_name()
     }
 }
 
 /// What Gazelle calls a hardware output group, or nothing for a group that is not one.
 fn hardware_name(group: &Group) -> Option<String> {
-    HARDWARE_OUTPUTS.iter().find(|(kind, _)| *kind == group.kind).map(|(_, words)| words.map_or_else(|| group.name.clone(), str::to_string))
+    hardware_rank(group).map(|_| group.display_name())
 }
 
-/// One channel of a hardware output as a person names it: "Monitor L", "HP1 R", "Line out 3".
+/// One channel of a hardware output as a person names it: "Monitor L", "HP1 R", "Line Out 3".
 pub(crate) fn hardware_channel(group: &Group, channel: u32) -> Option<String> {
     Some(format!("{} {}", hardware_name(group)?, side(channel, group.channels)))
 }
@@ -264,14 +255,14 @@ pub struct ChannelName {
     /// What it carries: what routing sends to an input, or where an output ends up, in the person's
     /// words where they gave some. Nothing when that is not known.
     pub carries: Option<String>,
-    /// The USB channel it is: "USB A REC 1", "USB 1 PLAY 5".
+    /// The USB channel it is: "USB A Rec 1", "USB 1 Play 5".
     pub usb: String,
     /// True for an output the routing sends nowhere, which is said as such.
     pub unrouted: bool,
 }
 
 impl ChannelName {
-    /// The whole name, as the page shows it: "Vocal mic, USB A REC 1", "USB 1 PLAY 5, not routed", or
+    /// The whole name, as the page shows it: "Vocal mic, USB A Rec 1", "USB 1 Play 5, not routed", or
     /// the USB channel alone.
     pub fn text(&self) -> String {
         match (&self.carries, self.unrouted) {
@@ -481,10 +472,10 @@ mod tests {
         assert_eq!(channel_counts("studio"), Some((24, 24)));
         assert_eq!(channel_counts("octo"), None);
         let none = Routing::new();
-        assert_eq!(input_channel("quadro", 15, &none, None).unwrap().usb, "USB A REC 16");
+        assert_eq!(input_channel("quadro", 15, &none, None).unwrap().usb, "USB A Rec 16");
         assert!(input_channel("quadro", 16, &none, None).is_none(), "there is no seventeenth");
-        assert_eq!(output_channel("quadro", 15, &none, None).unwrap().usb, "USB 1 PLAY 16");
-        assert_eq!(output_channel("studio", 23, &none, None).unwrap().usb, "USB PLAY 24");
+        assert_eq!(output_channel("quadro", 15, &none, None).unwrap().usb, "USB 1 Play 16");
+        assert_eq!(output_channel("studio", 23, &none, None).unwrap().usb, "USB Play 24");
     }
 
     #[test]
@@ -536,7 +527,7 @@ mod tests {
     #[test]
     fn a_source_is_named_as_the_routing_page_names_it_and_by_the_persons_own_names_first() {
         assert_eq!(source_name("quadro", 0, 0, None).as_deref(), Some("Preamp 1"));
-        assert_eq!(source_name("quadro", 5, 2, None).as_deref(), Some("AFX OUT 3"));
+        assert_eq!(source_name("quadro", 5, 2, None).as_deref(), Some("AFX Out 3"));
         assert_eq!(source_name("quadro", 10, 0, None), None, "MUTE is nothing");
         let mixer = DeviceMixer { mixes: vec![MixConfig { name: Some("Cue".into()), mono: None }], groups: Vec::new(), channels: vec![channel("", 0, 1), channel("Vocal mic", 0, 0)] };
         assert_eq!(source_name("quadro", 0, 0, Some(&mixer)).as_deref(), Some("Vocal mic"));
@@ -549,11 +540,11 @@ mod tests {
         let routing: Routing = [("COM_REC0".to_string(), vec![[0u8, 0u8], [10, 0], [5, 2]])].into_iter().collect();
         let mixer = DeviceMixer { channels: vec![channel("Vocal mic", 0, 0)], ..DeviceMixer::default() };
         let first = input_channel("quadro", 0, &routing, Some(&mixer)).unwrap();
-        assert_eq!(first.text(), "Vocal mic, USB A REC 1");
+        assert_eq!(first.text(), "Vocal mic, USB A Rec 1");
         assert_eq!(first.label(), "Vocal mic");
-        assert_eq!(input_channel("quadro", 1, &routing, Some(&mixer)).unwrap().text(), "USB A REC 2", "nothing routed is the record channel alone");
-        assert_eq!(input_channel("quadro", 2, &routing, None).unwrap().text(), "AFX OUT 3, USB A REC 3");
-        assert_eq!(input_channel("quadro", 0, &Routing::new(), None).unwrap().text(), "USB A REC 1", "nothing before the routing is read");
+        assert_eq!(input_channel("quadro", 1, &routing, Some(&mixer)).unwrap().text(), "USB A Rec 2", "nothing routed is the record channel alone");
+        assert_eq!(input_channel("quadro", 2, &routing, None).unwrap().text(), "AFX Out 3, USB A Rec 3");
+        assert_eq!(input_channel("quadro", 0, &Routing::new(), None).unwrap().text(), "USB A Rec 1", "nothing before the routing is read");
     }
 
     /// The owner's case: an output reaching Monitor L through Mix 1 is called Monitor L.
@@ -562,18 +553,18 @@ mod tests {
         let play = source("quadro", "COM_PLAY0");
         let mix1 = source("quadro", "MIXER_OUT0");
         let mut routing = silent("quadro");
-        // USB 1 PLAY 1 and 2 into Mix 1's channels 7 and 8, and Mix 1 out to the monitors.
+        // USB 1 Play 1 and 2 into Mix 1's channels 7 and 8, and Mix 1 out to the monitors.
         route(&mut routing, "MIXER_IN0", 6, [play, 0]);
         route(&mut routing, "MIXER_IN0", 7, [play, 1]);
         route(&mut routing, "MONITOR0", 0, [mix1, 0]);
         route(&mut routing, "MONITOR0", 1, [mix1, 1]);
         let left = output_channel("quadro", 0, &routing, None).unwrap();
-        assert_eq!(left.text(), "Monitor L, USB 1 PLAY 1");
+        assert_eq!(left.text(), "Monitor L, USB 1 Play 1");
         assert_eq!(left.label(), "Monitor L");
-        assert_eq!(output_channel("quadro", 1, &routing, None).unwrap().text(), "Monitor R, USB 1 PLAY 2", "the second of a pair is the right side");
+        assert_eq!(output_channel("quadro", 1, &routing, None).unwrap().text(), "Monitor R, USB 1 Play 2", "the second of a pair is the right side");
         // Straight to a socket, with no mix between.
         route(&mut routing, "LINE_OUT0", 1, [play, 4]);
-        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().text(), "Line out R, USB 1 PLAY 5");
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().text(), "Line Out R, USB 1 Play 5");
     }
 
     #[test]
@@ -581,25 +572,25 @@ mod tests {
         let play = source("quadro", "COM_PLAY0");
         let mut routing = silent("quadro");
         route(&mut routing, "MIXER_IN1", 9, [play, 2]);
-        assert_eq!(output_channel("quadro", 2, &routing, None).unwrap().text(), "Ch 10 in Mix 2, USB 1 PLAY 3");
+        assert_eq!(output_channel("quadro", 2, &routing, None).unwrap().text(), "Ch 10 in Mix 2, USB 1 Play 3");
         let mixer = DeviceMixer {
             mixes: vec![MixConfig::default(), MixConfig { name: Some("Cue".into()), mono: None }],
             groups: Vec::new(),
             channels: vec![MixerChannel { slot: 9, ..channel("Click", play.into(), 2) }],
         };
-        assert_eq!(output_channel("quadro", 2, &routing, Some(&mixer)).unwrap().text(), "Click in Cue, USB 1 PLAY 3");
+        assert_eq!(output_channel("quadro", 2, &routing, Some(&mixer)).unwrap().text(), "Click in Cue, USB 1 Play 3");
     }
 
     #[test]
     fn an_output_routed_nowhere_says_so_once_everything_it_could_reach_has_been_seen() {
         let unrouted = output_channel("quadro", 4, &silent("quadro"), None).unwrap();
-        assert_eq!(unrouted.text(), "USB 1 PLAY 5, not routed");
+        assert_eq!(unrouted.text(), "USB 1 Play 5, not routed");
         assert_eq!(unrouted.label(), "Not routed");
         // With a group not seen yet, where it goes is not known rather than nowhere.
         let mut partial = silent("quadro");
         partial.remove("MIXER_IN3");
         let unknown = output_channel("quadro", 4, &partial, None).unwrap();
-        assert_eq!(unknown.text(), "USB 1 PLAY 5");
+        assert_eq!(unknown.text(), "USB 1 Play 5");
         assert!(!unknown.unrouted);
     }
 
@@ -609,12 +600,12 @@ mod tests {
         let mut routing = silent("quadro");
         route(&mut routing, "HEADPHONES0", 0, [play, 0]);
         route(&mut routing, "MONITOR0", 0, [play, 0]);
-        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 PLAY 1", "the monitors outrank the headphones");
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 Play 1", "the monitors outrank the headphones");
         route(&mut routing, "MIXER_IN2", 0, [play, 0]);
         assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().label(), "Monitor L +2", "a mix channel going nowhere counts as one of the rest");
     }
 
-    /// The owner's Quadro: USB 1 PLAY 1 and 2 into Mix 1's slots 17 and 18, and Mix 1 out to both the
+    /// The owner's Quadro: USB 1 Play 1 and 2 into Mix 1's slots 17 and 18, and Mix 1 out to both the
     /// monitors and the first headphones. The device lists the headphones first; the name is Monitor.
     #[test]
     fn a_channel_reaching_monitor_and_headphones_through_a_mix_is_named_for_the_monitor() {
@@ -627,20 +618,20 @@ mod tests {
             route(&mut routing, group, 0, [mix1, 0]);
             route(&mut routing, group, 1, [mix1, 1]);
         }
-        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 PLAY 1");
-        assert_eq!(output_channel("quadro", 1, &routing, None).unwrap().text(), "Monitor R +1, USB 1 PLAY 2");
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "Monitor L +1, USB 1 Play 1");
+        assert_eq!(output_channel("quadro", 1, &routing, None).unwrap().text(), "Monitor R +1, USB 1 Play 2");
     }
 
     #[test]
     fn outputs_are_ranked_monitor_line_out_headphones_in_order_then_spdif_adat_and_reamp() {
-        let kinds: Vec<&str> = HARDWARE_OUTPUTS.iter().map(|(kind, _)| *kind).collect();
+        let kinds: Vec<&str> = HARDWARE_OUTPUTS.to_vec();
         assert_eq!(kinds, ["MONITOR", "LINE_OUT", "HEADPHONES", "SPDIF_OUT", "ADAT_OUT", "REAMP"]);
         let play = source("quadro", "COM_PLAY0");
         let mut routing = silent("quadro");
         for group in ["SPDIF_OUT0", "HEADPHONES1", "HEADPHONES0", "LINE_OUT0"] {
             route(&mut routing, group, 0, [play, 5]);
         }
-        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "Line out L +3");
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "Line Out L +3");
         routing.get_mut("LINE_OUT0").unwrap()[0] = [source("quadro", "MUTE0"), 0];
         assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "HP1 L +2", "HP1 before HP2");
     }
@@ -673,7 +664,7 @@ mod tests {
         assert_eq!((inputs.len(), outputs.len()), (16, 16));
         assert_eq!(inputs[&0], "Vocal mic");
         assert_eq!(inputs[&1], "Preamp 2");
-        assert_eq!(inputs[&2], "USB A REC 3");
+        assert_eq!(inputs[&2], "USB A Rec 3");
         device.input_names.insert(0, "Lead vocal".into());
         assert_eq!(driver_labels(&device, &workspace).0[&0], "Lead vocal");
         device.input_names.clear();

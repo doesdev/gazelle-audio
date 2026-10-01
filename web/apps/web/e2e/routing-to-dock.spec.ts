@@ -21,7 +21,7 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-/** The Quadro with one mix, Monitors, holding Vox on PREAMP 1 at mixer input 7. */
+/** The Quadro with one mix, Monitors, holding Vox on Preamp 1 at mixer input 7. */
 const MIXERS = { "loopback-0": { mixes: [{ name: "Monitors" }], groups: [], channels: [{ id: "a", name: "Vox", slot: 6, sends: [], source: { group: 0, channel: 0 }, main_mix: 0 }] } };
 
 const dock = (page: Page) => page.locator("ga-mixer-dock");
@@ -73,7 +73,7 @@ test("a source dragged onto the dock becomes a channel fed by it in the dock's m
 
   await expect.poll(() => slots(page)).toEqual(["6", "7"]);
   const added = dock(page).locator('ga-strip[strip="7"]');
-  await expect(added).toHaveAttribute("label", "PREAMP 3");
+  await expect(added).toHaveAttribute("label", "Preamp 3");
   await expect(added).toHaveAttribute("input-group", "0");
   await expect(added).toHaveAttribute("input-channel", "2");
   await expect.poll(saved).toEqual([
@@ -81,13 +81,13 @@ test("a source dragged onto the dock becomes a channel fed by it in the dock's m
     { slot: 7, source: { group: 0, channel: 2 }, main_mix: 0, sends: [] },
   ]);
 
-  // A selected run: USB 1 PLAY 1 and 2, dragged with the browser's own drag and drop.
+  // A selected run: USB 1 Play 1 and 2, dragged with the browser's own drag and drop.
   await page.getByTestId("source-1-0").click();
   await page.getByTestId("source-1-1").click({ modifiers: ["Shift"] });
   await page.getByTestId("source-1-1").dragTo(dock(page));
   await expect.poll(() => slots(page)).toEqual(["6", "7", "8", "9"]);
-  await expect(dock(page).locator('ga-strip[strip="8"]')).toHaveAttribute("label", "USB 1 PLAY 1");
-  await expect(dock(page).locator('ga-strip[strip="9"]')).toHaveAttribute("label", "USB 1 PLAY 2");
+  await expect(dock(page).locator('ga-strip[strip="8"]')).toHaveAttribute("label", "USB 1 Play 1");
+  await expect(dock(page).locator('ga-strip[strip="9"]')).toHaveAttribute("label", "USB 1 Play 2");
 
   // The Mixer page has them too, with their inputs chosen.
   await page.goto(`${server.url}/#/mixer/loopback-0`);
@@ -103,7 +103,7 @@ test("a drop that would put an input into the mix twice waits behind Confirm; Ca
   await page.getByTestId("source-0-0").dragTo(dock(page));
   const reason = dock(page).getByTestId("dock-drop-reason");
   await expect(reason).toBeVisible();
-  await expect(reason).toContainText("Monitors: PREAMP 1 is in this mix twice, so it is summed twice");
+  await expect(reason).toContainText("Monitors: Preamp 1 is in this mix twice, so it is summed twice");
   await page.waitForTimeout(300);
   expect(await slots(page)).toEqual(["6"]);
   await dock(page).getByTestId("dock-drop-cancel").click();
@@ -115,7 +115,7 @@ test("a drop that would put an input into the mix twice waits behind Confirm; Ca
   await dock(page).getByTestId("dock-drop-confirm").click();
   await expect(reason).toBeHidden();
   await expect.poll(() => slots(page)).toEqual(["6", "7"]);
-  await expect(dock(page).locator('ga-strip[strip="7"]')).toHaveAttribute("label", "PREAMP 1");
+  await expect(dock(page).locator('ga-strip[strip="7"]')).toHaveAttribute("label", "Preamp 1");
 });
 
 test("a dock showing a surface refuses the drop and says why; a folded dock opens when a drag rests on it", async ({ page }) => {
@@ -143,5 +143,5 @@ test("a dock showing a surface refuses the drop and says why; a folded dock open
   await page.mouse.move(opened.x + opened.width / 2, opened.y + opened.height / 2);
   await page.mouse.up();
   await expect.poll(() => slots(page)).toEqual(["6", "7"]);
-  await expect(dock(page).locator('ga-strip[strip="7"]')).toHaveAttribute("label", "PREAMP 4");
+  await expect(dock(page).locator('ga-strip[strip="7"]')).toHaveAttribute("label", "Preamp 4");
 });

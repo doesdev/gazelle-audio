@@ -27,13 +27,13 @@ use std::collections::BTreeMap;
 use crate::workspace::topology;
 
 /// `set_volume` / `set_mute` / `set_dim` ids, in order (`docs/protocol.md`, "Output ids").
-pub const OUTPUT_NAMES: &[&str] = &["Monitor", "HP1", "HP2", "Line out", "Reamp"];
+pub const OUTPUT_NAMES: &[&str] = &["Monitor", "HP1", "HP2", "Line Out", "Reamp"];
 
 /// The Studio+'s output keys in the snapshot, in `set_volume` id order.
 pub const STUDIO_OUTPUT_KEYS: &[&str] = &["monitor", "hp1", "hp2", "line_out", "reamp"];
 
 /// Trim ids and their names; the Quadro's panel sets the first two, the Studio+'s all three.
-pub const TRIM_KEYS: &[(&str, &str)] = &[("monitor", "Monitor"), ("line_out", "Line out"), ("adc", "ADC")];
+pub const TRIM_KEYS: &[(&str, &str)] = &[("monitor", "Monitor"), ("line_out", "Line Out"), ("adc", "ADC")];
 
 /// `set_tbk_enable` ids, in the order the snapshot names them.
 pub const TALKBACK_KEYS: &[(&str, &str)] = &[("to_hp1", "HP1"), ("to_hp2", "HP2"), ("to_monitor", "Monitor")];
@@ -120,8 +120,8 @@ impl GainKind {
         match self {
             GainKind::Preamp => "preamp",
             GainKind::Line => "line in",
-            GainKind::Adat => "ADAT in",
-            GainKind::Spdif => "S/PDIF in",
+            GainKind::Adat => "ADAT In",
+            GainKind::Spdif => "S/PDIF In",
         }
     }
 }
@@ -661,7 +661,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
         "outputs" => match (head, indices.as_slice()) {
             ("volumes", [id]) => match tail {
                 _ if *id >= topology::output_ids(family).unwrap_or(0) => Writer::NoWriter {
-                    reason: "the Quadro reports six volume words and its set_volume ids stop at Line out: volumes 5 and 6 are bound to no command",
+                    reason: "the Quadro reports six volume words and its set_volume ids stop at Line Out: volumes 5 and 6 are bound to no command",
                 },
                 "volume" => Writer::Command(Target::OutputVolume { id: *id }),
                 "mute" => Writer::Command(Target::OutputMute { id: *id }),
@@ -675,7 +675,7 @@ pub fn writer_for(family: &str, section: &str, path: &str) -> Writer {
             ("hard_mute", []) => Writer::Command(Target::HardMute),
             ("trims", []) => match (tail, family) {
                 ("adc", "quadro") => Writer::NoWriter {
-                    reason: "the Quadro's panel offers Monitor and Line out trims only; its ADC trim is reported and not set",
+                    reason: "the Quadro's panel offers Monitor and Line Out trims only; its ADC trim is reported and not set",
                 },
                 (key, _) => match TRIM_KEYS.iter().position(|(k, _)| *k == key) {
                     Some(id) => Writer::Command(Target::Trim { id: id as u32 }),

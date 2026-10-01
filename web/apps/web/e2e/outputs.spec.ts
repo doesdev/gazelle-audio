@@ -34,7 +34,7 @@ const lastSent = (page: Page) => page.getByTestId("last-sent");
 test("Quadro outputs: monitor, HP1, HP2 and line out, each with volume, mute and dim", async ({ page }) => {
   const quadro = (command: string, id: number, value: number) => sentText("ground_truth.json", command, id, value);
   await page.goto(`${server.url}/#/outputs/loopback-0`);
-  await expect(page.getByTestId("output-3")).toContainText("Line out");
+  await expect(page.getByTestId("output-3")).toContainText("Line Out");
   await expect(page.getByTestId("output-4")).toHaveCount(0);
 
   const volume = page.getByTestId("out-volume-1");

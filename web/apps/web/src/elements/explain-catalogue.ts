@@ -430,7 +430,7 @@ export const CATALOGUE: Catalogue = {
     title: "What this mix plays that its channels do not show",
     what: "The device keeps routing and strip settings outside Gazelle's layout, and they still play: a route left on a slot none of this mix's channels uses, a channel whose input on the device is not the one the layout gives it, and solos, which silence every other channel in the mix even on a strip that is muted or not shown. On the Quadro it also lists the effect returns that are playing.",
     effect: "Worked out from the mix's routing and strips as read from the device. Nothing is known until they have been read, so it never shows in dry run.",
-    watch: "Effect returns are listed but not warned about: the vendor keeps AFX OUT 1 to 6 in every mix, and you may want them there.",
+    watch: "Effect returns are listed but not warned about: the vendor keeps AFX Out 1 to 6 in every mix, and you may want them there.",
   },
   "mixer.tidy": {
     title: "Tidy this mix",
@@ -438,7 +438,7 @@ export const CATALOGUE: Catalogue = {
   },
   "mixer.tidy-confirm": {
     title: "Tidy",
-    what: "Makes the listed changes: a route no channel of this mix uses is set to MUTE, a channel on the wrong input is routed to its layout input again, and every solo in the mix is cleared.",
+    what: "Makes the listed changes: a route no channel of this mix uses is set to Mute, a channel on the wrong input is routed to its layout input again, and every solo in the mix is cleared.",
     effect: "One routing write for the mix's group, read fresh first so routes made elsewhere are kept, and one mixer command per strip changed. The mix is then read back from the device, and the notice says how many changes were made and what is left.",
   },
   "mixer.tidy-cancel": { title: "Cancel", what: "Closes the list without changing anything. " + NOTHING_SENT },
@@ -449,7 +449,7 @@ export const CATALOGUE: Catalogue = {
   },
   "mixer.effect-returns": {
     title: "Effect returns",
-    what: "Shows or hides the Quadro's effect returns: AFX OUT 1 to 6, which the vendor keeps on slots 1 to 6 of every mix, as slim strips with a fader, mute and solo. They show by themselves while one of them is playing or soloed.",
+    what: "Shows or hides the Quadro's effect returns: AFX Out 1 to 6, which the vendor keeps on slots 1 to 6 of every mix, as slim strips with a fader, mute and solo. They show by themselves while one of them is playing or soloed.",
     effect: "Showing or hiding them is remembered per device in this browser and sends nothing. Their controls send the same mixer command as any strip.",
   },
   "mixer.show-all": {
@@ -629,8 +629,8 @@ export const CATALOGUE: Catalogue = {
 
   // The Effects page.
   "effects.read": { title: "Read from device", what: "Reads the chains, the reverb and its sends and returns from the device again." },
-  "effects.chains": { title: "Effect chains", what: "Each chain processes what routing sends to its AFX IN channel and returns it on AFX OUT. The Quadro has six, the Studio+ sixteen, each up to eight effects in order." },
-  "effects.chain-source": { title: "What feeds this chain", what: "The source routed to this chain's AFX IN channel, from the device's routing. Change it on the Routing page." },
+  "effects.chains": { title: "Effect chains", what: "Each chain processes what routing sends to its AFX In channel and returns it on AFX Out. The Quadro has six, the Studio+ sixteen, each up to eight effects in order." },
+  "effects.chain-source": { title: "What feeds this chain", what: "The source routed to this chain's AFX In channel, from the device's routing. Change it on the Routing page." },
   "effects.chain-link": { title: "Linked chain", what: "The device reports this chain linked with its partner. Links are shown here, not changed; a change to one effect goes to the same effect in the partner." },
   "effects.effect": {
     title: "{name}",

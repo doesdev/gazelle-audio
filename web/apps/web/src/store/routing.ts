@@ -18,6 +18,7 @@
 
 import { batch, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { Topology } from "gazelle-audio-client";
+import { groupName } from "./names.ts";
 
 /** Slots in one `set_routing` group, in both families. */
 export const ROUTING_SLOTS = 32;
@@ -149,7 +150,7 @@ export class RoutingModel {
     const group = this.#context.topology.outputs[destination];
     if (group === undefined) throw new RangeError(`destination ${destination} is outside 0..${this.#groups.length - 1}`);
     const slots = changes.map(({ channel, source }) => {
-      if (!Number.isInteger(channel) || channel < 0 || channel >= group.channels) throw new RangeError(`${group.name} has channels 0..${group.channels - 1}, not ${channel}`);
+      if (!Number.isInteger(channel) || channel < 0 || channel >= group.channels) throw new RangeError(`${groupName(group)} has channels 0..${group.channels - 1}, not ${channel}`);
       const slot = source ?? this.#muted();
       const from = this.#context.topology.inputs[slot.source];
       if (from === undefined || !Number.isInteger(slot.channel) || slot.channel < 0 || slot.channel >= from.channels) throw new RangeError(`no source channel ${slot.source}:${slot.channel}`);
@@ -164,7 +165,7 @@ export class RoutingModel {
       this.#counted(destination, read, generation);
       if (read === undefined) return false;
       if (read.slots === undefined && !read.dryRun) {
-        this.#context.notify(`Routing to ${group.name} was not changed: the device did not report its current routing.`);
+        this.#context.notify(`Routing to ${groupName(group)} was not changed: the device did not report its current routing.`);
         return false;
       }
       const current = read.slots ?? signal.peek();
@@ -195,7 +196,8 @@ export class RoutingModel {
       const channels = this.#context.topology.outputs[destination]?.channels ?? 0;
       return read.slots === undefined ? read : { ...read, slots: read.slots.slice(0, channels) };
     } catch (error) {
-      const name = this.#context.topology.outputs[destination]?.name ?? String(destination);
+      const group = this.#context.topology.outputs[destination];
+      const name = group === undefined ? String(destination) : groupName(group);
       this.#context.notify(`Could not read the routing to ${name}: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }

@@ -79,7 +79,7 @@ test("a drop adds one channel per source, each fed by it with the dock's mix as 
   assert.deepEqual([at(MIX[0] as number, 6), at(MIX[2] as number, 7)], [[MUTE, 0], [MUTE, 0]], "and nowhere else");
   assert.deepEqual(
     channels.inMix(1).map((c) => channels.displayName(c)),
-    ["PREAMP 3", "USB 1 PLAY 1"],
+    ["Preamp 3", "USB 1 Play 1"],
     "the dock's strips, named by their inputs",
   );
 });
@@ -100,7 +100,7 @@ test("a drop asks first where it would put an input into the mix twice, in the I
   const { store } = await setup();
   await addDroppedSources(store, Q, 0, [{ group: PREAMP, channel: 0 }]);
   const both = [{ group: PREAMP, channel: 0 }, { group: PREAMP, channel: 1 }];
-  assert.deepEqual(doublingsOf(store, Q, 0, both), ["PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
+  assert.deepEqual(doublingsOf(store, Q, 0, both), ["Preamp 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
   assert.deepEqual(doublingsOf(store, Q, 1, both), [], "another mix has neither");
   assert.deepEqual(doublingsOf(store, Q, 0, [{ group: USB1, channel: 3 }]), []);
 
@@ -108,7 +108,7 @@ test("a drop asks first where it would put an input into the mix twice, in the I
   // reason before any doubling; the guard is asked about each source in the dock's mix.
   const asked: string[] = [];
   const guard = { feeding: (_d: string, source: { group: number; channel: number } | undefined, _s: number, mixes: readonly number[]) => (asked.push(`${source?.group}:${source?.channel}>${mixes.join()}`), source?.channel === 0 ? ["kept"] : []) };
-  assert.deepEqual(doublingsOf(store, Q, 0, both, guard as unknown as Parameters<typeof doublingsOf>[4]), ["kept", "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
+  assert.deepEqual(doublingsOf(store, Q, 0, both, guard as unknown as Parameters<typeof doublingsOf>[4]), ["kept", "Preamp 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
   assert.deepEqual(asked, [`${PREAMP}:0>0`, `${PREAMP}:1>0`]);
 });
 

@@ -293,7 +293,7 @@ test("adding to a linked chain gives its partner the same effect on its own inst
   const sent = await answerReads(page);
   await page.goto(`${server.url}/#/effects/loopback-0`);
   await page.getByTestId("chain-add-0").selectOption("2");
-  // AFX IN 1 and 2 are linked: each gets its own instance, the two lowest free, in the order sent.
+  // AFX In 1 and 2 are linked: each gets its own instance, the two lowest free, in the order sent.
   await expect.poll(() => sent.filter((f) => f.command === "set_afx_order").map((f) => f.args)).toEqual([
     { ch_id: 0, slots: "27020100020000000000000000000000" },
     { ch_id: 1, slots: "27030101020100000000000000000000" },

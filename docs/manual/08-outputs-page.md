@@ -6,7 +6,7 @@ The Outputs page (`#/outputs`) sets the shown device's analogue outputs.
 
 ## Outputs
 
-One row per output: Monitor, HP1, HP2 and Line out on both models, and Reamp on the Studio+.
+One row per output: Monitor, HP1, HP2 and Line Out on both models, and Reamp on the Studio+.
 
 | Control | What it does |
 |---|---|
@@ -24,7 +24,7 @@ One row per output: Monitor, HP1, HP2 and Line out on both models, and Reamp on 
 
 ## Trims
 
-A trim sets an output's maximum level, from 20 dBu down to 14 dBu, to match what it feeds. The Quadro has Monitor and Line out trims; the Studio+ has Monitor, Line out and ADC.
+A trim sets an output's maximum level, from 20 dBu down to 14 dBu, to match what it feeds. The Quadro has Monitor and Line Out trims; the Studio+ has Monitor, Line Out and ADC.
 
 ## Talkback (Studio+)
 

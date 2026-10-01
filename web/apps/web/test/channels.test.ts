@@ -69,8 +69,8 @@ test("a device without a layout imports its channels from the mixer routing, ski
   assert.deepEqual(
     channels.layout.value.channels.map(({ id: _, ...rest }) => rest),
     [
-      { name: "PREAMP 2", slot: 6, source: { group: PREAMP, channel: 1 }, main_mix: 0, sends: [1] },
-      { name: "USB 1 PLAY 4", slot: 9, source: { group: USB1, channel: 3 }, main_mix: 2, sends: [] },
+      { name: "Preamp 2", slot: 6, source: { group: PREAMP, channel: 1 }, main_mix: 0, sends: [1] },
+      { name: "USB 1 Play 4", slot: 9, source: { group: USB1, channel: 3 }, main_mix: 2, sends: [] },
     ],
   );
   assert.equal(channels.configured, true);
@@ -163,7 +163,7 @@ test("a mix's outputs are the destination pairs its mix output feeds; turning on
   const channels = store.channels(Q);
   // Quadro: mix 1's output is source 6 (LOOPBACK HP1). Destinations: LINE OUT 0, HP1 1, HP2 2, MONITOR 3, USB A REC 4 (16 channels), ...
   const pairs = channels.outputPairs();
-  assert.deepEqual(pairs.slice(0, 6).map((p) => p.label), ["LINE OUT", "HP1", "HP2", "MONITOR", "USB A REC 1/2", "USB A REC 3/4"]);
+  assert.deepEqual(pairs.slice(0, 6).map((p) => p.label), ["Line Out", "HP1", "HP2", "Monitor", "USB A Rec 1/2", "USB A Rec 3/4"]);
   assert.equal(pairs.some((p) => p.label.startsWith("MIX CH")), false, "mixer inputs are channels' business, not a mix's outputs");
 
   set(Q, 3, 0, [6, 0]);
@@ -172,11 +172,11 @@ test("a mix's outputs are the destination pairs its mix output feeds; turning on
   set(Q, 4, 3, [6, 1]);
   set(Q, 1, 0, [6, 0]); // HP1 left only: not a whole pair
   await channels.loadOutputs();
-  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["MONITOR", "USB A REC 3/4"]);
+  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["Monitor", "USB A Rec 3/4"]);
 
   assert.equal(await channels.setMixOutput(0, { destination: 2, channel: 0 }, true), true);
   assert.deepEqual([at(Q, 2, 0), at(Q, 2, 1)], [[6, 0], [6, 1]]);
-  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["HP2", "MONITOR", "USB A REC 3/4"]);
+  assert.deepEqual(channels.mixOutputs(0).value.map((p) => p.label), ["HP2", "Monitor", "USB A Rec 3/4"]);
   await channels.setMixOutput(0, { destination: 3, channel: 0 }, false);
   assert.deepEqual([at(Q, 3, 0), at(Q, 3, 1)], [[MUTE, 0], [MUTE, 0]]);
   assert.deepEqual(channels.mixOutputs(1).value, [], "mix 2 feeds nothing");
@@ -186,7 +186,7 @@ test("a mix's outputs are the destination pairs its mix output feeds; turning on
 test("what feeds an output: unread until its routing is read, then the mixes whose left and right it takes and where else they play, or the sources it takes instead", async () => {
   const { client, store, set } = await setup();
   const channels = store.channels(Q);
-  // Quadro destinations: LINE OUT 0, HP1 1, HP2 2, MONITOR 3, USB A REC 4; mix 1 plays from source 6, mix 2 from 7.
+  // Quadro destinations: Line Out 0, HP1 1, HP2 2, MONITOR 3, USB A Rec 4; mix 1 plays from source 6, mix 2 from 7.
   const monitor = channels.outputFeed(3);
   assert.deepEqual(monitor.value, { state: "unread" });
   set(Q, 3, 0, [6, 0]);
@@ -203,19 +203,19 @@ test("what feeds an output: unread until its routing is read, then the mixes who
   await store.readRoutes(Q, [3]);
   assert.deepEqual(monitor.value, { state: "mixes", mixes: [0], others: [] }, "only what has been read is named");
   await channels.loadOutputs();
-  assert.deepEqual(monitor.value, { state: "mixes", mixes: [0], others: ["HP1", "USB A REC 3/4"] });
-  assert.deepEqual(channels.outputFeed(1).value, { state: "mixes", mixes: [0], others: ["MONITOR", "USB A REC 3/4"] });
-  assert.deepEqual(channels.outputFeed(2).value, { state: "none", sources: ["USB 1 PLAY 1", "USB 1 PLAY 2"] }, "played straight from USB");
-  assert.deepEqual(channels.outputFeed(0).value, { state: "none", sources: ["PREAMP 3"] }, "one source on both sides is named once");
+  assert.deepEqual(monitor.value, { state: "mixes", mixes: [0], others: ["HP1", "USB A Rec 3/4"] });
+  assert.deepEqual(channels.outputFeed(1).value, { state: "mixes", mixes: [0], others: ["Monitor", "USB A Rec 3/4"] });
+  assert.deepEqual(channels.outputFeed(2).value, { state: "none", sources: ["USB 1 Play 1", "USB 1 Play 2"] }, "played straight from USB");
+  assert.deepEqual(channels.outputFeed(0).value, { state: "none", sources: ["Preamp 3"] }, "one source on both sides is named once");
   assert.deepEqual(channels.outputFeed(5).value, { state: "none", sources: [] }, "muted in routing");
-  assert.deepEqual(channels.outputFeed(6).value, { state: "none", sources: ["LOOPBACK HP1 1"] }, "half a mix is not a mix");
+  assert.deepEqual(channels.outputFeed(6).value, { state: "none", sources: ["Loopback HP1 1"] }, "half a mix is not a mix");
 
   // It follows routing changes.
   await channels.setMixOutput(1, { destination: 3, channel: 0 }, true);
   assert.deepEqual(monitor.value, { state: "mixes", mixes: [1], others: [] });
   assert.throws(() => channels.outputFeed(8), RangeError, "a mixer input is not an output");
 
-  // The Studio+ Line out has four pairs, so more than one mix can feed it (mixes 1 and 2 play from sources 7 and 8).
+  // The Studio+ Line Out has four pairs, so more than one mix can feed it (mixes 1 and 2 play from sources 7 and 8).
   const studio = store.channels(S);
   set(S, 0, 0, [7, 0]);
   set(S, 0, 1, [7, 1]);

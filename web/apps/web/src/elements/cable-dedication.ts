@@ -12,6 +12,7 @@ import { effect } from "../core/signal.ts";
 import { usbGroups } from "../store/aggregate.ts";
 import { applyDedication, clockAdvice, destinationWords, eligibility, groupsToRead, phasePathContext, planDedication, staleness, storeRouteWriter, withoutDedication } from "../store/phase-path.ts";
 import { sourceLabel } from "../store/channels.ts";
+import { groupName } from "../store/names.ts";
 import type { Cable, Store } from "../store/store.ts";
 import { bindConfirm } from "./controls.ts";
 
@@ -165,7 +166,7 @@ export function dedicationPart(store: Store, cable: Cable, track: (dispose: () =
       const out = master === undefined ? undefined : master.outputs.findIndex((group) => group.type === cable.from.port);
       const output = master === undefined || play === undefined ? `USB playback channel ${dedication.phase_output + 1}` : sourceLabel(master, { group: play.playbackPosition, channel: dedication.phase_output });
       const socket = master === undefined || out === undefined || out < 0 ? "the cable" : destinationWords(master, out, cable.from.first);
-      const input = record === undefined ? `USB record channel ${dedication.phase_input + 1}` : `${record.record.name} ${dedication.phase_input + 1}`;
+      const input = record === undefined ? `USB record channel ${dedication.phase_input + 1}` : `${groupName(record.record)} ${dedication.phase_input + 1}`;
       kept.hidden = false;
       kept.textContent = `Dedicated to phase and clock: ${context.deviceName(cable.from.device_id)} ${output} → ${socket} → ${context.deviceName(cable.to.device_id)} ${input}`;
       const staleWhy = staleness(cable, context.workspace, context.deviceName);

@@ -2,7 +2,7 @@
 // the mix plays: a chip per output pair it feeds (× stops it) and a menu to add one, from hardware
 // outputs to the computer's record inputs. Below is the mix's master strip. The mixer page matches
 // the head's height to the channel heads (--channel-head), so faders line up. An output a cable
-// dedicated to the phase measurement keeps is marked PHASE, in the menu as on a chip, and sending the
+// dedicated to the phase measurement keeps is marked Phase, in the menu as on a chip, and sending the
 // mix there waits behind Confirm, as a change that breaks the path does on the Routing page.
 
 import { h } from "../core/dom.ts";

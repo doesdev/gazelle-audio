@@ -2,9 +2,9 @@
 
 **48V (phantom power).** Power for condenser microphones, sent down the microphone cable. Can damage ribbon microphones and some gear; switching it makes a thump. See [48V phantom power](02-safety.md#48v-phantom-power).
 
-**ADAT.** An optical digital connection carrying up to 8 channels at 44.1 or 48 kHz (fewer at higher rates). The Studio+ has two ADAT ports each way; the Quadro has ADAT in only.
+**ADAT.** An optical digital connection carrying up to 8 channels at 44.1 or 48 kHz (fewer at higher rates). The Studio+ has two ADAT ports each way; the Quadro has ADAT In only.
 
-**AFX IN, AFX OUT.** The input and output of an effect chain. Routing feeds AFX IN; AFX OUT is a source like any other.
+**AFX In, AFX Out.** The input and output of an effect chain. Routing feeds AFX In; AFX Out is a source like any other.
 
 **Backend.** What Gazelle talks to: `usb`, your real interfaces, or `loopback`, the emulator.
 
@@ -12,7 +12,7 @@
 
 **Cable (digital).** A connection between two devices' digital ports that you declare in Gazelle, so it can label signals and warn about clocks. It changes nothing on the devices.
 
-**Chain.** An effect chain: up to 8 effects in order, fed by an AFX IN.
+**Chain.** An effect chain: up to 8 effects in order, fed by an AFX In.
 
 **Channel.** On the Mixer page: a named strip for one input, with its main mix and sends.
 

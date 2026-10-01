@@ -121,6 +121,7 @@ import {
   type WitnessView,
 } from "../store/aggregate.ts";
 import { driverControls } from "../store/driver.ts";
+import { groupName } from "../store/names.ts";
 import { cableLabel, phasePathContext, reasonPage, restorePath, restoreWrites, staleness, storeRouteWriter } from "../store/phase-path.ts";
 import { displayName, SAMPLE_RATES, type Store } from "../store/store.ts";
 import { bindConfirm, confirmedChoice } from "./controls.ts";
@@ -1044,7 +1045,7 @@ export class GaAggregate extends GaElement {
   #channelRows(store: Store, device: AggregateDevice, index: number, named: string, input: boolean, count: number | undefined, naming: InterfaceNaming | undefined): Node[] {
     if (count === undefined) return [];
     const group = input ? usbGroups(naming?.topology)?.record : usbGroups(naming?.topology)?.playback;
-    const heading = h("p", { class: "side" }, input ? "INPUTS" : "OUTPUTS", group === undefined ? "" : `, ${group.name}`);
+    const heading = h("p", { class: "side" }, input ? "INPUTS" : "OUTPUTS", group === undefined ? "" : `, ${groupName(group)}`);
     return [heading, ...Array.from({ length: count }, (_, channel) => this.#channelRow(store, device, index, named, input, channel, count, naming))];
   }
 
