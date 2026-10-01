@@ -1431,6 +1431,11 @@ export const CATALOGUE: Catalogue = {
     what: "Bars the click plays before a take. Record starts the click if it is not playing, counts, and starts the take on the downbeat after the count-in.",
     effect: "The take reaches back into the pre-roll as any take does, so the count-in is in it, and every file marks the downbeat with a cue named Downbeat. Stop during the count-in starts no take.",
   },
+  "metronome.offset": {
+    title: "Latency offset",
+    what: "Milliseconds added to the round trip Gazelle Aggregate reports when a take's Downbeat is placed after a count-in, for what the drivers cannot know, such as a converter's own delay or how you monitor.",
+    effect: "The Downbeat goes where a performance in time with the click you hear lands in the take: the reported output and input latency after the click, plus this. Late against your playing: add; early: take off. The take's log says what was applied.",
+  },
   "metronome.follow": { title: "Follows Record", what: "The click plays whenever a take is recording, and stops when the take does. A click you started yourself is left alone." },
   "metronome.preview": { title: "Preview a bar", what: "Plays one bar, 12 dB under the volume, then stops.", watch: "Only while armed, so a preview never opens the interfaces by itself." },
   "metronome.explained-go": { title: "Start", what: "Starts the metronome, and this browser does not explain it again." },

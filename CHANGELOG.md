@@ -10,6 +10,14 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **The Downbeat marker lands where you play.** After a count-in, the Downbeat in a take is now
+  placed where a performance in time with the click you hear actually lands in the files, one
+  round trip of the interfaces' latency after the click was sent, instead of on the click itself.
+  A new **Latency offset** in the Metronome section fine tunes it for this computer, and the
+  take's log says how far the marker was placed and from what figures.
+
 ### Fixed
 
 - **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such

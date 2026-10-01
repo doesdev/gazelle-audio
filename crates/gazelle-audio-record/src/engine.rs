@@ -30,6 +30,7 @@ use gazelle_aggregate::status::Glitches;
 use gazelle_calibrate::Pick;
 
 use crate::host::{OpenRequest, Opened, Session, Shared};
+use crate::latency::LatencySlot;
 use crate::metronome::Params;
 use crate::recorder::Environment;
 use crate::sim::Timing;
@@ -47,6 +48,8 @@ pub struct Lease {
     pub shared: Arc<Shared>,
     pub opened: Opened,
     pub dropouts: Arc<Mutex<Vec<Glitches>>>,
+    /// The latencies the aggregate reports, as of the host thread's last look.
+    pub latency: LatencySlot,
 }
 
 /// How long opening waits for the drivers.
@@ -247,7 +250,7 @@ fn host_thread(env: Arc<dyn Environment>, request: OpenRequest, reply: mpsc::Sen
         }
     };
     let mut pump = env.pump(Timing { rate: session.opened.rate, block: session.opened.block }, session.opened.master);
-    let lease = Lease { shared: session.shared(), opened: session.opened.clone(), dropouts: session.dropouts() };
+    let lease = Lease { shared: session.shared(), opened: session.opened.clone(), dropouts: session.dropouts(), latency: session.latency() };
     if reply.send(Ok(lease)).is_err() {
         // Opening was given up on: nobody wants this session.
         return;

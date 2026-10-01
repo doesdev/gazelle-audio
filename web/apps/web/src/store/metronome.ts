@@ -18,6 +18,8 @@ export const VOLUME_MIN = -60;
 export const VOLUME_MAX = -6;
 export const VOLUME_DEFAULT = -18;
 export const COUNT_IN_MAX = 4;
+/** The latency offset either way, in ms. */
+export const OFFSET_MS_MAX = 100;
 export const DENOMINATORS = [2, 4, 8, 16] as const;
 export const NUMERATOR_MAX = 16;
 
@@ -114,6 +116,12 @@ export function metronomeState(status: MetronomeStatus | undefined): string {
 export function listText(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1) as string}`;
+}
+
+/** A latency offset as the server keeps it: -100 to 100 ms, to a hundredth. Nonsense is none. */
+export function clampOffset(ms: number): number {
+  if (!Number.isFinite(ms)) return 0;
+  return Math.min(OFFSET_MS_MAX, Math.max(-OFFSET_MS_MAX, Math.round(ms * 100) / 100));
 }
 
 /** The volume in words: "-18 dBFS". */

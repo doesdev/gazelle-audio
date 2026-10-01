@@ -108,6 +108,8 @@ export interface MetronomeSettings {
   count_in_bars: number;
   /** The click runs whenever a take does. */
   follow_record: boolean;
+  /** Milliseconds, -100 to 100, added to the latencies the aggregate reports when a take's Downbeat is placed after a count-in. */
+  latency_offset_ms: number;
 }
 
 /** `/api/v1/metronome`, and the recorder's state's `metronome`. */
