@@ -15,6 +15,8 @@ version that has not been published yet.
 - **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such
   as renaming a channel, could put the button back, so the second click asked again instead of
   going ahead.
+- **The built-in emulator's devices show 48 kHz.** With `--loopback-cyclic-ms`, the sidebar could
+  show an emulated device at a rate no interface runs at, such as 791.3 kHz.
 
 ## [2.1.0] - 2026-09-30
 

@@ -24,7 +24,7 @@ Both take the same options. `gazelle-audio-server.exe --help` lists them; this t
 | `--no-persist` | off | Keep the workspace and snapshots in memory only; nothing is saved. The phones setting and the recording settings are in memory too, so auto-arm is off |
 | `--loopback-models <MODELS>` | `quadro,studio` | Which emulated devices `--backend loopback` creates, comma-separated |
 | `--themes-dir <DIR>` | `%APPDATA%\gazelle\themes` | A folder of your own theme files |
-| `--loopback-cyclic-ms <MS>` | off | Makes the emulated devices send status and meter reports every MS milliseconds, as a moving test pattern |
+| `--loopback-cyclic-ms <MS>` | off | Makes the emulated devices send status and meter reports every MS milliseconds, as a moving test pattern; their clock stays at 48 kHz |
 | `--no-web-ui` | off | Serve only the API, not the app (and so no window) |
 | `--no-tray` | off | No tray icon, and so no window and no log file unless `--log-dir` is given. For services and test harnesses |
 | `--no-update` | off | No update checks this run |

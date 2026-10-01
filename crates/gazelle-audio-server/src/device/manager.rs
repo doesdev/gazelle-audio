@@ -22,17 +22,21 @@ use crate::registry_set::RegistrySet;
 
 /// The report id both models use for their effect meters.
 const EFFECT_METER_REPORT: u32 = 0x83;
+/// The report id both models use for their status, clock included.
+const STATUS_REPORT: u32 = 0x73;
 
 /// What a cyclic loopback's report of this layout should look like.
 ///
 /// Everything but the effect meters is a sweep over the layout's declared length, which is what
 /// every cyclic loopback report was before. The effect meters differ per model and are not their
 /// declared length on the Quadro, so they get a shape of their own: the Quadro is the model whose
-/// layout carries `variable_tail`.
+/// layout carries `variable_tail`. The status report keeps its clock at 48 kHz, so the rate shown
+/// for an emulated device is a real one.
 fn shape_of(id: u32, layout: &CyclicReport) -> Shape {
     match (id, layout.variable_tail) {
         (EFFECT_METER_REPORT, true) => Shape::QuadroEffectMeters,
         (EFFECT_METER_REPORT, false) => Shape::StudioEffectMeters,
+        (STATUS_REPORT, _) => Shape::status(layout),
         _ => Shape::Sweep(layout.fields.iter().map(Field::size).sum()),
     }
 }
