@@ -83,11 +83,18 @@ test("runtime descriptors carry every parsed field for the client and the cross-
   assert.match(code, /\} as const satisfies FamilySchema;/);
 });
 
-test("the index maps each family to its command and cyclic types", () => {
-  const index = generate([tiny(), { ...tiny(), family: "studio", source: "refs/schemas/studio_commands.json" }]).get("index.ts") ?? "";
+test("the index maps each family to its command and cyclic types, and the schemas are a file of their own", () => {
+  const files = generate([tiny(), { ...tiny(), family: "studio", source: "refs/schemas/studio_commands.json" }]);
+  const index = files.get("index.ts") ?? "";
   assert.match(index, /export type Family = "quadro" \| "studio";/);
   assert.match(index, /quadro: \{ commands: QuadroCommands; cyclic: QuadroCyclicReports \};/);
-  assert.match(index, /export const schemas = \{ quadro: quadroSchema, studio: studioSchema \} as const;/);
+  // The index brings the families' types and nothing that runs: importing it must not bring the schemas.
+  assert.match(index, /import type \{ QuadroCommands, QuadroCyclicReports \} from "\.\/quadro\.ts";/);
+  assert.doesNotMatch(index, /^import \{[^}]*\} from "\.\/(quadro|studio)\.ts";/m);
+  assert.doesNotMatch(index, /schemas =/);
+  const schemas = files.get("schemas.ts") ?? "";
+  assert.match(schemas, /import \{ quadroSchema \} from "\.\/quadro\.ts";/);
+  assert.match(schemas, /export const schemas = \{ quadro: quadroSchema, studio: studioSchema \} as const;/);
 });
 
 test("zero-length arrays are generated with a warning, not omitted", () => {
@@ -112,11 +119,13 @@ test("topology is emitted as a typed constant, indexed by family, and checked", 
     assumptions: ["group ids follow the controller"],
   };
   const files = generate([{ ...tiny(), topology }]);
-  assert.match(files.get("quadro.ts") ?? "", /export const quadroTopology = \{ "family": "quadro", "source": /);
-  assert.match(files.get("quadro.ts") ?? "", /"typeId": 8, "name": "PREAMP", "channels": 4, "color": "#25a844" \}\][\s\S]*\} as const satisfies Topology;/);
-  assert.match(files.get("index.ts") ?? "", /import \{ quadroSchema, quadroTopology, type QuadroCommands/);
+  assert.match(files.get("quadro-topology.ts") ?? "", /export const quadroTopology = \{ "family": "quadro", "source": /);
+  assert.match(files.get("quadro-topology.ts") ?? "", /"typeId": 8, "name": "PREAMP", "channels": 4, "color": "#25a844" \}\][\s\S]*\} as const satisfies Topology;/);
+  assert.doesNotMatch(files.get("quadro.ts") ?? "", /quadroTopology/, "and not beside the schema");
+  assert.match(files.get("index.ts") ?? "", /import \{ quadroTopology \} from "\.\/quadro-topology\.ts";/);
   assert.match(files.get("index.ts") ?? "", /export const topologies = \{ quadro: quadroTopology \} as const;/);
-  assert.doesNotMatch(generate([tiny()]).get("index.ts") ?? "", /topologies/, "no topology, no index entry");
+  assert.doesNotMatch(generate([tiny()]).get("index.ts") ?? "", /topologies =|-topology/, "no topology, no index entry");
+  assert.equal(generate([tiny()]).has("quadro-topology.ts"), false, "and no file");
 
   const bad = (change: object) => () => generate([{ ...tiny(), topology: { ...topology, ...change } }]);
   assert.throws(bad({ family: "studio" }), (e: unknown) => e instanceof SchemaError && e.message.includes('quadro topology: names family "studio"'));
@@ -132,7 +141,7 @@ test("the real schemas generate deterministically", () => {
     topology: JSON.parse(readFileSync(new URL(`${family}_topology.json`, SCHEMAS), "utf8")) as unknown,
   }));
   const first = generate(inputs);
-  assert.deepEqual([...first.keys()].sort(), ["index.ts", "quadro.ts", "studio.ts"]);
+  assert.deepEqual([...first.keys()].sort(), ["index.ts", "quadro-topology.ts", "quadro.ts", "schemas.ts", "studio-topology.ts", "studio.ts"]);
   assert.deepEqual(generate(inputs), first);
 });
 
@@ -155,7 +164,7 @@ test("--check passes on fresh output and fails on a changed or missing file", ()
   const out = mkdtempSync(join(tmpdir(), "gen-types-"));
   try {
     const schemasDir = new URL(SCHEMAS).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-    assert.deepEqual(run({ schemasDir, outDir: out, check: false }), { ok: true, changed: ["index.ts", "quadro.ts", "studio.ts"] });
+    assert.deepEqual(run({ schemasDir, outDir: out, check: false }), { ok: true, changed: ["index.ts", "quadro-topology.ts", "quadro.ts", "schemas.ts", "studio-topology.ts", "studio.ts"] });
     assert.deepEqual(run({ schemasDir, outDir: out, check: true }), { ok: true, changed: [] });
 
     writeFileSync(join(out, "studio.ts"), readFileSync(join(out, "studio.ts"), "utf8") + "\n// hand edit\n");

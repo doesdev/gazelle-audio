@@ -42,6 +42,7 @@ use gazelle_calibrate::{Layout, Pick};
 use serde::Serialize;
 
 use crate::capture::Capture;
+use crate::latency::{LatencySlot, Reported};
 use crate::metronome::{Generator, Params, Then};
 use crate::sizing::{self, Shape, Sizing};
 use crate::system::Memory;
@@ -372,6 +373,7 @@ pub struct Session {
     reporter: Arc<Reporter>,
     noticing: Noticing,
     dropouts: Arc<Mutex<Vec<Glitches>>>,
+    latency: LatencySlot,
     pub opened: Opened,
     closed: bool,
     _turn: MutexGuard<'static, ()>,
@@ -443,12 +445,14 @@ impl Session {
         }
         let master = aggregate.stream().map_or(0, |stream| stream.master);
         let dropouts = Arc::new(Mutex::new(aggregate.stream().map(|s| s.glitches()).unwrap_or_default()));
+        let latency = Arc::new(Mutex::new(Reported::of(&aggregate)));
         Ok(Session {
             aggregate,
             shared,
             reporter,
             noticing: Noticing::new(),
             dropouts,
+            latency,
             opened: Opened { rate, block, master, layout, inputs, outputs, outputs_problem, phase_path },
             closed: false,
             _turn: turn,
@@ -472,14 +476,24 @@ impl Session {
         Arc::clone(&self.dropouts)
     }
 
+    /// The latencies the aggregate reports, kept up to date by [`Session::housekeeping`], for the
+    /// writer to place a take's Downbeat by ([`crate::latency`]).
+    pub fn latency(&self) -> LatencySlot {
+        Arc::clone(&self.latency)
+    }
+
     /// Between blocks, never on a callback: turn what the audio path noticed into lines of the event
-    /// log, and read what the interfaces have lost.
+    /// log, read what the interfaces have lost, and read the latencies, which a phase measured in the
+    /// session's first moments can change.
     pub fn housekeeping(&mut self) {
         self.noticing.look(&self.reporter);
         if let Some(stream) = self.aggregate.stream() {
             if let Ok(mut dropouts) = self.dropouts.lock() {
                 *dropouts = stream.glitches();
             }
+        }
+        if let Ok(mut latency) = self.latency.lock() {
+            *latency = Reported::of(&self.aggregate);
         }
     }
 

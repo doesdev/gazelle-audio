@@ -95,7 +95,8 @@ test("each card shows the device's clock, power, preset and input level from its
   for (const id of ["loopback-0", "loopback-1"]) {
     const it = card(page, id);
     // The loopback's report bytes cycle, so the values move: what is checked is that each part shows.
-    await expect(it.locator(".rate")).toHaveText(/kHz|…/);
+    // The clock is the exception: the emulator holds it at 48 kHz, a rate a device can run at.
+    await expect(it.locator(".rate")).toHaveText("48.0 kHz");
     await expect(it.locator(".lock")).toHaveText(/LOCKED|NO LOCK/);
     await expect(it.locator(".power")).toHaveText(/^(On|Standby)$/);
     // The slot the device is on, named only where one can be recalled: the Studio+ (measured 2026-09-20).

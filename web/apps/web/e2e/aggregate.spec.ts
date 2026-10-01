@@ -1135,6 +1135,30 @@ test("the phase not measured reason says where to set it up, and its button open
   await expect(page.getByTestId("device-1-phase-leaves")).toBeFocused();
 });
 
+test("a trim with no phase reference is worth knowing, says what it means, and points at measuring or at the phase setup", async ({ page }) => {
+  const message =
+    "Studio+ has an input trim of 60 samples and no phase reference to go with it, so no session is lined up to the one the trim was measured in. Where Studio+'s capture starts moves by a whole multiple of 32 samples from one session to the next, so the trim is right only in a session that happens to start where its own did, and in any other a recording from Studio+ lands 32 samples or more from where the trim puts it. Measure the interfaces once under Line the interfaces up: that writes the trim again together with its reference, and every session after that is lined up to it.";
+  const reason = { code: "trim_without_reference", severity: "warning", message, device: "Studio+", device_index: 1, device_id: "loopback-1" };
+  // Set up for the phase, with a trim and no reference: measuring is the answer, so there is no button to the setup.
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+", device_id: "loopback-1", input_trim: 60, phase: { master_output: 3, input: 1 } }], callback_master: "Quadro" });
+  await fakeAggregate(page, answer({ devices: withBoth(), ready: true, reasons: [reason] }));
+  await open(page);
+  await expect(page.getByTestId("reason-severity-trim_without_reference")).toHaveText("WORTH KNOWING");
+  await expect(page.getByTestId("reason-trim_without_reference")).toHaveText(message);
+  await expect(page.getByTestId("reason-hint-trim_without_reference")).toHaveText(
+    "The trim is Input trim on Studio+'s card, and Line the interfaces up, further down this page, measures it again with its reference. A trim typed in by hand never has one.",
+  );
+  await expect(page.getByTestId("reason-goto-trim_without_reference")).toHaveCount(0);
+
+  // With no phase setup at all, its button opens the card's setup, which comes first.
+  await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+", device_id: "loopback-1", input_trim: 60 }], callback_master: "Quadro" });
+  await page.reload();
+  await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Not set up");
+  await page.getByTestId("reason-goto-trim_without_reference").click();
+  await expect(page.getByTestId("device-1-phase-part")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("device-1-phase-leaves")).toBeFocused();
+});
+
 test("checking asks twice, sends a check, and reads as a verdict with no trims to write", async ({ page }) => {
   await bothConfigured();
   const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
@@ -1355,7 +1379,7 @@ test.describe("with the routing read from the interfaces", () => {
     // The Channels part: each input named for what the routing sends it, the person's name first.
     await page.getByTestId("device-1-channels-open").click();
     await expect(page.getByTestId("device-1-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("device-1-in-1-name")).toHaveText("PREAMP 2, USB A REC 2");
+    await expect(page.getByTestId("device-1-in-1-name")).toHaveText("Preamp 2, USB A REC 2");
     await expect(page.getByTestId("device-1-in-4-name")).toHaveText("USB A REC 5", { timeout: 2000 });
     await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
     await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
@@ -1369,10 +1393,10 @@ test.describe("with the routing read from the interfaces", () => {
 
     // The calibration's pickers and its cabling name the same channels the same way.
     await page.getByTestId("calibrate-direction").selectOption("outputs");
-    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("PREAMP 1, USB REC 1");
+    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Preamp 1, USB REC 1");
     await page.getByTestId("calibrate-reference").selectOption("Quadro");
     await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 1 on Quadro into PREAMP 2, USB A REC 2 on Quadro");
+    await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 1 on Quadro into Preamp 2, USB A REC 2 on Quadro");
 
     // And the phase setup on the follower's card.
     await page.getByTestId("device-1-phase-open").click();
@@ -1520,7 +1544,7 @@ test.describe("where the DAW can record", () => {
 
     const line = (at: number) => page.getByTestId(`device-0-record-${at}`);
     await expect(page.locator('[data-testid^="device-0-record-"][data-state]')).toHaveCount(4 + 8 + 1);
-    await expect(line(0)).toContainText("Preamp 1");
+    await expect(line(0).locator(".label")).toHaveText("Preamp 1");
     await expect(page.getByTestId("device-0-record-0-text")).toHaveText("USB A REC 1 to 8 and 11 to 16, directly", { timeout: 5000 });
     await expect(page.getByTestId("device-0-record-1-text")).toHaveText("nothing records it");
     await expect(page.getByTestId("device-0-record-1-send")).toHaveText("Record it on USB A REC 9");
@@ -1542,6 +1566,10 @@ test.describe("where the DAW can record", () => {
     await expect(page.getByTestId("device-0-record-12-text")).toHaveText("USB A REC 9 to 10, directly");
     await page.getByTestId("device-0-channels-open").click();
     await expect(page.getByTestId("device-0-in-8-name")).toHaveText("SPDIF IN 1, USB A REC 9");
+    // A preamp is called Preamp 1 in the channel names too, as it is in the list above, never PREAMP 1.
+    await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Preamp 1, USB A REC 1");
+    await expect(page.getByTestId("device-0-records")).not.toContainText("PREAMP");
+    await expect(page.getByTestId("device-0-channels-part")).not.toContainText("PREAMP");
   });
 });
 

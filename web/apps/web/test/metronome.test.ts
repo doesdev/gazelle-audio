@@ -6,12 +6,12 @@ import assert from "node:assert/strict";
 
 import { GazelleError, type MetronomeStatus, type RecordingStatus } from "gazelle-audio-client";
 
-import { beatAt, clampTempo, listText, metronomeState, TAP_RESET_MS, TapTempo, tempoLine, tempoText, volumeText } from "../src/store/metronome.ts";
+import { beatAt, clampOffset, clampTempo, listText, metronomeState, TAP_RESET_MS, TapTempo, tempoLine, tempoText, volumeText } from "../src/store/metronome.ts";
 import { RecordingModel, stateLabel } from "../src/store/recording.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, FakeClient, MemoryStorage } from "./fake-client.ts";
 
-const settings = { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false } as const;
+const settings = { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false, latency_offset_ms: 0 } as const;
 
 function status(change: Partial<MetronomeStatus> = {}): MetronomeStatus {
   return { running: true, open: true, beat: 1, bar: 1, beats_per_bar: 4, beat_seconds: 0.5, since_beat_seconds: 0, at_ms: 10_000, outputs: [], settings: { ...settings, outputs: [] }, ...change };
@@ -27,6 +27,14 @@ test("a tempo is 20 to 400 in steps of 0.1, and says itself plainly", () => {
   assert.equal(tempoLine({ ...settings, outputs: [], numerator: 6, denominator: 8, tempo: 97.5 }), "97.5 BPM, 6/8");
   assert.equal(volumeText(-18.4), "-18 dBFS");
   assert.equal(volumeText(3), "-6 dBFS", "never shown louder than the ceiling");
+});
+
+test("a latency offset is -100 to 100 ms, to a hundredth, and nonsense is none", () => {
+  assert.equal(clampOffset(1.234), 1.23);
+  assert.equal(clampOffset(-2.5), -2.5);
+  assert.equal(clampOffset(250), 100);
+  assert.equal(clampOffset(-250), -100);
+  assert.equal(clampOffset(Number.NaN), 0);
 });
 
 test("tap tempo averages the last few taps, starts again after a pause, and counts quarter notes", () => {

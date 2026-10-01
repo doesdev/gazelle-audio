@@ -20,8 +20,9 @@
 //! - **Record with a count-in** starts the click if it is not running, and the callback starts the
 //!   take itself on the downbeat after the count-in, exactly as a Record pressed on that sample would:
 //!   reaching back into the pre-roll, which holds the count-in. The take's clock counts from the press,
-//!   and every file carries a cue on the downbeat ([`crate::writer`]). Stop during the count-in cancels
-//!   it and no take is started.
+//!   and every file carries a cue on the downbeat ([`crate::writer`]), placed where a performer playing
+//!   with the heard click lands ([`crate::latency`]). Stop during the count-in cancels it and no take
+//!   is started.
 //! - **Disarm** stops any take, takes the tap off the callback, lets the writer finish, frees the
 //!   memory and lets go of the session, which closes unless the metronome is still playing.
 //!   Disarming while recording is a stop and a disarm; the page asks first, and so does this
@@ -51,6 +52,7 @@ use crate::alignment::{self, AlignmentLive, Board, Checker, SharedBoard};
 use crate::capture::Capture;
 use crate::engine::{Engine, Lease, User};
 use crate::host::{self, ArmRequest, Armed, Channel};
+use crate::latency::{OffsetSlot, OFFSET_MS_MAX};
 use crate::metronome::{Params, Then, COUNT_IN_MAX};
 use crate::sim::Timing;
 use crate::sizing::Sizing;
@@ -317,6 +319,9 @@ pub struct Recorder {
     last_preset: Mutex<Option<String>>,
     /// This PC's Cubase seed, which every take's writer reads when the take finishes.
     cubase_seed: SeedSlot,
+    /// This PC's offset for the Downbeat, in milliseconds, which every take's writer reads when the
+    /// take finishes.
+    offset_ms: OffsetSlot,
 }
 
 /// How long the writer waits when there is nothing to write.
@@ -338,6 +343,7 @@ impl Recorder {
             problem: Mutex::new(None),
             last_preset: Mutex::new(None),
             cubase_seed: SeedSlot::default(),
+            offset_ms: OffsetSlot::default(),
         }
     }
 
@@ -461,6 +467,8 @@ impl Recorder {
             originator: self.env.originator(),
             rf64_limit: RF64_AT,
             cubase_seed: Arc::clone(&self.cubase_seed),
+            latency: Arc::clone(&lease.latency),
+            offset_ms: Arc::clone(&self.offset_ms),
         };
         let board = match &lease.opened.phase_path {
             Ok(path) => Board::checking(&path.name),
@@ -748,6 +756,18 @@ impl Recorder {
         let mut click = self.click();
         click.count_in_bars = count_in_bars;
         click.follow = follow;
+        Ok(())
+    }
+
+    /// **This PC's offset for the Downbeat**, in milliseconds either way, on top of the latencies the
+    /// aggregate reports ([`crate::latency`]). A take being recorded uses what is set when it finishes.
+    pub fn set_downbeat_offset_ms(&self, ms: f64) -> Result<(), String> {
+        if !(ms.is_finite() && (-OFFSET_MS_MAX..=OFFSET_MS_MAX).contains(&ms)) {
+            return Err(format!("the latency offset is between -{OFFSET_MS_MAX} and {OFFSET_MS_MAX} ms, not {ms}"));
+        }
+        if let Ok(mut offset) = self.offset_ms.lock() {
+            *offset = ms;
+        }
         Ok(())
     }
 

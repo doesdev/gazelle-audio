@@ -211,7 +211,7 @@ export const CATALOGUE: Catalogue = {
   "dock.open-mixer": { title: "Open the Mixer page", what: "No channel is set up in this mix yet; channels are set up on the Mixer page." },
   "dock.drop-confirm": {
     title: "Confirm",
-    what: "The sources just dropped would put an input into this mix a second time, so the mix would sum it twice, about 6 dB louder. Press Confirm to add them anyway.",
+    what: "The sources just dropped would put an input into this mix a second time, so the mix would sum it twice, about 6 dB louder, or one of them is the playback channel a dedicated cable keeps for the phase measurement, which would then play into this mix too. The line beside this says which. Press Confirm to add them anyway.",
     effect: "Nothing has been added or sent yet. Left alone for a few seconds, the question goes away and nothing is added.",
   },
   "dock.drop-cancel": { title: "Cancel", what: "Adds nothing: the sources just dropped are left out of the mix." },
@@ -283,6 +283,11 @@ export const CATALOGUE: Catalogue = {
   },
   "strip.level": { title: "Level", what: "The fader's level in dB." },
   "strip.peak": { title: "Peak", what: "The loudest recent level on the meter, in dB below full scale: the value the peak marker holds. Below -60 it reads < -60." },
+  "strip.phase": {
+    title: "Kept for the phase measurement",
+    what: "This channel's input is the playback channel a cable dedicated to the phase measurement keeps for itself, as the Routing page marks it. Its tooltip names the cable.",
+    effect: "The short burst the driver plays into that playback channel at the start of every session then plays in this channel's mixes too. The Aggregate page says the phase path is broken and offers to put it back.",
+  },
   "strip.doubled": {
     title: "Summed twice",
     what: "The same audio reaches this mix twice: two channels on one input, or a channel whose empty effect chain passes the other's input straight through.",
@@ -323,11 +328,11 @@ export const CATALOGUE: Catalogue = {
     title: "In this mix",
     what: "Whether the channel is in the mix you picked. Its main mix reads Main mix; any other mix can take it as a send.",
     effect: "Add routes the channel's input into this mix; taking it out mutes it there. Its level in each mix is its own.",
-    watch: "Adding a channel whose input the mix already has takes two clicks: the first reads Confirm and says what would be summed twice.",
+    watch: "Adding a channel whose input the mix already has, or whose input a dedicated cable keeps for the phase measurement, takes two clicks: the first reads Confirm and its tooltip says why.",
   },
   "channel.doubling-confirm": {
     title: "Confirm",
-    what: "The choice beside this would put one input into a mix twice, so that mix would sum it twice, about 6 dB louder. Press Confirm to do it anyway, or pick something else.",
+    what: "The choice beside this would put one input into a mix twice, so that mix would sum it twice, about 6 dB louder, or would route the playback channel a dedicated cable keeps for the phase measurement into a mix, which breaks that measurement. The tooltip says which. Press Confirm to do it anyway, or pick something else.",
     effect: "Nothing has been sent yet. Left alone for a few seconds, the menu goes back to what it had.",
     watch: "Dry into a mix alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about.",
   },
@@ -374,6 +379,12 @@ export const CATALOGUE: Catalogue = {
   "master.outputs": { title: "Where this mix plays", what: "Each output pair this mix is routed to, from the device's routing." },
   "master.output": { title: "{name}", name: "Output", what: "This mix plays on {name}." },
   "master.output-stop": { title: "Stop feeding {name}", name: "this output", what: "Mutes this mix's route to {name} on the device.", watch: "If that is the output you are listening on, it goes quiet." },
+  "master.output-confirm": {
+    title: "Confirm",
+    what: "The output chosen beside this is part of the phase path of a dedicated cable: the cable's output on the interface that sends it, or the record channel the other interface hears it on. Sending the mix there takes it from the phase measurement. The tooltip names the cable. Press Confirm to do it anyway.",
+    effect: "Nothing has been sent yet. Left alone for a few seconds, the menu goes back to how it was.",
+    watch: "The Aggregate page then says the phase path is broken and offers to put it back. To use the output for a mix, turn the cable's dedication off on the Workspace page first.",
+  },
   "master.add-output": {
     title: "Add an output",
     what: "Routes this mix to another output pair: a hardware output, or one of the computer's recording inputs.",
@@ -458,7 +469,7 @@ export const CATALOGUE: Catalogue = {
     title: "Apply the layout",
     what: "Replaces these channels with the chosen layout and routes it.",
     effect: "With channels already set up, the first click arms it and reads Confirm, and a second click within a few seconds replaces them. With none set up, one click builds the layout.",
-    watch: "It sends routing to the device for every channel in the layout, and the channels it replaces are gone unless you saved them as a layout first.",
+    watch: "It sends routing to the device for every channel in the layout, and the channels it replaces are gone unless you saved them as a layout first. A layout that would route the playback channel a dedicated cable keeps for the phase measurement takes two clicks too, and its tooltip says why.",
   },
   "mixer.layout-remove": { title: "Delete the saved layout", what: "Deletes the chosen saved layout from the workspace. " + NOTHING_SENT },
   "mixer.add-channel": { title: "Add a channel", what: "Adds a channel on the next free mixer input. It does nothing until it has an input and a main mix." },
@@ -1431,6 +1442,11 @@ export const CATALOGUE: Catalogue = {
     title: "Count-in",
     what: "Bars the click plays before a take. Record starts the click if it is not playing, counts, and starts the take on the downbeat after the count-in.",
     effect: "The take reaches back into the pre-roll as any take does, so the count-in is in it, and every file marks the downbeat with a cue named Downbeat. Stop during the count-in starts no take.",
+  },
+  "metronome.offset": {
+    title: "Latency offset",
+    what: "Milliseconds added to the round trip Gazelle Aggregate reports when a take's Downbeat is placed after a count-in, for what the drivers cannot know, such as a converter's own delay or how you monitor.",
+    effect: "The Downbeat goes where a performance in time with the click you hear lands in the take: the reported output and input latency after the click, plus this. Late against your playing: add; early: take off. The take's log says what was applied.",
   },
   "metronome.follow": { title: "Follows Record", what: "The click plays whenever a take is recording, and stops when the take does. A click you started yourself is left alone." },
   "metronome.preview": { title: "Preview a bar", what: "Plays one bar, 12 dB under the volume, then stops.", watch: "Only while armed, so a preview never opens the interfaces by itself." },

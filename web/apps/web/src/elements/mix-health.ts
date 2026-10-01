@@ -3,8 +3,9 @@
 //
 // - <ga-mix-notice device-id="…">: a notice above the channels listing each stray, solo and audible
 //   effect return by slot and source in plain words, with "Tidy this mix" behind a confirm that
-//   lists every change (store/mix-tidy.ts). After tidying it reads the mix again and says how many
-//   changes were made, and what is left if anything is.
+//   lists every change (store/mix-tidy.ts), and says first when a change would break the phase path
+//   of a dedicated cable, in the Routing page's words. After tidying it reads the mix again and says
+//   how many changes were made, and what is left if anything is.
 // - <ga-effect-returns device-id="…">: the Quadro's effect returns, AFX OUT 1 to 6 on slots 1 to 6
 //   of every mix, as slim strips before the channels (level, mute and solo; the same `set_mixer` as
 //   any strip). They show while one of them is audible or soloed, and a "Show effect returns" rail
@@ -13,7 +14,7 @@
 import { h } from "../core/dom.ts";
 import { computed, signal, untracked } from "../core/signal.ts";
 import { applyTidy, planLines, planSize, slotLabel, tidyPlan, type Naming } from "../store/mix-tidy.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, phaseGuard, sheet, useStore } from "./element.ts";
 
 /** A strip level in dB, as its readout shows it (the mixer's `formatLevel`, kept here so this chunk takes nothing of the mixer's). */
 const formatLevel = (level: number) => `${level === 0 ? 0 : -level} dB`;
@@ -31,6 +32,7 @@ export class GaMixNotice extends GaElement {
       .confirm { display: grid; gap: 6px; padding: 8px; border-radius: 3px; background: var(--ga-surface-inset); }
       .confirm label { display: flex; align-items: center; gap: 6px; }
       .done { color: var(--ga-text-secondary); }
+      .phase { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--ga-state-solo); border-radius: 3px; }
     `),
   ];
 
@@ -105,6 +107,10 @@ export class GaMixNotice extends GaElement {
           }).map((line) => h("li", {}, line)));
           fill();
           const extra: HTMLElement[] = [];
+          // A layout input put back can be the playback channel a dedicated cable keeps.
+          const kept =
+            phaseGuard()?.routes(deviceId, store.mixInput(deviceId, mix), tidyPlan(health, false).routes.map((r) => ({ channel: r.slot, source: r.to === null ? null : { source: r.to.group, channel: r.to.channel } }))) ?? [];
+          if (kept.length > 0) extra.push(h("div", { class: "phase", "data-testid": "mix-tidy-phase" }, "This breaks the phase path of a dedicated cable:", h("ul", {}, kept.map((line) => h("li", {}, line)))));
           if (returns.length > 0) {
             const tick = h("input", { type: "checkbox", "data-testid": "mix-tidy-returns", "data-explain": "mixer.tidy-returns" });
             tick.checked = muteReturns;

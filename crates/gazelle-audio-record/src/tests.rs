@@ -110,7 +110,7 @@ impl Converters {
 }
 
 fn settings(channels: Vec<String>, format: SampleFormat) -> TakeSettings {
-    TakeSettings { folder: PathBuf::from("C:/Takes"), pattern: crate::names::DEFAULT_PATTERN.into(), preset: "Band".into(), format, rate: RATE, channels, originator: "Gazelle test".into(), rf64_limit: RF64_AT, cubase_seed: Default::default() }
+    TakeSettings { folder: PathBuf::from("C:/Takes"), pattern: crate::names::DEFAULT_PATTERN.into(), preset: "Band".into(), format, rate: RATE, channels, originator: "Gazelle test".into(), rf64_limit: RF64_AT, cubase_seed: Default::default(), latency: Default::default(), offset_ms: Default::default() }
 }
 
 /// The 24-bit samples of a finished file.
@@ -365,6 +365,92 @@ fn a_take_after_a_count_in_starts_on_the_downbeat_holds_the_count_in_and_marks_t
     assert!(file[..pressed].iter().all(|&s| s == 0), "nothing before the press: the click was not playing");
     let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
     assert!(log.contains(&format!("the downbeat after it is sample {downbeat} of the take")), "{log}");
+    assert!(log.contains("Downbeat placed 0 samples after the click: the drivers reported no latency"), "a writer given no figures says so: {log}");
+}
+
+/// A cable from A's first output into A's second input through a room that takes as long as A's
+/// driver says: what the metronome plays comes back into the take the drivers' round trip later, as
+/// a performer playing with the heard click does. The fakes' own path is one block (the cable above),
+/// so the room adds the rest of what A's driver reports each way.
+struct Room {
+    converters: Converters,
+    line: std::collections::VecDeque<i32>,
+}
+
+impl Room {
+    fn block(&mut self) {
+        let half = ((self.converters.next / BLOCK as u64) & 1) as usize;
+        let arriving: Vec<i32> = self.line.drain(..BLOCK as usize).collect();
+        self.converters.a.set_input(1, half, &arriving);
+        self.converters.b.fire(half);
+        self.converters.a.fire(half);
+        self.line.extend(self.converters.a.output(0, half));
+        self.converters.next += BLOCK as u64;
+    }
+}
+
+/// **The Downbeat is where a performer in time with the heard click lands**: one round trip after
+/// the click, by the figures the aggregate reports, plus this PC's offset; and the log says so.
+#[test]
+fn after_a_count_in_the_downbeat_is_placed_where_the_click_comes_back_by_the_reported_latencies_and_the_offset() {
+    // What the click itself starts with before its first sound.
+    let params = Params { tempo_tenths: 1_500, numerator: 3, ..Params::default() };
+    let lead = {
+        let generator = crate::metronome::Generator::new(RATE, 4_096, params);
+        generator.start();
+        let mut out = vec![0.0f32; 4_096];
+        unsafe { generator.fill(&mut out) };
+        out.iter().position(|&s| s != 0.0).expect("a click")
+    };
+    for offset_ms in [0.0, 0.5] {
+        let _one = hosting();
+        let pc = two_interfaces();
+        let mut session = open(&pc, vec![Pick::new(0, 0)], params).expect("open");
+        let reported = session.latency().lock().unwrap().clone().expect("the aggregate reports its latencies");
+        // A drives the callback and B crosses a ring: B's outputs are a block longer than A's 700,
+        // and the inputs are 664 either way, so lined up the aggregate reports 764 out and 664 in.
+        assert_eq!((reported.output, reported.input), (700 + BLOCK, 600 + BLOCK));
+        let round_trip = (reported.output + reported.input) as usize;
+        let offset = (offset_ms * RATE / 1000.0) as usize;
+        let armed = arm(&session, vec![Pick::new(0, 1)], GB).expect("armed");
+        let capture = Arc::clone(armed.tap.capture());
+        let disk = Arc::new(MemoryDisk::default());
+        let take_settings = TakeSettings { latency: session.latency(), offset_ms: Arc::new(Mutex::new(offset_ms)), ..settings(vec!["A 2".into()], SampleFormat::Int24) };
+        let mut drain = Drain::new(take_settings, disk.clone(), Arc::new(StoppedClock), session.dropouts());
+        // A's driver: 700 out and 664 in, of which the fakes' cable is one block.
+        let room = (700 + 600 + BLOCK - BLOCK) as usize;
+        let mut cable = Room { converters: Converters::of(&pc), line: std::iter::repeat_n(0, BLOCK as usize + room).collect() };
+        for _ in 0..1_003 {
+            cable.block();
+            drain.step(&capture);
+        }
+        let shared = session.shared();
+        shared.generator.count_in(1, Then::Record, false);
+        for _ in 0..1_100 {
+            cable.block();
+            drain.step(&capture);
+        }
+        capture.want_recording(false);
+        cable.block();
+        while drain.step(&capture) {}
+        session.close();
+
+        let take = drain.state().lock().unwrap().takes[0].clone();
+        let bytes = disk.read(Path::new(&take.files[0]));
+        let file = samples(&bytes);
+        let pressed = (take.preroll_seconds * RATE).round() as usize;
+        let downbeat = cue(&bytes).expect("a cue on the downbeat") as usize;
+        assert_eq!(downbeat - pressed, 57_600 + round_trip + offset, "a bar after the press, one round trip and the offset later");
+        // The click on the press comes back exactly one reported round trip after it.
+        assert_eq!(first_sound(&file, pressed), pressed + round_trip + lead, "the room is as long as the drivers say");
+        // And the click on the downbeat comes back on the cue, less the offset the person set.
+        assert_eq!(first_sound(&file, downbeat - offset - 200), downbeat - offset + lead, "the performance lands on the Downbeat");
+        let log = String::from_utf8(disk.read(Path::new(&take.log))).unwrap();
+        let said = format!("Downbeat placed {} samples after the click: output 764 + input 664 reported by the aggregate, offset {offset} ({offset_ms:.2} ms).", round_trip + offset);
+        assert!(log.contains(&said), "{log}");
+        assert!(log.contains("A 664 in, 700 out; B 600 in, 700 out"), "{log}");
+        assert!(log.contains(&format!("the downbeat after it is sample {downbeat} of the take")), "{log}");
+    }
 }
 
 #[test]
@@ -584,6 +670,8 @@ fn record_with_a_count_in_counts_then_records_and_stop_stops_the_click_it_starte
     let (recorder, preset) = recorder_in(&folder);
     // 400 BPM in 2/4: a bar is 0.3 s.
     metronome(&recorder, Params { tempo_tenths: 4_000, numerator: 2, ..Params::default() }, 2, false);
+    assert!(recorder.set_downbeat_offset_ms(100.5).unwrap_err().contains("between -100 and 100 ms"));
+    recorder.set_downbeat_offset_ms(1.0).unwrap();
     recorder.arm(preset("one")).unwrap();
     recorder.record().unwrap();
     assert_eq!(recorder.state(), "counting_in");
@@ -596,7 +684,11 @@ fn record_with_a_count_in_counts_then_records_and_stop_stops_the_click_it_starte
     wait_for("the take to be written", || !recorder.takes().is_empty());
     let take = recorder.takes()[0].clone();
     let downbeat = take.downbeat_seconds.expect("a cue on the downbeat");
-    assert!((downbeat - take.preroll_seconds - 0.6).abs() < 1e-9, "two bars after the press: {downbeat} against {}", take.preroll_seconds);
+    // The aggregate's round trip, 764 out and 664 in, and the millisecond set for this PC.
+    let placed = 764.0 + 664.0 + 48.0;
+    assert!((downbeat - take.preroll_seconds - 0.6 - placed / 48_000.0).abs() < 1e-9, "two bars after the press, and placed: {downbeat} against {}", take.preroll_seconds);
+    let log = std::fs::read_to_string(&take.log).unwrap();
+    assert!(log.contains("Downbeat placed 1476 samples after the click: output 764 + input 664 reported by the aggregate, offset 48 (1.00 ms)."), "{log}");
 
     // Stop during a count-in: no take, and the click goes.
     recorder.record().unwrap();

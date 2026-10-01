@@ -20,12 +20,35 @@ version that has not been published yet.
   held: 48 checks, all at 0 samples"), or when and by how much it slipped and whether it came back,
   and the take is marked in the list. Nothing is corrected: the files keep what was recorded. With
   no phase path, the page and the log say alignment is not being checked, and why.
+- **The Downbeat marker lands where you play.** After a count-in, the Downbeat in a take is now
+  placed where a performance in time with the click you hear actually lands in the files, one
+  round trip of the interfaces' latency after the click was sent, instead of on the click itself.
+  A new **Latency offset** in the Metronome section fine tunes it for this computer, and the
+  take's log says how far the marker was placed and from what figures.
+- **The Aggregate page warns about a trim with no phase reference.** An interface with an input
+  trim and no phase reference to go with it, such as a trim typed in by hand, is lined up right
+  only in a session that happens to start where the measured one did; in any other its recordings
+  can land 32 samples or more out. Ready to use now says so, and points at measuring the
+  interfaces again, or at setting up the phase first where there is none.
+- **The Mixer guards the phase and clock cable.** While a cable is dedicated to phase and clock,
+  the Mixer page and the mixer dock mark a channel on its kept playback channel PHASE, and the
+  Input and + Output menus mark its channels "(phase)", as the Routing page does. Choosing one for
+  a channel or a mix, sending a mix to the cable's output, applying a layout, tidying a mix or
+  dropping a source on the dock that would break the path now waits for Confirm and says why.
 
 ### Fixed
 
 - **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such
   as renaming a channel, could put the button back, so the second click asked again instead of
   going ahead.
+- **The built-in emulator's devices show 48 kHz.** With `--loopback-cyclic-ms`, the sidebar could
+  show an emulated device at a rate no interface runs at, such as 791.3 kHz.
+- **A preamp is Preamp 1 all over the Aggregate page.** Where the DAW can record said Preamp 1
+  while the channel names, the cabling and the warnings said PREAMP 1. They all say Preamp 1 now,
+  and so do the channel names the DAW shows for the aggregate.
+- **A USB playback channel that only feeds an effect is no longer offered as free.** On the
+  Aggregate page, Send here could pick a channel routed into an effect and send it to an output
+  as well, so the DAW would have played it in two places.
 
 ## [2.1.0] - 2026-09-30
 

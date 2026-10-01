@@ -10,9 +10,11 @@
 // What a drop does is what the Mixer page's own controls do, one channel at a time: "+" adds a
 // channel, its Input menu chooses the source and its Main mix menu the mix (`ChannelsModel.addFed`).
 // So Gazelle routes it exactly as it would have, and the same question is asked first when the mix
-// already has that input (`doublingsOf`, the words the Input menu's Confirm uses).
+// already has that input, or when a source is the playback channel a cable dedicated to the phase
+// measurement keeps (`doublingsOf`, the words the Input menu's Confirm uses).
 
 import type { ChannelsModel } from "../store/channels.ts";
+import type { PhaseGuard } from "../store/phase-path.ts";
 import type { Store } from "../store/store.ts";
 
 /** A source channel: its group in the topology's inputs, and its channel in that group. */
@@ -77,13 +79,14 @@ export function dropHint(count: number, mixName: string): string {
 }
 
 /**
- * Why putting these sources into `mix` would sum an input twice, one line per source that would,
- * in the words the Input menu's Confirm uses; empty when none would. Reading it is reactive.
+ * Why putting these sources into `mix` would sum an input twice or, given the phase `guard`, break
+ * a dedicated phase path, one line per source that would, in the words the Input menu's Confirm
+ * uses; empty when none would. Reading it is reactive.
  */
-export function doublingsOf(store: Store, deviceId: string, mix: number, sources: readonly RouteSource[]): string[] {
+export function doublingsOf(store: Store, deviceId: string, mix: number, sources: readonly RouteSource[], guard?: PhaseGuard): string[] {
   return sources.flatMap((source) => {
     const warning = store.doublingIfAdded(deviceId, mix, "", source);
-    return warning === undefined ? [] : [warning];
+    return [...(guard?.feeding(deviceId, source, 0, [mix]) ?? []), ...(warning === undefined ? [] : [warning])];
   });
 }
 

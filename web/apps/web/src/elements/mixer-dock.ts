@@ -24,8 +24,10 @@
 // mix shown, fed by that source, made as the Mixer page's "+" and its Input and Main mix menus make
 // one. While such a drag is over it the dock is outlined and says what a drop would do, or why it
 // would not: it adds only to the device the sources belong to, so a dock showing a surface or
-// another device refuses the drop and says so. A drop that would put an input into the mix twice
-// waits behind Confirm, as the Input menu's does. Held over a folded dock, the drag opens it.
+// another device refuses the drop and says so. A drop that would put an input into the mix twice,
+// or send the playback channel a dedicated cable keeps for the phase measurement into it, waits
+// behind Confirm, as the Input menu's does. Held over a folded dock, the drag opens it. Its strips
+// carry the PHASE badge as the Mixer page's do.
 
 import { h } from "../core/dom.ts";
 import { effect, signal, untracked } from "../core/signal.ts";
@@ -34,7 +36,7 @@ import { displayName } from "../store/store.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { channelStrip } from "./channel.ts";
 import { CONFIRM_MS } from "./controls.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, phaseGuard, sheet, useStore } from "./element.ts";
 import { clearSoftLinkOnEscape, SOFT_STYLES, softLinkBar } from "./link-bar.ts";
 import { isReady, loadElement } from "./lazy.ts";
 import { href, route } from "./router.ts";
@@ -363,7 +365,7 @@ export class GaMixerDock extends GaElement {
       dismiss();
       void (async () => {
         await layoutForDrop(store, add.deviceId);
-        const doubled = doublingsOf(store, add.deviceId, add.mix, drag.sources);
+        const doubled = doublingsOf(store, add.deviceId, add.mix, drag.sources, phaseGuard());
         if (doubled.length === 0) {
           await addDroppedSources(store, add.deviceId, add.mix, drag.sources);
           return;

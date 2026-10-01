@@ -103,6 +103,13 @@ test("a drop asks first where it would put an input into the mix twice, in the I
   assert.deepEqual(doublingsOf(store, Q, 0, both), ["PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
   assert.deepEqual(doublingsOf(store, Q, 1, both), [], "another mix has neither");
   assert.deepEqual(doublingsOf(store, Q, 0, [{ group: USB1, channel: 3 }]), []);
+
+  // With a cable dedicated to the phase measurement, its kept playback channel asks first too, its
+  // reason before any doubling; the guard is asked about each source in the dock's mix.
+  const asked: string[] = [];
+  const guard = { feeding: (_d: string, source: { group: number; channel: number } | undefined, _s: number, mixes: readonly number[]) => (asked.push(`${source?.group}:${source?.channel}>${mixes.join()}`), source?.channel === 0 ? ["kept"] : []) };
+  assert.deepEqual(doublingsOf(store, Q, 0, both, guard as unknown as Parameters<typeof doublingsOf>[4]), ["kept", "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)"]);
+  assert.deepEqual(asked, [`${PREAMP}:0>0`, `${PREAMP}:1>0`]);
 });
 
 test("a device with no layout first takes the one its routing gives, so a drop cannot double what is already there", async () => {

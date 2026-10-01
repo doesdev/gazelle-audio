@@ -432,7 +432,7 @@ test("a source is named as the Routing page names it, with the person's own name
   const afx = quadroSource("AFX_OUT0");
   const mix = quadroSource("MIXER_OUT0");
   const mute = quadroSource("MUTE0");
-  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }), "PREAMP 1");
+  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }), "Preamp 1");
   assert.equal(sourceName(topologies.quadro, { source: afx, channel: 2 }), "AFX OUT 3");
   assert.equal(sourceName(topologies.quadro, { source: mute, channel: 0 }), undefined, "MUTE is nothing");
   const layout: DeviceMixer = {
@@ -444,7 +444,7 @@ test("a source is named as the Routing page names it, with the person's own name
     ],
   };
   assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }, layout), "Vocal mic", "a Mixer channel the person named");
-  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 1 }, layout), "PREAMP 2", "one they did not name is the source itself");
+  assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 1 }, layout), "Preamp 2", "one they did not name is the source itself");
   assert.equal(sourceName(topologies.quadro, { source: mix, channel: 1 }, layout), "Cue R", "a mix they named");
 });
 
@@ -464,7 +464,7 @@ test("an input is named for what routing sends its record channel, and a typed n
   assert.deepEqual(first, { usb: "USB A REC 1", carries: "Vocal mic", text: "Vocal mic, USB A REC 1", automatic: "Vocal mic" }, "the person's name for the Mixer channel that takes its source");
   assert.equal(channelName(device, it.naming[0], true, 1).text, "USB A REC 2", "nothing routed is the record channel alone");
   assert.equal(channelName(device, it.naming[0], true, 1).automatic, "USB A REC 2");
-  assert.equal(channelName(device, it.naming[0], true, 2).text, "PREAMP 3, USB A REC 3", "the source as the Routing page names it");
+  assert.equal(channelName(device, it.naming[0], true, 2).text, "Preamp 3, USB A REC 3", "a preamp as the record list names it");
   assert.equal(channelName(it.config.devices?.[1], it.naming[1], true, 0).text, "USB REC 1", "a group not read yet is not known");
   // A name the person typed wins, on the page and for the DAW, and the automatic one stays beside it.
   const typed = channelName({ ...device, input_names: { "0": "Lead vocal" } }, it.naming[0], true, 0);
@@ -480,7 +480,7 @@ test("a re-route changes the name the page shows, and leaves a typed name alone"
   const recordAt = usbGroups(topologies.quadro)?.recordPosition;
   const naming = () => twoInterfaces([{ input_names: { "1": "Talkback" } }, {}], { routing: (_, at) => (at === recordAt ? record : undefined) }).naming[0];
   const device: AggregateDevice = { key: "Q", input_names: { "1": "Talkback" } };
-  assert.equal(channelName(device, naming(), true, 0).text, "PREAMP 1, USB A REC 1");
+  assert.equal(channelName(device, naming(), true, 0).text, "Preamp 1, USB A REC 1");
   record = [{ source: afx, channel: 2 }, { source: afx, channel: 3 }];
   assert.equal(channelName(device, naming(), true, 0).text, "AFX OUT 3, USB A REC 1", "it says what would be recorded now");
   assert.equal(channelName(device, naming(), true, 1).text, "Talkback, USB A REC 2", "the typed one is untouched");
@@ -1259,6 +1259,19 @@ test("a phase not measured says where on the page to set it up", () => {
   assert.equal(reasonCard({ code: "no_cable", severity: "blocking", message: "", device: "Studio+" }, it.config), undefined);
 });
 
+test("a trim with no phase reference says where the trim is and how to measure it again, and opens the phase setup only where there is none", () => {
+  const reason = { code: "trim_without_reference" as const, severity: "warning" as const, message: "Studio+ has an input trim of 60 samples and no phase setup.", device: "Studio+", device_index: 1, device_id: "loopback-1" };
+  assert.match(String(reasonHint(reason)), /Input trim on Studio\+'s card/);
+  assert.match(String(reasonHint(reason)), /Line the interfaces up/);
+  assert.match(String(reasonHint(reason)), /typed in by hand never has one/);
+  assert.doesNotMatch(String(reasonHint(reason)), DASHES);
+  const unset = twoInterfaces([{}, { input_trim: 60 }]);
+  assert.equal(reasonCard(reason, unset.config, unset.naming), 1, "no phase setup: the button opens it");
+  const set = twoInterfaces([{}, { input_trim: 60, phase: { master_output: 8, input: 16 } }]);
+  assert.equal(reasonCard(reason, set.config, set.naming), undefined, "set up already: measuring answers it, not the setup");
+  assert.equal(reasonCard({ code: reason.code, severity: reason.severity, message: reason.message, device: "Studio+" }, unset.config, unset.naming), 1, "by Gazelle's name for it as well");
+});
+
 test("nothing the phase writes carries an en or em dash", () => {
   const texts = [
     referenceText({ was: null, now: -84 }),
@@ -1801,6 +1814,26 @@ test("an output nothing reaches offers the first free run of its width, and says
   const full = playbackOutputs(namingWith("quadro", [...OWNER, ...busy]).naming).find((one) => one.label === "Line out");
   assert.equal(full?.send, undefined);
   assert.match(String(full?.noSend), /none is free/);
+});
+
+test("a USB playback channel that only feeds an effect is in use, and is not offered as free", () => {
+  // USB 1 PLAY 3 and 4 go into AFX 1 and 2 and nowhere else, and the effects' output goes on into Mix 3.
+  const effect: [string, number, string, number][] = [
+    ["AFX_IN0", 0, "COM_PLAY0", 2],
+    ["AFX_IN0", 1, "COM_PLAY0", 3],
+    ["MIXER_IN2", 0, "AFX_OUT0", 0],
+    ["MIXER_IN2", 1, "AFX_OUT0", 1],
+  ];
+  const { config, naming, groups } = namingWith("quadro", [...OWNER, ...effect]);
+  const line = playbackOutputs(naming).find((one) => one.label === "Line out");
+  assert.deepEqual(line?.send?.run, [4, 5], "USB 1 PLAY 1 and 2 are in Mix 1 and 3 and 4 feed the effects, so the first free pair is 5 and 6");
+  assert.equal(line?.send?.label, "Send USB 1 PLAY 5 to 6 here");
+  // The effect inputs are part of what has to be read before anything is called free.
+  const afx = topologies.quadro.outputs.findIndex((group) => group.id === "AFX_IN0");
+  const unread = aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === afx ? undefined : groups.get(g)) })[0];
+  const notKnown = playbackOutputs(unread).find((one) => one.label === "Line out");
+  assert.equal(notKnown?.send, undefined);
+  assert.match(String(notKnown?.noSend), /not known until the routing has been read/);
 });
 
 test("pressing send is one routing write of the output's group, changing only its own slots", async () => {

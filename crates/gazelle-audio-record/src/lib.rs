@@ -32,6 +32,7 @@ pub mod cubase;
 pub mod engine;
 pub mod env;
 pub mod host;
+pub mod latency;
 pub mod metronome;
 pub mod names;
 pub mod recorder;

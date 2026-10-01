@@ -29,7 +29,7 @@ import { RoutingModel, type RoutingRead } from "./routing.ts";
 import { SurfacesModel } from "./surfaces.ts";
 import { CablesModel } from "./cables.ts";
 import { SnapshotsModel } from "./snapshots.ts";
-import { AggregateModel, aggregateNaming, interfaceChannels, interfaceNames, type InterfaceChannel } from "./aggregate.ts";
+import { AggregateModel } from "./aggregate-model.ts";
 import { PhonesModel } from "./phones.ts";
 import type { DriverChange, DriverReport, DriverWriteState } from "./driver.ts";
 import type { RecorderApi } from "./recording.ts";
@@ -1010,22 +1010,6 @@ export class Store {
     metronome: (action) => this.#client.recording.metronome(action),
     setMetronome: (change) => this.#client.recording.setMetronome(change),
   };
-
-  /**
-   * The aggregate's interfaces and every input (or output) it offers, named as the Aggregate page
-   * names them, for the Recording page's presets and the metronome's outputs. Read inside a watch, it
-   * follows the names as they change.
-   */
-  aggregateInputs(input = true): { devices: string[]; inputs: InterfaceChannel[] } {
-    const workspace = this.#workspace.value;
-    const naming = aggregateNaming(workspace?.aggregate, this.phone ? undefined : this.aggregate.answer.value, {
-      devices: this.#devices.value,
-      aliases: workspace?.aliases,
-      layouts: workspace?.mixers,
-      routing: (deviceId, destination) => (this.topology(deviceId) === undefined ? undefined : this.routing(deviceId).destination(destination).value),
-    });
-    return { devices: interfaceNames(workspace?.aggregate, naming), inputs: interfaceChannels(workspace?.aggregate, naming, input) };
-  }
 
   /**
    * Edits the aggregate's setup in the workspace. Saving it is what exports the file the driver

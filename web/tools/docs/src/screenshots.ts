@@ -99,7 +99,7 @@ async function putWorkspace(server: RunningServer, body: object): Promise<void> 
 
 /**
  * The emulator's status reports are a moving test pattern: every byte sweeps, so a page would show
- * a clock of "3410.7 kHz", a random preset and outputs muting and unmuting. For the pictures, the
+ * a random preset, a clock losing and finding lock and outputs muting and unmuting. For the pictures, the
  * status fields a reader would take at face value are held at a plausible, quiet state: on, preset
  * 1, the first clock source at 48 kHz and locked, nothing muted, dimmed or summed to mono. Meters
  * and levels keep moving. This changes only what the browser is shown, never the server.

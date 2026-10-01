@@ -19,7 +19,7 @@ import { PROFILES } from "../store/profiles.ts";
 import { STRIP_WIDTH_MAX, STRIP_WIDTH_MIN } from "../store/preferences.ts";
 import { meterGradient } from "../themes/theme.ts";
 import { bindConfirm } from "./controls.ts";
-import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
+import { GaElement, LAST_SENT_STYLES, phaseGuard, sheet, showLastSent, useStore } from "./element.ts";
 import { clearSoftLinkOnEscape, LINK_STYLES, linkBar, SOFT_STYLES, softLinkBar } from "./link-bar.ts";
 // Masters are <ga-mix-master>; channels <ga-channel>, whose shadow heads are measured below.
 import { replaceRoute } from "./router.ts";
@@ -237,7 +237,9 @@ export class GaMixer extends GaElement {
 
     // The mixer can always start over from a starting layout or one the user saved (value
     // "saved:<id>"), and once channels are set up they can be saved as a layout by name. Applying
-    // over channels that are set up replaces them and re-routes, so that takes a confirming click.
+    // over channels that are set up replaces them and re-routes, so that takes a confirming click,
+    // and so does a layout that would route the playback channel a dedicated cable keeps for the
+    // phase measurement, its title saying why.
     const starts = h("div", { class: "starts" });
     const failed = (error: unknown) => store.reportError(error instanceof Error ? error.message : String(error));
     // The row is rebuilt only when what it offers changes, not on every workspace or channel
@@ -313,6 +315,7 @@ export class GaMixer extends GaElement {
         sync();
         saveAs = [h("span", { class: "caption save-as" }, "Save as"), name, save];
       }
+      const applyTitle = setUp ? "Replace these channels with the chosen layout and route it: click twice, since it replaces what is set up" : "Build the chosen layout's channels and route them";
       const apply = h(
         "button",
         {
@@ -320,7 +323,7 @@ export class GaMixer extends GaElement {
           "data-testid": "profile-apply",
           "data-explain": "mixer.profile-apply",
           "aria-label": "Apply the layout",
-          title: setUp ? "Replace these channels with the chosen layout and route it: click twice, since it replaces what is set up" : "Build the chosen layout's channels and route them",
+          title: applyTitle,
         },
         "Apply",
       );
@@ -331,7 +334,11 @@ export class GaMixer extends GaElement {
           const id = chosenSaved();
           (id === undefined ? channels.applyProfile(select.value) : channels.applySavedLayout(id)).catch(failed);
         },
-        () => setUp,
+        () => {
+          const kept = phaseGuard()?.start(deviceId, select.value).join(" ");
+          apply.title = kept ? `${kept} Click twice to apply it anyway.` : applyTitle;
+          return setUp || !!kept;
+        },
       );
       const remove = h(
         "button",

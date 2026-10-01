@@ -159,6 +159,7 @@ export type AggregateReasonCode =
   | "clock_not_cabled"
   | "not_locked"
   | "phase_not_measured"
+  | "trim_without_reference"
   | "phase_path_broken"
   | "phase_dedication_stale";
 

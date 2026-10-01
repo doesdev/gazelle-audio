@@ -78,6 +78,7 @@ The **Mixer** band along the bottom of every page (except the Mixer page itself)
 - The mix menu beside the device name is the same choice as the Mixer page's Mix buttons.
 - Click the band's title to fold it away; Gazelle remembers.
 - Drag sources from the [Routing page](10-routing-page.md#adding-sources-to-a-mix) onto it to add a channel for each to the mix it shows.
+- A strip carries the same **×2** and **PHASE** badges as on the Mixer page, and a drop that would double an input or break a [dedicated cable's](09-mixer-page.md#the-phase-cable) path waits for **Confirm**, with the reason on the line above the strips.
 
 ## Notices and the "last sent" line
 

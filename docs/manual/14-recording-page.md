@@ -133,7 +133,11 @@ A change of tempo, signature or clicks between the beats takes effect at the nex
 
 **Count-in before a take** is 0 to 4 bars. With a count-in, **Record** starts the click if it is not already playing, plays the bars, and starts the take on the downbeat after them; the transport says **Count-in** meanwhile, and which bar it is on. A click that is already playing counts from its next downbeat.
 
-The take starts as if Record had been pressed on that downbeat: it **reaches back into the pre-roll**, which holds the count-in, so nothing you played during it is lost, and the take starts where the pre-roll starts. Its clock counts from the moment you pressed Record. **The downbeat is marked**: every file of the take carries a cue point named **Downbeat** on that sample, which a DAW that reads cue points shows as a marker to snap to, and the take's log says which sample it is.
+The take starts as if Record had been pressed on that downbeat: it **reaches back into the pre-roll**, which holds the count-in, so nothing you played during it is lost, and the take starts where the pre-roll starts. Its clock counts from the moment you pressed Record. **The downbeat is marked**: every file of the take carries a cue point named **Downbeat**, which a DAW that reads cue points shows as a marker to snap to, and the take's log says which sample it is.
+
+**The marker is where your playing lands, not where the click was sent.** You hear the click a little after Gazelle sends it (the output latency), and what you play in time with it reaches the take a little after that (the input latency), so a performance in time with the click sits one round trip later in the files. Gazelle places the Downbeat that much after the click: by the output and input latencies Gazelle Aggregate reports, which are the figures a DAW is given for the same job (each interface's own driver figures, a block for the interface that does not drive the callback, the trims a measurement on the Aggregate page wrote, and the phase measured in this session), plus the **Latency offset** below. The audio itself is not moved: the files are what the inputs received, as in a DAW. The take's log says how far the marker was placed and from what, for example `Downbeat placed 2362 samples after the click: output 1311 + input 1051 reported by the aggregate, offset 0 (0.00 ms).` If the drivers report no latency, the log says so and only the offset is used.
+
+**Latency offset**, in milliseconds from -100 to 100 and 0 to start with, moves the marker further on (or back, when negative) for what the drivers cannot know: a converter's own delay, monitoring through a mixer, how far you sit from a speaker. To set it, record a count-in with the click routed back into an input you record (or play a sharp sound exactly on the click), and look at where it lands against the Downbeat in your DAW: if it is late, add that many milliseconds; if early, take them off. A take uses the offset set when it finishes.
 
 **Stop during the count-in** cancels it, and no take is started. **Stop** after it ends the take and, when the count-in started the click, stops the click too. A click you started yourself keeps playing until you stop it.
 
@@ -143,7 +147,7 @@ Tick **Follows Record** and the click plays whenever a take is recording and sto
 
 ### Where the metronome's settings are kept
 
-In `metronome.json`, in `%APPDATA%\gazelle` beside `recording.json`: one metronome for this computer, not one per preset and not in the workspace. Its outputs are this computer's wiring, so a workspace carried to another computer does not start playing a click into whatever that computer has on those outputs. A phone may start and stop the metronome and change its tempo and volume; everything else about it is changed on the computer.
+In `metronome.json`, in `%APPDATA%\gazelle` beside `recording.json`: one metronome for this computer, not one per preset and not in the workspace. Its outputs and its latency offset are this computer's wiring, so a workspace carried to another computer does not start playing a click into whatever that computer has on those outputs. A phone may start and stop the metronome and change its tempo and volume; everything else about it is changed on the computer.
 
 ## Widget, hub and auto-arm
 

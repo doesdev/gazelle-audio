@@ -10,8 +10,10 @@
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
+import { aggregateInputs } from "../store/aggregate.ts";
 import {
   beatAt,
+  clampOffset,
   clampTempo,
   COUNT_IN_MAX,
   DENOMINATORS,
@@ -21,6 +23,7 @@ import {
   METRONOME_NOT_IN_TAKES,
   metronomeState,
   NUMERATOR_MAX,
+  OFFSET_MS_MAX,
   SOUNDS,
   SUBDIVISIONS,
   TapTempo,
@@ -110,7 +113,7 @@ export function beatLights(host: TransportHost, testid: string, most = 16): HTML
 function outputNames(status: MetronomeStatus | undefined): string[] {
   const store = useStore();
   if (status?.open === true && status.outputs.length > 0) return status.outputs.map((c) => c.name);
-  const { inputs: outputs } = untracked(() => store.aggregateInputs(false));
+  const { inputs: outputs } = untracked(() => aggregateInputs(store, false));
   return (status?.settings.outputs ?? []).map((pick) => outputs.find((c) => c.index === pick.device && c.channel === pick.channel)?.text ?? `Output ${pick.channel + 1} of interface ${pick.device + 1}`);
 }
 
@@ -246,6 +249,8 @@ export function metronomeSection(host: TransportHost): HTMLElement {
   countIn.addEventListener("change", () => set({ count_in_bars: Number(countIn.value) }));
   const follow = h("input", { type: "checkbox", "data-testid": "metronome-follow", "data-explain": "metronome.follow" });
   follow.addEventListener("change", () => set({ follow_record: follow.checked }));
+  const offset = h("input", { type: "number", min: -OFFSET_MS_MAX, max: OFFSET_MS_MAX, step: 0.01, inputmode: "decimal", "aria-label": "Latency offset in ms", "data-testid": "metronome-offset", "data-explain": "metronome.offset" });
+  commitOnEnter(offset, (value) => set({ latency_offset_ms: clampOffset(Number(value)) }), () => String(untracked(() => model.status.peek()?.metronome?.settings.latency_offset_ms) ?? ""));
 
   const outputs = h("div", { class: "outputs", "data-testid": "metronome-outputs" });
   const fixed = h("p", { class: "note", "data-testid": "metronome-outputs-fixed", hidden: true }, "The outputs are fixed while the interfaces are open. Stop the metronome and disarm to change them.");
@@ -267,8 +272,9 @@ export function metronomeSection(host: TransportHost): HTMLElement {
       sound.value = settings.sound;
       countIn.value = String(settings.count_in_bars);
       follow.checked = settings.follow_record;
+      if ((offset.getRootNode() as ShadowRoot | Document).activeElement !== offset) offset.value = String(settings.latency_offset_ms);
     }
-    for (const control of [numerator, denominator, accent, subdivision, sound, countIn, follow]) control.disabled = !connected || phone || settings === undefined;
+    for (const control of [numerator, denominator, accent, subdivision, sound, countIn, follow, offset]) control.disabled = !connected || phone || settings === undefined;
     const names = outputNames(status);
     playsTo.textContent = names.length === 0 ? "Choose where it plays: tick an output, or a pair such as the two your headphones are on." : `Plays to ${listText(names)}. ${METRONOME_NOT_IN_TAKES}`;
     outputsProblem.hidden = status?.outputs_problem === undefined;
@@ -280,7 +286,7 @@ export function metronomeSection(host: TransportHost): HTMLElement {
   let built = "";
   host.watch(() => {
     const { status, settings } = metronomeOf(store);
-    const list = store.aggregateInputs(false);
+    const list = aggregateInputs(store, false);
     const locked = phone || status?.open === true || !store.connected.value || settings === undefined;
     const chosen = settings?.outputs ?? [];
     const key = JSON.stringify([list, chosen, locked]);
@@ -324,9 +330,10 @@ export function metronomeSection(host: TransportHost): HTMLElement {
       field("Clicks between the beats", subdivision),
       volumeControl(host, "metronome"),
       field("Count-in before a take", countIn),
+      h("label", { class: "field" }, "Latency offset for the Downbeat", h("span", { class: "tempo" }, offset, h("span", { class: "unit" }, "ms"))),
     ),
     h("div", { class: "row" }, h("label", { class: "check" }, accent, "Accent the first beat of the bar"), h("label", { class: "check" }, follow, "Follows Record: plays whenever a take is recording, and stops with it")),
-    h("p", { class: "note" }, "Beats follow the time signature: 6/8 clicks eighth notes, as a DAW does, and the tempo counts quarter notes. With a count-in, Record starts the click if it is not playing, counts the bars and starts the take on the downbeat after them, reaching back into the pre-roll as any take does; the downbeat is marked in the take. Stop during the count-in starts no take."),
+    h("p", { class: "note" }, "Beats follow the time signature: 6/8 clicks eighth notes, as a DAW does, and the tempo counts quarter notes. With a count-in, Record starts the click if it is not playing, counts the bars and starts the take on the downbeat after them, reaching back into the pre-roll as any take does; the downbeat is marked in the take where a performance in time with the click you hear lands: the round trip the interfaces report after the click, plus the latency offset. Stop during the count-in starts no take."),
     h("p", { class: "note" }, `${METRONOME_HOLDS} The volume is the loudest click's peak, the downbeat's when it is accented; Gazelle never plays it louder than -6 dBFS, whatever is asked.`),
     phone ? h("p", { class: "note" }, "From a phone: start, stop, tempo and volume. The rest is changed on the computer.") : false,
     h("h3", { style: "margin: 4px 0 0; font-size: 13px" }, "Outputs"),

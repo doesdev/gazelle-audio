@@ -220,3 +220,43 @@ async fn the_latest_cyclic_report_is_kept_per_device_and_dropped_with_it() {
     assert!(devices.cyclic(&id, 0x73).is_none(), "a device that went away leaves no state behind");
     devices.shutdown_all();
 }
+
+/// The emulator's status report keeps its clock plausible and still: 48 kHz, as rate index 2 and
+/// as the measured frequency, report after report, while the rest of the report sweeps as before.
+/// Before, the sweep ran through the frequency bytes too, so the sidebar read rates such as
+/// "791.3 kHz" and the rate index jumped on every report.
+#[tokio::test]
+async fn the_cyclic_loopback_reports_a_steady_48_khz_clock() {
+    use gazelle_audio_protocol::payload::Value;
+    use gazelle_audio_server::registry_set::PID_STUDIO;
+    use std::time::Duration;
+
+    for pid in [PID_QUADRO, PID_STUDIO] {
+        let registries = RegistrySet::builtin().expect("registries");
+        let devices = DeviceManager::new(registries);
+        let mut events = devices.subscribe();
+        devices.attach_cyclic_loopbacks(&[pid], 64, Duration::from_millis(10));
+
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while tokio::time::Instant::now() < deadline && seen.len() < 4 {
+            if let Ok(Ok(ServerEvent::Device(DeviceEvent::Cyclic { report_id: 0x73, fields, .. }))) = tokio::time::timeout(tokio::time::Duration::from_millis(250), events.recv()).await {
+                seen.push(fields);
+            }
+        }
+        assert!(seen.len() >= 4, "four status reports within 5 s, got {}", seen.len());
+        let number = |fields: &std::collections::HashMap<String, Value>, name: &str| match fields.get(name) {
+            Some(Value::U64(n)) => *n as i64,
+            Some(Value::I64(n)) => *n,
+            other => panic!("{name} is not a number: {other:?}"),
+        };
+        for fields in &seen {
+            let hz = (number(fields, "sync_freq_hi") << 16) | (number(fields, "sync_freq_mid") << 8) | number(fields, "sync_freq_low");
+            assert_eq!(hz, 48_000, "the measured rate is 48 kHz");
+            assert_eq!(number(fields, "base_index"), 2, "the rate index is 48 kHz's");
+        }
+        let moving: Vec<i64> = seen.iter().map(|fields| number(fields, "sync_source") + number(fields, "adc_trim")).collect();
+        assert!(moving.windows(2).any(|w| w[0] != w[1]), "the rest of the report still moves: {moving:?}");
+        devices.shutdown_all();
+    }
+}

@@ -300,7 +300,7 @@ export class FakeClient implements Client {
     beats_per_bar: 4,
     beat_seconds: 0,
     outputs: [],
-    settings: { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false },
+    settings: { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false, latency_offset_ms: 0 },
   };
   /** The recording settings and windows the fake answers with. */
   recordingSettings: RecordingSettings = { auto_arm: false, auto_arm_preset: null, start_in_hub: false, cubase_seed: null, cubase_seed_check: null };

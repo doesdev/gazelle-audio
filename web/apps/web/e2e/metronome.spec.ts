@@ -4,6 +4,8 @@
 //
 // Screenshots for the report are written when asked for (METRONOME_SCREENSHOTS=<directory>).
 
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
 import { startServer, TEST_PEER_HEADER, type RunningServer } from "../../../packages/client/test/integration/server.ts";
@@ -28,7 +30,7 @@ const api = (path: string, init?: RequestInit) => fetch(`${server.url}/api/v1/${
 const post = (path: string, body: unknown = {}) => api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const put = (path: string, body: unknown) => api(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-const DEFAULTS = { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false };
+const DEFAULTS = { tempo: 120, numerator: 4, denominator: 4, accent: true, subdivision: "none", sound: "click", volume_db: -18, outputs: [], count_in_bars: 0, follow_record: false, latency_offset_ms: 0 };
 
 async function setUp(): Promise<void> {
   await post("metronome/stop");
@@ -139,6 +141,20 @@ test("the Metronome section picks outputs, explains the first Start, plays, chan
 test("Record with a count-in counts, starts the take on the downbeat, and Stop stops the click it started", async ({ page }) => {
   await put("metronome/settings", { outputs: [{ device: 0, channel: 6 }], tempo: 240, numerator: 2, count_in_bars: 2 });
   await open(page, "recording", { explained: true });
+  // This PC's latency offset, typed on the page, kept in its settings and shown again on a reload.
+  const offset = page.getByTestId("metronome-offset");
+  await expect(offset).toHaveValue("0");
+  await offset.fill("5");
+  await offset.press("Enter");
+  await expect.poll(async () => (await (await api("metronome/settings")).json()).latency_offset_ms).toBe(5);
+  await offset.fill("250");
+  await offset.press("Enter");
+  await expect.poll(async () => (await (await api("metronome/settings")).json()).latency_offset_ms).toBe(100);
+  await offset.fill("5");
+  await offset.press("Enter");
+  await expect.poll(async () => (await (await api("metronome/settings")).json()).latency_offset_ms).toBe(5);
+  await page.reload();
+  await expect(page.getByTestId("metronome-offset")).toHaveValue("5");
   await page.getByTestId("recording-arm").click();
   const state = page.getByTestId("recording-state");
   await expect(state).toHaveText("Armed");
@@ -154,9 +170,18 @@ test("Record with a count-in counts, starts the take on the downbeat, and Stop s
   await expect
     .poll(async () => ((await (await api("recording/takes")).json()).takes as { downbeat_seconds?: number }[])[0]?.downbeat_seconds, { timeout: 10_000 })
     .toBeGreaterThan(0);
-  const take = ((await (await api("recording/takes")).json()).takes as { downbeat_seconds: number; preroll_seconds: number; files: string[] }[])[0];
-  // Two bars of 2/4 at 240: one second after the press.
-  expect(Math.abs((take?.downbeat_seconds ?? 0) - (take?.preroll_seconds ?? 0) - 1)).toBeLessThan(0.02);
+  const take = ((await (await api("recording/takes")).json()).takes as { downbeat_seconds: number; preroll_seconds: number; files: string[]; log: string }[])[0];
+  // Two bars of 2/4 at 240 after the press, and then placed where playing with the heard click
+  // lands: the round trip the aggregate reports, and the 5 ms set above. The log says by how much.
+  const log = readFileSync(take?.log ?? "", "utf8");
+  const placed = /Downbeat placed (\d+) samples after the click: output (\d+) \+ input (\d+) reported by the aggregate, offset (\d+) \(5\.00 ms\)\./.exec(log);
+  expect(placed, log).not.toBeNull();
+  const [samples, output, input, offsetSamples] = (placed ?? []).slice(1).map(Number) as [number, number, number, number];
+  expect(output).toBeGreaterThan(0);
+  expect(input).toBeGreaterThan(0);
+  expect(samples).toBe(output + input + offsetSamples);
+  const rate = offsetSamples / 0.005;
+  expect(Math.abs((take?.downbeat_seconds ?? 0) - (take?.preroll_seconds ?? 0) - 1 - samples / rate)).toBeLessThan(0.001);
 
   // Stop during a count-in starts no take.
   const before = ((await (await api("recording/takes")).json()).takes as unknown[]).length;
