@@ -28,9 +28,9 @@ import { ROUTING_SLOTS } from "../src/store/routing.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, MemoryStorage, type Invocation } from "./fake-client.ts";
 
-// Quadro: sources PREAMP 0, USB 1 PLAY 1, SPDIF IN 4, MIX1 OUT 6, MUTE 10; destinations HP1 1,
-// MONITOR 3, SPDIF_OUT 6, MIX CH1..4 8..11. Studio+: sources PREAMP 0, SPDIF IN 5, MUTE 11;
-// destinations USB REC 6, SPDIF_OUT 8.
+// Quadro: sources Preamp 0, USB 1 Play 1, SPDIF IN 4, MIX1 OUT 6, MUTE 10; destinations HP1 1,
+// MONITOR 3, SPDIF_OUT 6, MIX CH1..4 8..11. Studio+: sources Preamp 0, SPDIF IN 5, MUTE 11;
+// destinations USB Rec 6, SPDIF_OUT 8.
 const QUADRO = "loopback-0";
 const STUDIO = "loopback-1";
 const COM_PLAY = 1;
@@ -48,7 +48,7 @@ type Pair = [number, number];
 
 const spdif: Cable = { id: "c1", from: { device_id: QUADRO, port: "SPDIF_OUT", first: 0 }, to: { device_id: STUDIO, port: "SPDIF_IN", first: 0 }, channels: 2 };
 
-/** The owner's setup: the Quadro drives the callback, the Studio+'s phase is measured over USB 1 PLAY 3 and USB REC 21. */
+/** The owner's setup: the Quadro drives the callback, the Studio+'s phase is measured over USB 1 Play 3 and USB Rec 21. */
 function ownersWorkspace(parts: Partial<Workspace> = {}): Workspace {
   return {
     version: 1,
@@ -69,9 +69,9 @@ function ownersWorkspace(parts: Partial<Workspace> = {}): Workspace {
 
 /**
  * Two fake interfaces that keep routing as a device does, one 32 slot group per destination, and a
- * store over them. The Quadro plays USB 1 PLAY 1 and 2 into Mix 1, USB 1 PLAY 3 into Mix 1 and Mix 4
- * for a headphone amp, Mix 1 to HP1, and its S/PDIF output is muted; the Studio+ records S/PDIF in L
- * on USB REC 21.
+ * store over them. The Quadro plays USB 1 Play 1 and 2 into Mix 1, USB 1 Play 3 into Mix 1 and Mix 4
+ * for a headphone amp, Mix 1 to HP1, and its S/PDIF output is muted; the Studio+ records S/PDIF In L
+ * on USB Rec 21.
  */
 async function setup(workspace = ownersWorkspace()) {
   const client = new FakeClient(device(QUADRO, "quadro", "Zen Quadro"), device(STUDIO, "studio", "Zen Studio+"));
@@ -143,21 +143,21 @@ test("only a digital cable from the callback master to a follower, both in the a
   assert.equal(outside.why, "Studio+ is not in the aggregate, so this cable carries nothing the aggregate measures.");
 });
 
-/** The owner's PC: USB 1 PLAY 16 is the highest nothing uses, and the Studio+ already records the cable. */
+/** The owner's PC: USB 1 Play 16 is the highest nothing uses, and the Studio+ already records the cable. */
 test("dedicating picks the highest free playback channel, keeps the record channel that already records the cable, and says every change", async () => {
   const { store } = await setup();
   const plan = planned(planDedication(spdif, phasePathContext(store)));
-  assert.equal(plan.output, 15, "USB 1 PLAY 16: 1 to 3 are in Mix 1 and Mix 4");
-  assert.equal(plan.input, 20, "USB REC 21 records S/PDIF in L already");
+  assert.equal(plan.output, 15, "USB 1 Play 16: 1 to 3 are in Mix 1 and Mix 4");
+  assert.equal(plan.input, 20, "USB Rec 21 records S/PDIF In L already");
   assert.deepEqual(plan.writes, [{ deviceId: QUADRO, destination: SPDIF_OUT, changes: [{ channel: 0, source: { source: COM_PLAY, channel: 15 } }] }], "the S/PDIF output's right side is muted already, so only its left changes");
   assert.deepEqual(plan.phase, { master_output: 15, input: 20 }, "a new path takes no reference from the old one");
   assert.equal(plan.referenceCleared, -37);
   assert.deepEqual(plan.lines, [
-    "On Quadro, S/PDIF out L plays USB 1 PLAY 16 directly, with no mix between (it is muted now).",
-    "On Studio+, USB REC 21 already records S/PDIF in L, so it stays as it is.",
-    "In the aggregate's setup, Studio+'s phase is measured from Quadro's USB 1 PLAY 16 to its USB REC 21 (it was USB 1 PLAY 3 to USB REC 21).",
+    "On Quadro, S/PDIF Out L plays USB 1 Play 16 directly, with no mix between (it is muted now).",
+    "On Studio+, USB Rec 21 already records S/PDIF In L, so it stays as it is.",
+    "In the aggregate's setup, Studio+'s phase is measured from Quadro's USB 1 Play 16 to its USB Rec 21 (it was USB 1 Play 3 to USB Rec 21).",
     "Its phase reference, -37 samples, is taken out, because it was measured over the old path: measure the interfaces again under Line the interfaces up on the Aggregate page to give it one.",
-    "USB 1 PLAY 16 and USB REC 21 are kept for the phase measurement and hidden from your DAW. USB 1 PLAY 3 is given back to it.",
+    "USB 1 Play 16 and USB Rec 21 are kept for the phase measurement and hidden from your DAW. USB 1 Play 3 is given back to it.",
   ]);
 });
 
@@ -175,15 +175,15 @@ test("the S/PDIF output's other side is muted, and a follower that records nothi
   await store.routing(QUADRO).load(SPDIF_OUT);
   await store.routing(STUDIO).load(S_USB_REC);
   const plan = planned(planDedication(spdif, phasePathContext(store)));
-  assert.equal(plan.input, 22, "USB REC 24 records PREAMP 2, so USB REC 23 is the highest free");
+  assert.equal(plan.input, 22, "USB Rec 24 records Preamp 2, so USB Rec 23 is the highest free");
   assert.deepEqual(plan.writes, [
     { deviceId: QUADRO, destination: SPDIF_OUT, changes: [{ channel: 0, source: { source: COM_PLAY, channel: 15 } }, { channel: 1, source: null }] },
     { deviceId: STUDIO, destination: S_USB_REC, changes: [{ channel: 22, source: { source: S_SPDIF_IN, channel: 0 } }] },
   ]);
   assert.deepEqual(plan.lines.slice(0, 3), [
-    "On Quadro, S/PDIF out L plays USB 1 PLAY 16 directly, with no mix between (it plays Mix 1 L now).",
-    "On Quadro, S/PDIF out R is muted (it plays Mix 1 R now), so the cable carries the measurement and its clock and nothing else. S/PDIF carries its clock whatever it plays.",
-    "On Studio+, USB REC 23 records S/PDIF in L (it records nothing now).",
+    "On Quadro, S/PDIF Out L plays USB 1 Play 16 directly, with no mix between (it plays Mix 1 L now).",
+    "On Quadro, S/PDIF Out R is muted (it plays Mix 1 R now), so the cable carries the measurement and its clock and nothing else. S/PDIF carries its clock whatever it plays.",
+    "On Studio+, USB Rec 23 records S/PDIF In L (it records nothing now).",
   ]);
 });
 
@@ -237,7 +237,7 @@ test("dedicating writes exactly the planned routing, one set_routing per group r
   assert.equal(again.input, 23);
   assert.deepEqual(again.writes, []);
   assert.equal(again.referenceCleared, undefined);
-  assert.equal(again.lines[0], "On Quadro, S/PDIF out L already plays USB 1 PLAY 16 and nothing else does, so it stays as it is.");
+  assert.equal(again.lines[0], "On Quadro, S/PDIF Out L already plays USB 1 Play 16 and nothing else does, so it stays as it is.");
 });
 
 test("a write that is not sent stops it before the workspace says anything", async () => {
@@ -287,13 +287,13 @@ test("the Routing page's guard names the cable for each change that would break 
   assert.equal(paths.length, 1);
   const quadro = store.topology(QUADRO)!;
   const studio = store.topology(STUDIO)!;
-  const cable = "the dedicated S/PDIF cable, Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2";
-  assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 0, source: { source: MIX1_OUT, channel: 0 } }], Q_MUTE, quadro), [`S/PDIF out L would stop playing USB 1 PLAY 16, so the phase measurement over ${cable} would hear nothing.`]);
-  assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 0, source: null }, { channel: 1, source: null }], Q_MUTE, quadro), [`S/PDIF out L would stop playing USB 1 PLAY 16, so the phase measurement over ${cable} would hear nothing.`], "muting the row");
+  const cable = "the dedicated S/PDIF cable, Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2";
+  assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 0, source: { source: MIX1_OUT, channel: 0 } }], Q_MUTE, quadro), [`S/PDIF Out L would stop playing USB 1 Play 16, so the phase measurement over ${cable} would hear nothing.`]);
+  assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 0, source: null }, { channel: 1, source: null }], Q_MUTE, quadro), [`S/PDIF Out L would stop playing USB 1 Play 16, so the phase measurement over ${cable} would hear nothing.`], "muting the row");
   assert.deepEqual(breaks(paths, QUADRO, MONITOR, [{ channel: 0, source: { source: COM_PLAY, channel: 15 } }], Q_MUTE, quadro), [
-    `USB 1 PLAY 16 would play to Monitor L as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`,
+    `USB 1 Play 16 would play to Monitor L as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`,
   ]);
-  assert.deepEqual(breaks(paths, STUDIO, S_USB_REC, [{ channel: 20, source: { source: 0, channel: 0 } }], S_MUTE, studio), [`USB REC 21 would stop recording S/PDIF in L, so the phase measurement over ${cable} would hear nothing.`]);
+  assert.deepEqual(breaks(paths, STUDIO, S_USB_REC, [{ channel: 20, source: { source: 0, channel: 0 } }], S_MUTE, studio), [`USB Rec 21 would stop recording S/PDIF In L, so the phase measurement over ${cable} would hear nothing.`]);
   assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 1, source: { source: MIX1_OUT, channel: 1 } }], Q_MUTE, quadro), [], "the right side is not the path");
   assert.deepEqual(breaks(paths, QUADRO, SPDIF_OUT, [{ channel: 0, source: { source: COM_PLAY, channel: 15 } }], Q_MUTE, quadro), [], "putting it back is not breaking it");
   assert.deepEqual(breaks(paths, STUDIO, S_USB_REC, [{ channel: 19, source: null }], S_MUTE, studio), []);
@@ -309,28 +309,28 @@ test("the Mixer's guard marks the kept channels and outputs, and says what a Mix
   const dedicated = { ...spdif, dedicated: { phase_output: 15, phase_input: 20 } };
   const { store } = await setup(ownersWorkspace({ cables: [dedicated], mixers: { [QUADRO]: { mixes: [{ name: "Monitors" }, { name: "Cue" }], groups: [], channels: [] } } }));
   const guard = phaseGuard(store);
-  const cable = "the dedicated S/PDIF cable, Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2";
+  const cable = "the dedicated S/PDIF cable, Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2";
 
   // The marks: the kept playback channel as a channel's input, the cable's output and the record channel as output pairs.
   assert.match(guard.source(QUADRO, { group: COM_PLAY, channel: 15 }) ?? "", /^Kept for the phase measurement over the dedicated S\/PDIF cable/);
   assert.equal(guard.source(QUADRO, { group: COM_PLAY, channel: 14 }), undefined);
   assert.equal(guard.source(QUADRO, undefined), undefined);
   assert.equal(guard.source(STUDIO, { group: S_SPDIF_IN, channel: 0 }), undefined, "the arriving signal is not kept: anything may record it as well");
-  assert.match(guard.output(QUADRO, SPDIF_OUT, 0) ?? "", /it plays USB 1 PLAY 16 and nothing else\.$/);
-  assert.match(guard.output(STUDIO, S_USB_REC, 20) ?? "", /it records S\/PDIF in L, and is hidden from your DAW\.$/, "the pair holding the record channel");
+  assert.match(guard.output(QUADRO, SPDIF_OUT, 0) ?? "", /it plays USB 1 Play 16 and nothing else\.$/);
+  assert.match(guard.output(STUDIO, S_USB_REC, 20) ?? "", /it records S\/PDIF In L, and is hidden from your DAW\.$/, "the pair holding the record channel");
   assert.equal(guard.output(STUDIO, S_USB_REC, 18), undefined);
   assert.equal(guard.output(QUADRO, MONITOR, 0), undefined);
 
   // A channel on the kept playback channel would route it into its mixes, named as the Mixer names them.
-  const playsToo = (mix: string) => `USB 1 PLAY 16 would play to ${mix} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`;
+  const playsToo = (mix: string) => `USB 1 Play 16 would play to ${mix} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`;
   assert.deepEqual(guard.feeding(QUADRO, { group: COM_PLAY, channel: 15 }, 6, [0, 1]), [playsToo("Monitors"), playsToo("Cue")]);
   assert.deepEqual(guard.feeding(QUADRO, { group: COM_PLAY, channel: 14 }, 6, [0, 1]), []);
   assert.deepEqual(guard.feeding(QUADRO, { group: COM_PLAY, channel: 15 }, 6, []), [], "a channel in no mix routes nothing");
   assert.deepEqual(guard.feeding(QUADRO, undefined, 6, [0]), []);
 
   // A mix sent to the cable's output, or to the pair holding the record channel, takes it from the path.
-  assert.deepEqual(guard.mixOutput(QUADRO, 0, { destination: SPDIF_OUT, channel: 0 }), [`S/PDIF out L would stop playing USB 1 PLAY 16, so the phase measurement over ${cable} would hear nothing.`]);
-  assert.deepEqual(guard.mixOutput(STUDIO, 0, { destination: S_USB_REC, channel: 20 }), [`USB REC 21 would stop recording S/PDIF in L, so the phase measurement over ${cable} would hear nothing.`]);
+  assert.deepEqual(guard.mixOutput(QUADRO, 0, { destination: SPDIF_OUT, channel: 0 }), [`S/PDIF Out L would stop playing USB 1 Play 16, so the phase measurement over ${cable} would hear nothing.`]);
+  assert.deepEqual(guard.mixOutput(STUDIO, 0, { destination: S_USB_REC, channel: 20 }), [`USB Rec 21 would stop recording S/PDIF In L, so the phase measurement over ${cable} would hear nothing.`]);
   assert.deepEqual(guard.mixOutput(QUADRO, 0, { destination: MONITOR, channel: 0 }), []);
   assert.deepEqual(guard.mixOutput(STUDIO, 0, { destination: S_USB_REC, channel: 18 }), []);
 
@@ -345,13 +345,13 @@ test("the Mixer's guard marks the kept channels and outputs, and says what a Mix
     layouts: [{ id: "kept", name: "Kept", family: "quadro", mixer: { mixes: [], groups: [], channels: [{ id: "a", name: "", slot: 9, source: { group: COM_PLAY, channel: 15 }, main_mix: 1, sends: [] }] } }],
   }));
   assert.deepEqual(guard.start(QUADRO, "saved:kept"), [playsToo("Cue")]);
-  assert.deepEqual(guard.start(QUADRO, "tracking"), [], "the Tracking layout plays USB 1 PLAY 1 and 2");
+  assert.deepEqual(guard.start(QUADRO, "tracking"), [], "the Tracking layout plays USB 1 Play 1 and 2");
   assert.deepEqual(guard.start(QUADRO, "saved:gone"), []);
 
-  // With USB 1 PLAY 1 kept instead, the Tracking layout's DAW L would route it into both its mixes.
+  // With USB 1 Play 1 kept instead, the Tracking layout's DAW L would route it into both its mixes.
   store.editWorkspace((workspace) => ({ ...workspace, cables: [{ ...spdif, dedicated: { phase_output: 0, phase_input: 20 } }] }));
   assert.equal(guard.start(QUADRO, "tracking").length, 2);
-  assert.match(guard.start(QUADRO, "tracking")[0] ?? "", /^USB 1 PLAY 1 would play to Monitors as well/);
+  assert.match(guard.start(QUADRO, "tracking")[0] ?? "", /^USB 1 Play 1 would play to Monitors as well/);
 
   // Without a dedicated cable there is nothing to mark or ask.
   store.editWorkspace((workspace) => ({ ...workspace, cables: [spdif] }));
@@ -376,7 +376,7 @@ test("the receiver's clock is offered its fix only while it does not follow the 
 /** The readiness fix the server offers for a broken dedicated path, made through the routing model. */
 test("the fix that puts a dedicated path back writes each group once, read first, through the routing model", async () => {
   const { store, set, writes } = await setup();
-  // Someone routed Mix 1 to S/PDIF out L, USB 1 PLAY 16 to the monitors, and a preamp to USB REC 21.
+  // Someone routed Mix 1 to S/PDIF Out L, USB 1 Play 16 to the monitors, and a preamp to USB Rec 21.
   set(QUADRO, SPDIF_OUT, { 0: [MIX1_OUT, 0], 1: [MIX1_OUT, 1] });
   set(QUADRO, MONITOR, { 0: [MIX1_OUT, 0], 1: [COM_PLAY, 15] });
   set(STUDIO, S_USB_REC, { 20: [0, 0] });

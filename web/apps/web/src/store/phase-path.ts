@@ -31,6 +31,7 @@ import type { Aggregate, AggregateDevice, AggregateFix, AggregatePhaseSetting, A
 import { masterIndex, phaseFromPicks, phaseSetting, usbGroups, withPhase } from "./aggregate.ts";
 import { channelSpan, portName } from "./cables.ts";
 import { sourceLabel } from "./channels.ts";
+import { groupName } from "./names.ts";
 import { PROFILES } from "./profiles.ts";
 import type { RouteSlot } from "./routing.ts";
 import { displayName, type Store } from "./store.ts";
@@ -96,25 +97,24 @@ const portKind = (port: string): "S/PDIF" | "ADAT" => (port.startsWith("ADAT") ?
 /** A channel of a stereo pair as L or R, and of anything else as its number from one. */
 const side = (channel: number, channels: number): string => (channels === 2 ? (channel === 0 ? "L" : "R") : String(channel + 1));
 
-/** "Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2", as the Workspace page names a cable. */
+/** "Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2", as the Workspace page names a cable. */
 export function cableLabel(cable: Cable, deviceName: (deviceId: string) => string): string {
   const end = (e: Cable["from"]) => `${deviceName(e.device_id)} ${portName(e.port)} ${channelSpan(e.first + 1, e.first + cable.channels)}`;
   return `${end(cable.from)} → ${end(cable.to)}`;
 }
 
-/** Where a destination channel is, as a person names it: "S/PDIF out L", "Monitor R", "USB REC 24", "Mix 2". */
+/** Where a destination channel is, as a person names it: "S/PDIF Out L", "Monitor R", "USB Rec 24", "Mix 2". */
 export function destinationWords(topology: Topology, destination: number, channel: number, layout?: DeviceMixer): string {
   const group = topology.outputs[destination];
   if (group === undefined) return `Destination ${destination}:${channel + 1}`;
   const mix = topology.mixers.inputGroups.indexOf(group.id);
   if (mix >= 0) return mixName(layout, mix);
-  const socket = SOCKETS[group.type];
-  if (socket !== undefined) return `${socket} ${side(channel, group.channels)}`;
-  if (group.type === "HEADPHONES") return `${group.name} ${side(channel, group.channels)}`;
-  return group.channels > 1 ? `${group.name} ${channel + 1}` : group.name;
+  if (SOCKETS.includes(group.type)) return `${groupName(group)} ${side(channel, group.channels)}`;
+  return group.channels > 1 ? `${groupName(group)} ${channel + 1}` : groupName(group);
 }
 
-const SOCKETS: Readonly<Record<string, string>> = { MONITOR: "Monitor", LINE_OUT: "Line out", SPDIF_OUT: "S/PDIF out", ADAT_OUT: "ADAT out", REAMP: "Reamp" };
+/** The hardware outputs, named by side: "Monitor L", "HP1 R", "Line Out 3". */
+const SOCKETS: readonly string[] = ["MONITOR", "LINE_OUT", "SPDIF_OUT", "ADAT_OUT", "REAMP", "HEADPHONES"];
 
 /** A mix as a person names it: their name for it, else "Mix 1". */
 function mixName(layout: DeviceMixer | undefined, mix: number): string {
@@ -122,14 +122,14 @@ function mixName(layout: DeviceMixer | undefined, mix: number): string {
   return named === undefined || named === "" ? `Mix ${mix + 1}` : named;
 }
 
-/** What a routing slot plays, in the person's words ("Mix 1 L", "S/PDIF in L", "USB 1 PLAY 3"), or undefined for MUTE. */
+/** What a routing slot plays, in the person's words ("Mix 1 L", "S/PDIF In L", "USB 1 Play 3"), or undefined for MUTE. */
 export function slotWords(topology: Topology, slot: RouteSlot | undefined, layout?: DeviceMixer): string | undefined {
   if (slot === undefined) return undefined;
   const group = topology.inputs[slot.source];
   if (group === undefined || group.type === "MUTE") return undefined;
   const mix = topology.mixers.outputGroups.indexOf(group.id);
   if (mix >= 0) return `${mixName(layout, mix)} ${side(slot.channel, group.channels)}`;
-  if (group.type === "SPDIF_IN" || group.type === "ADAT_IN") return `${portKind(group.type)} in ${side(slot.channel, group.channels)}`;
+  if (group.type === "SPDIF_IN" || group.type === "ADAT_IN") return `${groupName(group)} ${side(slot.channel, group.channels)}`;
   return sourceLabel(topology, { group: slot.source, channel: slot.channel });
 }
 
@@ -304,7 +304,7 @@ export function planDedication(cable: Cable, context: PhasePathContext): PlanRes
     group.changes.push({ channel, source });
   };
   const usbOut = sourceLabel(masterTopology, { group: master.playbackPosition, channel: output });
-  const usbIn = follower.record.channels > 1 ? `${follower.record.name} ${input + 1}` : follower.record.name;
+  const usbIn = follower.record.channels > 1 ? `${groupName(follower.record)} ${input + 1}` : groupName(follower.record);
   const outWords = (channel: number) => destinationWords(masterTopology, outDestination, channel, masterLayout);
   const was = (words: string | undefined, verb: "plays" | "records") => (words === undefined ? (verb === "plays" ? "it is muted now" : "it records nothing now") : `it ${verb} ${words} now`);
 
@@ -340,14 +340,14 @@ export function planDedication(cable: Cable, context: PhasePathContext): PlanRes
 
   const phase = phaseFromPicks(current, { master_output: output, input }) as AggregatePhaseSetting;
   const changed = current === undefined || current.master_output !== output || current.input !== input;
-  const before = current === undefined ? "" : changed ? ` (it was ${sourceLabel(masterTopology, { group: master.playbackPosition, channel: current.master_output })} to ${follower.record.name} ${current.input + 1})` : " (as it is already)";
+  const before = current === undefined ? "" : changed ? ` (it was ${sourceLabel(masterTopology, { group: master.playbackPosition, channel: current.master_output })} to ${groupName(follower.record)} ${current.input + 1})` : " (as it is already)";
   lines.push(`In the aggregate's setup, ${followerName}'s phase is measured from ${masterName}'s ${usbOut} to its ${usbIn}${before}.`);
   const reference = typeof current?.reference === "number" ? current.reference : undefined;
   const referenceCleared = changed && reference !== undefined ? reference : undefined;
   if (referenceCleared !== undefined) {
     lines.push(`Its phase reference, ${referenceCleared} samples, is taken out, because it was measured over the old path: measure the interfaces again under Line the interfaces up on the Aggregate page to give it one.`);
   }
-  const given = current === undefined ? [] : [...(current.master_output === output ? [] : [sourceLabel(masterTopology, { group: master.playbackPosition, channel: current.master_output })]), ...(current.input === input ? [] : [`${follower.record.name} ${current.input + 1}`])];
+  const given = current === undefined ? [] : [...(current.master_output === output ? [] : [sourceLabel(masterTopology, { group: master.playbackPosition, channel: current.master_output })]), ...(current.input === input ? [] : [`${groupName(follower.record)} ${current.input + 1}`])];
   const released = given.length === 0 ? "" : ` ${given.join(" and ")} ${given.length === 1 ? "is" : "are"} given back to it.`;
   lines.push(`${usbOut} and ${usbIn} are kept for the phase measurement and hidden from your DAW.${released}`);
   return { ok: true, plan: { cable, roles, output, input, writes, phase, ...(referenceCleared === undefined ? {} : { referenceCleared }), lines } };

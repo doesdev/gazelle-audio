@@ -64,7 +64,7 @@ test("a destination group is read by its position in ext3, one slot per channel"
 test("a route reads its group fresh and changes only its own slot, keeping routes made elsewhere", async () => {
   const { client, groups, routing, writes, pairsOf } = setup();
   await routing.load(MIX_CH4);
-  // Another panel routes PREAMP 2 to slot 3 after this browser read the group.
+  // Another panel routes Preamp 2 to slot 3 after this browser read the group.
   groups.set(MIX_CH4, muted(32).map((p, i): Pair => (i === 3 ? [PREAMP, 1] : p)));
 
   assert.equal(await routing.route(MIX_CH4, 7, slot(PREAMP, 2)), true);
@@ -114,11 +114,11 @@ test("nothing is written when the device does not report the group's routing", a
   const { client, routing, store, writes, device } = setup();
   client.respond = async (call) => (call.command === "get_routing" ? { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: false, response: null, response_error: "could not decode 0 bytes" } : device(call));
   assert.equal(await routing.route(MIX_CH4, 7, slot(PREAMP, 2)), false);
-  assert.match(noticeText(store), /Could not read the routing to MIX CH4: could not decode 0 bytes/);
+  assert.match(noticeText(store), /Could not read the routing to Mix Ch4: could not decode 0 bytes/);
 
   client.respond = async (call) => (call.command === "get_routing" ? { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 16, dry_run: false, response: null, response_error: null } : device(call));
   assert.equal(await routing.route(MIX_CH4, 7, slot(PREAMP, 2)), false);
-  assert.match(noticeText(store), /Routing to MIX CH4 was not changed: the device did not report its current routing/);
+  assert.match(noticeText(store), /Routing to Mix Ch4 was not changed: the device did not report its current routing/);
   assert.deepEqual(writes(), []);
 });
 

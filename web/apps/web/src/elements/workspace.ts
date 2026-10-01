@@ -325,7 +325,7 @@ export class GaWorkspace extends GaElement {
     const declare = h("button", { type: "button", "data-testid": "cable-declare", "data-explain": "workspace.cable-declare" }, "Declare cable");
     const problem = h("p", { class: "problem", role: "alert", "data-testid": "cable-problem", hidden: true });
 
-    // Each port of each attached device, by its ADAT ports' eights ("ADAT out 9 to 16") or whole.
+    // Each port of each attached device, by its ADAT ports' eights ("ADAT Out 9 to 16") or whole.
     const ends = (side: "out" | "in") =>
       store.devices.value.flatMap((device) =>
         store.cables.portsOf(device.id, side).flatMap((port) => {

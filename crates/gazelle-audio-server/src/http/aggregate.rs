@@ -690,7 +690,7 @@ mod tests {
         assert!(drivers.iter().any(|d| d["is_aggregate"] == true));
     }
 
-    /// The owner's PC, through the route: the Quadro's USB 1 PLAY 3 put into Mix 1 and Mix 4 for a
+    /// The owner's PC, through the route: the Quadro's USB 1 Play 3 put into Mix 1 and Mix 4 for a
     /// headphone amp, its S/PDIF output muted, and the Studio+'s phase still set up over them. The
     /// routing is what the server remembers of the writes it sent, as it would be at the devices.
     #[tokio::test]
@@ -724,7 +724,7 @@ mod tests {
         assert_eq!(reason["severity"], "warning");
         assert_eq!(reason["device"], "Studio+");
         let message = reason["message"].as_str().unwrap();
-        assert!(message.starts_with("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L is muted, not USB 1 PLAY 3; USB 1 PLAY 3 also goes to Mix 1 and Mix 4,"), "{message}");
+        assert!(message.starts_with("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L is muted, not USB 1 Play 3; USB 1 Play 3 also goes to Mix 1 and Mix 4,"), "{message}");
         assert!(reason.get("fix").is_none(), "the cable is not dedicated, so nothing is offered to undo the mixes");
     }
 

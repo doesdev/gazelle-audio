@@ -58,7 +58,7 @@ test("a muted strip, one at the floor, and a MUTE slot play nothing and are not 
 });
 
 test("a solo on a Quadro effect return counts even when it is muted, and is not shown by any channel", () => {
-  // The owner's Mix 1: AFX OUT 5 and 6 soloed, muted, at -2 dB.
+  // The owner's Mix 1: AFX Out 5 and 6 soloed, muted, at -2 dB.
   const afx = Object.fromEntries(Array.from({ length: 6 }, (_, k) => [k, [AFX_OUT, k] as [number, number]]));
   const strip = (slot: number): StripState => (slot === 4 || slot === 5 ? { ...unity, level: 2, mute: true, solo: true } : slot < 4 ? { ...unity, level: LEVEL_MAX } : unity);
   const health = mixHealth(quadro, slots({ ...afx, 6: [PREAMP, 0], 7: [PREAMP, 1] }), strip, [channel("a", 6, PREAMP, 0), channel("b", 7, PREAMP, 1)]);
@@ -155,7 +155,7 @@ test("the owner's Quadro: Mix 1's hidden solos and Mix 4's leftover USB pair are
     [6, USB1, 2],
     [7, USB1, 3],
   ]);
-  assert.deepEqual(hp2?.returns.map((s) => s.slot), [4, 5], "AFX OUT 5 and 6 play in HP2 at unity");
+  assert.deepEqual(hp2?.returns.map((s) => s.slot), [4, 5], "AFX Out 5 and 6 play in HP2 at unity");
 });
 
 test("tidying Mix 4 writes one set_routing muting only the leftover slots, leaves the effect returns alone, and reads the mix again", async () => {
@@ -164,8 +164,8 @@ test("tidying Mix 4 writes one set_routing muting only the leftover slots, leave
   assert.ok(health);
   const plan = tidyPlan(health, false);
   assert.deepEqual(planLines(plan, naming(store), () => ""), [
-    "Slot 7: route MUTE in place of USB 1 PLAY 3, which is not one of this mix's channels",
-    "Slot 8: route MUTE in place of USB 1 PLAY 4, which is not one of this mix's channels",
+    "Slot 7: route Mute in place of USB 1 Play 3, which is not one of this mix's channels",
+    "Slot 8: route Mute in place of USB 1 Play 4, which is not one of this mix's channels",
   ]);
   client.invocations.length = 0;
   assert.equal(await applyTidy(store, "loopback-0", 3, plan), 2);
@@ -190,7 +190,7 @@ test("tidying Mix 4 writes one set_routing muting only the leftover slots, leave
 test("tidying Mix 1 clears both solos with set_mixer, keeping level and mute; asked to, a tidy also mutes the effect returns", async () => {
   const { client, store, strips } = await ownersQuadro();
   const plan = tidyPlan(store.mixHealth("loopback-0", 0).value!, false);
-  assert.deepEqual(planLines(plan, naming(store), () => ""), ["AFX OUT 5 (slot 5): clear its solo", "AFX OUT 6 (slot 6): clear its solo"]);
+  assert.deepEqual(planLines(plan, naming(store), () => ""), ["AFX Out 5 (slot 5): clear its solo", "AFX Out 6 (slot 6): clear its solo"]);
   client.invocations.length = 0;
   assert.equal(await applyTidy(store, "loopback-0", 0, plan), 2);
   assert.deepEqual(
@@ -206,7 +206,7 @@ test("tidying Mix 1 clears both solos with set_mixer, keeping level and mute; as
 
   // Mix 4 with "also mute the effect returns": the two strays and the two playing returns.
   const hp2 = tidyPlan(store.mixHealth("loopback-0", 3).value!, true);
-  assert.deepEqual(planLines(hp2, naming(store), () => "").slice(2), ["AFX OUT 5 (slot 5): mute this effect return", "AFX OUT 6 (slot 6): mute this effect return"]);
+  assert.deepEqual(planLines(hp2, naming(store), () => "").slice(2), ["AFX Out 5 (slot 5): mute this effect return", "AFX Out 6 (slot 6): mute this effect return"]);
   client.invocations.length = 0;
   assert.equal(await applyTidy(store, "loopback-0", 3, hp2), 4);
   assert.deepEqual(
@@ -229,7 +229,7 @@ test("a channel on the wrong input is routed back to its layout input, not muted
   await store.readRoutes("loopback-0", MIX_IN);
   const plan = tidyPlan(store.mixHealth("loopback-0", 0).value!, false);
   assert.deepEqual(planLines(plan, naming(store), (id) => store.channels("loopback-0").displayName(store.channels("loopback-0").channel(id)!)), [
-    "Slot 7: route Vox's input PREAMP 1 again, in place of PREAMP 4, as applying the layout would",
+    "Slot 7: route Vox's input Preamp 1 again, in place of Preamp 4, as applying the layout would",
   ]);
   assert.equal(await applyTidy(store, "loopback-0", 0, plan), 1);
   assert.deepEqual(routes[MIX_IN[0] as number]?.[6], { source: PREAMP, channel: 0 });

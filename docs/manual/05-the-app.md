@@ -63,7 +63,7 @@ At the right, two menus. **Double-click** chooses what a double-click does to a 
 One sidebar holds three sections, each folded or opened by clicking its title. It sits on the right; the arrow button at its top moves it to the other side, and the double arrow folds it to a narrow rail.
 
 - **Devices.** A card per interface: its name, the measured clock rate and **LOCKED** or **NO LOCK**, **On** or **Standby**, the current preset (Studio+ only), and a light that shows input signal (and turns to the clip colour briefly on a clip). Click a card to show that device on the current page.
-- **Meter.** The shown device's outputs as level bars with a held peak and a clip light. The Quadro reports Monitor, HP1, HP2 and Line out; the Studio+ reports its output levels in a way Gazelle does not read yet, so it shows a note instead. **Clear** clears every clip light on every device; the menu beside it sets how long a clip light stays lit after the clip ends (2, 5, 10 or 30 seconds, or **Hold** until cleared). Clicking a single clip light clears it.
+- **Meter.** The shown device's outputs as level bars with a held peak and a clip light. The Quadro reports Monitor, HP1, HP2 and Line Out; the Studio+ reports its output levels in a way Gazelle does not read yet, so it shows a note instead. **Clear** clears every clip light on every device; the menu beside it sets how long a clip light stays lit after the clip ends (2, 5, 10 or 30 seconds, or **Hold** until cleared). Clicking a single clip light clears it.
 - **Control Room.** The outputs you monitor on, for the shown device: by default Monitor, HP1 and HP2; the **CR** button on the Outputs page adds or removes others. Each has a volume bar, **Mute**, **Dim** (Quadro) and **Mono**, and a caption saying what feeds it. On a Studio+, the talkback controls sit below: a **Talk** button you hold, the talkback level, and which of HP1, HP2 and Monitor it goes to.
 
 ![The Control Room panel for a Quadro with four outputs chosen, each with its volume, Mute, Dim and Mono.](../images/control-room.png)
@@ -78,7 +78,7 @@ The **Mixer** band along the bottom of every page (except the Mixer page itself)
 - The mix menu beside the device name is the same choice as the Mixer page's Mix buttons.
 - Click the band's title to fold it away; Gazelle remembers.
 - Drag sources from the [Routing page](10-routing-page.md#adding-sources-to-a-mix) onto it to add a channel for each to the mix it shows.
-- A strip carries the same **×2** and **PHASE** badges as on the Mixer page, and a drop that would double an input or break a [dedicated cable's](09-mixer-page.md#the-phase-cable) path waits for **Confirm**, with the reason on the line above the strips.
+- A strip carries the same **×2** and **Phase** badges as on the Mixer page, and a drop that would double an input or break a [dedicated cable's](09-mixer-page.md#the-phase-cable) path waits for **Confirm**, with the reason on the line above the strips.
 
 ## Notices and the "last sent" line
 

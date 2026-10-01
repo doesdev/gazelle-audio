@@ -488,8 +488,8 @@ mod tests {
         assert_eq!(inputs.len(), 16, "one for each of its sixteen USB record channels");
         assert_eq!(inputs["0"], "Vocal mic");
         assert_eq!(inputs["10"], "Room");
-        assert_eq!(inputs["1"], "USB A REC 2", "a channel whose routing is not known yet is its record channel");
-        assert_eq!(document["devices"][0]["output_names"]["15"], "USB 1 PLAY 16");
+        assert_eq!(inputs["1"], "USB A Rec 2", "a channel whose routing is not known yet is its record channel");
+        assert_eq!(document["devices"][0]["output_names"]["15"], "USB 1 Play 16");
         assert_eq!(document["devices"][1]["input_names"].as_object().map(|m| m.len()), Some(24), "and the Studio+'s twenty four");
         // Every label fits what the interface carries.
         for device in document["devices"].as_array().unwrap() {
@@ -551,15 +551,15 @@ mod tests {
             },
         );
         config.devices[0].input_names = [(1, "Talkback".to_string())].into_iter().collect();
-        // USB A REC 1 takes PREAMP 1, which the person's Mixer channel calls Vocal mic.
+        // USB A Rec 1 takes Preamp 1, which the person's Mixer channel calls Vocal mic.
         config.devices[0].known.as_mut().unwrap().routing = [("COM_REC0".to_string(), vec![[0, 0], [0, 1]])].into_iter().collect();
         let before = export_document(&config, &workspace);
         assert_eq!(before["devices"][0]["input_names"]["0"], "Vocal mic");
         assert_eq!(before["devices"][0]["input_names"]["1"], "Talkback");
-        // Routed from AFX OUT 3 instead.
+        // Routed from AFX Out 3 instead.
         config.devices[0].known.as_mut().unwrap().routing = [("COM_REC0".to_string(), vec![[5, 2], [0, 1]])].into_iter().collect();
         let after = export_document(&config, &workspace);
-        assert_eq!(after["devices"][0]["input_names"]["0"], "AFX OUT 3");
+        assert_eq!(after["devices"][0]["input_names"]["0"], "AFX Out 3");
         assert_eq!(after["devices"][0]["input_names"]["1"], "Talkback", "the typed name is untouched");
         assert_ne!(before, after);
     }

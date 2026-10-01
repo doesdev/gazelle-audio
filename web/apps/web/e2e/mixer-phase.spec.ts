@@ -1,8 +1,8 @@
 // The Mixer page and the dock with a cable dedicated to the phase measurement, on the loopback.
 //
-// The Quadro plays USB 1 PLAY 16 straight to its S/PDIF output, and the Studio+ records S/PDIF in L
-// on USB REC 21: the dedicated path, written as dedicating the cable writes it. The Mixer marks the
-// channel on the kept playback channel PHASE, as the Routing page does, and a Mixer change that
+// The Quadro plays USB 1 Play 16 straight to its S/PDIF output, and the Studio+ records S/PDIF In L
+// on USB Rec 21: the dedicated path, written as dedicating the cable writes it. The Mixer marks the
+// channel on the kept playback channel Phase, as the Routing page does, and a Mixer change that
 // would break the path (a channel's input or mix, a send, a mix sent to the cable's output or to the
 // kept record channel, a layout, a tidy, a drop on the dock) waits behind a confirm that says why.
 // Every command the page sends a device is captured from the event socket, so a guarded change is
@@ -30,8 +30,8 @@ const PREAMP = 0, COM_PLAY = 1, Q_MUTE = 10;
 // The Studio+'s USB record group, its S/PDIF input and MUTE.
 const S_USB_REC = 6, S_SPDIF_IN = 5, S_MUTE = 11;
 
-const CABLE = "the dedicated S/PDIF cable, Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2";
-const playsToo = (mix: string) => `USB 1 PLAY 16 would play to ${mix} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${CABLE}`;
+const CABLE = "the dedicated S/PDIF cable, Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2";
+const playsToo = (mix: string) => `USB 1 Play 16 would play to ${mix} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${CABLE}`;
 
 /** One destination group's 32 slots, MUTE except where `slots` says, written through the command route. */
 async function route(device: string, group: number, slots: Record<number, [number, number]>): Promise<void> {
@@ -42,8 +42,8 @@ async function route(device: string, group: number, slots: Record<number, [numbe
 }
 
 /**
- * The dedicated path, and a Quadro mixer with Vox on PREAMP 1, a channel laid out on the kept
- * playback channel (which the device plays PREAMP 2 into instead, so Tidy would put it back), and a
+ * The dedicated path, and a Quadro mixer with Vox on Preamp 1, a channel laid out on the kept
+ * playback channel (which the device plays Preamp 2 into instead, so Tidy would put it back), and a
  * spare channel in Monitors with no input yet. A saved layout puts a channel on the kept channel too.
  */
 async function dedicated(): Promise<void> {
@@ -88,7 +88,7 @@ function routings(page: Page): { device_id: string; bank_idx: number; pairs: str
   return sent;
 }
 
-test("the Mixer marks the kept playback channel PHASE and asks before a change that breaks the phase path", async ({ page }) => {
+test("the Mixer marks the kept playback channel Phase and asks before a change that breaks the phase path", async ({ page }) => {
   await dedicated();
   const sent = routings(page);
   await page.goto(`${server.url}/#/mixer/loopback-0`);
@@ -96,12 +96,12 @@ test("the Mixer marks the kept playback channel PHASE and asks before a change t
   // The channel on the kept playback channel is marked, with the cable in its tooltip; Vox is not.
   const badge = page.getByTestId("phase-7");
   await expect(badge).toBeVisible({ timeout: 15_000 });
-  await expect(badge).toHaveText("PHASE");
-  await expect(badge).toHaveAttribute("title", `Kept for the phase measurement over ${CABLE}: it plays to S/PDIF out L and nowhere else, and is hidden from your DAW.`);
+  await expect(badge).toHaveText("Phase");
+  await expect(badge).toHaveAttribute("title", `Kept for the phase measurement over ${CABLE}: it plays to S/PDIF Out L and nowhere else, and is hidden from your DAW.`);
   await expect(page.getByTestId("phase-6")).toBeHidden();
   // The Input menu says which input is kept.
-  await expect(page.getByTestId("in-8").locator('option[value="1:15"]')).toHaveText("USB 1 PLAY 16 (phase)");
-  await expect(page.getByTestId("in-8").locator('option[value="1:14"]')).toHaveText("USB 1 PLAY 15");
+  await expect(page.getByTestId("in-8").locator('option[value="1:15"]')).toHaveText("USB 1 Play 16 (phase)");
+  await expect(page.getByTestId("in-8").locator('option[value="1:14"]')).toHaveText("USB 1 Play 15");
 
   // Choosing it on a channel in Monitors waits behind Confirm, saying why, and sends nothing.
   await page.getByTestId("in-8").selectOption("1:15");
@@ -114,7 +114,7 @@ test("the Mixer marks the kept playback channel PHASE and asks before a change t
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]?.device_id).toBe("loopback-0");
   expect(sent[0]?.bank_idx).toBe(Q.MIX_IN[0]);
-  expect(sent[0]?.pairs[8], "slot 9 of Monitors plays USB 1 PLAY 16").toBe("010f");
+  expect(sent[0]?.pairs[8], "slot 9 of Monitors plays USB 1 Play 16").toBe("010f");
   await expect(page.getByTestId("phase-8")).toBeVisible();
   sent.length = 0;
 
@@ -136,7 +136,7 @@ test("the Mixer marks the kept playback channel PHASE and asks before a change t
   await add.selectOption(`${Q.SPDIF_OUT}:0`);
   const outputConfirm = page.getByTestId("mix-output-confirm-0");
   await expect(outputConfirm).toBeVisible();
-  await expect(outputConfirm).toHaveAttribute("title", `S/PDIF out L would stop playing USB 1 PLAY 16, so the phase measurement over ${CABLE} would hear nothing`);
+  await expect(outputConfirm).toHaveAttribute("title", `S/PDIF Out L would stop playing USB 1 Play 16, so the phase measurement over ${CABLE} would hear nothing`);
   await page.waitForTimeout(300);
   expect(sent).toEqual([]);
 
@@ -165,7 +165,7 @@ test("on the follower the kept record channel is marked in the + Output menu and
   await expect(add.locator(`option[value="${S_USB_REC}:18"]`)).not.toHaveText(/phase/);
   await add.selectOption(`${S_USB_REC}:20`);
   const confirm = page.getByTestId("mix-output-confirm-0");
-  await expect(confirm).toHaveAttribute("title", `USB REC 21 would stop recording S/PDIF in L, so the phase measurement over ${CABLE} would hear nothing`);
+  await expect(confirm).toHaveAttribute("title", `USB Rec 21 would stop recording S/PDIF In L, so the phase measurement over ${CABLE} would hear nothing`);
   await page.waitForTimeout(300);
   expect(sent).toEqual([]);
   // Another record pair goes at once, and leaves the kept record channel as it was.
@@ -174,7 +174,7 @@ test("on the follower the kept record channel is marked in the + Output menu and
   await expect.poll(() => sent.length).toBeGreaterThan(0);
   for (const one of sent) {
     expect([one.device_id, one.bank_idx]).toEqual(["loopback-1", S_USB_REC]);
-    expect(one.pairs[20], "USB REC 21 still records S/PDIF in L").toBe("0500");
+    expect(one.pairs[20], "USB Rec 21 still records S/PDIF In L").toBe("0500");
   }
 });
 
@@ -190,7 +190,7 @@ test("the dock marks the kept channel too, and a drop of it asks first", async (
 
   await page.getByTestId("source-1-15").dragTo(dock);
   // Kept is on the same input already, so the drop would double it as well, which is said after.
-  await expect(dock.getByTestId("dock-drop-reason")).toHaveText(`Monitors: ${playsToo("Monitors")}. USB 1 PLAY 16 is in this mix twice, so it is summed twice (about +6 dB)`);
+  await expect(dock.getByTestId("dock-drop-reason")).toHaveText(`Monitors: ${playsToo("Monitors")}. USB 1 Play 16 is in this mix twice, so it is summed twice (about +6 dB)`);
   await expect(dock.getByTestId("dock-drop-confirm")).toBeVisible();
   await dock.getByTestId("dock-drop-cancel").click();
   expect(sent).toEqual([]);

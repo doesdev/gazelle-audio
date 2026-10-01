@@ -44,8 +44,8 @@ test("select a run of sources and click a cell: it fills from there with one wri
   await page.getByTestId("source-0-1").click({ modifiers: ["Shift"] });
   await page.getByTestId("dest-1-0").click();
   await expect(lastSent(page)).toContainText(routingHex(1, { 0: [0, 0], 1: [0, 1] }));
-  await expect(page.getByTestId("dest-1-0")).toHaveText("PREAMP 1");
-  await expect(page.getByTestId("dest-1-1")).toHaveText("PREAMP 2");
+  await expect(page.getByTestId("dest-1-0")).toHaveText("Preamp 1");
+  await expect(page.getByTestId("dest-1-1")).toHaveText("Preamp 2");
 
   await page.getByTestId("dest-1-1").click();
   await expect(lastSent(page)).toContainText(routingHex(1, { 0: [0, 0], 1: [0, 0] }));

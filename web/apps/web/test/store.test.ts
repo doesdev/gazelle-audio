@@ -681,7 +681,7 @@ test("only the Studio+ is asked to carry a mix in its meter bank, once, and only
     links: [],
     aliases: {},
     mixers: {
-      // Studio+: a preamp, which meters itself, and USB PLAY 1, which does not.
+      // Studio+: a preamp, which meters itself, and USB Play 1, which does not.
       "loopback-1": { mixes: [], groups: [], channels: [mixerChannel("a", 0, 0, 0), mixerChannel("b", 1, 3, 0)] },
       // Quadro: the test oscillator, which no field meters either.
       "loopback-0": { mixes: [], groups: [], channels: [mixerChannel("c", 0, 11, 0)] },
@@ -733,7 +733,7 @@ test("output meters: the Quadro reports Monitor, HP1, HP2 and Line Out; the Stud
   await store.start();
   const stop = store.watchReport("loopback-0", "0x73");
   const meters = store.outputMeters("loopback-0");
-  assert.deepEqual(meters?.map((m) => m.name), ["Monitor", "HP1", "HP2", "Line out"]);
+  assert.deepEqual(meters?.map((m) => m.name), ["Monitor", "HP1", "HP2", "Line Out"]);
   client.cyclic.get("loopback-0|0x73")?.({ peaks_monitor: Uint8Array.of(96, 96), peaks_hp1: Uint8Array.of(96, 96), peaks_hp2: Uint8Array.of(10, 11), line_out: Uint8Array.of(12, 13) });
   for (const frame of frames.splice(0)) frame();
   const lineOut = meters?.[3];
@@ -822,7 +822,7 @@ test("each device's Control Room outputs: Monitor, HP1 and HP2 until chosen, kep
     runs += 1;
   });
   assert.equal(store.setInControlRoom("loopback-0", 3, true), true);
-  assert.deepEqual(quadro.value, [0, 1, 2, 3], "Line out added after the default three");
+  assert.deepEqual(quadro.value, [0, 1, 2, 3], "Line Out added after the default three");
   assert.equal(runs, 2, "the choice is reactive");
   store.setInControlRoom("loopback-0", 1, false);
   store.setInControlRoom("loopback-0", 3, true);
@@ -1019,8 +1019,8 @@ test("an AFX OUT strip on an empty chain meters the source routed into the chain
   // An empty chain passes its input straight through (the user, on the hardware, 2026-09-18), so
   // the strip carries audio and meters whatever routing feeds AFX IN k.
   const routes: RouteTable = {
-    // AFX IN 1 takes PREAMP 1 (its chain holds an effect), AFX IN 2 PREAMP 2, AFX IN 3 another
-    // chain's output, AFX IN 4 a mixer output, AFX IN 5 MUTE.
+    // AFX In 1 takes Preamp 1 (its chain holds an effect), AFX In 2 Preamp 2, AFX In 3 another
+    // chain's output, AFX In 4 a mixer output, AFX In 5 MUTE.
     "loopback-0": { 7: [[0, 0], [0, 1], [5, 0], [6, 0]] },
   };
   const client = withChains({ "loopback-0": [[[3, 0]]], "loopback-1": [] }, routes);
@@ -1037,24 +1037,24 @@ test("an AFX OUT strip on an empty chain meters the source routed into the chain
 
   const loaded = afxOut(0);
   assert.ok(loaded);
-  assert.equal(loaded.level.value, 12, "a chain with an effect is metered by its last effect, not by what feeds it (PREAMP 1, at 90)");
+  assert.equal(loaded.level.value, 12, "a chain with an effect is metered by its last effect, not by what feeds it (Preamp 1, at 90)");
   assert.match(loaded.note.value, /last effect/);
 
   const through = afxOut(1);
   assert.ok(through);
   assert.equal(through.level.value, 24, "an empty chain meters the input routed into it");
-  assert.equal(through.note.value, "Through an empty chain from PREAMP 2");
+  assert.equal(through.note.value, "Through an empty chain from Preamp 2");
   assert.equal(store.inputMeter("loopback-0", { group: 0, channel: 1 })?.level.value, 24, "the same input, metered the same way");
 
   // A source the status report does not meter: another chain's output, or a mixer output.
   const fromChain = afxOut(2);
   assert.ok(fromChain);
   assert.equal(fromChain.level.value, undefined);
-  assert.equal(fromChain.note.value, "Through an empty chain from AFX OUT 1, which the device reports no meter for");
+  assert.equal(fromChain.note.value, "Through an empty chain from AFX Out 1, which the device reports no meter for");
   const fromMixer = afxOut(3);
   assert.ok(fromMixer);
   assert.equal(fromMixer.level.value, undefined);
-  assert.match(fromMixer.note.value, /LOOPBACK HP1 1, which the device reports no meter for/);
+  assert.match(fromMixer.note.value, /Loopback HP1 1, which the device reports no meter for/);
 
   const muted = afxOut(4);
   assert.ok(muted);
@@ -1111,12 +1111,12 @@ test("an AFX OUT strip's meter follows the chain and the routing as they change"
   report();
   assert.equal(meter.level.value, 30, "empty again: back to the routed source");
 
-  // Re-routing AFX IN 1 moves the meter with it.
+  // Re-routing AFX In 1 moves the meter with it.
   routes["loopback-0"] = { 7: [[0, 2]] };
   await store.routing("loopback-0").load(AFX_IN_DESTINATION.quadro);
   report();
   assert.equal(meter.level.value, 18);
-  assert.equal(meter.note.value, "Through an empty chain from PREAMP 3");
+  assert.equal(meter.note.value, "Through an empty chain from Preamp 3");
   for (const stop of listen) stop();
 });
 
@@ -1134,7 +1134,7 @@ test("a Studio+ AFX OUT strip on an empty chain meters its source, and clips wit
   client.cyclic.get("loopback-1|0x73")?.({ peaks_line: Uint8Array.of(96, 96, 96, 0, 96, 96, 96, 96) });
   for (const frame of frames.splice(0)) frame();
   assert.equal(meter.level.value, 0);
-  assert.equal(meter.note.value, "Through an empty chain from LINE IN 4");
+  assert.equal(meter.note.value, "Through an empty chain from Line In 4");
   assert.equal(meter.clipped.value, true, "the source's clip light is the strip's");
   meter.clearClip();
   assert.equal(meter.clipped.value, false);
@@ -1160,9 +1160,9 @@ async function doubling(channels: ReturnType<typeof mixerChannel>[], chains: Cha
 }
 
 test("a mix carrying both a source and an AFX OUT strip whose empty chain takes it warns that it is summed twice", async () => {
-  // PREAMP 1 on slot 6, and AFX OUT 1 on slot 7 with an empty chain 1 fed by PREAMP 1.
+  // Preamp 1 on slot 6, and AFX Out 1 on slot 7 with an empty chain 1 fed by Preamp 1.
   const store = await doubling([mixerChannel("a", 6, 0, 0), mixerChannel("b", 7, AFX_OUT_SOURCE.quadro, 0)], [[]], [[0, 0]]);
-  const warning = "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)";
+  const warning = "Preamp 1 also reaches this mix through AFX Out 1, so it is summed twice (about +6 dB)";
   assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning, "the preamp's own strip says so");
   assert.equal(store.doubledFeed("loopback-0", 0, 7).value, warning, "and so does the strip carrying it through");
   assert.equal(store.doubledFeed("loopback-0", 1, 6).value, undefined, "a mix neither channel is in is quiet");
@@ -1174,15 +1174,15 @@ test("an effect in the chain is a parallel setup, not a doubling, and neither is
   assert.equal(loaded.doubledFeed("loopback-0", 0, 7).value, undefined);
 
   const elsewhere = await doubling([mixerChannel("a", 6, 0, 0), mixerChannel("b", 7, AFX_OUT_SOURCE.quadro, 0)], [[]], [[0, 1]]);
-  assert.equal(elsewhere.doubledFeed("loopback-0", 0, 6).value, undefined, "the chain takes PREAMP 2, so nothing is doubled");
+  assert.equal(elsewhere.doubledFeed("loopback-0", 0, 6).value, undefined, "the chain takes Preamp 2, so nothing is doubled");
 });
 
 test("two channels on the same input are the same doubling, and a muted or closed channel raises nothing", async () => {
   const store = await doubling([mixerChannel("a", 6, 0, 1), mixerChannel("b", 7, 0, 1), mixerChannel("c", 8, 0, 2)], [[]], []);
-  const warning = "PREAMP 2 is in this mix twice, so it is summed twice (about +6 dB)";
+  const warning = "Preamp 2 is in this mix twice, so it is summed twice (about +6 dB)";
   assert.equal(store.doubledFeed("loopback-0", 0, 6).value, warning);
   assert.equal(store.doubledFeed("loopback-0", 0, 7).value, warning);
-  assert.equal(store.doubledFeed("loopback-0", 0, 8).value, undefined, "the only channel on PREAMP 3");
+  assert.equal(store.doubledFeed("loopback-0", 0, 8).value, undefined, "the only channel on Preamp 3");
 
   const mixer = store.mixer("loopback-0", 0);
   mixer.toggleMute(7);
@@ -1198,9 +1198,9 @@ test("two channels on the same input are the same doubling, and a muted or close
 // routing alone, so a duplicate sitting at the floor or muted is still a duplicate.
 test("putting a channel where its input already is warns first, in the badge's words, whatever the faders are doing", async () => {
   const store = await doubling([mixerChannel("a", 6, 0, 1), mixerChannel("b", 7, 0, 2)], [[]], []);
-  const warning = "PREAMP 2 is in this mix twice, so it is summed twice (about +6 dB)";
-  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 1 }), warning, "PREAMP 2 is already in mix 1");
-  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 3 }), undefined, "PREAMP 4 is in nothing");
+  const warning = "Preamp 2 is in this mix twice, so it is summed twice (about +6 dB)";
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 1 }), warning, "Preamp 2 is already in mix 1");
+  assert.equal(store.doublingIfAdded("loopback-0", 0, "b", { group: 0, channel: 3 }), undefined, "Preamp 4 is in nothing");
   assert.equal(store.doublingIfAdded("loopback-0", 1, "b", { group: 0, channel: 1 }), undefined, "mix 2 holds neither channel");
   assert.equal(store.doublingIfAdded("loopback-0", 0, "a", { group: 0, channel: 1 }), undefined, "a channel is never counted against itself");
   assert.equal(store.doublingIfAdded("loopback-0", 0, "b", undefined), undefined, "no input, nothing to double");
@@ -1217,11 +1217,11 @@ test("putting a channel where its input already is warns first, in the badge's w
 });
 
 test("an empty effect chain is the same doubling before the fact as after it, and a loaded one is not", async () => {
-  // Chain 1 is empty and fed by PREAMP 1; a channel already carries PREAMP 1 into mix 1.
+  // Chain 1 is empty and fed by Preamp 1; a channel already carries Preamp 1 into mix 1.
   const empty = await doubling([mixerChannel("a", 6, 0, 0)], [[]], [[0, 0]]);
   assert.equal(
     empty.doublingIfAdded("loopback-0", 0, "new", { group: AFX_OUT_SOURCE.quadro, channel: 0 }),
-    "PREAMP 1 also reaches this mix through AFX OUT 1, so it is summed twice (about +6 dB)",
+    "Preamp 1 also reaches this mix through AFX Out 1, so it is summed twice (about +6 dB)",
   );
   const loaded = await doubling([mixerChannel("a", 6, 0, 0)], [[[3, 0]]], [[0, 0]]);
   assert.equal(loaded.doublingIfAdded("loopback-0", 0, "new", { group: AFX_OUT_SOURCE.quadro, channel: 0 }), undefined, "dry plus wet is a parallel setup");

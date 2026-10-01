@@ -1,6 +1,6 @@
 // A device's effect chains and reverb (docs/protocol.md,
 // "Effects (AFX) and reverb"), as both vendor panels read and bind them:
-// - Chains are fed by routing (AFX IN k), up to eight slots each, a slot being {type, inst}: `type` an
+// - Chains are fed by routing (AFX In k), up to eight slots each, a slot being {type, inst}: `type` an
 //   AfxType id (0 is empty), `inst` that type's instance. The Quadro has six user chains, read one at a
 //   time with get_afx_strip_order and the chain in ext3; the Studio+ sixteen, read with get_afx_order.
 //   Link byte k pairs chains 2k and 2k+1.
@@ -35,7 +35,7 @@ import { EFFECT_NAMES } from "./effect-catalogue.ts";
 import { catalogue, loadCatalogue, type EffectDescription, type EffectParameter } from "./effect-parameters.ts";
 import { clampPan, PAN_CENTRE } from "./mixer.ts";
 
-/** Effect chains the app shows: the Quadro's AFX IN 1-6 (its AFX2DAW chains belong to the plugin), the Studio+'s 16. */
+/** Effect chains the app shows: the Quadro's AFX In 1-6 (its AFX2DAW chains belong to the plugin), the Studio+'s 16. */
 const CHAINS = { quadro: 6, studio: 16 } as const;
 const SLOTS = 8;
 /** The quietest reverb return on the Quadro's slider. */
@@ -85,7 +85,7 @@ export interface EffectChain {
   name: string;
   /** False when nothing was read (a dry run): the chain shows empty but is not known to be. */
   known: boolean;
-  /** The routing destination group that feeds it (AFX IN), if the topology has one. */
+  /** The routing destination group that feeds it (AFX In), if the topology has one. */
   destination: number | undefined;
   slots: EffectSlot[];
   linked: boolean;
@@ -331,7 +331,7 @@ export class EffectsModel {
    * Reads the chains alone, unless they have been read since the last `forget()`. Resolves true when
    * this call read.
    *
-   * The Mixer needs to know what each chain holds to meter a strip fed by AFX OUT, and its last
+   * The Mixer needs to know what each chain holds to meter a strip fed by AFX Out, and its last
    * effect is as far as the device meters the chain. That is a fraction of what the Effects page
    * reads, so it asks for the orders and the links only, and leaves `needsRead` set for the page's
    * own read. Quiet, like every read a page makes of its own accord.
@@ -462,7 +462,7 @@ export class EffectsModel {
     const destination = this.#context.topology.outputs.findIndex((output) => output.type === "AFX_IN");
     const names = EFFECT_NAMES[this.family];
     const read = new Map(chains.map((chain) => [chain.index, chain]));
-    const base = (index: number) => ({ index, name: `AFX IN ${index + 1}`, destination: destination < 0 ? undefined : destination, partner: index % 2 === 0 ? index + 1 : index - 1 });
+    const base = (index: number) => ({ index, name: `AFX In ${index + 1}`, destination: destination < 0 ? undefined : destination, partner: index % 2 === 0 ? index + 1 : index - 1 });
     const next = Array.from({ length: CHAINS[this.family] }, (_, index): EffectChain | undefined => {
       const before = previous?.[index];
       const linked = linkBytes === undefined ? (before?.linked ?? false) : Number(linkBytes[Math.floor(index / 2)]?.["linked"] ?? 0) === 1;
@@ -518,7 +518,7 @@ export class EffectsModel {
     const chains = this.#chains.peek();
     const own = this.#chain(chain);
     const slot = own.slots.find((s) => s.position === position);
-    if (slot === undefined) throw new RangeError(`AFX IN ${chain + 1} has no effect in slot ${position + 1}`);
+    if (slot === undefined) throw new RangeError(`AFX In ${chain + 1} has no effect in slot ${position + 1}`);
     this.#sendBypass(slot, bypassed);
     const partner = own.linked ? chains?.[own.partner] : undefined;
     const mirror = partner?.slots.find((s) => s.position === position && s.type === slot.type);
@@ -551,7 +551,7 @@ export class EffectsModel {
             : chain.slots.length >= SLOTS
               ? "This chain has all eight slots filled."
               : partner !== undefined && (!partner.known || partner.slots.length >= SLOTS)
-                ? `AFX IN ${chain.partner + 1}, which this chain is linked with, has no free slot.`
+                ? `AFX In ${chain.partner + 1}, which this chain is linked with, has no free slot.`
                 : free < needed || this.#freeInstances(type, needed).length < needed
                   ? needed === 2
                     ? "A linked pair needs two free instances of this effect."
@@ -597,7 +597,7 @@ export class EffectsModel {
   removeEffect(index: number, position: number): boolean {
     const chain = this.#chain(index);
     const slot = chain.slots.find((s) => s.position === position);
-    if (slot === undefined) throw new RangeError(`AFX IN ${index + 1} has no effect in slot ${position + 1}`);
+    if (slot === undefined) throw new RangeError(`AFX In ${index + 1} has no effect in slot ${position + 1}`);
     if (!chain.known) return false;
     const writes: [number, EffectSlot[]][] = [[index, chain.slots.filter((s) => s !== slot)]];
     const mirror = this.#mirror(chain, position, slot.type);
@@ -617,7 +617,7 @@ export class EffectsModel {
   moveEffect(index: number, position: number, by: number): boolean {
     const chain = this.#chain(index);
     const from = chain.slots.findIndex((s) => s.position === position);
-    if (from < 0) throw new RangeError(`AFX IN ${index + 1} has no effect in slot ${position + 1}`);
+    if (from < 0) throw new RangeError(`AFX In ${index + 1} has no effect in slot ${position + 1}`);
     const to = from + by;
     if (!chain.known || !Number.isInteger(by) || by === 0 || to < 0 || to >= chain.slots.length) return false;
     const moved = (slots: readonly EffectSlot[]): EffectSlot[] => {
@@ -882,7 +882,7 @@ export class EffectsModel {
   setParameter(chain: number, position: number, name: string, value: number, band?: number): boolean {
     const own = this.#chain(chain);
     const slot = own.slots.find((s) => s.position === position);
-    if (slot === undefined) throw new RangeError(`AFX IN ${chain + 1} has no effect in slot ${position + 1}`);
+    if (slot === undefined) throw new RangeError(`AFX In ${chain + 1} has no effect in slot ${position + 1}`);
     const description = this.description(slot.type);
     if (description === undefined) throw new RangeError(`${slot.name}'s parameters are not supported: ${this.unsupportedReason(slot.type)}`);
     if (description.bands !== undefined) return this.#setBandParameter(own, slot, description, name, value, band);

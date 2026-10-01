@@ -49,11 +49,11 @@ test("the Quadro's six chains are read one at a time with get_afx_strip_order, t
   assert.ok(effects.chains.value === undefined, "nothing is known before a read");
   assert.equal(await effects.readOnce(), true);
 
-  assert.deepEqual(sent("loopback-0", "get_afx_strip_order").map((c) => c.options?.["ext3"]).sort(), [0, 1, 2, 3, 4, 5], "AFX IN 1-6 only, not the AFX2DAW chains");
+  assert.deepEqual(sent("loopback-0", "get_afx_strip_order").map((c) => c.options?.["ext3"]).sort(), [0, 1, 2, 3, 4, 5], "AFX In 1-6 only, not the AFX2DAW chains");
   assert.equal(sent("loopback-0", "get_afx_order").length, 0, "the Quadro panel never reads the whole table");
   const chains = effects.chains.peek();
   assert.ok(chains);
-  assert.deepEqual(chains.map((c) => c.name), ["AFX IN 1", "AFX IN 2", "AFX IN 3", "AFX IN 4", "AFX IN 5", "AFX IN 6"]);
+  assert.deepEqual(chains.map((c) => c.name), ["AFX In 1", "AFX In 2", "AFX In 3", "AFX In 4", "AFX In 5", "AFX In 6"]);
   assert.deepEqual(chains[0]?.slots, [
     { position: 0, type: 39, inst: 2, name: EFFECT_NAMES.quadro.get(39) },
     { position: 1, type: 1, inst: 0, name: EFFECT_NAMES.quadro.get(1) },
@@ -293,7 +293,7 @@ test("adding an effect writes the whole chain as bytes, packed from slot 1, on t
   const reads = () => sent("loopback-0", "get_afx_available_instances").length;
   assert.equal(reads(), 1, "read when the page opens");
 
-  // AFX IN 5 holds FET-A76 #1 (type 9, instance 0); PowerGate (39) instances 2 and 3 are in chains 1-2.
+  // AFX In 5 holds FET-A76 #1 (type 9, instance 0); PowerGate (39) instances 2 and 3 are in chains 1-2.
   assert.equal(effects.addEffect(4, 39), true);
   assert.deepEqual(effects.chains.value?.[4]?.slots.map((s) => [s.position, s.type, s.inst]), [[0, 9, 0], [1, 39, 0]], "shown at once, after what was there");
   await flush();

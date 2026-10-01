@@ -923,8 +923,8 @@ interface WsFrame {
 
 /**
  * Answers the Quadro's chain and AFX IN routing reads as a device would, so a strip fed by AFX OUT
- * has something to meter in dry run: chain 1 holds one effect, chain 3 is empty, and AFX IN 3 takes
- * PREAMP 1. A chain written with `set_afx_order` is what the stub then reports, as a device does.
+ * has something to meter in dry run: chain 1 holds one effect, chain 3 is empty, and AFX In 3 takes
+ * Preamp 1. A chain written with `set_afx_order` is what the stub then reports, as a device does.
  */
 async function answerChains(page: Page): Promise<void> {
   const chains: Record<number, [number, number][]> = { 0: [[39, 2]] };
@@ -960,7 +960,7 @@ async function answerChains(page: Page): Promise<void> {
 
 test("a strip on an empty AFX OUT chain meters the source routed into the chain, and follows the chain as it is edited", async ({ page }) => {
   await answerChains(page);
-  // Slot 6 on AFX OUT 3 (an empty chain fed by PREAMP 1), slot 7 on AFX OUT 1 (a chain with an effect).
+  // Slot 6 on AFX Out 3 (an empty chain fed by Preamp 1), slot 7 on AFX Out 1 (a chain with an effect).
   await layout({
     "loopback-0": {
       channels: [
@@ -972,8 +972,8 @@ test("a strip on an empty AFX OUT chain meters the source routed into the chain,
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   const through = page.getByTestId("meter-6");
   const loaded = page.getByTestId("meter-7");
-  // An empty chain passes its input through, so the strip meters what feeds AFX IN 3 and says so.
-  await expect(through).toHaveAttribute("title", "Through an empty chain from PREAMP 1");
+  // An empty chain passes its input through, so the strip meters what feeds AFX In 3 and says so.
+  await expect(through).toHaveAttribute("title", "Through an empty chain from Preamp 1");
   await expect(loaded).toHaveAttribute("title", /last effect/);
   const bar = channelIn(page, 6).locator("ga-strip .mask");
   const first = await bar.evaluate((el) => (el as HTMLElement).style.height);
@@ -990,12 +990,12 @@ test("a strip on an empty AFX OUT chain meters the source routed into the chain,
   await page.getByTestId("remove-2-0").click();
   await expect(page.getByTestId("chain-2")).toContainText("No effects");
   await page.locator('ga-header a[data-page="mixer"]').click();
-  await expect(page.getByTestId("meter-6")).toHaveAttribute("title", "Through an empty chain from PREAMP 1");
+  await expect(page.getByTestId("meter-6")).toHaveAttribute("title", "Through an empty chain from Preamp 1");
 });
 
 test("a mix that carries one signal twice says so on both strips, and stops when one is muted", async ({ page }) => {
   await answerChains(page);
-  // PREAMP 1 on slot 5, the empty chain fed by it on slot 6, and a chain with an effect on slot 7.
+  // Preamp 1 on slot 5, the empty chain fed by it on slot 6, and a chain with an effect on slot 7.
   await layout({
     "loopback-0": {
       channels: [
@@ -1006,7 +1006,7 @@ test("a mix that carries one signal twice says so on both strips, and stops when
     },
   });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
-  const doubled = "PREAMP 1 also reaches this mix through AFX OUT 3, so it is summed twice (about +6 dB)";
+  const doubled = "Preamp 1 also reaches this mix through AFX Out 3, so it is summed twice (about +6 dB)";
   await expect(page.getByTestId("doubled-5")).toHaveAttribute("title", doubled);
   await expect(page.getByTestId("doubled-6")).toHaveAttribute("title", doubled);
   // A chain with an effect in it is a parallel setup, not a doubling.
@@ -1028,10 +1028,10 @@ test("two channels on one input in one mix both carry the x2 badge, on the page 
     },
   });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
-  const doubled = "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)";
+  const doubled = "Preamp 1 is in this mix twice, so it is summed twice (about +6 dB)";
   await expect(page.getByTestId("doubled-6")).toHaveAttribute("title", doubled);
   await expect(page.getByTestId("doubled-7")).toHaveAttribute("title", doubled);
-  await expect(page.getByTestId("doubled-8"), "the only channel on PREAMP 2").toBeHidden();
+  await expect(page.getByTestId("doubled-8"), "the only channel on Preamp 2").toBeHidden();
 
   // The dock rides the same mix from another page, so it carries the badge too.
   await page.locator('ga-header nav a[data-page="inputs"]').click();
@@ -1050,7 +1050,7 @@ test("putting an input into a mix that already has it asks first, and a second p
     },
   });
   await page.goto(`${server.url}/#/mixer/loopback-0`);
-  const doubled = "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)";
+  const doubled = "Preamp 1 is in this mix twice, so it is summed twice (about +6 dB)";
 
   // Its main mix first: Mix 2 has nothing in it, so that goes straight through.
   await page.getByTestId("out-7").selectOption("1");
@@ -1085,12 +1085,12 @@ test("choosing a main mix or an input that would double one source waits behind 
   await page.goto(`${server.url}/#/mixer/loopback-0`);
   await page.getByTestId("show-all-channels").click();
 
-  // Spare carries PREAMP 1, which Mix 1 already has: choosing Mix 1 as its main mix asks first.
+  // Spare carries Preamp 1, which Mix 1 already has: choosing Mix 1 as its main mix asks first.
   const mixConfirm = page.getByTestId("out-confirm-7");
   await expect(mixConfirm).toBeHidden();
   await page.getByTestId("out-7").selectOption("0");
   await expect(mixConfirm).toBeVisible();
-  await expect(mixConfirm).toHaveAttribute("title", "PREAMP 1 is in this mix twice, so it is summed twice (about +6 dB)");
+  await expect(mixConfirm).toHaveAttribute("title", "Preamp 1 is in this mix twice, so it is summed twice (about +6 dB)");
   await mixConfirm.click();
   await expect(mixConfirm).toBeHidden();
   await expect(lastSent(page)).toContainText(dryRun("set_routing", routingHex("quadro", 8, { 7: [0, 0] })));
@@ -1098,10 +1098,10 @@ test("choosing a main mix or an input that would double one source waits behind 
   // And the other way about: giving Kick the input its mix already has asks before routing it.
   const inputConfirm = page.getByTestId("in-confirm-8");
   await page.getByTestId("out-8").selectOption("0");
-  await expect(page.getByTestId("out-confirm-8"), "PREAMP 2 is in no mix, so nothing to ask").toBeHidden();
+  await expect(page.getByTestId("out-confirm-8"), "Preamp 2 is in no mix, so nothing to ask").toBeHidden();
   await page.getByTestId("in-8").selectOption("0:0");
   await expect(inputConfirm).toBeVisible();
-  await expect(inputConfirm).toHaveAttribute("title", /PREAMP 1 is in this mix twice/);
+  await expect(inputConfirm).toHaveAttribute("title", /Preamp 1 is in this mix twice/);
   await inputConfirm.click();
   await expect(inputConfirm).toBeHidden();
   await expect(page.getByTestId("doubled-8")).toBeVisible();

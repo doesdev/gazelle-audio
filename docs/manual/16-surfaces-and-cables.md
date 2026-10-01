@@ -48,7 +48,7 @@ Its **Route...** menu changes that routing on the device that owns the port, at 
 
 A cable tells Gazelle that one device's S/PDIF or ADAT output is connected to another's input of the same kind. Declare them on the [Workspace page](12-workspace-page.md#digital-cables). With a cable declared, Gazelle:
 
-- labels a channel or input fed by it with where the signal comes from, for example "from Live room ADAT out 1", and, once the sender's routing is read, which source or mix it carries;
+- labels a channel or input fed by it with where the signal comes from, for example "from Live room ADAT Out 1", and, once the sender's routing is read, which source or mix it carries;
 - warns when the two devices' sample rates differ, when the receiver is not locked to its clock, and when signal leaves the sender but none arrives ("check the cable, the routing and the clock"). A cable into an S/PDIF input whose **Converter** is on is not warned about on either count: the rate is converted, and that device need not follow the sender's clock. Signal that never arrives is still reported.
 
 Declaring a cable changes nothing on the devices. Switching clocks stays on the Devices page. Surfaces and cables have been tested against the emulator only.
@@ -59,8 +59,8 @@ A digital cable from the aggregate's callback master to another interface of the
 
 Pressing it reads the routing it needs, then lists every change in a confirm before anything is written:
 
-- **On the callback master**, a USB playback channel nothing uses (no destination takes it and it is in no mix; the highest numbered one, such as **USB 1 PLAY 16**) is routed straight to the cable's first channel, **S/PDIF out L**. On S/PDIF the other side, **S/PDIF out R**, is muted, so the cable carries the measurement and nothing else. S/PDIF carries its clock whatever it plays, so muting it costs the clock nothing. On ADAT the other channels are left as they are.
-- **On the other interface**, a USB record channel records the cable's first channel, **S/PDIF in L**: one that already does, else the highest one that records nothing.
+- **On the callback master**, a USB playback channel nothing uses (no destination takes it and it is in no mix; the highest numbered one, such as **USB 1 Play 16**) is routed straight to the cable's first channel, **S/PDIF Out L**. On S/PDIF the other side, **S/PDIF Out R**, is muted, so the cable carries the measurement and nothing else. S/PDIF carries its clock whatever it plays, so muting it costs the clock nothing. On ADAT the other channels are left as they are.
+- **On the other interface**, a USB record channel records the cable's first channel, **S/PDIF In L**: one that already does, else the highest one that records nothing.
 - **In the aggregate's setup**, that interface's **Phase setup** names the two channels. A phase reference measured over another path is taken out, since it would line every session up to a state the new path was never in: measure the interfaces again under **Line the interfaces up** to give it one.
 - The two channels are then kept for the measurement and hidden from your DAW, and the ones the old phase setup named come back to it.
 
@@ -68,9 +68,9 @@ Pressing it reads the routing it needs, then lists every change in a confirm bef
 
 While it is dedicated:
 
-- the cable's row says what it keeps: **Dedicated to phase and clock: Quadro USB 1 PLAY 16 → S/PDIF out L → Studio+ USB REC 21**;
-- the [Routing page](10-routing-page.md#dedicated-cables) marks those channels **PHASE**, and asks before a change that would break the path;
-- the [Mixer page](09-mixer-page.md#the-phase-cable) and the mixer dock mark a channel on the kept playback channel **PHASE** and the cable's output **(phase)**, and ask before a channel, a mix, a layout or a drop would break the path;
+- the cable's row says what it keeps: **Dedicated to phase and clock: Quadro USB 1 Play 16 → S/PDIF Out L → Studio+ USB Rec 21**;
+- the [Routing page](10-routing-page.md#dedicated-cables) marks those channels **Phase**, and asks before a change that would break the path;
+- the [Mixer page](09-mixer-page.md#the-phase-cable) and the mixer dock mark a channel on the kept playback channel **Phase** and the cable's output **(phase)**, and ask before a channel, a mix, a layout or a drop would break the path;
 - the Aggregate page's **Ready to use** says when the path is broken, and **Put the phase path back** restores it.
 
 A dedication means something only while its cable leaves the callback master and the other interface's phase setup names its two channels. Choose another callback master, take an interface out of the aggregate, or change the phase setup, and the row and the Aggregate page say the dedication means nothing now: its routing stays as it was and nothing guards it.

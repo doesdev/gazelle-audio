@@ -69,13 +69,13 @@ export interface TalkState {
   to: boolean[];
 }
 
-const NAMES = ["Monitor", "HP1", "HP2", "Line out", "Reamp"] as const;
+const NAMES = ["Monitor", "HP1", "HP2", "Line Out", "Reamp"] as const;
 /** Each output's routing destination, by topology group id, in output id order. */
 const GROUPS = ["MONITOR0", "HEADPHONES0", "HEADPHONES1", "LINE_OUT0", "REAMP0"] as const;
 const STUDIO_FIELDS = ["monitor", "hp1", "hp2", "line_out", "reamp"] as const;
 const TRIMS: readonly TrimInfo[] = [
   { id: 0, name: "Monitor" },
-  { id: 1, name: "Line out" },
+  { id: 1, name: "Line Out" },
   { id: 2, name: "ADC" },
 ];
 const TRIM_FIELDS = ["monitor_trim", "line_out_trim", "adc_trim"] as const;

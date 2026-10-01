@@ -41,9 +41,9 @@ async function route(device: string, group: number, slots: Record<number, [numbe
 }
 
 /**
- * The owner's PC. On the Quadro, USB 1 PLAY 1 and 2 go into Mix 1, USB 1 PLAY 3 into Mix 1 and Mix 4
- * for a headphone amp, Mix 1 to HP1, and the S/PDIF output is muted. The Studio+ records S/PDIF in L
- * on USB REC 21. Its phase is still set up over USB 1 PLAY 3 and USB REC 21, with a reference.
+ * The owner's PC. On the Quadro, USB 1 Play 1 and 2 go into Mix 1, USB 1 Play 3 into Mix 1 and Mix 4
+ * for a headphone amp, Mix 1 to HP1, and the S/PDIF output is muted. The Studio+ records S/PDIF In L
+ * on USB Rec 21. Its phase is still set up over USB 1 Play 3 and USB Rec 21, with a reference.
  */
 async function ownersPc(): Promise<void> {
   for (let group = 0; group < 12; group += 1) await route("loopback-0", group, {});
@@ -102,12 +102,12 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
 
   // The owner's case, as the server's readiness says it, with nothing to press but the way to the cables.
   await page.goto(`${server.url}/#/aggregate`);
-  await expect(reason(page)).toContainText("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L is muted, not USB 1 PLAY 3; USB 1 PLAY 3 also goes to Mix 1 and Mix 4, and the short burst the driver plays into it at the start of every session plays wherever it goes.", { timeout: 15_000 });
+  await expect(reason(page)).toContainText("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L is muted, not USB 1 Play 3; USB 1 Play 3 also goes to Mix 1 and Mix 4, and the short burst the driver plays into it at the start of every session plays wherever it goes.", { timeout: 15_000 });
   await expect(page.getByTestId("reason-severity-phase_path_broken")).toHaveText("WORTH KNOWING");
   await expect(page.getByTestId("reason-fix-phase_path_broken")).toHaveCount(0);
   await expect(page.getByTestId("reason-page-phase_path_broken")).toHaveText("Open the Workspace page");
   await shot(page, "1-readiness-owners-case", "aggregate-reasons");
-  // USB 1 PLAY 3 is kept for the measurement, hidden from the DAW, and the list says so.
+  // USB 1 Play 3 is kept for the measurement, hidden from the DAW, and the list says so.
   await open(page, "device-0-channels");
   await expect(page.getByTestId("device-0-out-2-kept")).toHaveText("Kept for the phase measurement, hidden from your DAW");
   await expect(page.getByTestId("device-0-out-2-expose")).toHaveText("Kept");
@@ -119,18 +119,18 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
   await expect(dedicate).toBeEnabled();
   await dedicate.click();
   const lines = page.getByTestId("cable-dedicate-lines-c1").locator("li");
-  await expect(lines.nth(0)).toHaveText("On Quadro, S/PDIF out L plays USB 1 PLAY 16 directly, with no mix between (it is muted now).");
-  await expect(lines.nth(1)).toHaveText("On Studio+, USB REC 21 already records S/PDIF in L, so it stays as it is.");
-  await expect(lines.nth(2)).toHaveText("In the aggregate's setup, Studio+'s phase is measured from Quadro's USB 1 PLAY 16 to its USB REC 21 (it was USB 1 PLAY 3 to USB REC 21).");
+  await expect(lines.nth(0)).toHaveText("On Quadro, S/PDIF Out L plays USB 1 Play 16 directly, with no mix between (it is muted now).");
+  await expect(lines.nth(1)).toHaveText("On Studio+, USB Rec 21 already records S/PDIF In L, so it stays as it is.");
+  await expect(lines.nth(2)).toHaveText("In the aggregate's setup, Studio+'s phase is measured from Quadro's USB 1 Play 16 to its USB Rec 21 (it was USB 1 Play 3 to USB Rec 21).");
   await expect(lines.nth(3)).toContainText("Its phase reference, -37 samples, is taken out");
-  await expect(lines.nth(4)).toHaveText("USB 1 PLAY 16 and USB REC 21 are kept for the phase measurement and hidden from your DAW. USB 1 PLAY 3 is given back to it.");
+  await expect(lines.nth(4)).toHaveText("USB 1 Play 16 and USB Rec 21 are kept for the phase measurement and hidden from your DAW. USB 1 Play 3 is given back to it.");
   await shot(page, "2-cable-setting-confirm", "cable-row-c1");
   expect(routings(), "the confirm writes nothing").toEqual([]);
 
   // Dedicating writes the S/PDIF output's group once, every other slot as it was, and nothing on the Studio+.
   await page.getByTestId("cable-dedicate-apply-c1").click();
   await expect.poll(routings).toEqual([{ device_id: "loopback-0", command: "set_routing", args: { bank_idx: Q.SPDIF_OUT, bank_configs: [hex(COM_PLAY, 15), ...Array.from({ length: 31 }, () => hex(Q_MUTE, 0))] } }]);
-  await expect(page.getByTestId("cable-dedicated-c1")).toHaveText("Dedicated to phase and clock: Quadro USB 1 PLAY 16 → S/PDIF out L → Studio+ USB REC 21");
+  await expect(page.getByTestId("cable-dedicated-c1")).toHaveText("Dedicated to phase and clock: Quadro USB 1 Play 16 → S/PDIF Out L → Studio+ USB Rec 21");
   await expect(page.getByTestId("cable-dedicate-status-c1")).toHaveText("Dedicated to the phase measurement and the clock. Measure the interfaces again on the Aggregate page to give the phase a reference.");
   await expect(page.getByTestId("cable-dedicate-c1")).toHaveText("Turn off");
   await shot(page, "3-cable-dedicated", "cable-row-c1");
@@ -144,7 +144,7 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
   await expect(page.getByTestId("device-1-phase-leaves")).toHaveValue("15");
   await expect(page.getByTestId("device-1-phase-arrives")).toHaveValue("20");
   await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, no reference yet");
-  await expect(page.getByTestId("device-1-phase-dedicated")).toContainText("These are the channels of the dedicated S/PDIF cable, Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2.");
+  await expect(page.getByTestId("device-1-phase-dedicated")).toContainText("These are the channels of the dedicated S/PDIF cable, Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2.");
   await page.getByTestId("aggregate-refresh").click();
   await expect(page.getByTestId("aggregate-reasons")).not.toContainText("phase path", { timeout: 10_000 });
   await open(page, "device-0-channels");
@@ -155,7 +155,7 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
   await page.goto(`${server.url}/#/routing/loopback-0`);
   const cell = page.getByTestId(`dest-${Q.SPDIF_OUT}-0`);
   await expect(cell).toHaveAttribute("data-phase", "");
-  await expect(cell).toHaveAttribute("title", /Kept for the phase measurement over the dedicated S\/PDIF cable, Quadro S\/PDIF out 1 and 2 → Studio\+ S\/PDIF in 1 and 2: it plays USB 1 PLAY 16 and nothing else\./);
+  await expect(cell).toHaveAttribute("title", /Kept for the phase measurement over the dedicated S\/PDIF cable, Quadro S\/PDIF Out 1 and 2 → Studio\+ S\/PDIF In 1 and 2: it plays USB 1 Play 16 and nothing else\./);
   await expect(page.getByTestId(`source-${COM_PLAY}-15`)).toHaveAttribute("data-phase", "");
   await expect(page.getByTestId(`dest-${Q.SPDIF_OUT}-1`)).not.toHaveAttribute("data-phase", "");
   await shot(page, "4-routing-badges");
@@ -166,7 +166,7 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
   await cell.click();
   const confirm = page.getByTestId("routing-phase-confirm");
   await expect(confirm).toBeVisible();
-  await expect(page.getByTestId("routing-phase-confirm-lines")).toHaveText("S/PDIF out L would stop playing USB 1 PLAY 16, so the phase measurement over the dedicated S/PDIF cable, Quadro S/PDIF out 1 and 2 → Studio+ S/PDIF in 1 and 2 would hear nothing.");
+  await expect(page.getByTestId("routing-phase-confirm-lines")).toHaveText("S/PDIF Out L would stop playing USB 1 Play 16, so the phase measurement over the dedicated S/PDIF cable, Quadro S/PDIF Out 1 and 2 → Studio+ S/PDIF In 1 and 2 would hear nothing.");
   await shot(page, "5-routing-confirm");
   await page.waitForTimeout(300);
   expect(routings().length, "asking writes nothing").toBe(before);
@@ -177,7 +177,7 @@ test("a cable dedicated to the phase measurement routes its path once, is guarde
   // The readiness says so, and its fix puts the path back after a second click.
   await page.goto(`${server.url}/#/aggregate`);
   await expect(reason(page)).toHaveText(
-    "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L no longer plays USB 1 PLAY 16: it plays Mix 1 L now. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. The S/PDIF cable is dedicated to it, so it can be put back from here.",
+    "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L no longer plays USB 1 Play 16: it plays Mix 1 L now. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. The S/PDIF cable is dedicated to it, so it can be put back from here.",
     { timeout: 15_000 },
   );
   const fix = page.getByTestId("reason-fix-phase_path_broken");

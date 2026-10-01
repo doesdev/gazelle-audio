@@ -710,7 +710,7 @@ mod tests {
         }
     }
 
-    /// The Quadro's S/PDIF out into the Studio+'s S/PDIF in, which is the setup phase 0 measured.
+    /// The Quadro's S/PDIF Out into the Studio+'s S/PDIF In, which is the setup phase 0 measured.
     fn cabled() -> Workspace {
         Workspace {
             cables: vec![Cable {

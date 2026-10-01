@@ -33,7 +33,7 @@ Everything that makes a sound is a **source**; everywhere a sound can go is a **
 | S/PDIF | 2 in, 2 out | 2 in, 2 out |
 | Computer playback channels (USB) | 16 + 2 | 24 (and 32 over Thunderbolt, not used by Gazelle) |
 | Computer recording channels (USB) | 16 + 2 | 24 |
-| Analogue outputs | Monitor, HP1, HP2, Line out | Monitor, HP1, HP2, Line out 1 to 8, Reamp |
+| Analogue outputs | Monitor, HP1, HP2, Line Out | Monitor, HP1, HP2, Line Out 1 to 8, Reamp |
 | Mixes, each with 32 inputs | 4 | 4 |
 | Effect chains, 8 effects each | 6 | 16 |
 
@@ -49,7 +49,7 @@ Two channels can be **linked** so that a change to one follows on the other; see
 
 Each device has **four mixes**, numbered 1 to 4 and nameable ("Monitors", "Cue"). A mix has 32 inputs and a master. Every input has a level, pan, mute and solo in each mix, so one signal can be loud in the monitors and quiet in the headphones.
 
-Gazelle presents the mixer as **channels**: a named, coloured strip that knows its input, its **main mix**, and any other mixes it is **sent** to. A channel has its own level, pan, mute and solo in *every* mix it is in; the Mixer page shows one mix at a time, and a strip's fader is that channel's level in the mix on show, main mix or send alike. Choosing a channel's input routes that source into the mixer for you; you never have to find a free mixer input yourself. On the Quadro the first six mixer inputs carry the effect returns (AFX OUT 1 to 6) and are not free for channels.
+Gazelle presents the mixer as **channels**: a named, coloured strip that knows its input, its **main mix**, and any other mixes it is **sent** to. A channel has its own level, pan, mute and solo in *every* mix it is in; the Mixer page shows one mix at a time, and a strip's fader is that channel's level in the mix on show, main mix or send alike. Choosing a channel's input routes that source into the mixer for you; you never have to find a free mixer input yourself. On the Quadro the first six mixer inputs carry the effect returns (AFX Out 1 to 6) and are not free for channels.
 
 A mix's output is a source like any other, so a mix plays wherever it is routed: the Monitor output, a headphone output, a recording channel for a talkback or a loopback recording, or a digital output.
 
@@ -63,7 +63,7 @@ Mixer inputs are routed from the Mixer page's channels, not from the Routing pag
 
 ## Outputs and the Control Room
 
-Each analogue **output** has a volume in dB of attenuation (0 dB is the loudest, and the bottom of the scale is silence, shown as "-inf"), a mute, and on the Quadro a **Dim**. Monitor and Line out have a **trim**: their maximum level, from 14 to 20 dBu. The Quadro also has a **Hard mute**, which silences every output at once.
+Each analogue **output** has a volume in dB of attenuation (0 dB is the loudest, and the bottom of the scale is silence, shown as "-inf"), a mute, and on the Quadro a **Dim**. Monitor and Line Out have a **trim**: their maximum level, from 14 to 20 dBu. The Quadro also has a **Hard mute**, which silences every output at once.
 
 The **Control Room** is Gazelle's name for the outputs you listen on: by default Monitor, HP1 and HP2, and any others you choose on the Outputs page. They sit in the sidebar with their volume, Mute, Dim and Mono, next to the Studio+'s **talkback**.
 
@@ -71,7 +71,7 @@ Digital outputs (S/PDIF and ADAT) have no level of their own on either model. Th
 
 ## Effects and reverb
 
-Effects on these interfaces are not attached to an input. Each device has **effect chains** (6 on the Quadro, 16 on the Studio+), each an ordered list of up to 8 effects. A chain processes what routing sends to its **AFX IN** and returns the result on its **AFX OUT**, a source like any other. An empty chain passes its input straight through, which is how the same signal can reach a mix twice (see [Doubled signals](02-safety.md#doubled-signals)).
+Effects on these interfaces are not attached to an input. Each device has **effect chains** (6 on the Quadro, 16 on the Studio+), each an ordered list of up to 8 effects. A chain processes what routing sends to its **AFX In** and returns the result on its **AFX Out**, a source like any other. An empty chain passes its input straight through, which is how the same signal can reach a mix twice (see [Doubled signals](02-safety.md#doubled-signals)).
 
 Each effect in a chain is an **instance** of an effect type ("Guitar Amp #1"). Your devices' licences decide which types and how many instances are available. Chains are linked in pairs for stereo.
 
@@ -81,7 +81,7 @@ Each device has one **reverb**, separate from the chains, with its own level and
 
 A **surface** is a row of strips you build yourself from any attached devices: a channel from one, a preamp and an output from the other, a mix master, a digital output. Each strip carries a badge in its device's colour, so nothing reads as shared. Surfaces never route anything on their own: every control on one does exactly what the same control does on its device's own page.
 
-A **digital cable** is a fact you tell Gazelle: "this device's ADAT out is plugged into that device's ADAT in". Gazelle cannot see cables. Declaring one changes nothing on the devices; it lets Gazelle label where a signal comes from and warn when the two devices' clocks disagree.
+A **digital cable** is a fact you tell Gazelle: "this device's ADAT Out is plugged into that device's ADAT In". Gazelle cannot see cables. Declaring one changes nothing on the devices; it lets Gazelle label where a signal comes from and warn when the two devices' clocks disagree.
 
 ## Workspace
 

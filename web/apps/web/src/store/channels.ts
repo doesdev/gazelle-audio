@@ -13,6 +13,7 @@ import { computed, signal, type ReadonlySignal, type Signal } from "../core/sign
 import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
 import { channelSpan } from "./cables.ts";
 import { LEVEL_MAX, PAN_CENTRE } from "./mixer.ts";
+import { groupName } from "./names.ts";
 import type { MixerModel } from "./mixer.ts";
 import { PROFILES } from "./profiles.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
@@ -87,14 +88,15 @@ export type OutputFeed =
 
 /** What a channel's strip shows in one mix (`ChannelsModel.strip`). */
 /**
- * What a routing source is called: its group's name and, for a group of several channels, the
- * channel's number from 1. Shared with the store, which names an effect chain's source the same
- * way in a strip's title.
+ * What a routing source is called: its group's name in plain case (`groupName`) and, for a group
+ * of several channels, the channel's number from 1: "Preamp 1", "AFX Out 3", "Mute". Shared with
+ * the store, which names an effect chain's source the same way in a strip's title, and with every
+ * page that names a source, so they all agree.
  */
 export function sourceLabel(topology: Topology, source: RouteSource): string {
   const group = topology.inputs[source.group];
   if (group === undefined) return `Source ${source.group}:${source.channel + 1}`;
-  return group.channels > 1 ? `${group.name} ${source.channel + 1}` : group.name;
+  return group.channels > 1 ? `${groupName(group)} ${source.channel + 1}` : groupName(group);
 }
 
 export interface ChannelStrip {
@@ -158,7 +160,8 @@ export class ChannelsModel {
     context.topology.outputs.forEach((group, destination) => {
       if (group.type === "MIXER_IN") return;
       for (let channel = 0; channel < group.channels; channel += 2) {
-        const label = group.channels <= 2 ? group.name : channel + 1 < group.channels ? `${group.name} ${channel + 1}/${channel + 2}` : `${group.name} ${channel + 1}`;
+        const name = groupName(group);
+        const label = group.channels <= 2 ? name : channel + 1 < group.channels ? `${name} ${channel + 1}/${channel + 2}` : `${name} ${channel + 1}`;
         pairs.push({ destination, channel, label });
       }
     });

@@ -18,6 +18,7 @@ import { h } from "../core/dom.ts";
 import { effect as effectOf, signal, untracked } from "../core/signal.ts";
 import type { EffectParameter } from "../store/effect-parameters.ts";
 import { bandKey, formatParameter, formatReverbLevel, formatRoomSize, REVERB_LEVEL_MAX, REVERB_LEVEL_MIN, REVERB_LEVEL_UNITY, REVERB_RETURN_MAX, REVERB_SEND_MAX, shownParameters, type EffectChain, type EffectSlot, type EffectsModel } from "../store/effects.ts";
+import { groupName } from "../store/names.ts";
 import { formatPan, meterDeflection, PAN_CENTRE, PAN_MAX, PAN_MIN, panAtPosition } from "../store/mixer.ts";
 import { formatVolume } from "../store/outputs.ts";
 import { meterGradient } from "../themes/theme.ts";
@@ -212,7 +213,7 @@ export class GaEffects extends GaElement {
     this.root.replaceChildren(
       h("div", { class: "bar" }, reload, h("span", { class: "spacer" }), lastSent),
       note,
-      h("section", {}, h("h2", { "data-explain": "effects.chains" }, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX IN channel and returns on AFX OUT. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, removing and moving an effect writes the whole chain and reads it back; the device switches an effect on as it is added and off as it goes. Inserting and removing one effect have been checked on a Quadro; moving one, several effects in a chain and the Studio+ have not."), chains),
+      h("section", {}, h("h2", { "data-explain": "effects.chains" }, "Effect chains"), h("p", { class: "note" }, "Each chain processes what routing sends to its AFX In channel and returns on AFX Out. Choose an effect to see and change its settings. Bypass is per effect; neither button shows lit until the effect's settings are read or you set one. Adding, removing and moving an effect writes the whole chain and reads it back; the device switches an effect on as it is added and off as it goes. Inserting and removing one effect have been checked on a Quadro; moving one, several effects in a chain and the Studio+ have not."), chains),
       editor,
       reverb,
       ...returnsAndSends,
@@ -252,18 +253,18 @@ export class GaEffects extends GaElement {
   #chain(effects: EffectsModel, index: number, chain: EffectChain | undefined, deviceId: string, destination: number, disposers: (() => void)[], chosen: { chain: number; type: number; inst: number } | undefined): HTMLElement {
     const store = useStore();
     const topology = store.topology(deviceId);
-    const name = chain?.name ?? `AFX IN ${index + 1}`;
+    const name = chain?.name ?? `AFX In ${index + 1}`;
     const source = h("span", { class: "source", "data-testid": `chain-source-${index}`, "data-explain": "effects.chain-source" });
     if (destination >= 0) {
       disposers.push(
         this.#effect(() => {
           const slot = store.routing(deviceId).destination(destination).value?.[index];
           const input = slot === undefined ? undefined : topology?.inputs[slot.source];
-          source.textContent = slot === undefined ? "" : input === undefined || input.type === "MUTE" ? "← nothing routed" : `← ${input.name}${input.channels > 1 ? ` ${slot.channel + 1}` : ""}`;
+          source.textContent = slot === undefined ? "" : input === undefined || input.type === "MUTE" ? "← nothing routed" : `← ${groupName(input)}${input.channels > 1 ? ` ${slot.channel + 1}` : ""}`;
         }),
       );
     }
-    const link = h("span", { class: "link", "data-testid": `chain-link-${index}`, "data-explain": "effects.chain-link", title: chain === undefined ? "" : `Linked with AFX IN ${chain.partner + 1}`, hidden: chain?.linked !== true }, "LINK");
+    const link = h("span", { class: "link", "data-testid": `chain-link-${index}`, "data-explain": "effects.chain-link", title: chain === undefined ? "" : `Linked with AFX In ${chain.partner + 1}`, hidden: chain?.linked !== true }, "LINK");
     const head = h("div", { class: "chain-head" }, h("span", { class: "name" }, name), link, source);
 
     if (chain === undefined || !chain.known) {
@@ -396,7 +397,7 @@ export class GaEffects extends GaElement {
       "div",
       { class: "editor-head" },
       h("h2", { "data-explain": "effects.editor", "data-explain-name": `${slot.name} #${slot.inst + 1}` }, `${slot.name} #${slot.inst + 1}`),
-      h("span", { class: "where" }, `AFX IN ${chain + 1}, slot ${slot.position + 1}`),
+      h("span", { class: "where" }, `AFX In ${chain + 1}, slot ${slot.position + 1}`),
       h("span", { class: "spacer" }),
       h("span", { class: "pair", role: "group", "aria-label": `${slot.name} bypass` }, process, off),
       close,

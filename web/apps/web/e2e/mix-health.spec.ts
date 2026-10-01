@@ -1,7 +1,7 @@
 // What a mix plays outside its channels, on the loopback without dry run so reads answer and writes
 // land. The loopback is seeded with the owner's Quadro as read on 2026-09-30: Mix 1's effect returns
-// AFX OUT 5 and 6 soloed (muted, at -2 dB), which silence the rest of Mix 1; and HP2's Mix 4 playing
-// USB 1 PLAY 3 and 4 at unity on slots 7 and 8, where the layout's channels are Mix 1's preamps.
+// AFX Out 5 and 6 soloed (muted, at -2 dB), which silence the rest of Mix 1; and HP2's Mix 4 playing
+// USB 1 Play 3 and 4 at unity on slots 7 and 8, where the layout's channels are Mix 1's preamps.
 // The markers, the notice, the tidy's confirm and what the device holds afterwards are checked,
 // and so are the effect return strips.
 
@@ -68,7 +68,7 @@ async function seedOwnersQuadro(): Promise<void> {
   await route(2, AFX);
   await route(3, { ...AFX, 6: [USB1, 2], 7: [USB1, 3], 8: [USB1, 0] });
   for (let mix = 0; mix < 4; mix++) for (let slot = 0; slot < 32; slot++) await strip(mix, slot, {});
-  // Mix 1: AFX OUT 1 to 4 at the floor, 5 and 6 soloed and muted at -2 dB.
+  // Mix 1: AFX Out 1 to 4 at the floor, 5 and 6 soloed and muted at -2 dB.
   for (const slot of [0, 1, 2, 3]) await strip(0, slot, { level: FLOOR });
   for (const slot of [4, 5]) await strip(0, slot, { level: 2, mute: true, solo: true });
   // Mix 2: its effect returns play, 1 to 4 at 0 dB and 5 and 6 at -10 dB.
@@ -115,27 +115,27 @@ test("the mix buttons mark the mixes with hidden solos and leftover routes, and 
   await expect(page.getByTestId("mix-2")).not.toHaveAttribute("data-warning", "");
 
   await expect(notice(page).getByTestId("mix-notice-items").locator("li")).toHaveText([
-    "AFX OUT 5 (slot 5) is soloed, which silences every other channel in this mix. It is an effect return strip.",
-    "AFX OUT 6 (slot 6) is soloed, which silences every other channel in this mix. It is an effect return strip.",
+    "AFX Out 5 (slot 5) is soloed, which silences every other channel in this mix. It is an effect return strip.",
+    "AFX Out 6 (slot 6) is soloed, which silences every other channel in this mix. It is an effect return strip.",
   ]);
   // A soloed return shows the effect return strips by itself.
   await expect(page.getByTestId("effect-returns-toggle")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("ga-effect-returns ga-strip")).toHaveCount(6);
-  await expect(page.locator('ga-effect-returns ga-strip[strip="4"]')).toHaveAttribute("label", "AFX OUT 5");
+  await expect(page.locator('ga-effect-returns ga-strip[strip="4"]')).toHaveAttribute("label", "AFX Out 5");
   await shot(page, "mix-health-1-mix1-notice-and-markers");
 
   await pickMix(page, 3);
   await expect(notice(page).getByTestId("mix-notice-items").locator("li")).toHaveText([
-    "Slot 7: USB 1 PLAY 3 plays at 0 dB but is not one of this mix's channels.",
-    "Slot 8: USB 1 PLAY 4 plays at 0 dB but is not one of this mix's channels.",
+    "Slot 7: USB 1 Play 3 plays at 0 dB but is not one of this mix's channels.",
+    "Slot 8: USB 1 Play 4 plays at 0 dB but is not one of this mix's channels.",
   ]);
-  await expect(notice(page).getByTestId("mix-notice-returns")).toHaveText(/^Effect returns playing: AFX OUT 5 at 0 dB, AFX OUT 6 at 0 dB\./);
+  await expect(notice(page).getByTestId("mix-notice-returns")).toHaveText(/^Effect returns playing: AFX Out 5 at 0 dB, AFX Out 6 at 0 dB\./);
   await shot(page, "mix-health-2-mix4-notice");
 
   await pickMix(page, 1);
   await expect(notice(page).getByTestId("mix-notice-items")).toHaveCount(0);
   await expect(notice(page).getByTestId("mix-tidy"), "nothing to tidy").toHaveCount(0);
-  await expect(notice(page).getByTestId("mix-notice-returns")).toHaveText(/AFX OUT 1 at 0 dB, AFX OUT 2 at 0 dB, AFX OUT 3 at 0 dB, AFX OUT 4 at 0 dB, AFX OUT 5 at -10 dB, AFX OUT 6 at -10 dB/);
+  await expect(notice(page).getByTestId("mix-notice-returns")).toHaveText(/AFX Out 1 at 0 dB, AFX Out 2 at 0 dB, AFX Out 3 at 0 dB, AFX Out 4 at 0 dB, AFX Out 5 at -10 dB, AFX Out 6 at -10 dB/);
 
   await pickMix(page, 2);
   await expect(notice(page), "a clean mix has no notice").toBeHidden();
@@ -147,8 +147,8 @@ test("tidying Mix 4 mutes only the two leftover slots, after a confirm listing t
   await expect(page.getByTestId("mix-3")).toHaveAttribute("aria-checked", "true");
   await notice(page).getByTestId("mix-tidy").click();
   await expect(notice(page).getByTestId("mix-tidy-plan").locator("li")).toHaveText([
-    "Slot 7: route MUTE in place of USB 1 PLAY 3, which is not one of this mix's channels",
-    "Slot 8: route MUTE in place of USB 1 PLAY 4, which is not one of this mix's channels",
+    "Slot 7: route Mute in place of USB 1 Play 3, which is not one of this mix's channels",
+    "Slot 8: route Mute in place of USB 1 Play 4, which is not one of this mix's channels",
   ]);
   await expect(notice(page).getByTestId("mix-tidy-returns")).not.toBeChecked();
   await shot(page, "mix-health-3-mix4-confirm", notice(page));
@@ -173,7 +173,7 @@ test("tidying Mix 4 mutes only the two leftover slots, after a confirm listing t
 test("tidying Mix 1 clears both hidden solos, and with the box ticked a tidy also mutes the effect returns", async ({ page }) => {
   await page.goto(`${server.url}/#/mixer/loopback-0/0`);
   await notice(page).getByTestId("mix-tidy").click();
-  await expect(notice(page).getByTestId("mix-tidy-plan").locator("li")).toHaveText(["AFX OUT 5 (slot 5): clear its solo", "AFX OUT 6 (slot 6): clear its solo"]);
+  await expect(notice(page).getByTestId("mix-tidy-plan").locator("li")).toHaveText(["AFX Out 5 (slot 5): clear its solo", "AFX Out 6 (slot 6): clear its solo"]);
   await notice(page).getByTestId("mix-tidy-confirm").click();
   await expect(notice(page).getByTestId("mix-tidied")).toHaveText("Tidied: 2 changes.");
   const mix1 = await readStrips(0);
@@ -188,7 +188,7 @@ test("tidying Mix 1 clears both hidden solos, and with the box ticked a tidy als
   await notice(page).getByTestId("mix-tidy").click();
   await notice(page).getByTestId("mix-tidy-returns").check();
   await expect(notice(page).getByTestId("mix-tidy-plan").locator("li")).toHaveCount(4);
-  await expect(notice(page).getByTestId("mix-tidy-plan").locator("li").nth(3)).toHaveText("AFX OUT 6 (slot 6): mute this effect return");
+  await expect(notice(page).getByTestId("mix-tidy-plan").locator("li").nth(3)).toHaveText("AFX Out 6 (slot 6): mute this effect return");
   await notice(page).getByTestId("mix-tidy-confirm").click();
   await expect(notice(page).getByTestId("mix-tidied")).toHaveText("Tidied: 4 changes.");
   expect((await readStrips(3)).slice(4, 6).map((s) => [s.level, s.mute])).toEqual([
@@ -215,8 +215,8 @@ test("the effect return strips show while one plays, hide and show by hand, reme
   await expect(returns).toHaveCount(6);
   await shot(page, "mix-health-5-effect-returns", page.locator("ga-mixer"));
 
-  // Muting AFX OUT 5 in Mix 4 is the strip's own set_mixer.
-  await page.locator('ga-effect-returns ga-strip[strip="4"]').getByRole("button", { name: "AFX OUT 5 mute" }).click();
+  // Muting AFX Out 5 in Mix 4 is the strip's own set_mixer.
+  await page.locator('ga-effect-returns ga-strip[strip="4"]').getByRole("button", { name: "AFX Out 5 mute" }).click();
   await expect.poll(async () => (await readStrips(3))[4]?.mute).toBe(1);
 
   await toggle.click();

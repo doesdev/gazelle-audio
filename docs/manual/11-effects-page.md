@@ -8,7 +8,7 @@ The Effects page (`#/effects`) shows the shown device's effect chains and its re
 
 ## Chains
 
-One card per chain (**AFX IN 1** to **6** on the Quadro, **1** to **16** on the Studio+), headed with its number, **LINK** when it is linked to its neighbour, and the source routed into it. Each effect in the chain has a row:
+One card per chain (**AFX In 1** to **6** on the Quadro, **1** to **16** on the Studio+), headed with its number, **LINK** when it is linked to its neighbour, and the source routed into it. Each effect in the chain has a row:
 
 - its position, name and instance ("Guitar Amp #1"): click the name to open or close its settings;
 - a meter with a clip light, and **GR** with the gain reduction in the device's own steps;

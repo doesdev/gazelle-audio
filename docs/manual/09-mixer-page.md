@@ -34,7 +34,7 @@ A channel's colour comes from its group if the group has one, then its own, then
 
 Below the head is the **strip**:
 
-- **PHASE**, a badge shown only when the channel's input is the playback channel a [dedicated cable](#the-phase-cable) keeps for the phase measurement. Its tooltip names the cable.
+- **Phase**, a badge shown only when the channel's input is the playback channel a [dedicated cable](#the-phase-cable) keeps for the phase measurement. Its tooltip names the cable.
 - **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. Gazelle also asks before it happens: choosing an **Input** or a **Main mix** that would put one input into a mix twice holds the change behind a **Confirm** button beside the menu, with the reason on it; press Confirm to do it anyway, or leave it and the menu goes back. Dry alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about. See [Doubled signals](02-safety.md#doubled-signals).
 - **Send** (Studio+, mix 1 only): the reverb send, which is a different thing from being sent to another mix. Double-click turns it off, Ctrl+click puts it at 0 dB. There is no per-mix send control: the fader is the level in the mix you have picked, so pick the mix and use the fader.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
@@ -62,23 +62,23 @@ At the right of the row:
 
 The page shows the channels of your layout. The device keeps its own routing and strip settings besides, left there by the vendor's panel or by an older setup, and they still play even though no strip here shows them. Once a mix's routing and levels have been read from the device (so never in dry run), Gazelle looks for three things:
 
-- **A strip playing outside this mix's channels.** A mix input that is routed, not muted and above -90 dB, on a slot none of this mix's channels uses: for example "Slot 7: USB 1 PLAY 3 plays at 0 dB but is not one of this mix's channels". It also catches a channel whose input on the device is not the one your layout gives it.
-- **A solo.** A soloed strip silences every other channel of its mix, even when that strip is muted, and even when no strip here shows it: "AFX OUT 5 (slot 5) is soloed, which silences every other channel in this mix". Every solo in the mix is listed, shown or not.
+- **A strip playing outside this mix's channels.** A mix input that is routed, not muted and above -90 dB, on a slot none of this mix's channels uses: for example "Slot 7: USB 1 Play 3 plays at 0 dB but is not one of this mix's channels". It also catches a channel whose input on the device is not the one your layout gives it.
+- **A solo.** A soloed strip silences every other channel of its mix, even when that strip is muted, and even when no strip here shows it: "AFX Out 5 (slot 5) is soloed, which silences every other channel in this mix". Every solo in the mix is listed, shown or not.
 - **Effect returns playing** (Quadro). These are listed on a line of their own and do not mark the mix, since you may well want them.
 
 A mix with a stray or a solo gets a **!** on its Mix button, and the selected mix shows a notice above the channels listing each one by slot and source.
 
-![The Mixer on its Cue mix: Monitors and Cue are marked with an exclamation mark, and a notice above the channels says Cue plays more than its channels show, listing USB 1 PLAY 5 and 6 at 0 dB on slots 15 and 16, with a Tidy this mix button.](../images/mix-health.png)
+![The Mixer on its Cue mix: Monitors and Cue are marked with an exclamation mark, and a notice above the channels says Cue plays more than its channels show, listing USB 1 Play 5 and 6 at 0 dB on slots 15 and 16, with a Tidy this mix button.](../images/mix-health.png)
 
 ### Tidy this mix
 
 **Tidy this mix** on the notice lists every change it would make, and makes none until you press **Tidy**:
 
-- a strip on a slot none of this mix's channels uses has its route set to MUTE, the way Gazelle leaves a slot unused;
+- a strip on a slot none of this mix's channels uses has its route set to Mute, the way Gazelle leaves a slot unused;
 - a channel on the wrong input is routed to its layout input again, as applying the layout would;
 - every solo in the mix is cleared, keeping each strip's level and mute.
 
-![The notice after Tidy this mix: the list of changes to be sent, setting slots 15 and 16 to MUTE in place of USB 1 PLAY 5 and 6, with Tidy and Cancel.](../images/mix-tidy.png)
+![The notice after Tidy this mix: the list of changes to be sent, setting slots 15 and 16 to Mute in place of USB 1 Play 5 and 6, with Tidy and Cancel.](../images/mix-tidy.png)
 
 Effect returns are left alone unless you tick **Also mute the effect returns**. The routing changes go to the device as one write for the mix, read fresh first, so routes made elsewhere in that mix are kept. Afterwards Gazelle reads the mix back from the device and says **Tidied: N changes**, and what is left, if anything. **Cancel** closes the list and changes nothing.
 
@@ -86,9 +86,9 @@ If a change it lists would route the playback channel a [dedicated cable](#the-p
 
 ### Effect returns on the Quadro
 
-On the Quadro, the first six inputs of every mix carry the effect returns, AFX OUT 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix.
+On the Quadro, the first six inputs of every mix carry the effect returns, AFX Out 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix.
 
-![The Monitors mix with its six effect return strips before the channels: AFX OUT 5 and 6 are muted and soloed at -2 dB, and the notice says each silences every other channel in the mix.](../images/effect-returns.png)
+![The Monitors mix with its six effect return strips before the channels: AFX Out 5 and 6 are muted and soloed at -2 dB, and the notice says each silences every other channel in the mix.](../images/effect-returns.png)
 
 The **Effect returns** rail beside them shows or hides them by hand; that choice is remembered per device in this browser. The Studio+ has no fixed effect returns: an effect output there is a channel like any other, and one playing on a slot outside the mix's channels is listed as a stray.
 
@@ -96,7 +96,7 @@ The **Effect returns** rail beside them shows or hides them by hand; that choice
 
 While a cable is [dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock), the Mixer guards its path as the [Routing page](10-routing-page.md#dedicated-cables) does. On the interface that sends it, one USB playback channel goes straight to the cable's digital output and nowhere else; on the other interface, one USB record channel records the cable.
 
-- A channel whose input is the kept playback channel is marked **PHASE** on its strip, on this page and in the [mixer dock](05-the-app.md#the-mixer-dock). The **Input** menu reads **(phase)** after that channel, and so does **+ Output...** after the cable's output and after the record pair that holds the kept record channel.
+- A channel whose input is the kept playback channel is marked **Phase** on its strip, on this page and in the [mixer dock](05-the-app.md#the-mixer-dock). The **Input** menu reads **(phase)** after that channel, and so does **+ Output...** after the cable's output and after the record pair that holds the kept record channel.
 - Anything that would put the kept playback channel into a mix, or send a mix to one of those outputs, waits for a **Confirm**, with the reason in its tooltip in the Routing page's words: choosing the channel as an **Input**, a **Main mix** or **Add to** for a channel on it, **+ Output...**, **Apply** for a layout with a channel on it, and a drop on the dock. Left alone, it goes back and nothing is sent.
 - **Tidy this mix** lists it in its confirm, as above.
 
