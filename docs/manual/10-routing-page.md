@@ -25,7 +25,7 @@ Or select a cell and press Delete (or Backspace) to mute it. **Mute row** mutes 
 
 The channels of a cable [dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock) are outlined and marked **PHASE**: on the callback master, its digital output's first channel and the USB playback channel that feeds it; on the other interface, the USB record channel that records the cable. Hovering says which cable keeps them.
 
-A change that would break that path is still allowed, but waits for a confirm that names the cable and says what the change does: another source (or mute) on the cable's output, the kept playback channel routed to any other destination, where the phase measurement's burst would then play too, or the kept record channel given something else to record. **Change it anyway** makes the change; **Cancel** leaves the routing as it is. The Aggregate page then says the path is broken and offers to put it back. To use those channels for something else, turn the dedication off on the Workspace page first.
+A change that would break that path is still allowed, but waits for a confirm that names the cable and says what the change does: another source (or mute) on the cable's output, the kept playback channel routed to any other destination, where the phase measurement's burst would then play too, or the kept record channel given something else to record. **Change it anyway** makes the change; **Cancel** leaves the routing as it is. The Aggregate page then says the path is broken and offers to put it back. To use those channels for something else, turn the dedication off on the Workspace page first. The [Mixer page](09-mixer-page.md#the-phase-cable) marks and guards the same path.
 
 ## Adding sources to a mix
 

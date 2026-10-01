@@ -13,7 +13,7 @@ The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels rout
 - **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from. Names are unique for each model: type a name already saved, in any case, and **Save layout** becomes **Replace**. Its first click reads **Confirm**, and a second within three seconds overwrites that layout in place, so it keeps its place in the list. Choosing a saved layout in **Start from** puts its name in the field, so saving replaces it; a new name you are typing is left alone. A workspace from before names were unique may hold two layouts of one name: the list shows the second as "Name (2)", so you can tell them apart, replace or delete either.
 - **N channels soft-linked** appears once channels are selected for a [soft link](#soft-link), with **Clear**.
 
-**Start from** offers the starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones, whether or not channels are set up. **Apply** replaces the channels and routes them. With channels already set up it asks first: the first click reads **Confirm**, and a second within three seconds replaces them, so save the current ones as a layout before you switch if you want them back. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
+**Start from** offers the starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones, whether or not channels are set up. **Apply** replaces the channels and routes them. With channels already set up it asks first: the first click reads **Confirm**, and a second within three seconds replaces them, so save the current ones as a layout before you switch if you want them back. A layout that would route the playback channel a [dedicated cable](#the-phase-cable) keeps asks first too, its tooltip saying why. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
 
 ## Channels
 
@@ -34,6 +34,7 @@ A channel's colour comes from its group if the group has one, then its own, then
 
 Below the head is the **strip**:
 
+- **PHASE**, a badge shown only when the channel's input is the playback channel a [dedicated cable](#the-phase-cable) keeps for the phase measurement. Its tooltip names the cable.
 - **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. Gazelle also asks before it happens: choosing an **Input** or a **Main mix** that would put one input into a mix twice holds the change behind a **Confirm** button beside the menu, with the reason on it; press Confirm to do it anyway, or leave it and the menu goes back. Dry alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about. See [Doubled signals](02-safety.md#doubled-signals).
 - **Send** (Studio+, mix 1 only): the reverb send, which is a different thing from being sent to another mix. Double-click turns it off, Ctrl+click puts it at 0 dB. There is no per-mix send control: the fader is the level in the mix you have picked, so pick the mix and use the fader.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
@@ -54,7 +55,7 @@ At the right of the row:
 
 - the mix's **name** (type to rename it);
 - **Mono**, which sums the mix to mono by centring every channel's pan and lowering the mix by as much as that gains (6 dB on the Studio+, less on the Quadro with its centre attenuation), so the level stays about the same; both are put back when it is turned off. It is the same Mono as the Control Room's;
-- **Outputs**: where the mix plays, as chips. The chip's × stops the mix feeding that output at once; **+ Output...** adds one;
+- **Outputs**: where the mix plays, as chips. The chip's × stops the mix feeding that output at once; **+ Output...** adds one. An output on a [dedicated cable's](#the-phase-cable) path reads **(phase)** in the menu, and choosing it waits for **Confirm**;
 - the master fader and **M**.
 
 ## What a mix plays outside its channels
@@ -81,6 +82,8 @@ A mix with a stray or a solo gets a **!** on its Mix button, and the selected mi
 
 Effect returns are left alone unless you tick **Also mute the effect returns**. The routing changes go to the device as one write for the mix, read fresh first, so routes made elsewhere in that mix are kept. Afterwards Gazelle reads the mix back from the device and says **Tidied: N changes**, and what is left, if anything. **Cancel** closes the list and changes nothing.
 
+If a change it lists would route the playback channel a [dedicated cable](#the-phase-cable) keeps into the mix, the list says so first, in a box of its own; **Tidy** still makes it.
+
 ### Effect returns on the Quadro
 
 On the Quadro, the first six inputs of every mix carry the effect returns, AFX OUT 1 to 6, as the vendor's panel keeps them. They are not channels of your layout, so the page shows them apart: slim strips before the channels, each with its fader, meter, **M** and **S**, sending the same commands as any strip. They appear by themselves while one of them is playing or soloed in the selected mix.
@@ -88,6 +91,16 @@ On the Quadro, the first six inputs of every mix carry the effect returns, AFX O
 ![The Monitors mix with its six effect return strips before the channels: AFX OUT 5 and 6 are muted and soloed at -2 dB, and the notice says each silences every other channel in the mix.](../images/effect-returns.png)
 
 The **Effect returns** rail beside them shows or hides them by hand; that choice is remembered per device in this browser. The Studio+ has no fixed effect returns: an effect output there is a channel like any other, and one playing on a slot outside the mix's channels is listed as a stray.
+
+## The phase cable
+
+While a cable is [dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock), the Mixer guards its path as the [Routing page](10-routing-page.md#dedicated-cables) does. On the interface that sends it, one USB playback channel goes straight to the cable's digital output and nowhere else; on the other interface, one USB record channel records the cable.
+
+- A channel whose input is the kept playback channel is marked **PHASE** on its strip, on this page and in the [mixer dock](05-the-app.md#the-mixer-dock). The **Input** menu reads **(phase)** after that channel, and so does **+ Output...** after the cable's output and after the record pair that holds the kept record channel.
+- Anything that would put the kept playback channel into a mix, or send a mix to one of those outputs, waits for a **Confirm**, with the reason in its tooltip in the Routing page's words: choosing the channel as an **Input**, a **Main mix** or **Add to** for a channel on it, **+ Output...**, **Apply** for a layout with a channel on it, and a drop on the dock. Left alone, it goes back and nothing is sent.
+- **Tidy this mix** lists it in its confirm, as above.
+
+These changes are still allowed: confirm one and the Aggregate page says the phase path is broken and offers to put it back. To use those channels for something else, turn the dedication off on the Workspace page first.
 
 ## Groups
 
