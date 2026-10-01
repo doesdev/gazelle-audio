@@ -14,7 +14,7 @@
 //! happens. Nothing is ever handed to a device without being written first.
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use gazelle_audio_stream_abi::raw::{time_flags, CallbacksRaw, Samples, Time};
@@ -254,6 +254,10 @@ pub struct Stream {
     /// run of plain stores into a mapped page; a reporter with nowhere to report does nothing at
     /// all, and either way this never waits, allocates or makes a call into the system.
     reporter: Arc<Reporter>,
+    /// A host's watch on one follower's cable ([`phase::Watch`]), or null. Made from `Arc::into_raw`.
+    watch: AtomicPtr<phase::Watch>,
+    /// The master's callback is looking at the watch.
+    in_watch: AtomicBool,
     scratch: UnsafeCell<Scratch>,
 }
 
@@ -362,6 +366,8 @@ impl Stream {
             planned_input_latency: plan.input_latency,
             rearm: AtomicBool::new(false),
             reporter,
+            watch: AtomicPtr::new(std::ptr::null_mut()),
+            in_watch: AtomicBool::new(false),
             scratch: UnsafeCell::new(Scratch {
                 stage_in,
                 stage_out,
@@ -375,6 +381,36 @@ impl Stream {
                 half: 0,
             }),
         }
+    }
+
+    /// Hang a host's watch on one follower's cable. It starts at the master's next block. Refused
+    /// when one is hung already, or when that follower's phase is not measured in this session,
+    /// since then there is no cable to watch.
+    pub fn watch(&self, watch: Arc<phase::Watch>) -> Result<(), String> {
+        if !self.aligned || self.devices.get(watch.device).is_none_or(|sub| sub.phase_state.load(Ordering::Acquire) == gazelle_audio_aggregate_status::record::phase::NOT_CONFIGURED) {
+            return Err("that interface's phase is not measured in this session, so there is no cable to watch".into());
+        }
+        let raw = Arc::into_raw(watch) as *mut phase::Watch;
+        if self.watch.compare_exchange(std::ptr::null_mut(), raw, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            // Safety: made by `into_raw` just above and published nowhere.
+            drop(unsafe { Arc::from_raw(raw) });
+            return Err("a cable is being watched already".into());
+        }
+        Ok(())
+    }
+
+    /// Take the watch off, and answer once the master's callback cannot be using it any more. No
+    /// burst goes out after this.
+    pub fn unwatch(&self) {
+        let raw = self.watch.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if raw.is_null() {
+            return;
+        }
+        while self.in_watch.load(Ordering::SeqCst) {
+            std::thread::yield_now();
+        }
+        // Safety: made by `into_raw` in `watch`, and nothing can reach it now.
+        drop(unsafe { Arc::from_raw(raw) });
     }
 
     /// The pointer for one of the DAW's own buffers.
@@ -495,6 +531,33 @@ impl Stream {
             self.line_up_again(scratch);
         }
 
+        // 2b. A host watching a follower's cable is handed that channel's block as it arrived, and
+        //     a burst goes out on the blocks the watch asks for once the session's own measurement
+        //     is over, so the two never meet on the cable. Not when that measurement heard nothing:
+        //     the burst plays wherever the channel is routed, and a cable it never reached is a
+        //     routing that may send it somewhere a person would hear it, once a second.
+        let mut watch_burst = None;
+        self.in_watch.store(true, Ordering::SeqCst);
+        let watch = self.watch.load(Ordering::SeqCst);
+        if !watch.is_null() {
+            // Safety: `unwatch` waits for `in_watch` to fall before it lets the watch go.
+            let watch = unsafe { &*watch };
+            if let (Some(Some(detector)), Some(sub)) = (scratch.phase.get(watch.device), self.devices.get(watch.device)) {
+                let slot = detector.input_slot;
+                let (state, measured, applied) = (sub.phase_state.load(Ordering::Acquire), sub.phase_measured.load(Ordering::Acquire), sub.phase_applied.load(Ordering::Acquire));
+                let sends = detector.is_done() && state != gazelle_audio_aggregate_status::record::phase::NOT_HEARD && watch.sends_on(now);
+                // Where it leaves and when the drivers' figures say it comes back, exactly as the
+                // start of the session works it out.
+                let due = sends.then(|| now as i64 * block as i64 + self.devices[self.master].planned_pad_out as i64 + detector.expected() as i64);
+                if sends {
+                    watch_burst = Some(detector.master_slot);
+                }
+                let run = &scratch.stage_in[watch.device][slot * block..(slot + 1) * block];
+                watch.record(now, due, state, measured, applied, run);
+            }
+        }
+        self.in_watch.store(false, Ordering::Release);
+
         // 3. Held back, so that every device's channels line up with every other's.
         for index in 0..self.devices.len() {
             scratch.delay_in[index].process(&mut scratch.stage_in[index], block);
@@ -537,6 +600,10 @@ impl Stream {
                 let stage = &mut scratch.stage_out[self.master];
                 Detector::write_burst(&mut stage[slot * block..(slot + 1) * block]);
             }
+        }
+        if let Some(slot) = watch_burst {
+            let stage = &mut scratch.stage_out[self.master];
+            Detector::write_burst(&mut stage[slot * block..(slot + 1) * block]);
         }
         for (index, sub) in self.devices.iter().enumerate() {
             let stage = &mut scratch.stage_out[index];
@@ -786,5 +853,11 @@ impl Stream {
             Some(sub) => (sub.inputs(), sub.outputs()),
             None => (0, 0),
         }
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.unwatch();
     }
 }

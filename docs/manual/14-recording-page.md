@@ -25,6 +25,19 @@ Record and Stop are each one press, taken at the next block of audio: missing th
 
 Below the buttons, the transport warns when something needs you: audio lost because the disk fell behind, audio the aggregate itself lost on an interface, a disk getting full, or a driver asking to be restarted (disarm and arm again when you can; the take so far is safe).
 
+## The alignment check
+
+At the start of every session the aggregate measures where each interface's capture landed and lines them up ([The phase](13-aggregate-page.md#the-phase)), and then nothing looks again on its own. While Gazelle is armed it keeps looking: **once a second it sends the same short signal down the cable dedicated to the phase measurement**, and where the signal arrives says whether the follower is still exactly where it was lined up. The signal never reaches anything you hear, because that channel is routed to the cable and nowhere else ([The routing it needs](13-aggregate-page.md#the-routing-it-needs)).
+
+A line under the pre-roll says what the check found:
+
+- **Alignment checked 0.4 s ago: held.** The last signal arrived on the same sample as the one before it. This is what you want to see.
+- **Alignment slipped by 32 samples at 1:23.5 into this take**, in the warning colour, with which interface is late or early. One interface's tracks have moved against the other's from that moment on. **Nothing is corrected**: the take keeps what was recorded, and its log says when it happened and by how much, so you can move that interface's tracks in your DAW. If it moves back, the line says it held again, and still mentions the slip.
+- **Alignment is not being confirmed: no check signal has arrived**, in the warning colour, when the signal has stopped arriving: the cable is out, or its routing changed. For that stretch nobody knows whether the interfaces held.
+- **Alignment is not being checked**, and why: no phase path is set up on the Aggregate page, the aggregate is set to the lowest latency (which lines nothing up), or the measurement at the start of the session heard nothing on the cable. In that last case nothing is sent at all, because a signal that never reached the cable is going wherever that channel is routed. Fix the cable or its routing, then disarm and arm again.
+
+The check is compared with the alignment in force: the phase measured at the start of the session when the interfaces were lined up by it, or the reference its trim was measured at when that measurement was refused, so a measurement that went wrong at the start shows at the very first check.
+
 ## The pre-roll
 
 A preset asks for a share of the memory that is free when you press Arm: 10 % unless you choose otherwise. That is worked out into seconds from the aggregate's rate and the number of channels, and shown beside the bar. It is always at least 5 seconds, and never more than half of the free memory or 4 GB. A quarter of what is reserved is kept back as room to write the take out while the audio keeps coming, so the seconds shown are the part Record can reach back into.
@@ -56,9 +69,11 @@ Each take is one mono Broadcast WAV file per channel, and a log beside them. Eve
 
 **A file is never overwritten.** If a name is taken, the take number moves on until every name of the take is new.
 
-The log, named like the files with `log` for the channel, says when the take started, its preset, rate and format, how much of it was pre-roll, its files, and anything that happened to it: audio the disk fell behind on (each gap is silence of the same length, so the files stay lined up, and the log says where in the take it was), audio the aggregate lost on an interface, and why the take ended if Gazelle ended it.
+The log, named like the files with `log` for the channel, says when the take started, its preset, rate and format, how much of it was pre-roll, its files, and anything that happened to it: audio the disk fell behind on (each gap is silence of the same length, so the files stay lined up, and the log says where in the take it was), audio the aggregate lost on an interface, whether the interfaces stayed lined up, and why the take ended if Gazelle ended it.
 
-The **Takes** list shows the takes recorded since Gazelle started, newest first, with their folder and files.
+On the alignment, the log gives the answer first, in a line: **Alignment held: 48 checks, all at 0 samples**, or that it did not hold, with how many checks found the follower out of line and where it was at the end, or that some checks found no signal and so it is not known for those stretches, or that it was not checked and why. The lines after it say when: the time into the take and the sample where it slipped, by how many samples and which way, when it came back, and each stretch where no check signal arrived.
+
+The **Takes** list shows the takes recorded since Gazelle started, newest first, with their folder and files, and a warning on a take the interfaces slipped out of line during.
 
 ## Into Cubase
 
@@ -194,4 +209,4 @@ The widget and hub windows remember their places in `recording-widget.json` and 
 
 ## On the emulator
 
-With `--backend loopback` the page records the emulator's test tones from both emulated interfaces, through the real aggregate, into `Gazelle loopback recordings` in the temporary folder, whatever a preset says. It is for trying the page, not for keeping anything.
+With `--backend loopback` the page records the emulator's test tones from both emulated interfaces, through the real aggregate, into `Gazelle loopback recordings` in the temporary folder, whatever a preset says. It is for trying the page, not for keeping anything. With a phase path set up, the emulator carries the phase cable too, so the alignment check runs and holds.

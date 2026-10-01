@@ -192,7 +192,7 @@ Once it is set up, the card says **Set up, no reference yet**. One measurement u
 
 This is the step that is easy to miss. The measurement travels on the digital cable, so **each interface's own routing has to carry it**:
 
-- On the **callback master**, the playback channel chosen under **Leaves the callback master on** has to be routed straight to the socket the cable leaves from, its S/PDIF out, and **nowhere else**. The driver plays a short burst into it at the start of every session (four samples, quiet, but a click), and it plays wherever that channel goes: put it in a mix and it goes towards your monitors or headphones.
+- On the **callback master**, the playback channel chosen under **Leaves the callback master on** has to be routed straight to the socket the cable leaves from, its S/PDIF out, and **nowhere else**. The driver plays a short burst into it at the start of every session (four samples, quiet, but a click), and it plays wherever that channel goes: put it in a mix and it goes towards your monitors or headphones. While Gazelle's recorder is armed the same burst goes out once a second, to [check the alignment](14-recording-page.md#the-alignment-check), so a path that also reaches a mix would be a click every second; it is not sent when the start of the session heard nothing on the cable.
 - On the **follower**, the socket the cable arrives at, its S/PDIF in, has to be routed to the record channel chosen under **Arrives on**.
 
 A fresh setup has neither, and a path that is not routed reads as **nothing heard**, not as a missing route. **Ready to use** says when the routing does not join the two channels (**Phase path broken**), from the routing Gazelle has seen.

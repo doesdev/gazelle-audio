@@ -33,7 +33,7 @@ use crate::host::{OpenRequest, Opened, Session, Shared};
 use crate::latency::LatencySlot;
 use crate::metronome::Params;
 use crate::recorder::Environment;
-use crate::sim::Timing;
+use crate::sim::{Cable, Timing};
 
 /// Who holds the session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,7 +249,8 @@ fn host_thread(env: Arc<dyn Environment>, request: OpenRequest, reply: mpsc::Sen
             return;
         }
     };
-    let mut pump = env.pump(Timing { rate: session.opened.rate, block: session.opened.block }, session.opened.master);
+    let cable = session.opened.phase_path.as_ref().ok().map(|path| Cable { master: session.opened.master, master_slot: path.master_slot, follower: path.device, input_slot: path.input_slot });
+    let mut pump = env.pump(Timing { rate: session.opened.rate, block: session.opened.block, cable }, session.opened.master);
     let lease = Lease { shared: session.shared(), opened: session.opened.clone(), dropouts: session.dropouts(), latency: session.latency() };
     if reply.send(Ok(lease)).is_err() {
         // Opening was given up on: nobody wants this session.

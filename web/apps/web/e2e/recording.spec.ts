@@ -218,6 +218,37 @@ test("a measurement on the Aggregate page is refused while armed, and Arm is ref
   expect(said.endsWith(".")).toBe(true);
 });
 
+test("the transport says the alignment is not checked with no phase path, and that it held with one", async ({ page }) => {
+  await open(page, "recording");
+  const line = page.getByTestId("recording-alignment");
+  await expect(line).toBeHidden();
+  expect((await post("recording/arm", { preset: "band" })).status).toBe(200);
+  await expect(page.getByTestId("recording-state")).toHaveText("Armed");
+  await expect(line).toHaveText(/^Alignment is not being checked: no phase path is set up/);
+  await expect(line).not.toHaveAttribute("data-warn");
+  await post("recording/disarm");
+
+  // The loopback carries what the Quadro plays on its phase output to the Studio+'s phase input, as
+  // the cable would, so the check finds it on the same sample every second.
+  await putWorkspace(server, {
+    aliases: { [QUADRO]: "Quadro", [STUDIO]: "Studio+" },
+    aggregate: {
+      devices: [
+        { key: "Zen Quadro Synergy Core", device_id: QUADRO, input_names: { "0": "Vocal mic" } },
+        { key: "ZenStudioTB", device_id: STUDIO, phase: { master_output: 2, input: 20 } },
+      ],
+      alignment: "aligned",
+    },
+    ...({ recording: { presets: [{ id: "band", name: "Band", channels: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }, { device: 1, channel: 2 }], preroll_max_seconds: 30 }] } } as object),
+  });
+  expect((await post("recording/arm", { preset: "band" })).status).toBe(200);
+  await expect(line).toHaveText(/^Alignment checked [\d.]+ s ago: held\.$/, { timeout: 10_000 });
+  await expect(line).not.toHaveAttribute("data-warn");
+  const status = (await (await api("recording")).json()) as { alignment?: { state: string; device?: string; offset?: number } };
+  expect(status.alignment).toMatchObject({ state: "checking", device: "Studio+", offset: 0 });
+  await post("recording/disarm");
+});
+
 async function phone(browser: Browser, scheme: "dark" | "light") {
   await api("remote", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ allow_phones: true }) });
   const started = (await (await api("remote/pairing", { method: "POST" })).json()) as { code: string };

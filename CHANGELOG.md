@@ -12,6 +12,14 @@ version that has not been published yet.
 
 ### Added
 
+- **Gazelle checks that the interfaces stay lined up while it records.** With a phase path set up
+  on the Aggregate page, Gazelle sends the phase measurement's short signal down that cable once a
+  second while armed and checks it arrives on the same sample. The Recording page says when it was
+  last checked and that it held, and warns if one interface slips, by how many samples and when, or
+  if the signal stops arriving. Each take's log says whether alignment held throughout ("Alignment
+  held: 48 checks, all at 0 samples"), or when and by how much it slipped and whether it came back,
+  and the take is marked in the list. Nothing is corrected: the files keep what was recorded. With
+  no phase path, the page and the log say alignment is not being checked, and why.
 - **The Downbeat marker lands where you play.** After a count-in, the Downbeat in a take is now
   placed where a performance in time with the click you hear actually lands in the files, one
   round trip of the interfaces' latency after the click was sent, instead of on the click itself.
