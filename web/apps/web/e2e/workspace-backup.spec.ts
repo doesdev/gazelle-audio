@@ -88,7 +88,9 @@ test("an exported workspace imports back exactly, after confirming, without touc
   expect(await serverWorkspace()).toEqual(saved);
   await expect(aliasField(page, "loopback-0")).toHaveValue("Desk Quadro");
   await expect(page.getByText("Drums", { exact: true })).toBeVisible();
-  expect(commands.slice(sentBefore), "a workspace is layout only").toEqual([]);
+  // Reads are fine (a cable's channels are named from the sending device's routing, read once the
+  // cable is known); nothing may be written.
+  expect(commands.slice(sentBefore).filter((name) => !name.startsWith("get_")), "a workspace is layout only").toEqual([]);
 });
 
 test("a file the server refuses is not imported, and the server's reason is shown", async ({ page }) => {
