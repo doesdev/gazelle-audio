@@ -8,7 +8,7 @@
 // the fader, from the field that meters that kind of input or, for an input the interface does not
 // meter by type, from its own mixer channel meters (the store's `stripMeter`).
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
-// name and the doubled and PHASE badges, without pan, send, link or the peak readout. The PHASE
+// name and the doubled and Phase badges, without pan, send, link or the peak readout. The Phase
 // badge marks a strip whose input a cable dedicated to the phase measurement keeps.
 // A channel strip's name bar selects its channel for the soft link (`selectable`), and its fader,
 // pan, mute and solo move the soft-linked channels with it, on the Mixer page and in the dock alike.
@@ -155,7 +155,7 @@ export class GaStrip extends GaElement {
       :host([compact]) .name { margin: 0 -2px; padding: 2px 1px; font-size: 10px; }
       /* The doubled badge stays on a dock strip: a mix summing one input twice matters wherever it is ridden. */
       :host([compact]) .doubled { padding: 0 3px; font-size: 9px; }
-      /* An input kept for the phase measurement: the Routing page's PHASE badge, in its colour. */
+      /* An input kept for the phase measurement: the Routing page's Phase badge, in its colour. */
       .doubled.phase { background: var(--ga-state-solo); font-size: 8px; font-weight: 700; }
     `),
   ];
@@ -286,7 +286,7 @@ export class GaStrip extends GaElement {
       const badge = h("div", { class: "doubled", "data-testid": `doubled-${testId}`, hidden: "", "data-explain": "strip.doubled" }, "\u00d72");
       top.unshift(badge);
       // An input a dedicated cable keeps for the phase measurement, here as on the Routing page.
-      const kept = h("div", { class: "doubled phase", "data-testid": `phase-${testId}`, hidden: "", "data-explain": "strip.phase" }, "PHASE");
+      const kept = h("div", { class: "doubled phase", "data-testid": `phase-${testId}`, hidden: "", "data-explain": "strip.phase" }, "Phase");
       top.unshift(kept);
       this.watch(() => {
         const why = phaseGuard()?.source(deviceId, source);

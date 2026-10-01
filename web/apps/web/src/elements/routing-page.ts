@@ -17,6 +17,7 @@
 
 import { h } from "../core/dom.ts";
 import { computed, untracked } from "../core/signal.ts";
+import { groupName } from "../store/names.ts";
 import { breaks, dedicatedPaths, pathMarks, phasePathContext } from "../store/phase-path.ts";
 import type { RouteSlot } from "../store/routing.ts";
 import { GaElement, LAST_SENT_STYLES, sheet, showLastSent, useStore } from "./element.ts";
@@ -52,7 +53,7 @@ export class GaRouting extends GaElement {
       .tools button { min-height: 22px; padding: 0 6px; font-size: 10px; }
       /* A channel a dedicated cable keeps for the phase measurement: outlined, with a small badge. */
       .chip[data-phase], .cell[data-phase] { position: relative; padding-top: 10px; box-shadow: inset 0 0 0 1px var(--ga-state-solo); }
-      .chip[data-phase]::after, .cell[data-phase]::after { content: "PHASE"; position: absolute; top: 1px; left: 3px; padding: 0 2px; border-radius: 2px; background: var(--ga-state-solo); color: var(--ga-surface-inset); font-size: 7px; font-weight: 700; letter-spacing: 0.04em; line-height: 8px; }
+      .chip[data-phase]::after, .cell[data-phase]::after { content: "Phase"; position: absolute; top: 1px; left: 3px; padding: 0 2px; border-radius: 2px; background: var(--ga-state-solo); color: var(--ga-surface-inset); font-size: 7px; font-weight: 700; letter-spacing: 0.04em; line-height: 8px; }
       .phase-confirm { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--ga-state-solo); border-radius: 4px; background: var(--ga-surface-inset); }
       .phase-confirm p { margin: 0; font-size: 12px; }
       .phase-confirm ul { margin: 0; padding: 0 0 0 18px; font-size: 11px; display: grid; gap: 2px; }
@@ -78,7 +79,7 @@ export class GaRouting extends GaElement {
     const shortLabel = (group: number, channel: number) => {
       const source = topology.inputs[group];
       if (source === undefined) return `${group}:${channel + 1}`;
-      const base = source.name.replace(/ (PLAY|IN|OUT)$/, "");
+      const base = groupName(source).replace(/ (Play|In|Out)$/, "");
       if (source.channels <= 1) return base;
       // "USB 1·3" rather than "USB 1 3" when the name already ends in a number.
       return `${base}${/\d$/.test(base) ? "·" : " "}${channel + 1}`;
@@ -155,8 +156,8 @@ export class GaRouting extends GaElement {
             "data-source": `${g}:${c}`,
             "data-testid": `source-${g}-${c}`,
             "data-explain": "routing.source",
-            "data-explain-name": `${group.name} ${c + 1}`,
-            title: `${group.name} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`,
+            "data-explain-name": `${groupName(group)} ${c + 1}`,
+            title: `${groupName(group)} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`,
             "on:click": (event) => {
               if (suppressClick) {
                 suppressClick = false;
@@ -168,7 +169,7 @@ export class GaRouting extends GaElement {
           shortLabel(g, c),
         ),
       );
-      return [h("div", { class: "row", style: `--group-colour: ${group.color}` }, h("span", { class: "label" }, h("span", { class: "swatch" }), group.name), h("span", { class: "spacer-tools" }), h("div", { class: "cells" }, chips[g]))];
+      return [h("div", { class: "row", style: `--group-colour: ${group.color}` }, h("span", { class: "label" }, h("span", { class: "swatch" }), groupName(group)), h("span", { class: "spacer-tools" }), h("div", { class: "cells" }, chips[g]))];
     });
 
     paint();
@@ -180,7 +181,7 @@ export class GaRouting extends GaElement {
         row.forEach((chip, c) => {
           const phase = kept.get(`${g}:${c}`);
           chip.toggleAttribute("data-phase", phase !== undefined);
-          const base = `${topology.inputs[g]?.name ?? g} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`;
+          const base = `${topology.inputs[g] === undefined ? g : groupName(topology.inputs[g])} ${c + 1}: drag onto a destination, or onto the Mixer dock to add a channel`;
           chip.title = phase === undefined ? base : `${base}. ${phase}`;
         }),
       );
@@ -195,10 +196,10 @@ export class GaRouting extends GaElement {
           "data-destination": `${d}:${c}`,
           "data-testid": `dest-${d}-${c}`,
           "data-readonly": locked,
-          "aria-label": `${group.name} ${c + 1}`,
+          "aria-label": `${groupName(group)} ${c + 1}`,
           "aria-disabled": locked ? "true" : undefined,
           "data-explain": locked ? "routing.cell-mixer" : "routing.cell",
-          "data-explain-name": `${group.name} ${c + 1}`,
+          "data-explain-name": `${groupName(group)} ${c + 1}`,
           "on:click": () => {
             if (!locked && selection !== undefined) fill(d, c, selected());
           },
@@ -208,7 +209,7 @@ export class GaRouting extends GaElement {
           },
         }),
       );
-      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, "data-explain": locked ? "routing.mute-row-mixer" : "routing.mute-row", title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${group.name} channel`, "on:click": () => write(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
+      const mute = h("button", { type: "button", "data-testid": `mute-row-${d}`, "data-readonly": locked, disabled: locked, "data-explain": locked ? "routing.mute-row-mixer" : "routing.mute-row", title: locked ? "Mixer inputs are set by the Mixer page's channels" : `Mute every ${groupName(group)} channel`, "on:click": () => write(d, cells.map((_, c) => ({ channel: c, source: null }))) }, "Mute row");
       this.watch(() => {
         const slots = routing.destination(d).value;
         const kept = marks.value.destinations;
@@ -219,13 +220,14 @@ export class GaRouting extends GaElement {
           cell.toggleAttribute("data-routed", routed);
           cell.toggleAttribute("data-phase", phase !== undefined);
           cell.textContent = slot === undefined ? "?" : routed ? shortLabel(slot.source, slot.channel) : "off";
-          cell.title = (slot === undefined ? `${group.name} ${c + 1}: not read from the device` : routed ? `${group.name} ${c + 1} ← ${topology.inputs[slot.source]?.name ?? "?"} ${slot.channel + 1}` : `${group.name} ${c + 1}: muted`) + (phase === undefined ? "" : `. ${phase}`);
+          const from = slot === undefined ? undefined : topology.inputs[slot.source];
+          cell.title = (slot === undefined ? `${groupName(group)} ${c + 1}: not read from the device` : routed ? `${groupName(group)} ${c + 1} ← ${from === undefined ? "?" : groupName(from)} ${slot.channel + 1}` : `${groupName(group)} ${c + 1}: muted`) + (phase === undefined ? "" : `. ${phase}`);
           const colour = routed ? topology.inputs[slot.source]?.color : undefined;
           if (colour === undefined) cell.style.removeProperty("--source-colour");
           else cell.style.setProperty("--source-colour", colour);
         });
       });
-      return h("div", { class: "row" }, h("span", { class: "label", title: locked ? "Mixer inputs are set by the Mixer page's channels" : group.name }, group.name), h("span", { class: "tools" }, mute), h("div", { class: "cells" }, cells));
+      return h("div", { class: "row" }, h("span", { class: "label", title: locked ? "Mixer inputs are set by the Mixer page's channels" : groupName(group) }, groupName(group)), h("span", { class: "tools" }, mute), h("div", { class: "cells" }, cells));
     });
 
     const sources = h("section", {}, h("h2", { "data-explain": "routing.sources" }, "Sources"), h("div", { class: "table" }, sourceRows));

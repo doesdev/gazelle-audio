@@ -157,7 +157,7 @@ const quadroCommand = (server: RunningServer, name: string, body: object) => dev
 /**
  * Both devices' mixes routed exactly as the sample session lays them out, so the general pictures
  * show no mix playing more than its channels. Each mix's inputs are listed by slot as [topology
- * group, channel]; every other slot is set to MUTE. On the Quadro, layout slots play at -8 dB and
+ * group, channel]; every other slot is set to Mute. On the Quadro, layout slots play at -8 dB and
  * the rest sit at the floor. The mixes' input groups start at 8 on the Quadro and 10 on the Studio+.
  */
 async function seedSampleRouting(server: RunningServer): Promise<void> {

@@ -44,8 +44,8 @@ test("cables are declared between two devices' digital ports of one kind, checke
   const other = cables.declare(spdif.from, spdif.to, spdif.channels) as string;
   assert.notEqual(id, other);
   assert.deepEqual(store.workspace.value?.cables, [{ id, ...adat }, { id: other, ...spdif }]);
-  assert.equal(cables.label(cables.list.value[0]!), "Zen Studio+ ADAT out 1 to 8 → Zen Quadro ADAT in 1 to 8");
-  assert.equal(cables.label(cables.list.value[1]!), "Zen Quadro S/PDIF out 1 and 2 → Zen Studio+ S/PDIF in 1 and 2");
+  assert.equal(cables.label(cables.list.value[0]!), "Zen Studio+ ADAT Out 1 to 8 → Zen Quadro ADAT In 1 to 8");
+  assert.equal(cables.label(cables.list.value[1]!), "Zen Quadro S/PDIF Out 1 and 2 → Zen Studio+ S/PDIF In 1 and 2");
 
   assert.throws(() => cables.declare({ device_id: STUDIO, port: "ADAT_IN", first: 0 }, adat.to, 8), /from must be SPDIF_OUT or ADAT_OUT/);
   assert.throws(() => cables.declare(adat.from, { device_id: QUADRO, port: "SPDIF_OUT", first: 0 }, 2), /to must be SPDIF_IN or ADAT_IN/);
@@ -86,8 +86,8 @@ test("an output port shows what feeds it, pair by pair: a mix, a source played b
   const studio = cables.feed(STUDIO, "ADAT_OUT", 0);
   assert.equal(studio.length, 4, "an ADAT port is four pairs");
   assert.deepEqual(studio.map((p) => [p.label, p.text, p.mix, p.direct]), [
-    ["1/2", "PREAMP 1/2", undefined, true],
-    ["3/4", "PREAMP 3 + MUTE", undefined, true],
+    ["1/2", "Preamp 1/2", undefined, true],
+    ["3/4", "Preamp 3 + Mute", undefined, true],
     ["5/6", "Mix 3 R + Mix 3 L", undefined, true],
     ["7/8", "Muted", undefined, false],
   ]);
@@ -100,9 +100,9 @@ test("routing a mix, a source or nothing to a port's pair is one read-before-wri
   const cables = store.cables;
   const choices = cables.routeChoices(QUADRO);
   assert.deepEqual(choices.mixes.map((m) => m.label).slice(0, 2), ["Mix 1", "Mix 2"]);
-  assert.ok(choices.sources.some((s) => s.label === "USB 1 PLAY 1/2" && s.group === 1 && s.channel === 0));
-  assert.ok(!choices.sources.some((s) => s.label.startsWith("MIX") || s.label.startsWith("LOOPBACK") || s.label.startsWith("MUTE")), "mixes are offered by name, and mute on its own");
-  assert.ok(choices.sources.some((s) => s.label === "SPDIF IN 1/2"));
+  assert.ok(choices.sources.some((s) => s.label === "USB 1 Play 1/2" && s.group === 1 && s.channel === 0));
+  assert.ok(!choices.sources.some((s) => s.label.startsWith("Mix") || s.label.startsWith("Loopback") || s.label.startsWith("Mute")), "mixes are offered by name, and mute on its own");
+  assert.ok(choices.sources.some((s) => s.label === "S/PDIF In 1/2"));
 
   const sets = () => client.invocations.filter((call) => call.command === "set_routing");
   assert.equal(await cables.routePair(QUADRO, "SPDIF_OUT", 0, { mix: 3 }), true);
@@ -121,7 +121,7 @@ test("routing a mix, a source or nothing to a port's pair is one read-before-wri
   assert.equal(sets().at(-1)?.deviceId, STUDIO);
   assert.equal(sets().at(-1)?.args?.["bank_idx"], 7);
   assert.deepEqual((sets().at(-1)?.args?.["bank_configs"] as Uint8Array[]).slice(0, 4).map((s) => [...s]), [[11, 0], [11, 0], [0, 2], [0, 3]]);
-  assert.deepEqual(cables.feed(STUDIO, "ADAT_OUT", 0)[1]?.text, "PREAMP 3/4");
+  assert.deepEqual(cables.feed(STUDIO, "ADAT_OUT", 0)[1]?.text, "Preamp 3/4");
 
   await cables.routePair(QUADRO, "SPDIF_OUT", 0, { mute: true });
   assert.deepEqual((sets().at(-1)?.args?.["bank_configs"] as Uint8Array[]).slice(0, 2).map((s) => [...s]), [[10, 0], [10, 0]]);
@@ -130,7 +130,7 @@ test("routing a mix, a source or nothing to a port's pair is one read-before-wri
   await cables.routePair(QUADRO, "SPDIF_OUT", 0, { group: 1, channel: 15 });
   assert.deepEqual((sets().at(-1)?.args?.["bank_configs"] as Uint8Array[]).slice(0, 2).map((s) => [...s]), [[1, 15], [1, 15]]);
 
-  assert.throws(() => cables.routePair(QUADRO, "SPDIF_OUT", 2, { mute: true }), RangeError, "the Quadro's S/PDIF out has one pair");
+  assert.throws(() => cables.routePair(QUADRO, "SPDIF_OUT", 2, { mute: true }), RangeError, "the Quadro's S/PDIF Out has one pair");
   assert.throws(() => cables.routePair(STUDIO, "ADAT_OUT", 1, { mute: true }), RangeError, "a pair starts on an even channel");
   assert.throws(() => cables.routePair(QUADRO, "ADAT_OUT" as never, 0, { mute: true }), RangeError);
 });
@@ -147,17 +147,17 @@ test("a receiving input says where its signal comes from, through the cable and 
   store.channels(STUDIO).rename(snare, "Snare");
   await store.channels(STUDIO).setSource(snare, { group: 0, channel: 1 });
 
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 1), undefined, "ADAT in 2 is before the cable's first channel");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 1), undefined, "ADAT In 2 is before the cable's first channel");
   assert.equal(cables.provenance(QUADRO, "SPDIF_IN", 2), undefined);
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 3)?.text, "from Drum rack ADAT out 2", "the sender's routing is not read yet");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 3)?.text, "from Drum rack ADAT Out 2", "the sender's routing is not read yet");
   assert.deepEqual(cables.sendersToRead(QUADRO, "ADAT_IN", 3), { deviceId: STUDIO, destination: 7 });
   await store.readRoutes(STUDIO, [7]);
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 2)?.text, "from Drum rack ADAT out 1 ← PREAMP 1");
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 3)?.text, "from Drum rack ADAT out 2 ← PREAMP 2 (Snare)");
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 5)?.text, "from Drum rack ADAT out 4 ← MUTE");
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 7)?.text, "from Drum rack ADAT out 6 ← MUTE");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 2)?.text, "from Drum rack ADAT Out 1 ← Preamp 1");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 3)?.text, "from Drum rack ADAT Out 2 ← Preamp 2 (Snare)");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 5)?.text, "from Drum rack ADAT Out 4 ← Mute");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 7)?.text, "from Drum rack ADAT Out 6 ← Mute");
   assert.equal(cables.provenance(QUADRO, "ADAT_IN", 7)?.cable.to.first, 2);
-  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 8), undefined, "ADAT in 9 is past the cable's last channel");
+  assert.equal(cables.provenance(QUADRO, "ADAT_IN", 8), undefined, "ADAT In 9 is past the cable's last channel");
   await flush();
 });
 
@@ -179,7 +179,7 @@ test("a cable warns when the two clocks disagree, the receiver is not locked, or
   report(QUADRO, { base_index: 4, locked: 1 });
   assert.deepEqual(cables.health(cable()), [], "the sender's routing is not read, so its signal is not known");
   await store.readRoutes(STUDIO, [7]);
-  assert.deepEqual(cables.health(cable()), ["Signal leaves Zen Studio+ ADAT out 1 but none arrives at Zen Quadro ADAT in 1: check the cable, the routing and the clock."]);
+  assert.deepEqual(cables.health(cable()), ["Signal leaves Zen Studio+ ADAT Out 1 but none arrives at Zen Quadro ADAT In 1: check the cable, the routing and the clock."]);
   report(QUADRO, { peaks_adat: Uint8Array.of(24, 90, 90, 90, 90, 90, 90, 90) });
   assert.deepEqual(cables.health(cable()), [], "signal arrives");
   for (const off of offs) off();
@@ -189,7 +189,7 @@ test("the S/PDIF converter answers the clock warnings: with it on, rates need no
   const { client, store } = setup();
   await store.start();
   const cables = store.cables;
-  // The Quadro's S/PDIF out into the Studio+, whose converter can take another rate (the user, 2026-09-19).
+  // The Quadro's S/PDIF Out into the Studio+, whose converter can take another rate (the user, 2026-09-19).
   const id = cables.declare(spdif.from, spdif.to, spdif.channels) as string;
   const cable = () => cables.list.value.find((c) => c.id === id)!;
   const offs = [store.watchReport(STUDIO, "0x73"), store.watchReport(QUADRO, "0x73")];

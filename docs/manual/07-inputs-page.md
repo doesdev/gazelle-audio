@@ -19,7 +19,7 @@ One card per preamp (4 on the Quadro, 12 on the Studio+):
 
 ## Digital inputs
 
-The **Line in** (Studio+), **ADAT in** and **S/PDIF in** sections show each channel's gain, -6 to +12 dB.
+The **Line In** (Studio+), **ADAT In** and **S/PDIF In** sections show each channel's gain, -6 to +12 dB.
 
 - On the **Studio+** the gains are controls (double-click for 0 dB) and can be linked.
 - On the **Quadro** they are shown read-only, with a tooltip saying why: the vendor's own Quadro panel never sets them, and nobody has checked that the device accepts it.

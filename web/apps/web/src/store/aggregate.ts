@@ -45,6 +45,7 @@ import type {
 } from "gazelle-audio-client";
 import { topologies as builtInTopologies } from "gazelle-audio-client";
 import { sourceLabel } from "./channels.ts";
+import { groupName } from "./names.ts";
 import type { RouteSlot } from "./routing.ts";
 import type { Store } from "./store.ts";
 import { calibrateRunning, khz } from "./aggregate-model.ts";
@@ -207,8 +208,8 @@ export function matchNote(view: AggregateDeviceView | undefined): string | undef
 // Input k is the interface's USB record channel k, and output k its USB playback channel k, which
 // was measured at the hardware channel by channel. So a channel is named first for what it carries
 // and then by that USB channel: an input for what Gazelle's routing sends to its record channel
-// ("Vocal mic, USB A REC 1"), an output for the Mixer channel that plays it where the person named
-// one ("Click, USB 1 PLAY 1"). A name the person types for a channel wins over both.
+// ("Vocal mic, USB A Rec 1"), an output for the Mixer channel that plays it where the person named
+// one ("Click, USB 1 Play 1"). A name the person types for a channel wins over both.
 //
 // The server works the very same names out for the driver's file (its naming module), and keeps
 // them in step with the routing; the rules here are those rules, for what this page shows.
@@ -257,24 +258,16 @@ const FAMILY_WORDS: Readonly<Record<string, string>> = { quadro: "Zen Quadro Syn
  * headphones reads "Monitor L +1". Two headphone groups keep their own order. The server names from
  * the same list, and both sides are held to one file of cases.
  */
-const HARDWARE_OUTPUTS: readonly (readonly [type: string, words: string | undefined])[] = [
-  ["MONITOR", "Monitor"],
-  ["LINE_OUT", "Line out"],
-  ["HEADPHONES", undefined],
-  ["SPDIF_OUT", "S/PDIF out"],
-  ["ADAT_OUT", "ADAT out"],
-  ["REAMP", "Reamp"],
-];
+const HARDWARE_OUTPUTS: readonly string[] = ["MONITOR", "LINE_OUT", "HEADPHONES", "SPDIF_OUT", "ADAT_OUT", "REAMP"];
 
 /** Where a hardware output group comes in the order outputs are named by, or -1 for a group that is not one. */
 function hardwareRank(group: TopologyGroup): number {
-  return HARDWARE_OUTPUTS.findIndex(([type]) => type === group.type);
+  return HARDWARE_OUTPUTS.indexOf(group.type);
 }
 
-/** What Gazelle calls a hardware output group, or nothing for a group that is not one. */
+/** What Gazelle calls a hardware output group ("Monitor", "Line Out", "HP1"), or nothing for a group that is not one. */
 function hardwareName(group: TopologyGroup): string | undefined {
-  const found = HARDWARE_OUTPUTS.find(([type]) => type === group.type);
-  return found === undefined ? undefined : (found[1] ?? group.name);
+  return HARDWARE_OUTPUTS.includes(group.type) ? groupName(group) : undefined;
 }
 
 /** A channel of a stereo pair as L or R, and of anything else as its number from one. */
@@ -438,7 +431,9 @@ const plain = (text: string): string => text.replace(/\p{Cc}/gu, " ").trim();
 /**
  * What a routing source is called, in Gazelle's own words, with the person's own names first: the
  * Mixer channel they named that takes this source, else the mix they named when the source is a
- * mix's output, else the source as the page names it (`pageSourceLabel`). MUTE is nothing.
+ * mix's output, else the source as every page names it (`sourceLabel`: "Preamp 1", "AFX Out 3").
+ * The server names the driver's channels the same way, so what the page says the DAW sees is what it
+ * sees. MUTE is nothing.
  */
 export function sourceName(topology: Topology, source: RouteSlot, layout?: DeviceMixer): string | undefined {
   const group = topology.inputs[source.source];
@@ -448,17 +443,6 @@ export function sourceName(topology: Topology, source: RouteSlot, layout?: Devic
   const mix = topology.mixers.outputGroups.indexOf(group.id);
   const mixName = mix < 0 ? undefined : layout?.mixes[mix]?.name?.trim();
   if (mixName !== undefined && mixName !== "") return `${plain(mixName)} ${source.channel === 0 ? "L" : source.channel === 1 ? "R" : source.channel + 1}`;
-  return pageSourceLabel(topology, source);
-}
-
-/**
- * A routing source as this page names it: a preamp as "Preamp 1", the way the record list names it,
- * and anything else as the Routing page and the Mixer show it ("AFX OUT 3"). The server names the
- * driver's channels the same way, so what the page says the DAW sees is what it sees.
- */
-function pageSourceLabel(topology: Topology, source: RouteSlot): string {
-  const group = topology.inputs[source.source];
-  if (group?.type === "PREAMP") return `${INPUT_SOCKETS["PREAMP"]} ${source.channel + 1}`;
   return sourceLabel(topology, { group: source.source, channel: source.channel });
 }
 
@@ -472,11 +456,11 @@ export function fitLabel(text: string): string {
 
 /** One channel's name, in its parts. */
 export interface ChannelName {
-  /** The USB channel it is: "USB A REC 1", "USB 1 PLAY 5". */
+  /** The USB channel it is: "USB A Rec 1", "USB 1 Play 5". */
   usb: string;
   /** What it carries: the name the person typed, else what routing sends it or where an output ends up. */
   carries?: string;
-  /** The whole name, as the page shows it everywhere: "Vocal mic, USB A REC 1", "USB 1 PLAY 5, not routed". */
+  /** The whole name, as the page shows it everywhere: "Vocal mic, USB A Rec 1", "USB 1 Play 5, not routed". */
   text: string;
   /** The label the driver is given when nobody has typed one, or nothing while the model is not known. */
   automatic?: string;
@@ -566,9 +550,9 @@ export function channelRuns(channels: readonly number[]): string {
 export interface PlaybackSend {
   /** The USB playback channels it sends, from zero. */
   run: number[];
-  /** What the button says: "Send USB 1 PLAY 7 to 8 here". */
+  /** What the button says: "Send USB 1 Play 7 to 8 here". */
   label: string;
-  /** What pressing it gives up: "Line out stops playing Mix 3, and plays USB 1 PLAY 7 to 8 instead". */
+  /** What pressing it gives up: "Line Out stops playing Mix 3, and plays USB 1 Play 7 to 8 instead". */
   title: string;
   /** The destination group it writes, by place among the destinations. */
   destination: number;
@@ -578,14 +562,14 @@ export interface PlaybackSend {
 
 /** One hardware output, as the "Where the DAW can play" list says it. */
 export interface PlaybackOutput {
-  /** "Monitor", "HP1", "Line out 1 to 2". */
+  /** "Monitor", "HP1", "Line Out 1 to 2". */
   label: string;
   /** Its group, by place among the destinations, and its channels in that group. */
   destination: number;
   channels: number[];
   /** `reached` when USB playback channels reach it, `nothing` when none do, `unread` while that is not known. */
   state: "reached" | "nothing" | "unread";
-  /** What reaches it: "USB 1 PLAY 1 to 2, through Mix 1". */
+  /** What reaches it: "USB 1 Play 1 to 2, through Mix 1". */
   text: string;
   send?: PlaybackSend;
   /** Why there is no button for an output nothing reaches. */
@@ -602,7 +586,7 @@ function mixName(layout: DeviceMixer | undefined, mix: number): string {
  * Every hardware output of one interface, in the order outputs are named by, and which of its USB
  * playback channels reach each one: directly, through a mix, both, or none.
  *
- * A pair of sockets is one line ("Monitor"); a larger group is a line per channel ("Line out 3").
+ * A pair of sockets is one line ("Monitor"); a larger group is a line per channel ("Line Out 3").
  * "Nothing from the DAW reaches it" is said only once the output's group, and the mix input behind
  * any mix feeding it, have been read, the same rule the names follow; before that it is not read
  * yet. An output nothing reaches offers a button that sends it the first free run of USB playback
@@ -615,7 +599,7 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
   const groups = usbGroups(topology);
   if (topology === undefined || groups === undefined || naming === undefined) return [];
   const routing = naming.routing ?? {};
-  const usb = (channels: readonly number[]) => `${groups.playback.name} ${channelRuns(channels)}`;
+  const usb = (channels: readonly number[]) => `${groupName(groups.playback)} ${channelRuns(channels)}`;
   const units = topology.outputs
     .map((group, destination) => ({ group, destination, rank: hardwareRank(group) }))
     .filter((one) => one.rank >= 0)
@@ -623,7 +607,7 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
     .flatMap(({ group, destination }) => {
       const name = hardwareName(group) as string;
       if (group.channels <= 2) return [{ group, destination, label: name, channels: Array.from({ length: group.channels }, (_, c) => c) }];
-      // A larger group is its channels one by one, as the names spell them: "Line out 3".
+      // A larger group is its channels one by one, as the names spell them: "Line Out 3".
       return Array.from({ length: group.channels }, (_, c) => ({ group, destination, label: `${name} ${c + 1}`, channels: [c] }));
     });
 
@@ -652,7 +636,7 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
         continue;
       }
       const mix = topology.mixers.outputGroups.indexOf(from.id);
-      const feed = mix >= 0 ? mixName(naming.layout, mix) : pageSourceLabel(topology, slot);
+      const feed = mix >= 0 ? mixName(naming.layout, mix) : sourceLabel(topology, { group: slot.source, channel: slot.channel });
       if (!feeds.includes(feed)) feeds.push(feed);
       if (mix < 0) continue;
       const input = topology.outputs.findIndex((one) => one.id === topology.mixers.inputGroups[mix]);
@@ -698,35 +682,28 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
 
 /**
  * The source group kinds that are sockets a person plugs something into, in no order of their own
- * (the device's order is kept), with what the page calls each. Everything else a routing source can
+ * (the device's order is kept); the page calls each by its group's name (`groupName`). Everything else a routing source can
  * be is not a socket and is left out: the USB playback channels, the mixes' outputs, the effects'
  * outputs, the oscillator, MUTE, and the Quadro's emulated preamps, which are its preamps again with
  * a microphone's sound put on them rather than sockets of their own.
  */
-export const INPUT_SOCKETS: Readonly<Record<string, string>> = {
-  PREAMP: "Preamp",
-  LINE_IN: "Line in",
-  HIZ: "Hi-Z",
-  INSTRUMENT: "Instrument",
-  SPDIF_IN: "S/PDIF in",
-  ADAT_IN: "ADAT in",
-};
+export const INPUT_SOCKETS: readonly string[] = ["PREAMP", "LINE_IN", "HIZ", "INSTRUMENT", "SPDIF_IN", "ADAT_IN"];
 
-/** What the page calls an input socket group, or nothing for a source that is not one. */
+/** What the page calls an input socket group ("Preamp", "Line In", "S/PDIF In"), or nothing for a source that is not one. */
 export function inputSocketName(group: TopologyGroup): string | undefined {
-  return INPUT_SOCKETS[group.type];
+  return INPUT_SOCKETS.includes(group.type) ? groupName(group) : undefined;
 }
 
 /** One input socket, as the "Where the DAW can record" list says it. */
 export interface RecordingInput {
-  /** "Preamp 1", "ADAT in 9", "S/PDIF in". */
+  /** "Preamp 1", "ADAT In 9", "S/PDIF In". */
   label: string;
   /** Its group, by place among the sources, and its channels in that group. */
   source: number;
   channels: number[];
   /** `recorded` when USB record channels carry it, `nothing` when none do, `unread` while that is not known. */
   state: "recorded" | "nothing" | "unread";
-  /** What carries it: "USB A REC 1, directly", "USB A REC 3 to 4, through Mix 2". */
+  /** What carries it: "USB A Rec 1, directly", "USB A Rec 3 to 4, through Mix 2". */
   text: string;
   send?: PlaybackSend;
   /** Why there is no button for an input nothing records. */
@@ -736,14 +713,14 @@ export interface RecordingInput {
 /**
  * Every input socket of one interface, in the device's own order, and which of its USB record
  * channels carry each one: directly, through a mix whose output is recorded, through an effect whose
- * output is recorded, or not at all. A pair of sockets is one line ("S/PDIF in"); a larger group is
+ * output is recorded, or not at all. A pair of sockets is one line ("S/PDIF In"); a larger group is
  * a line per socket ("Preamp 1").
  *
  * "Nothing records it" is said only once the record group, the mix inputs and the effect inputs have
  * all been read; before that it is not read yet. An input nothing records offers a button that
  * records it on the first free USB record channels of its width, where free is a slot routed from
  * MUTE. A slot the device has left on anything else is not free, even the Quadro's unused slots,
- * which it fills with PREAMP 1 rather than MUTE.
+ * which it fills with Preamp 1 rather than Mute.
  */
 export function recordingInputs(naming: InterfaceNaming | undefined): RecordingInput[] {
   const topology = naming?.topology;
@@ -751,7 +728,7 @@ export function recordingInputs(naming: InterfaceNaming | undefined): RecordingI
   if (topology === undefined || groups === undefined || naming === undefined) return [];
   const routing = naming.routing ?? {};
   const record = routing[groups.recordPosition]?.slice(0, groups.record.channels);
-  const rec = (channels: readonly number[]) => `${groups.record.name} ${channelRuns(channels)}`;
+  const rec = (channels: readonly number[]) => `${groupName(groups.record)} ${channelRuns(channels)}`;
   const mute = topology.inputs.findIndex((group) => group.type === "MUTE");
   const mixInputs = topology.mixers.inputGroups.map((id) => topology.outputs.findIndex((group) => group.id === id));
   const mixOutputs = topology.mixers.outputGroups.map((id) => topology.inputs.findIndex((group) => group.id === id));
@@ -835,7 +812,7 @@ export function channelName(device: AggregateDevice | undefined, naming: Interfa
   const topology = naming?.topology;
   const groups = usbGroups(topology);
   const group = input ? groups?.record : groups?.playback;
-  const usb = group === undefined ? `${input ? "Input" : "Output"} ${channel + 1}` : group.channels > 1 ? `${group.name} ${channel + 1}` : group.name;
+  const usb = group === undefined ? `${input ? "Input" : "Output"} ${channel + 1}` : group.channels > 1 ? `${groupName(group)} ${channel + 1}` : groupName(group);
   let routed: string | undefined;
   let unrouted = false;
   if (topology !== undefined && groups !== undefined && naming !== undefined) {
@@ -1097,9 +1074,9 @@ export interface InterfaceChannel {
   index: number;
   /** Its number on that interface, from zero. */
   channel: number;
-  /** The USB channel it is, always: "USB A REC 1". */
+  /** The USB channel it is, always: "USB A Rec 1". */
   usb: string;
-  /** Its whole name, as the rest of the page names it: "Vocal mic, USB A REC 1". */
+  /** Its whole name, as the rest of the page names it: "Vocal mic, USB A Rec 1". */
   text: string;
 }
 

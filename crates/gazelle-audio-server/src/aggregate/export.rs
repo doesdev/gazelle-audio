@@ -492,10 +492,10 @@ mod tests {
         assert!(!store.refresh().unwrap(), "nothing changed, so nothing is saved or written");
         assert_eq!(link.signalled(), vec![1]);
 
-        // USB A REC 1 is routed from AFX OUT 3 now.
+        // USB A Rec 1 is routed from AFX Out 3 now.
         live.set("Zen Quadro Synergy Core", quadro(Some(vec![[5, 2], [0, 1]])));
         assert!(store.refresh().unwrap());
-        assert_eq!(read(&path)["devices"][0]["input_names"]["0"], "AFX OUT 3", "the automatic name follows the routing");
+        assert_eq!(read(&path)["devices"][0]["input_names"]["0"], "AFX Out 3", "the automatic name follows the routing");
         assert_eq!(read(&path)["devices"][0]["input_names"]["1"], "Talkback", "and the typed one is untouched");
         assert_eq!(store.load().unwrap().aggregate.unwrap().devices[0].input_names.get(&0), None, "nothing automatic is ever written over the typed names");
         assert_eq!(link.signalled(), vec![1, 2], "the driver is told, to take it at its next reset");

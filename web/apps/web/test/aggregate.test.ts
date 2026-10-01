@@ -433,7 +433,7 @@ test("a source is named as the Routing page names it, with the person's own name
   const mix = quadroSource("MIXER_OUT0");
   const mute = quadroSource("MUTE0");
   assert.equal(sourceName(topologies.quadro, { source: preamp, channel: 0 }), "Preamp 1");
-  assert.equal(sourceName(topologies.quadro, { source: afx, channel: 2 }), "AFX OUT 3");
+  assert.equal(sourceName(topologies.quadro, { source: afx, channel: 2 }), "AFX Out 3");
   assert.equal(sourceName(topologies.quadro, { source: mute, channel: 0 }), undefined, "MUTE is nothing");
   const layout: DeviceMixer = {
     mixes: [{ name: "Cue" }],
@@ -461,14 +461,14 @@ test("an input is named for what routing sends its record channel, and a typed n
   const it = twoInterfaces([{}, {}], { routing: (deviceId, at) => (deviceId === "serial:Q" && at === recordAt ? record : undefined), layouts: { "serial:Q": layout } });
   const device = it.config.devices?.[0];
   const first = channelName(device, it.naming[0], true, 0);
-  assert.deepEqual(first, { usb: "USB A REC 1", carries: "Vocal mic", text: "Vocal mic, USB A REC 1", automatic: "Vocal mic" }, "the person's name for the Mixer channel that takes its source");
-  assert.equal(channelName(device, it.naming[0], true, 1).text, "USB A REC 2", "nothing routed is the record channel alone");
-  assert.equal(channelName(device, it.naming[0], true, 1).automatic, "USB A REC 2");
-  assert.equal(channelName(device, it.naming[0], true, 2).text, "Preamp 3, USB A REC 3", "a preamp as the record list names it");
-  assert.equal(channelName(it.config.devices?.[1], it.naming[1], true, 0).text, "USB REC 1", "a group not read yet is not known");
+  assert.deepEqual(first, { usb: "USB A Rec 1", carries: "Vocal mic", text: "Vocal mic, USB A Rec 1", automatic: "Vocal mic" }, "the person's name for the Mixer channel that takes its source");
+  assert.equal(channelName(device, it.naming[0], true, 1).text, "USB A Rec 2", "nothing routed is the record channel alone");
+  assert.equal(channelName(device, it.naming[0], true, 1).automatic, "USB A Rec 2");
+  assert.equal(channelName(device, it.naming[0], true, 2).text, "Preamp 3, USB A Rec 3", "a preamp as the record list names it");
+  assert.equal(channelName(it.config.devices?.[1], it.naming[1], true, 0).text, "USB Rec 1", "a group not read yet is not known");
   // A name the person typed wins, on the page and for the DAW, and the automatic one stays beside it.
   const typed = channelName({ ...device, input_names: { "0": "Lead vocal" } }, it.naming[0], true, 0);
-  assert.equal(typed.text, "Lead vocal, USB A REC 1");
+  assert.equal(typed.text, "Lead vocal, USB A Rec 1");
   assert.equal(typed.typed, "Lead vocal");
   assert.equal(typed.automatic, "Vocal mic", "what comes back when it is cleared");
 });
@@ -480,10 +480,10 @@ test("a re-route changes the name the page shows, and leaves a typed name alone"
   const recordAt = usbGroups(topologies.quadro)?.recordPosition;
   const naming = () => twoInterfaces([{ input_names: { "1": "Talkback" } }, {}], { routing: (_, at) => (at === recordAt ? record : undefined) }).naming[0];
   const device: AggregateDevice = { key: "Q", input_names: { "1": "Talkback" } };
-  assert.equal(channelName(device, naming(), true, 0).text, "Preamp 1, USB A REC 1");
+  assert.equal(channelName(device, naming(), true, 0).text, "Preamp 1, USB A Rec 1");
   record = [{ source: afx, channel: 2 }, { source: afx, channel: 3 }];
-  assert.equal(channelName(device, naming(), true, 0).text, "AFX OUT 3, USB A REC 1", "it says what would be recorded now");
-  assert.equal(channelName(device, naming(), true, 1).text, "Talkback, USB A REC 2", "the typed one is untouched");
+  assert.equal(channelName(device, naming(), true, 0).text, "AFX Out 3, USB A Rec 1", "it says what would be recorded now");
+  assert.equal(channelName(device, naming(), true, 1).text, "Talkback, USB A Rec 2", "the typed one is untouched");
 });
 
 /** The Quadro's destination groups by id, and a routing where every group an output could reach is read. */
@@ -518,27 +518,27 @@ test("an output reaching Monitor L through Mix 1 is called Monitor L, with its U
     ["MONITOR0", 0, "MIXER_OUT0", 0],
     ["MONITOR0", 1, "MIXER_OUT0", 1],
   ]);
-  assert.deepEqual(quadroOutput(routing, 0), { usb: "USB 1 PLAY 1", carries: "Monitor L", text: "Monitor L, USB 1 PLAY 1", automatic: "Monitor L" });
-  assert.equal(quadroOutput(routing, 1).text, "Monitor R, USB 1 PLAY 2", "the second of a pair is the right side");
+  assert.deepEqual(quadroOutput(routing, 0), { usb: "USB 1 Play 1", carries: "Monitor L", text: "Monitor L, USB 1 Play 1", automatic: "Monitor L" });
+  assert.equal(quadroOutput(routing, 1).text, "Monitor R, USB 1 Play 2", "the second of a pair is the right side");
   // Straight to a socket, with no mix between.
-  assert.equal(quadroOutput(quadroRouting([["LINE_OUT0", 1, "COM_PLAY0", 4]]), 4).text, "Line out R, USB 1 PLAY 5");
+  assert.equal(quadroOutput(quadroRouting([["LINE_OUT0", 1, "COM_PLAY0", 4]]), 4).text, "Line Out R, USB 1 Play 5");
 });
 
 test("an output landing only in a mix is named for the mix channel, in the person's words where they gave them", () => {
   const routing = quadroRouting([["MIXER_IN1", 9, "COM_PLAY0", 2]]);
-  assert.equal(quadroOutput(routing, 2).text, "Ch 10 in Mix 2, USB 1 PLAY 3");
+  assert.equal(quadroOutput(routing, 2).text, "Ch 10 in Mix 2, USB 1 Play 3");
   const layout: DeviceMixer = { mixes: [{}, { name: "Cue" }], groups: [], channels: [{ id: "k", name: "Click", slot: 9, source: { group: quadroSource("COM_PLAY0"), channel: 2 }, sends: [] }] };
-  assert.equal(quadroOutput(routing, 2, layout).text, "Click in Cue, USB 1 PLAY 3");
+  assert.equal(quadroOutput(routing, 2, layout).text, "Click in Cue, USB 1 Play 3");
 });
 
 test("an output routed nowhere says so, once everything it could reach has been read", () => {
   const nowhere = quadroOutput(quadroRouting([]), 4);
-  assert.equal(nowhere.text, "USB 1 PLAY 5, not routed");
+  assert.equal(nowhere.text, "USB 1 Play 5, not routed");
   assert.equal(nowhere.automatic, "Not routed");
   // A group not read yet leaves where it goes unknown, which is the USB channel alone.
   const full = quadroRouting([]);
   const partial = (deviceId: string, at: number) => (at === quadroDestination("MIXER_IN3") ? undefined : full(deviceId, at));
-  assert.equal(quadroOutput(partial, 4).text, "USB 1 PLAY 5");
+  assert.equal(quadroOutput(partial, 4).text, "USB 1 Play 5");
 });
 
 test("an output reaching several places is the highest ranked hardware output and a count of the rest", () => {
@@ -546,17 +546,17 @@ test("an output reaching several places is the highest ranked hardware output an
     ["HEADPHONES0", 0, "COM_PLAY0", 0],
     ["MONITOR0", 0, "COM_PLAY0", 0],
   ]);
-  assert.equal(quadroOutput(routing, 0).text, "Monitor L +1, USB 1 PLAY 1", "the monitors outrank the headphones");
+  assert.equal(quadroOutput(routing, 0).text, "Monitor L +1, USB 1 Play 1", "the monitors outrank the headphones");
   // A typed name still wins.
   const it = twoInterfaces([{ output_names: { "0": "Talkback" } }, {}], { routing });
-  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Talkback, USB 1 PLAY 1");
+  assert.equal(channelName(it.config.devices?.[0], it.naming[0], false, 0).text, "Talkback, USB 1 Play 1");
 });
 
 test("a re-route changes an output's name", () => {
   const before = quadroRouting([["MIXER_IN0", 6, "COM_PLAY0", 0], ["MONITOR0", 0, "MIXER_OUT0", 0]]);
   const after = quadroRouting([["MIXER_IN0", 6, "COM_PLAY0", 0], ["HEADPHONES1", 0, "MIXER_OUT0", 0]]);
-  assert.equal(quadroOutput(before, 0).text, "Monitor L, USB 1 PLAY 1");
-  assert.equal(quadroOutput(after, 0).text, "HP2 L, USB 1 PLAY 1");
+  assert.equal(quadroOutput(before, 0).text, "Monitor L, USB 1 Play 1");
+  assert.equal(quadroOutput(after, 0).text, "HP2 L, USB 1 Play 1");
 });
 
 test("a row says each name once: the DAW line only when it says something the name does not", () => {
@@ -567,11 +567,11 @@ test("a row says each name once: the DAW line only when it says something the na
   assert.equal(dawLine("Quadro", 0, unrouted), "Not routed (Quadro 1)", "a label the name does not carry is said whole");
   // A label the name carries is not said again: only the reference the DAW adds.
   const routed = channelName(it.config.devices?.[0], twoInterfaces([{}, {}], { routing: quadroRouting([["MONITOR0", 0, "COM_PLAY0", 2]]), aliases: {} }).naming[0], false, 2);
-  assert.equal(routed.text, "Monitor L, USB 1 PLAY 3");
+  assert.equal(routed.text, "Monitor L, USB 1 Play 3");
   assert.equal(dawLine("Quadro", 2, routed), "... (Quadro 3)");
   // A long reference that does not fit leaves the label alone, which is the name again: no line.
   const plainUsb = channelName(it.config.devices?.[0], twoInterfaces([{}, {}], { aliases: {} }).naming[0], false, 4);
-  assert.equal(plainUsb.text, "USB 1 PLAY 5");
+  assert.equal(plainUsb.text, "USB 1 Play 5");
   assert.equal(dawLine("A device name far too long to leave room", 4, plainUsb), undefined);
 });
 
@@ -607,7 +607,7 @@ test("the name a DAW shows is built as the driver builds it, and a long device n
   assert.equal(dawChannelName("Quadro", 0, "Vocal mic"), "Vocal mic (Quadro 1)");
   assert.equal(dawChannelName("Zen Quadro Synergy Core", 0, "Vocal mic"), "Vocal mic", "no room for the reference, so the label alone");
   assert.equal(dawChannelName("Zen Quadro Synergy Core", 15, undefined), "Zen Quadro Synergy Core 16", "no label is the reference alone");
-  assert.equal(dawChannelName("Studio+", 3, "USB REC 4"), "USB REC 4 (Studio+ 4)");
+  assert.equal(dawChannelName("Studio+", 3, "USB Rec 4"), "USB Rec 4 (Studio+ 4)");
   for (const name of [dawChannelName("Zen Quadro Synergy Core", 9, "A label that is exactly thirty1"), dawChannelName("x".repeat(40), 99, undefined)]) assert.ok([...name].length <= CHANNEL_LABEL_MAX, name);
   assert.equal(fitLabel("x".repeat(40)).length, CHANNEL_LABEL_MAX);
 });
@@ -684,10 +684,10 @@ test("each interface's channels are listed by that interface and its own numberi
   const inputs = interfaceChannels(it.config, it.naming, true);
   assert.equal(inputs.length, 16 + 24, "every USB record channel of both");
   assert.deepEqual(inputs.slice(0, 2).map((one) => [one.device, one.index, one.channel, one.text]), [
-    ["Quadro", 0, 0, "USB A REC 1"],
-    ["Quadro", 0, 1, "USB A REC 2"],
+    ["Quadro", 0, 0, "USB A Rec 1"],
+    ["Quadro", 0, 1, "USB A Rec 2"],
   ]);
-  assert.deepEqual(inputs[16] && [inputs[16].device, inputs[16].index, inputs[16].channel, inputs[16].text], ["Studio+", 1, 0, "USB REC 1"]);
+  assert.deepEqual(inputs[16] && [inputs[16].device, inputs[16].index, inputs[16].channel, inputs[16].text], ["Studio+", 1, 0, "USB Rec 1"]);
   assert.ok(inputs.every((one) => !Object.hasOwn(one, "number")), "nothing here is a place in the aggregate's list");
   assert.equal(interfaceChannels(it.config, it.naming, false).length, 16 + 24);
   assert.deepEqual(interfaceChannels(undefined, undefined, true), [], "nothing set up is no list");
@@ -696,24 +696,24 @@ test("each interface's channels are listed by that interface and its own numberi
 test("a channel kept out of the aggregate is not offered, and every other channel keeps its own number", () => {
   const it = twoInterfaces([{ inputs: [0, 3] }, { inputs: [1] }]);
   assert.deepEqual(interfaceChannels(it.config, it.naming, true).map((one) => [one.device, one.channel, one.usb]), [
-    ["Quadro", 0, "USB A REC 1"],
-    ["Quadro", 3, "USB A REC 4"],
-    ["Studio+", 1, "USB REC 2"],
+    ["Quadro", 0, "USB A Rec 1"],
+    ["Quadro", 3, "USB A Rec 4"],
+    ["Studio+", 1, "USB Rec 2"],
   ]);
 });
 
 test("the channels the phase measurement runs over are not offered, because the driver keeps them", () => {
   // The Studio+'s phase arrives on its second input, over the Quadro's fourth output.
   const it = twoInterfaces([{ inputs: [0, 1], outputs: [2, 3] }, { inputs: [0, 1], outputs: [0], phase: { master_output: 3, input: 1 } }]);
-  assert.deepEqual(interfaceChannels(it.config, it.naming, true).map((one) => one.text), ["USB A REC 1", "USB A REC 2", "USB REC 1"]);
-  assert.deepEqual(interfaceChannels(it.config, it.naming, false).map((one) => one.text), ["USB 1 PLAY 3", "USB PLAY 1"]);
+  assert.deepEqual(interfaceChannels(it.config, it.naming, true).map((one) => one.text), ["USB A Rec 1", "USB A Rec 2", "USB Rec 1"]);
+  assert.deepEqual(interfaceChannels(it.config, it.naming, false).map((one) => one.text), ["USB 1 Play 3", "USB Play 1"]);
 });
 
 test("a channel with a name of its own is named by it, then by its USB channel", () => {
   const it = twoInterfaces([{ input_names: { "0": "Vocal mic" } }, {}]);
   const inputs = interfaceChannels(it.config, it.naming, true);
-  assert.equal(inputs[0]?.text, "Vocal mic, USB A REC 1");
-  assert.equal(inputs[1]?.text, "USB A REC 2", "an unnamed one is just itself");
+  assert.equal(inputs[0]?.text, "Vocal mic, USB A Rec 1");
+  assert.equal(inputs[1]?.text, "USB A Rec 2", "an unnamed one is just itself");
 });
 
 test("an interface whose channels are not known yet offers none of them rather than guessing", () => {
@@ -738,7 +738,7 @@ test("the input pass starts with two outputs of the reference and one input on e
   assert.equal(picks.reference, "Quadro", "the first interface, until somebody says otherwise");
   assert.deepEqual(picks.outputs, [0, 1], "two outputs of one interface");
   assert.deepEqual(picks.inputs, [0, 0], "each interface's first input, by its own numbering");
-  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro", "USB 1 PLAY 2 on Quadro into USB REC 1 on Studio+"]);
+  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 Play 1 on Quadro into USB A Rec 1 on Quadro", "USB 1 Play 2 on Quadro into USB Rec 1 on Studio+"]);
 });
 
 test("the output pass plays one output on each interface into two inputs of the reference", () => {
@@ -747,7 +747,7 @@ test("the output pass plays one output on each interface into two inputs of the 
   assert.equal(picks.reference, "Studio+");
   assert.deepEqual(picks.outputs, [0, 0], "one output on each interface");
   assert.deepEqual(picks.inputs, [0, 1], "both into the Studio+");
-  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 PLAY 1 on Quadro into USB REC 1 on Studio+", "USB PLAY 1 on Studio+ into USB REC 2 on Studio+"]);
+  assert.deepEqual(cablingSteps(picks, it.config, it.naming).map((cable) => cable.text), ["USB 1 Play 1 on Quadro into USB Rec 1 on Studio+", "USB Play 1 on Studio+ into USB Rec 2 on Studio+"]);
 });
 
 test("a reference nothing in the setup names falls back to the first interface", () => {
@@ -1068,10 +1068,10 @@ test("the phase pickers offer the master's own USB playback channels and this in
   assert.equal(choices?.master, "Quadro");
   assert.equal(choices?.own, "Studio+");
   assert.equal(choices?.outputs?.length, 16);
-  assert.deepEqual(choices?.outputs?.[0], { value: 0, text: "USB 1 PLAY 1" });
-  assert.deepEqual(choices?.outputs?.[15], { value: 15, text: "To Studio+, USB 1 PLAY 16" }, "a name the person gave it first");
+  assert.deepEqual(choices?.outputs?.[0], { value: 0, text: "USB 1 Play 1" });
+  assert.deepEqual(choices?.outputs?.[15], { value: 15, text: "To Studio+, USB 1 Play 16" }, "a name the person gave it first");
   assert.equal(choices?.inputs?.length, 24);
-  assert.equal(choices?.inputs?.[7]?.text, "USB REC 8");
+  assert.equal(choices?.inputs?.[7]?.text, "USB Rec 8");
   // Not on the callback master's card, which the others are measured against.
   assert.equal(phaseChoices(it.config, it.answer, it.naming, 0), undefined);
   // A channel kept out of what a DAW sees is still offered: the driver opens these two itself.
@@ -1081,7 +1081,7 @@ test("the phase pickers offer the master's own USB playback channels and this in
   const unknown = aggregateNaming({ devices: [{ key: "Q" }, { key: "Other" }] }, answer(), { devices: [] });
   assert.equal(phaseChoices({ devices: [{ key: "Q" }, { key: "Other" }] }, answer(), unknown, 1)?.inputs, undefined);
   // And a setting made while more channels were known is kept on the list.
-  assert.deepEqual(choicesWith([{ value: 0, text: "USB REC 1" }], 30, (channel) => `USB REC ${channel + 1}`).map((one) => one.text), ["USB REC 1", "USB REC 31 (not listed now)"]);
+  assert.deepEqual(choicesWith([{ value: 0, text: "USB Rec 1" }], 30, (channel) => `USB Rec ${channel + 1}`).map((one) => one.text), ["USB Rec 1", "USB Rec 31 (not listed now)"]);
   assert.equal(choicesWith(undefined, undefined, String).length, 0);
 });
 
@@ -1212,9 +1212,9 @@ test("a channel the run listened in on is named as every other channel is, and c
   const inputs = interfaceChannels(it.config, it.naming, true);
   const run = measured({ witnesses: [{ channel: 1, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8, clicks_expected: 8, note: "Studio+ 2 recorded it 3.2 samples late." }] });
   const views = witnessViews(run, inputs, it.config, it.naming);
-  assert.equal(views[0]?.channel, "SPDIF L, USB REC 2");
+  assert.equal(views[0]?.channel, "SPDIF L, USB Rec 2");
   const unlisted = measured({ witnesses: [{ channel: 8, device: "Studio+", lag_samples: 3.2, spread_samples: 0.1, clicks_found: 8 }] });
-  assert.equal(witnessViews(unlisted, inputs, it.config, it.naming)[0]?.channel, "USB REC 9", "one the page does not list is still named");
+  assert.equal(witnessViews(unlisted, inputs, it.config, it.naming)[0]?.channel, "USB Rec 9", "one the page does not list is still named");
   assert.equal(views[0]?.lag, "3.2 samples late");
   assert.equal(views[0]?.clicks, "8 of 8 clicks found");
   assert.deepEqual(witnessViews(measured(), inputs), []);
@@ -1734,7 +1734,7 @@ test("channels are listed as runs", () => {
   assert.equal(channelRuns([1, 1, 0]), "1 to 2");
 });
 
-/** The owner's Quadro: USB 1 PLAY 1 and 2 through Mix 1 to the monitors and HP1, and the line outs fed by Mix 3, which no USB channel enters. */
+/** The owner's Quadro: USB 1 Play 1 and 2 through Mix 1 to the monitors and HP1, and the line outs fed by Mix 3, which no USB channel enters. */
 const OWNER: [string, number, string, number][] = [
   ["MIXER_IN0", 16, "COM_PLAY0", 0],
   ["MIXER_IN0", 17, "COM_PLAY0", 1],
@@ -1749,27 +1749,27 @@ const OWNER: [string, number, string, number][] = [
 test("where the DAW can play: each output in rank, through a mix, directly, or nothing", () => {
   const lines = playbackOutputs(namingWith("quadro", [...OWNER, ["SPDIF_OUT0", 0, "COM_PLAY0", 4], ["HEADPHONES1", 1, "COM_PLAY0", 5], ["HEADPHONES1", 0, "MIXER_OUT0", 0]]).naming);
   assert.deepEqual(lines.map((line) => [line.label, line.state, line.text]), [
-    ["Monitor", "reached", "USB 1 PLAY 1 to 2, through Mix 1"],
-    ["Line out", "nothing", "nothing from the DAW reaches it"],
-    ["HP1", "reached", "USB 1 PLAY 1 to 2, through Mix 1"],
-    ["HP2", "reached", "USB 1 PLAY 1 to 2, through Mix 1; USB 1 PLAY 6, directly"],
-    ["S/PDIF out", "reached", "USB 1 PLAY 5, directly"],
+    ["Monitor", "reached", "USB 1 Play 1 to 2, through Mix 1"],
+    ["Line Out", "nothing", "nothing from the DAW reaches it"],
+    ["HP1", "reached", "USB 1 Play 1 to 2, through Mix 1"],
+    ["HP2", "reached", "USB 1 Play 1 to 2, through Mix 1; USB 1 Play 6, directly"],
+    ["S/PDIF Out", "reached", "USB 1 Play 5, directly"],
   ]);
   // The person's name for the mix.
   const named = playbackOutputs(namingWith("quadro", OWNER, { mixes: [{ name: "Cue" }], groups: [], channels: [] }).naming);
-  assert.equal(named[0]?.text, "USB 1 PLAY 1 to 2, through Cue");
+  assert.equal(named[0]?.text, "USB 1 Play 1 to 2, through Cue");
   // A group larger than a pair is a line per channel, as the Studio+'s line outs are.
   const studio = playbackOutputs(namingWith("studio", [["LINE_OUT0", 2, "USB_PLAY0", 2], ["LINE_OUT0", 3, "USB_PLAY0", 3]]).naming);
   assert.deepEqual(studio.slice(0, 5).map((line) => [line.label, line.text]), [
     ["Monitor", "nothing from the DAW reaches it"],
-    ["Line out 1", "nothing from the DAW reaches it"],
-    ["Line out 2", "nothing from the DAW reaches it"],
-    ["Line out 3", "USB PLAY 3, directly"],
-    ["Line out 4", "USB PLAY 4, directly"],
+    ["Line Out 1", "nothing from the DAW reaches it"],
+    ["Line Out 2", "nothing from the DAW reaches it"],
+    ["Line Out 3", "USB Play 3, directly"],
+    ["Line Out 4", "USB Play 4, directly"],
   ]);
-  assert.equal(studio.filter((line) => line.label.startsWith("Line out ")).length, 8, "all eight line outs");
-  assert.equal(studio.filter((line) => line.label.startsWith("ADAT out ")).length, 16, "and all sixteen ADAT outs");
-  assert.deepEqual(studio.filter((line) => line.channels.length === 2).map((line) => line.label), ["Monitor", "HP1", "HP2", "S/PDIF out", "Reamp"], "pairs stay one line each");
+  assert.equal(studio.filter((line) => line.label.startsWith("Line Out ")).length, 8, "all eight line outs");
+  assert.equal(studio.filter((line) => line.label.startsWith("ADAT Out ")).length, 16, "and all sixteen ADAT outs");
+  assert.deepEqual(studio.filter((line) => line.channels.length === 2).map((line) => line.label), ["Monitor", "HP1", "HP2", "S/PDIF Out", "Reamp"], "pairs stay one line each");
   assert.equal(studio[studio.length - 1]?.label, "Reamp", "reamp comes last");
 });
 
@@ -1779,7 +1779,7 @@ test("nothing reaching an output is said only once the groups behind it have bee
     const at = topologies.quadro.outputs.findIndex((group) => group.id === missing);
     return aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === at ? undefined : groups.get(g)) })[0];
   };
-  const lineOut = (naming: ReturnType<typeof without>) => playbackOutputs(naming).find((line) => line.label === "Line out");
+  const lineOut = (naming: ReturnType<typeof without>) => playbackOutputs(naming).find((line) => line.label === "Line Out");
   assert.deepEqual([lineOut(without("MIXER_IN2"))?.state, lineOut(without("MIXER_IN2"))?.text], ["unread", "not read yet"], "the mix behind it is not read");
   assert.equal(lineOut(without("LINE_OUT0"))?.state, "unread", "its own group is not read");
   // Read, but the free channels are not all known: no button, and it says why.
@@ -1790,11 +1790,11 @@ test("nothing reaching an output is said only once the groups behind it have bee
 });
 
 test("an output nothing reaches offers the first free run of its width, and says what it would stop playing", () => {
-  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line out");
+  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line Out");
   const playback = quadroSource("COM_PLAY0");
-  assert.deepEqual(line?.send?.run, [2, 3], "USB 1 PLAY 1 and 2 are in Mix 1, so the first free pair is 3 and 4");
-  assert.equal(line?.send?.label, "Send USB 1 PLAY 3 to 4 here");
-  assert.equal(line?.send?.title, "Line out stops playing Mix 3, and plays USB 1 PLAY 3 to 4 instead");
+  assert.deepEqual(line?.send?.run, [2, 3], "USB 1 Play 1 and 2 are in Mix 1, so the first free pair is 3 and 4");
+  assert.equal(line?.send?.label, "Send USB 1 Play 3 to 4 here");
+  assert.equal(line?.send?.title, "Line Out stops playing Mix 3, and plays USB 1 Play 3 to 4 instead");
   assert.equal(line?.send?.destination, quadroDestination("LINE_OUT0"));
   assert.deepEqual(line?.send?.changes, [
     { channel: 0, source: { source: playback, channel: 2 } },
@@ -1802,22 +1802,22 @@ test("an output nothing reaches offers the first free run of its width, and says
   ]);
   // A single socket takes a single free channel, not a pair, and writes only its own slot.
   const studio = playbackOutputs(namingWith("studio", [["MONITOR0", 0, "USB_PLAY0", 0], ["MONITOR0", 1, "USB_PLAY0", 1], ["LINE_OUT0", 1, "USB_PLAY0", 2]]).naming);
-  const single = studio.find((one) => one.label === "Line out 1");
+  const single = studio.find((one) => one.label === "Line Out 1");
   const studioPlay = topologies.studio.inputs.findIndex((group) => group.id === "USB_PLAY0");
-  assert.deepEqual(single?.send?.run, [3], "USB PLAY 1 to 3 are in use, so the first free one is 4");
-  assert.equal(single?.send?.label, "Send USB PLAY 4 here");
+  assert.deepEqual(single?.send?.run, [3], "USB Play 1 to 3 are in use, so the first free one is 4");
+  assert.equal(single?.send?.label, "Send USB Play 4 here");
   assert.deepEqual(single?.send?.changes, [{ channel: 0, source: { source: studioPlay, channel: 3 } }]);
   // A pair still takes a pair that starts on an odd channel from one.
   assert.deepEqual(studio.find((one) => one.label === "HP1")?.send?.run, [4, 5]);
   // Every pair in use: no button, and it says so.
   const busy: [string, number, string, number][] = Array.from({ length: 16 }, (_, channel): [string, number, string, number] => ["MIXER_IN3", channel, "COM_PLAY0", channel]);
-  const full = playbackOutputs(namingWith("quadro", [...OWNER, ...busy]).naming).find((one) => one.label === "Line out");
+  const full = playbackOutputs(namingWith("quadro", [...OWNER, ...busy]).naming).find((one) => one.label === "Line Out");
   assert.equal(full?.send, undefined);
   assert.match(String(full?.noSend), /none is free/);
 });
 
 test("a USB playback channel that only feeds an effect is in use, and is not offered as free", () => {
-  // USB 1 PLAY 3 and 4 go into AFX 1 and 2 and nowhere else, and the effects' output goes on into Mix 3.
+  // USB 1 Play 3 and 4 go into AFX 1 and 2 and nowhere else, and the effects' output goes on into Mix 3.
   const effect: [string, number, string, number][] = [
     ["AFX_IN0", 0, "COM_PLAY0", 2],
     ["AFX_IN0", 1, "COM_PLAY0", 3],
@@ -1825,19 +1825,19 @@ test("a USB playback channel that only feeds an effect is in use, and is not off
     ["MIXER_IN2", 1, "AFX_OUT0", 1],
   ];
   const { config, naming, groups } = namingWith("quadro", [...OWNER, ...effect]);
-  const line = playbackOutputs(naming).find((one) => one.label === "Line out");
-  assert.deepEqual(line?.send?.run, [4, 5], "USB 1 PLAY 1 and 2 are in Mix 1 and 3 and 4 feed the effects, so the first free pair is 5 and 6");
-  assert.equal(line?.send?.label, "Send USB 1 PLAY 5 to 6 here");
+  const line = playbackOutputs(naming).find((one) => one.label === "Line Out");
+  assert.deepEqual(line?.send?.run, [4, 5], "USB 1 Play 1 and 2 are in Mix 1 and 3 and 4 feed the effects, so the first free pair is 5 and 6");
+  assert.equal(line?.send?.label, "Send USB 1 Play 5 to 6 here");
   // The effect inputs are part of what has to be read before anything is called free.
   const afx = topologies.quadro.outputs.findIndex((group) => group.id === "AFX_IN0");
   const unread = aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === afx ? undefined : groups.get(g)) })[0];
-  const notKnown = playbackOutputs(unread).find((one) => one.label === "Line out");
+  const notKnown = playbackOutputs(unread).find((one) => one.label === "Line Out");
   assert.equal(notKnown?.send, undefined);
   assert.match(String(notKnown?.noSend), /not known until the routing has been read/);
 });
 
 test("pressing send is one routing write of the output's group, changing only its own slots", async () => {
-  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line out");
+  const line = playbackOutputs(namingWith("quadro", OWNER).naming).find((one) => one.label === "Line Out");
   const send = line?.send;
   assert.ok(send !== undefined);
   const mix3 = quadroSource("MIXER_OUT2");
@@ -1882,11 +1882,11 @@ test("the sockets a person plugs into are the preamps, line ins, ADAT and S/PDIF
 
 test("an input is a line per socket in a larger group, and a pair is one line, in the device's own order", () => {
   const quadro = recordingInputs(namingWith("quadro", []).naming);
-  assert.deepEqual(quadro.map((line) => line.label), ["Preamp 1", "Preamp 2", "Preamp 3", "Preamp 4", ...Array.from({ length: 8 }, (_, at) => `ADAT in ${at + 1}`), "S/PDIF in"]);
-  assert.deepEqual(quadro[quadro.length - 1]?.channels, [0, 1], "S/PDIF in is a pair");
+  assert.deepEqual(quadro.map((line) => line.label), ["Preamp 1", "Preamp 2", "Preamp 3", "Preamp 4", ...Array.from({ length: 8 }, (_, at) => `ADAT In ${at + 1}`), "S/PDIF In"]);
+  assert.deepEqual(quadro[quadro.length - 1]?.channels, [0, 1], "S/PDIF In is a pair");
   const studio = recordingInputs(namingWith("studio", []).naming);
   assert.equal(studio.length, 12 + 8 + 16 + 1);
-  assert.deepEqual([studio[12]?.label, studio[20]?.label, studio[36]?.label], ["Line in 1", "ADAT in 1", "S/PDIF in"]);
+  assert.deepEqual([studio[12]?.label, studio[20]?.label, studio[36]?.label], ["Line In 1", "ADAT In 1", "S/PDIF In"]);
 });
 
 test("an input says which USB record channels carry it: directly, through a mix, through an effect, or several", () => {
@@ -1901,15 +1901,15 @@ test("an input says which USB record channels carry it: directly, through a mix,
   ];
   const lines = recordingInputs(namingWith("quadro", routes).naming);
   const say = (label: string) => lines.find((line) => line.label === label);
-  assert.equal(say("Preamp 1")?.text, "USB A REC 1, directly; USB A REC 3 to 4, through Mix 2");
-  assert.equal(say("Preamp 2")?.text, "USB A REC 3 to 4, through Mix 2");
+  assert.equal(say("Preamp 1")?.text, "USB A Rec 1, directly; USB A Rec 3 to 4, through Mix 2");
+  assert.equal(say("Preamp 2")?.text, "USB A Rec 3 to 4, through Mix 2");
   assert.equal(say("Preamp 2")?.state, "recorded");
-  assert.equal(say("ADAT in 5")?.text, "USB A REC 6, through AFX 3");
+  assert.equal(say("ADAT In 5")?.text, "USB A Rec 6, through AFX 3");
   const named = recordingInputs(namingWith("quadro", routes, { mixes: [{}, { name: "Cue" }], groups: [], channels: [] }).naming);
-  assert.equal(named.find((line) => line.label === "Preamp 2")?.text, "USB A REC 3 to 4, through Cue", "the person's name for the mix");
+  assert.equal(named.find((line) => line.label === "Preamp 2")?.text, "USB A Rec 3 to 4, through Cue", "the person's name for the mix");
   // The Studio+ in the same words.
   const studio = recordingInputs(namingWith("studio", [["USB_REC0", 7, "LINE_IN0", 2]]).naming);
-  assert.equal(studio.find((line) => line.label === "Line in 3")?.text, "USB REC 8, directly");
+  assert.equal(studio.find((line) => line.label === "Line In 3")?.text, "USB Rec 8, directly");
 });
 
 test("nothing records an input only once the record group, the mix inputs and the effect inputs are read", () => {
@@ -1930,13 +1930,13 @@ test("an input nothing records offers the first free record channels of its widt
   const lines = recordingInputs(namingWith("quadro", [["COM_REC0", 0, "PREAMP0", 0]]).naming);
   const second = lines.find((line) => line.label === "Preamp 2");
   assert.deepEqual(second?.send?.run, [1], "a single socket takes a single channel");
-  assert.equal(second?.send?.label, "Record it on USB A REC 2");
-  assert.equal(second?.send?.title, "USB A REC 2 records nothing now, and records Preamp 2 instead");
+  assert.equal(second?.send?.label, "Record it on USB A Rec 2");
+  assert.equal(second?.send?.title, "USB A Rec 2 records nothing now, and records Preamp 2 instead");
   assert.equal(second?.send?.destination, usbGroups(topologies.quadro)?.recordPosition);
   assert.deepEqual(second?.send?.changes, [{ channel: 1, source: { source: preamp, channel: 1 } }]);
-  const spdif = lines.find((line) => line.label === "S/PDIF in");
+  const spdif = lines.find((line) => line.label === "S/PDIF In");
   assert.deepEqual(spdif?.send?.run, [2, 3], "a pair takes a pair that starts on an odd channel from one");
-  assert.equal(spdif?.send?.label, "Record it on USB A REC 3 to 4");
+  assert.equal(spdif?.send?.label, "Record it on USB A Rec 3 to 4");
   assert.deepEqual(spdif?.send?.changes, [
     { channel: 2, source: { source: quadroSource("SPDIF_IN0"), channel: 0 } },
     { channel: 3, source: { source: quadroSource("SPDIF_IN0"), channel: 1 } },
@@ -1944,17 +1944,17 @@ test("an input nothing records offers the first free record channels of its widt
 });
 
 /**
- * The Quadro fills a USB record slot nobody uses with (0, 0), which is PREAMP 1, not MUTE: such a
+ * The Quadro fills a USB record slot nobody uses with (0, 0), which is Preamp 1, not MUTE: such a
  * slot is recording something and is not free.
  */
-test("a slot the Quadro filled with PREAMP 1 is not free, and with none free there is no button", () => {
+test("a slot the Quadro filled with Preamp 1 is not free, and with none free there is no button", () => {
   const padded: [string, number, string, number][] = Array.from({ length: 16 }, (_, at): [string, number, string, number] => ["COM_REC0", at, "PREAMP0", 0]);
   const someFree = padded.filter(([, at]) => at !== 8 && at !== 9);
   const lines = recordingInputs(namingWith("quadro", someFree).naming);
-  assert.equal(lines.find((line) => line.label === "Preamp 1")?.text, "USB A REC 1 to 8 and 11 to 16, directly");
-  assert.deepEqual(lines.find((line) => line.label === "S/PDIF in")?.send?.run, [8, 9], "the only slots routed from MUTE");
-  assert.deepEqual(lines.find((line) => line.label === "ADAT in 1")?.send?.run, [8]);
-  const full = recordingInputs(namingWith("quadro", padded).naming).find((line) => line.label === "S/PDIF in");
+  assert.equal(lines.find((line) => line.label === "Preamp 1")?.text, "USB A Rec 1 to 8 and 11 to 16, directly");
+  assert.deepEqual(lines.find((line) => line.label === "S/PDIF In")?.send?.run, [8, 9], "the only slots routed from MUTE");
+  assert.deepEqual(lines.find((line) => line.label === "ADAT In 1")?.send?.run, [8]);
+  const full = recordingInputs(namingWith("quadro", padded).naming).find((line) => line.label === "S/PDIF In");
   assert.equal(full?.state, "nothing");
   assert.equal(full?.send, undefined);
   assert.match(String(full?.noSend), /Every USB record channel is in use/);
@@ -1963,7 +1963,7 @@ test("a slot the Quadro filled with PREAMP 1 is not free, and with none free the
 test("pressing record is one routing write of the record group, changing only the chosen slots", async () => {
   const padded: [string, number, string, number][] = Array.from({ length: 16 }, (_, at): [string, number, string, number] => ["COM_REC0", at, "PREAMP0", 0]);
   const routes = padded.filter(([, at]) => at !== 8 && at !== 9);
-  const send = recordingInputs(namingWith("quadro", routes).naming).find((line) => line.label === "S/PDIF in")?.send;
+  const send = recordingInputs(namingWith("quadro", routes).naming).find((line) => line.label === "S/PDIF In")?.send;
   assert.ok(send !== undefined);
   const mute = quadroSource("MUTE0");
   const read = Array.from({ length: 64 }, (_, at) => (at === 8 || at === 9 || at >= 16 ? { source: mute, channel: 0 } : { source: 0, channel: 0 }));
@@ -1983,13 +1983,13 @@ test("pressing record is one routing write of the record group, changing only th
   const spdif = quadroSource("SPDIF_IN0");
   const expected = read.slice(0, 32).map((slot, at) => (at === 8 ? { source: spdif, channel: 0 } : at === 9 ? { source: spdif, channel: 1 } : at >= 16 ? { source: mute, channel: 0 } : slot));
   assert.equal(written[0]?.destination, quadroDestination("COM_REC0"));
-  assert.deepEqual(written[0]?.slots, expected, "every other slot as it was read, PREAMP 1 padding included");
+  assert.deepEqual(written[0]?.slots, expected, "every other slot as it was read, Preamp 1 padding included");
 });
 
 test("the recording list on the Studio+ offers single channels for its single sockets", () => {
   const lines = recordingInputs(namingWith("studio", [["USB_REC0", 0, "PREAMP0", 0]]).naming);
-  assert.equal(lines[0]?.text, "USB REC 1, directly");
-  assert.equal(lines[1]?.send?.label, "Record it on USB REC 2");
-  assert.equal(lines[lines.length - 1]?.send?.label, "Record it on USB REC 3 to 4", "S/PDIF in, a pair, takes the first free pair");
+  assert.equal(lines[0]?.text, "USB Rec 1, directly");
+  assert.equal(lines[1]?.send?.label, "Record it on USB Rec 2");
+  assert.equal(lines[lines.length - 1]?.send?.label, "Record it on USB Rec 3 to 4", "S/PDIF In, a pair, takes the first free pair");
   for (const line of lines) for (const text of [line.label, line.text, line.send?.label ?? "", line.send?.title ?? "", line.noSend ?? ""]) assert.doesNotMatch(text, DASHES, text);
 });

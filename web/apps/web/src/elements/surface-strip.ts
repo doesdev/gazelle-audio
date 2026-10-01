@@ -13,7 +13,7 @@
 //   feeds it, which is that output's level;
 // - a label: its text.
 // A channel on a digital input, or a digital input strip, that a declared cable feeds says where its
-// signal comes from ("from Drum rack ADAT out 3 ← PREAMP 3"). The Studio+'s S/PDIF input strips have
+// signal comes from ("from Drum rack ADAT Out 3 ← Preamp 3"). The Studio+'s S/PDIF input strips have
 // its S/PDIF SRC switch, which decides whether it must follow the sender's clock.
 // A strip for a device that is not attached, or a channel that no longer exists, says so and keeps
 // its place. `compact` is the dock's size: slim strips and no captions.

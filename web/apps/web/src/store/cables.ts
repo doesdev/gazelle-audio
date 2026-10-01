@@ -5,13 +5,14 @@
 //     neither model has a level of its own for its digital outputs), and route a different
 //     mix or source there: a real routing change on the device that owns the port, through its
 //     RoutingModel, which reads the group before it writes (the user's choice);
-//   - where a digital input's signal comes from ("from Drum rack ADAT out 3 ← PREAMP 3 (Snare)");
+//   - where a digital input's signal comes from ("from Drum rack ADAT Out 3 ← Preamp 3 (Snare)");
 //   - when the two ends disagree: sample rates, a receiver that is not locked, or signal leaving the
 //     sender with none arriving.
 // Declared cables are checked here as the server checks them, with its wording.
 
 import { computed, type ReadonlySignal } from "../core/signal.ts";
 import type { Cable, CableEnd, DigitalPort, MixerChannel, RouteSource, Topology } from "gazelle-audio-client";
+import { groupName } from "./names.ts";
 import type { RouteSlot, RoutingModel } from "./routing.ts";
 
 /** A meter byte at or below this (dB below full scale) is signal: -60 dBFS, as the device cards count it. */
@@ -22,9 +23,9 @@ export type InputPort = "SPDIF_IN" | "ADAT_IN";
 
 const SENDS: readonly OutputPort[] = ["SPDIF_OUT", "ADAT_OUT"];
 const RECEIVES: readonly InputPort[] = ["SPDIF_IN", "ADAT_IN"];
-const PORT_NAMES: Readonly<Record<DigitalPort, string>> = { SPDIF_OUT: "S/PDIF out", ADAT_OUT: "ADAT out", SPDIF_IN: "S/PDIF in", ADAT_IN: "ADAT in" };
+const PORT_NAMES: Readonly<Record<DigitalPort, string>> = { SPDIF_OUT: "S/PDIF Out", ADAT_OUT: "ADAT Out", SPDIF_IN: "S/PDIF In", ADAT_IN: "ADAT In" };
 
-/** A port's name as people say it: "ADAT out". */
+/** A port's name as people say it: "ADAT Out". */
 export const portName = (port: DigitalPort): string => PORT_NAMES[port];
 
 /** Channels `first` to `last`, counted from 1, as a label says them: "3", "1 and 2", "9 to 16". */
@@ -40,7 +41,7 @@ export interface PortPair {
   channel: number;
   /** "1/2". */
   label: string;
-  /** "Mix 4", "USB 1 PLAY 1/2", "PREAMP 3 + MUTE", "Muted", or "Not read". */
+  /** "Mix 4", "USB 1 Play 1/2", "Preamp 3 + Mute", "Muted", or "Not read". */
   text: string;
   /** The mix whose left and right feed it, in order. */
   mix: number | undefined;
@@ -113,7 +114,7 @@ export class CablesModel {
     return this.#context.edit((cables) => cables.filter((c) => c.id !== id));
   }
 
-  /** "Drum rack ADAT out 1 to 8 → Zen Quadro ADAT in 1 to 8". Reactive. */
+  /** "Drum rack ADAT Out 1 to 8 → Zen Quadro ADAT In 1 to 8". Reactive. */
   label(cable: Cable): string {
     const end = (e: CableEnd) => `${this.#context.deviceName(e.device_id)} ${portName(e.port)} ${channelSpan(e.first + 1, e.first + cable.channels)}`;
     return `${end(cable.from)} → ${end(cable.to)}`;
@@ -166,7 +167,7 @@ export class CablesModel {
         const group = topology.inputs[left.source];
         const text =
           stereo && right.source === left.source && right.channel === left.channel + 1 && group !== undefined
-            ? `${group.name} ${left.channel + 1}/${left.channel + 2}`
+            ? `${groupName(group)} ${left.channel + 1}/${left.channel + 2}`
             : stereo
               ? `${this.#slotLabel(deviceId, topology, left)} + ${this.#slotLabel(deviceId, topology, right)}`
               : this.#slotLabel(deviceId, topology, left);
@@ -185,7 +186,8 @@ export class CablesModel {
     topology.inputs.forEach((group, position) => {
       if (group.type === "MIXER_OUT" || group.type === "MUTE") return;
       for (let channel = 0; channel < group.channels; channel += 2) {
-        const label = channel + 1 < group.channels ? `${group.name} ${channel + 1}/${channel + 2}` : group.channels > 1 ? `${group.name} ${channel + 1}` : group.name;
+        const name = groupName(group);
+        const label = channel + 1 < group.channels ? `${name} ${channel + 1}/${channel + 2}` : group.channels > 1 ? `${name} ${channel + 1}` : name;
         sources.push({ group: position, channel, label });
       }
     });
@@ -294,13 +296,13 @@ export class CablesModel {
     return destination < 0 ? undefined : this.#context.routing(cable.from.device_id).destination(destination).value?.[channel];
   }
 
-  /** A routed source as people know it: a mix's side by the mix's name ("Music L"), else "PREAMP 3". */
+  /** A routed source as people know it: a mix's side by the mix's name ("Music L"), else "Preamp 3". */
   #slotLabel(deviceId: string, topology: Topology, slot: RouteSlot): string {
     const group = topology.inputs[slot.source];
     if (group === undefined) return `Source ${slot.source}:${slot.channel + 1}`;
     const mix = topology.mixers.outputGroups.indexOf(group.id);
     if (mix >= 0) return `${this.#context.mixName(deviceId, mix)} ${slot.channel === 0 ? "L" : "R"}`;
-    return group.channels > 1 ? `${group.name} ${slot.channel + 1}` : group.name;
+    return group.channels > 1 ? `${groupName(group)} ${slot.channel + 1}` : groupName(group);
   }
 
   #checkRange(deviceId: string, port: DigitalPort, first: number, count: number): void {

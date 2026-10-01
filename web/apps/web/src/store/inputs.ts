@@ -221,7 +221,7 @@ export class InputsModel {
       const count = channels(type);
       return { kind, label, count, editable, linkPairs: editable ? Math.floor(count / 2) : 0 };
     };
-    this.digital = [...(context.family === "studio" ? [group("line", "Line in", "LINE_IN")] : []), group("adat", "ADAT in", "ADAT_IN"), group("spdif", "S/PDIF in", "SPDIF_IN")];
+    this.digital = [...(context.family === "studio" ? [group("line", "Line In", "LINE_IN")] : []), group("adat", "ADAT In", "ADAT_IN"), group("spdif", "S/PDIF In", "SPDIF_IN")];
     for (const d of this.digital) this.#digitalLinks.set(d.kind, Array.from({ length: d.linkPairs }, () => signal(false)));
 
     const preamps = context.field("preamps");

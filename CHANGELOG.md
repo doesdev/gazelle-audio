@@ -31,10 +31,17 @@ version that has not been published yet.
   can land 32 samples or more out. Ready to use now says so, and points at measuring the
   interfaces again, or at setting up the phase first where there is none.
 - **The Mixer guards the phase and clock cable.** While a cable is dedicated to phase and clock,
-  the Mixer page and the mixer dock mark a channel on its kept playback channel PHASE, and the
+  the Mixer page and the mixer dock mark a channel on its kept playback channel Phase, and the
   Input and + Output menus mark its channels "(phase)", as the Routing page does. Choosing one for
   a channel or a mix, sending a mix to the cable's output, applying a layout, tidying a mix or
   dropping a source on the dock that would break the path now waits for Confirm and says why.
+
+### Changed
+
+- **Inputs and outputs are named in plain case.** Preamp 1, USB 1 Play 3, AFX Out 5, ADAT In 1,
+  S/PDIF In and Mute, instead of the devices' capitals, everywhere in Gazelle, in its messages and
+  in the names a DAW shows for Gazelle Aggregate. The badge on a channel kept for the phase
+  measurement says Phase.
 
 ### Fixed
 

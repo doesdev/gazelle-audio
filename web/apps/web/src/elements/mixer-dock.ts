@@ -27,7 +27,7 @@
 // another device refuses the drop and says so. A drop that would put an input into the mix twice,
 // or send the playback channel a dedicated cable keeps for the phase measurement into it, waits
 // behind Confirm, as the Input menu's does. Held over a folded dock, the drag opens it. Its strips
-// carry the PHASE badge as the Mixer page's do.
+// carry the Phase badge as the Mixer page's do.
 
 import { h } from "../core/dom.ts";
 import { effect, signal, untracked } from "../core/signal.ts";

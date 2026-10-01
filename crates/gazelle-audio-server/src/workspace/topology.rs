@@ -35,6 +35,65 @@ pub struct Group {
     pub channels: u32,
 }
 
+impl Group {
+    /// What Gazelle calls the group wherever a person reads it: its name in plain case
+    /// ([`proper_case`]), `USB A Rec`, `Preamp`, `S/PDIF In`.
+    pub fn display_name(&self) -> String {
+        proper_case(&self.name)
+    }
+}
+
+/// The devices' words that read better in plain case, by their capitals. A word not here is kept as
+/// the device spells it: the acronyms (USB, ADAT, AFX, TB, COM, HP1, the USB groups' A and B) and
+/// L/R. The web app shows names from the same list, and both sides are held to one file of cases
+/// (`refs/fixtures/display_names.json`).
+pub const DISPLAY_WORDS: &[(&str, &str)] = &[
+    ("PREAMP", "Preamp"),
+    ("LINE", "Line"),
+    ("IN", "In"),
+    ("OUT", "Out"),
+    ("PLAY", "Play"),
+    ("REC", "Rec"),
+    ("SPDIF", "S/PDIF"),
+    ("MONITOR", "Monitor"),
+    ("REAMP", "Reamp"),
+    ("MUTE", "Mute"),
+    ("OSCILLATOR", "Oscillator"),
+    ("LOOPBACK", "Loopback"),
+    ("MIX", "Mix"),
+    ("MIXER", "Mixer"),
+    ("CH", "Ch"),
+    ("EMU", "Emu"),
+    ("MIC", "Mic"),
+];
+
+/// A device's name for a group, or a channel of one, as Gazelle shows it: each word in capitals
+/// from [`DISPLAY_WORDS`], a number on the end kept (`MIX3` is `Mix3`), anything else as it was.
+/// `USB 1 PLAY 3` is `USB 1 Play 3`, `SPDIF IN` is `S/PDIF In`, `HP1` stays `HP1`. Only what is
+/// shown changes: the topology, the wire and the workspace keep the devices' own names.
+pub fn proper_case(name: &str) -> String {
+    let word_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(name.len());
+    let mut rest = name;
+    while !rest.is_empty() {
+        let end = rest.find(|c: char| !word_char(c)).unwrap_or(rest.len());
+        let (word, after) = rest.split_at(end);
+        let letters = word.trim_end_matches(|c: char| c.is_ascii_digit());
+        let digits = &word[letters.len()..];
+        match DISPLAY_WORDS.iter().find(|(caps, _)| *caps == letters) {
+            Some((_, shown)) if !letters.is_empty() => {
+                out.push_str(shown);
+                out.push_str(digits);
+            }
+            _ => out.push_str(word),
+        }
+        let gap = after.find(word_char).unwrap_or(after.len());
+        out.push_str(&after[..gap]);
+        rest = &after[gap..];
+    }
+    out
+}
+
 fn parse(json: &str) -> Model {
     let topology: serde_json::Value = serde_json::from_str(json).expect("the embedded topology is JSON");
     let side = |name: &str| {
@@ -209,6 +268,33 @@ pub fn input_type(kind: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_are_shown_in_plain_case_as_the_shared_cases_say() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../refs/fixtures/display_names.json"))).unwrap();
+        let cases = cases["cases"].as_array().unwrap();
+        assert!(cases.len() > 30, "the file has its cases");
+        for case in cases {
+            let (device, shown) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+            assert_eq!(proper_case(device), shown, "{device}");
+            assert_eq!(proper_case(shown), shown, "doing it twice changes nothing: {device}");
+        }
+    }
+
+    #[test]
+    fn every_group_of_both_models_is_shown_without_the_devices_capitals() {
+        let acronyms = ["USB", "ADAT", "AFX", "TB", "HP", "A", "B", "L/R", "S/PDIF"];
+        for family in ["quadro", "studio"] {
+            for group in source_groups(family).unwrap().iter().chain(destination_groups_whole(family).unwrap()) {
+                let shown = group.display_name();
+                for word in shown.split(' ') {
+                    let letters = word.trim_end_matches(|c: char| c.is_ascii_digit());
+                    let capitals = letters.len() > 1 && letters.chars().all(|c| c.is_ascii_uppercase());
+                    assert!(!capitals || acronyms.contains(&letters), "{} shows as {shown}", group.name);
+                }
+            }
+        }
+    }
 
     #[test]
     fn counts_come_from_each_models_topology() {

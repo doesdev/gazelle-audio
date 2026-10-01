@@ -35,7 +35,7 @@ export interface MixHealth {
   readonly strays: readonly Stray[];
   /** Every soloed strip of the mix, `shown` when it is one of the mix's channels. */
   readonly solos: readonly (SlotState & { readonly shown: boolean })[];
-  /** The Quadro's effect returns (slots 1 to 6 on AFX OUT) that are audible: routed, unmuted, above the floor. */
+  /** The Quadro's effect returns (slots 1 to 6 on AFX Out) that are audible: routed, unmuted, above the floor. */
   readonly returns: readonly SlotState[];
 }
 

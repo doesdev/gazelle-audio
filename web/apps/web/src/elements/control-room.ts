@@ -17,6 +17,7 @@
 
 import { h } from "../core/dom.ts";
 import { monoTrim, type OutputFeed } from "../store/channels.ts";
+import { groupName } from "../store/names.ts";
 import { formatVolume, VOLUME_MAX, type OutputInfo } from "../store/outputs.ts";
 import { bindControl, bindMomentary, levelReset } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
@@ -194,11 +195,12 @@ export class GaMonitor extends GaElement {
       const name = channels.layout.value.mixes[mix]?.name;
       return name ? `Mix ${mix + 1}: ${name}` : `Mix ${mix + 1}`;
     };
-    // A pair's label in the device's words ("HP1", "USB REC 1/2"), with the panel's own names for its outputs.
+    // A pair's label in the device's words ("HP1", "USB Rec 1/2"), with the panel's own names for its outputs.
     const outputs = store.outputs(deviceId).outputs;
     const pairName = (label: string) => {
       for (const o of outputs) {
-        const group = topology?.outputs.find((g) => g.id === o.group)?.name;
+        const found = topology?.outputs.find((g) => g.id === o.group);
+        const group = found === undefined ? undefined : groupName(found);
         if (group !== undefined && (label === group || label.startsWith(`${group} `))) return `${o.name}${label.slice(group.length)}`;
       }
       return label;

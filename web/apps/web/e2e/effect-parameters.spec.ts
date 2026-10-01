@@ -22,7 +22,7 @@ test.afterAll(async () => {
 });
 
 const slots = (...effects: [number, number][]) => Array.from({ length: 8 }, (_, i) => ({ type: effects[i]?.[0] ?? 0, inst: effects[i]?.[1] ?? 0 }));
-/** AFX IN 1 and 2 linked, each a PowerGate then a PowerFFC; AFX IN 3 a FET-A76 and a Brainiac; AFX IN 4 a ClearQ; AFX IN 5 a Guitar Amp. */
+/** AFX In 1 and 2 linked, each a PowerGate then a PowerFFC; AFX In 3 a FET-A76 and a Brainiac; AFX In 4 a ClearQ; AFX In 5 a Guitar Amp. */
 const QUADRO_CHAINS: Record<number, [number, number][]> = { 0: [[39, 2], [2, 0]], 1: [[39, 3], [2, 1]], 2: [[9, 0], [85, 1]], 3: [[1, 0]], 4: [[3, 1]] };
 
 type Frame = { id?: number; device_id?: string; command?: string; ext3?: number; args?: Record<string, number> };

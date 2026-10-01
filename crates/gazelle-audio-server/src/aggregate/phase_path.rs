@@ -95,9 +95,9 @@ fn side(channel: u32, channels: u32) -> String {
     }
 }
 
-/// One channel of a digital input as a person names it: "S/PDIF in L", "ADAT in 3".
+/// One channel of a digital input as a person names it: "S/PDIF In L", "ADAT In 3".
 fn input_words(group: &Group, channel: u32) -> String {
-    format!("{} in {}", port_words(&group.kind), side(channel, group.channels))
+    format!("{} {}", group.display_name(), side(channel, group.channels))
 }
 
 /// A mix as a person names it: their name for it, else "Mix 1".
@@ -110,7 +110,7 @@ fn mix_name(mixer: Option<&DeviceMixer>, mix: usize) -> String {
 }
 
 /// What a routing slot plays, in the person's words: a mix's side by the mix's name ("Mix 1 L"),
-/// else the source as the Aggregate page names it ("AFX OUT 3", "Preamp 1"). MUTE, or a slot not
+/// else the source as every page names it ("AFX Out 3", "Preamp 1"). MUTE, or a slot not
 /// known, is nothing.
 fn slot_words(family: &str, slot: Option<&[u8; 2]>, mixer: Option<&DeviceMixer>) -> Option<String> {
     let [source, channel] = *slot?;
@@ -390,7 +390,7 @@ mod tests {
             }
         }
 
-        /// USB 1 PLAY 16 straight to S/PDIF out L, and nowhere else; the Studio+ records S/PDIF in L on USB REC 24.
+        /// USB 1 Play 16 straight to S/PDIF Out L, and nowhere else; the Studio+ records S/PDIF In L on USB Rec 24.
         fn dedicated() -> Rig {
             let mut quadro = silent("quadro");
             quadro.get_mut("SPDIF_OUT0").unwrap()[0] = [COM_PLAY, 15];
@@ -404,8 +404,8 @@ mod tests {
             }
         }
 
-        /// The owner's PC: USB 1 PLAY 3 in Mix 1 and Mix 4 for a headphone amp, S/PDIF out muted, and the
-        /// Studio+ still recording S/PDIF in L on USB REC 21. Nothing is dedicated.
+        /// The owner's PC: USB 1 Play 3 in Mix 1 and Mix 4 for a headphone amp, S/PDIF Out muted, and the
+        /// Studio+ still recording S/PDIF In L on USB Rec 21. Nothing is dedicated.
         fn owners() -> Rig {
             let mut quadro = silent("quadro");
             quadro.get_mut("MIXER_IN0").unwrap()[4] = [COM_PLAY, 2];
@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(reason.device_index, Some(1));
         assert_eq!(
             reason.message,
-            "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L is muted, not USB 1 PLAY 3; USB 1 PLAY 3 also goes to Mix 1 and Mix 4, and the short burst the driver plays into it at the start of every session plays wherever it goes. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. Dedicating the S/PDIF cable, on the Workspace page, gives the measurement channels of its own."
+            "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L is muted, not USB 1 Play 3; USB 1 Play 3 also goes to Mix 1 and Mix 4, and the short burst the driver plays into it at the start of every session plays wherever it goes. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. Dedicating the S/PDIF cable, on the Workspace page, gives the measurement channels of its own."
         );
         assert!(reason.fix.is_none(), "taking the channel out of mixes somebody chose is not a fix to offer");
     }
@@ -451,7 +451,7 @@ mod tests {
         let mut workspace = Rig::owners().workspace();
         let mixes = vec![MixConfig { name: Some("Phones".into()), mono: None }, MixConfig::default(), MixConfig::default(), MixConfig { name: Some("Amp".into()), mono: None }];
         workspace.mixers.insert(DeviceId::from_serial(QUADRO), DeviceMixer { mixes, ..DeviceMixer::default() });
-        assert!(only(reasons(&devices(), &workspace)).message.contains("USB 1 PLAY 3 also goes to Phones and Amp,"));
+        assert!(only(reasons(&devices(), &workspace)).message.contains("USB 1 Play 3 also goes to Phones and Amp,"));
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod tests {
         let reason = only(reasons(&devices(), &rig.workspace()));
         assert_eq!(
             reason.message,
-            "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L no longer plays USB 1 PLAY 16: it plays Mix 1 L now. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. The S/PDIF cable is dedicated to it, so it can be put back from here."
+            "The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L no longer plays USB 1 Play 16: it plays Mix 1 L now. Until it is back the measurement hears nothing, and each session is lined up by the figures the drivers report. The S/PDIF cable is dedicated to it, so it can be put back from here."
         );
         let fix = reason.fix.as_ref().unwrap();
         assert_eq!((fix.kind, fix.method, fix.route.as_str(), fix.label.as_str()), (RESTORE_KIND, "PUT", "routing", "Put the phase path back"));
@@ -472,7 +472,7 @@ mod tests {
     fn a_muted_dedicated_output_says_so() {
         let mut rig = Rig::dedicated();
         rig.quadro.get_mut("SPDIF_OUT0").unwrap()[0] = [Q_MUTE, 0];
-        assert!(only(reasons(&devices(), &rig.workspace())).message.starts_with("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF out L no longer plays USB 1 PLAY 16: it is muted now."));
+        assert!(only(reasons(&devices(), &rig.workspace())).message.starts_with("The phase path over the S/PDIF cable is broken: Quadro's S/PDIF Out L no longer plays USB 1 Play 16: it is muted now."));
     }
 
     /// Every part broken at once: the playback channel into a mix and to the monitors, and the record
@@ -484,8 +484,8 @@ mod tests {
         rig.quadro.get_mut("MONITOR0").unwrap()[1] = [COM_PLAY, 15];
         rig.studio.get_mut("USB_REC0").unwrap()[23] = [0, 2];
         let reason = only(reasons(&devices(), &rig.workspace()));
-        assert!(reason.message.contains("USB 1 PLAY 16 also goes to Monitor R and Mix 2, and the short burst"), "{}", reason.message);
-        assert!(reason.message.contains("Studio+'s USB REC 24 no longer records S/PDIF in L: it records Preamp 3 now."), "{}", reason.message);
+        assert!(reason.message.contains("USB 1 Play 16 also goes to Monitor R and Mix 2, and the short burst"), "{}", reason.message);
+        assert!(reason.message.contains("Studio+'s USB Rec 24 no longer records S/PDIF In L: it records Preamp 3 now."), "{}", reason.message);
         assert_eq!(
             writes(&reason),
             json!([
@@ -503,7 +503,7 @@ mod tests {
         rig.quadro.get_mut("SPDIF_OUT0").unwrap()[0] = [COM_PLAY, 2];
         rig.studio.get_mut("USB_REC0").unwrap()[20] = [S_MUTE, 0];
         let reason = only(reasons(&devices(), &rig.workspace()));
-        assert!(reason.message.starts_with("The phase path over the S/PDIF cable is broken: Studio+'s USB REC 21 records nothing, not S/PDIF in L."), "{}", reason.message);
+        assert!(reason.message.starts_with("The phase path over the S/PDIF cable is broken: Studio+'s USB Rec 21 records nothing, not S/PDIF In L."), "{}", reason.message);
     }
 
     /// The burst on the cable's right channel is a path too, as long as the follower records that side.

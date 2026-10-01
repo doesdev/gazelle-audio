@@ -72,7 +72,7 @@ test("the state says what the click is doing, and a count-in says its bar", () =
   assert.equal(metronomeState(status({ started_by: "follow" })), "Playing with the take");
   assert.equal(metronomeState(status({ count_in: { bars: 2, bar: 0 } })), "Count-in of 2 from the next bar");
   assert.equal(metronomeState(status({ count_in: { bars: 2, bar: 1 } })), "Count-in, bar 1 of 2");
-  assert.equal(listText(["USB 1 PLAY 7", "USB 1 PLAY 8"]), "USB 1 PLAY 7 and USB 1 PLAY 8");
+  assert.equal(listText(["USB 1 Play 7", "USB 1 Play 8"]), "USB 1 Play 7 and USB 1 Play 8");
   assert.equal(listText(["A", "B", "C"]), "A, B and C");
   const counting: RecordingStatus = { state: "counting_in", channels: [], overruns: 0, dropouts: 0, dropouts_by_device: [], disk_low: false, reset_asked: false };
   assert.equal(stateLabel({ ...counting, metronome: status({ count_in: { bars: 2, bar: 2 } }) }), "Count-in 2 of 2");

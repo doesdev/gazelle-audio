@@ -6,7 +6,7 @@
 //   lists every change (store/mix-tidy.ts), and says first when a change would break the phase path
 //   of a dedicated cable, in the Routing page's words. After tidying it reads the mix again and says
 //   how many changes were made, and what is left if anything is.
-// - <ga-effect-returns device-id="…">: the Quadro's effect returns, AFX OUT 1 to 6 on slots 1 to 6
+// - <ga-effect-returns device-id="…">: the Quadro's effect returns, AFX Out 1 to 6 on slots 1 to 6
 //   of every mix, as slim strips before the channels (level, mute and solo; the same `set_mixer` as
 //   any strip). They show while one of them is audible or soloed, and a "Show effect returns" rail
 //   shows or hides them by hand, which this browser remembers per device.
@@ -213,9 +213,9 @@ export class GaEffectReturns extends GaElement {
       const on = shown.value;
       const mix = channels.meteredMix.value;
       rail.setAttribute("aria-pressed", String(on));
-      rail.title = on ? "Hide effect returns" : "Show effect returns: AFX OUT 1 to 6 on slots 1 to 6 of this mix";
+      rail.title = on ? "Hide effect returns" : "Show effect returns: AFX Out 1 to 6 on slots 1 to 6 of this mix";
       const slots = routing.destination(store.mixInput(deviceId, mix)).value;
-      // The slot's input as the device routes it; AFX OUT k where it is unread, as the vendor keeps it.
+      // The slot's input as the device routes it; AFX Out k where it is unread, as the vendor keeps it.
       const strips = on
         ? Array.from({ length: fixed }, (_, slot) => {
             const routed = slots?.[slot] ?? { source: afx, channel: slot };

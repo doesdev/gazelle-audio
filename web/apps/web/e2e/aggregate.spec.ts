@@ -596,11 +596,11 @@ test("the channels are the interface's USB channels, all of them, each named by 
 
   await page.getByTestId("device-0-channels-open").click();
   // This server is in dry run, so nothing reads the routing and each channel is its USB channel.
-  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A REC 1");
-  await expect(page.getByTestId("device-0-in-15-name")).toHaveText("USB A REC 16");
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A Rec 1");
+  await expect(page.getByTestId("device-0-in-15-name")).toHaveText("USB A Rec 16");
   await expect(page.getByTestId("device-0-in-16")).toHaveCount(0, { timeout: 2000 });
-  await expect(page.getByTestId("device-0-out-1-name")).toHaveText("USB 1 PLAY 2");
-  // The name already says USB A REC 1, so the DAW line gives only the reference the DAW adds.
+  await expect(page.getByTestId("device-0-out-1-name")).toHaveText("USB 1 Play 2");
+  // The name already says USB A Rec 1, so the DAW line gives only the reference the DAW adds.
   await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
   await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
   await expect(page.getByTestId("device-0-channels-note")).toContainText("USB channels");
@@ -658,7 +658,7 @@ test("naming a channel writes the name, and clearing it takes the entry out rath
   await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out, 1 named");
   await expect(page.getByTestId("device-0-in-0-label")).toHaveValue("Vocal mic");
   // The typed name is the channel's name now, on the page and in the DAW.
-  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Vocal mic, USB A Rec 1");
   await expect(page.getByTestId("device-0-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
   // A label is at most 31 characters, and the field will not take more.
   await expect(page.getByTestId("device-0-in-0-label")).toHaveAttribute("maxlength", "31");
@@ -672,7 +672,7 @@ test("naming a channel writes the name, and clearing it takes the entry out rath
   await expect.poll(async () => Object.hasOwn(await configured(), "input_names")).toBe(false);
   await expect(page.getByTestId("device-0-channels")).toHaveText("All 16 in, all 16 out");
   // Cleared, the automatic name is back.
-  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A REC 1");
+  await expect(page.getByTestId("device-0-in-0-name")).toHaveText("USB A Rec 1");
 });
 
 test("a poll landing leaves a label half typed where it was, and the Channels part as it was", async ({ page }) => {
@@ -843,26 +843,26 @@ test("the cabling is named channel by channel, and follows the pickers", async (
   // The input pass by default: both clicks leave the Quadro, and each interface records its own.
   await expect(page.getByTestId("calibrate-direction")).toHaveValue("inputs");
   await expect(page.getByTestId("calibrate-reference")).toHaveValue("Quadro");
-  await expect(page.getByTestId("calibrate-cable-0")).toHaveText("1.USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
-  await expect(page.getByTestId("calibrate-cable-1")).toHaveText("2.USB 1 PLAY 2 on Quadro into USB REC 1 on Studio+");
+  await expect(page.getByTestId("calibrate-cable-0")).toHaveText("1.USB 1 Play 1 on Quadro into USB A Rec 1 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-1")).toHaveText("2.USB 1 Play 2 on Quadro into USB Rec 1 on Studio+");
   await expect(page.getByTestId("calibrate-problem")).toBeHidden();
 
   // Choosing another output moves the cable that goes with it, and nothing else.
-  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 PLAY 4" });
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 4 on Quadro into USB REC 1 on Studio+");
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 Play 4" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 Play 4 on Quadro into USB Rec 1 on Studio+");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 Play 1 on Quadro into USB A Rec 1 on Quadro");
 
   // And the other pass is the same thing the other way round: one output on each interface.
   await page.getByTestId("calibrate-direction").selectOption("outputs");
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB PLAY 1 on Studio+ into USB A REC 2 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("USB 1 Play 1 on Quadro into USB A Rec 1 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB Play 1 on Studio+ into USB A Rec 2 on Quadro");
 });
 
 test("a channel with a name of its own is named in the cabling by it, then by its USB channel", async ({ page }) => {
   await setUp({ devices: [{ key: "Quadro", device_id: "loopback-0", output_names: { "0": "Monitor L" } }, { key: "Studio+", device_id: "loopback-1" }] });
   await fakeAggregate(page, answer({ devices: withBoth() }));
   await open(page);
-  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Monitor L, USB 1 PLAY 1 on Quadro into USB A REC 1 on Quadro");
+  await expect(page.getByTestId("calibrate-cable-0")).toContainText("Monitor L, USB 1 Play 1 on Quadro into USB A Rec 1 on Quadro");
 });
 
 test("measuring asks twice, then sends exactly the channels the pickers name", async ({ page }) => {
@@ -910,11 +910,11 @@ test("a check sends each cable end as an interface and that interface's own chan
   await expect(page.getByTestId("device-0-name")).toHaveText("Zen Quadro Synergy Core");
   // The device's model, not its driver's registry name.
   await expect(page.getByTestId("device-1-name")).toHaveText("Zen Studio+");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 2 on Zen Quadro Synergy Core into USB REC 1 on Zen Studio+");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 Play 2 on Zen Quadro Synergy Core into USB Rec 1 on Zen Studio+");
 
   // The Studio+'s second input, which is its own channel 1 however many the Quadro has.
-  await page.getByTestId("calibrate-records-1").selectOption({ label: "USB REC 2" });
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 2 on Zen Quadro Synergy Core into USB REC 2 on Zen Studio+");
+  await page.getByTestId("calibrate-records-1").selectOption({ label: "USB Rec 2" });
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 Play 2 on Zen Quadro Synergy Core into USB Rec 2 on Zen Studio+");
 
   captured.calibration = [done({ checking: true })];
   const check = page.getByTestId("calibrate-check");
@@ -1040,11 +1040,11 @@ test("a poll landing leaves a picker where it was put", async ({ page }) => {
   await bothConfigured();
   const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
   await open(page);
-  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 PLAY 4" });
+  await page.getByTestId("calibrate-plays-1").selectOption({ label: "USB 1 Play 4" });
   const before = captured.reads;
   await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before + 1);
   await expect(page.getByTestId("calibrate-plays-1")).toHaveValue("3");
-  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 4 on Quadro into USB REC 1 on Studio+");
+  await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 Play 4 on Quadro into USB Rec 1 on Studio+");
 });
 
 test("a server too old to measure says so rather than failing", async ({ page }) => {
@@ -1087,22 +1087,22 @@ test("a follower's phase is set up by two pickers, written only once both are ch
   await page.getByTestId("device-1-phase-open").click();
   // The master's own USB playback channels and this interface's own USB record channels, named as everywhere else.
   await expect(page.getByTestId("device-1-phase-leaves").locator("option")).toHaveCount(17);
-  await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("USB 1 PLAY 1");
+  await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("USB 1 Play 1");
   await expect(page.getByTestId("device-1-phase-arrives").locator("option")).toHaveCount(25);
-  await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(2)).toHaveText("USB REC 2");
+  await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(2)).toHaveText("USB Rec 2");
   // The routing it needs, naming both ends.
   await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Quadro, route the playback channel chosen under Leaves the callback master on to its S/PDIF output");
   await expect(page.getByTestId("device-1-phase-routing")).toContainText("on Studio+, route its S/PDIF input");
 
   // One picker alone writes nothing, because the driver refuses half a path, and a poll leaves it be.
-  await page.getByTestId("device-1-phase-leaves").selectOption({ label: "USB 1 PLAY 4" });
+  await page.getByTestId("device-1-phase-leaves").selectOption({ label: "USB 1 Play 4" });
   const before = captured.reads;
   await expect.poll(() => captured.reads, { timeout: 15_000 }).toBeGreaterThan(before);
   await expect(page.getByTestId("device-1-phase-leaves")).toHaveValue("3");
   expect(await studio(), "half a path is not written").not.toHaveProperty("phase");
 
   // The second writes both, in the devices' own numbering from zero.
-  await page.getByTestId("device-1-phase-arrives").selectOption({ label: "USB REC 2" });
+  await page.getByTestId("device-1-phase-arrives").selectOption({ label: "USB Rec 2" });
   await expect.poll(async () => (await studio())["phase"]).toEqual({ master_output: 3, input: 1 });
   await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, no reference yet");
   await expect(page.getByTestId("device-1-phase-note")).toContainText("One measurement under Line the interfaces up gives it one");
@@ -1277,7 +1277,7 @@ test("a run that was not clean, or whose phase was refused, reads as such", asyn
   await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveText("Refused: nothing heard on the cable");
   await expect(page.getByTestId("calibrate-phase-state-Studio+")).toHaveAttribute("data-tone", "off");
   await expect(page.getByTestId("calibrate-trim-0-reference")).toContainText("-84 samples is taken out");
-  await expect(page.getByTestId("calibrate-witness-0")).toContainText("USB REC 2, on Studio+");
+  await expect(page.getByTestId("calibrate-witness-0")).toContainText("USB Rec 2, on Studio+");
   await expect(page.getByTestId("calibrate-witness-0-lag")).toHaveText("3.2 samples late");
 
   // Writing it takes the old reference out rather than leaving it beside the new trim.
@@ -1352,7 +1352,7 @@ test.describe("with the routing read from the interfaces", () => {
   });
 
   test("an interface and its channels are named one way on the card, in Channels and in every picker", async ({ page }) => {
-    // The loopback Quadro records its four preamps on USB A REC 1 to 4, and the person has a Mixer
+    // The loopback Quadro records its four preamps on USB A Rec 1 to 4, and the person has a Mixer
     // channel for the first preamp that they have named. Its PREAMP group is its first source.
     await putWorkspace(reading, {
       aliases: OWN_NAMES,
@@ -1365,10 +1365,10 @@ test.describe("with the routing read from the interfaces", () => {
 
     // The Studio+'s eight line outs are a line each, as the names spell them; its monitors a pair.
     await expect(page.getByTestId("device-0-play-0")).toContainText("Monitor");
-    await expect(page.getByTestId("device-0-play-1")).toContainText("Line out 1");
-    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB PLAY 1, directly", { timeout: 5000 });
-    await expect(page.getByTestId("device-0-play-8")).toContainText("Line out 8");
-    await expect(page.getByTestId("device-0-play-8-text")).toHaveText("USB PLAY 8, directly");
+    await expect(page.getByTestId("device-0-play-1")).toContainText("Line Out 1");
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB Play 1, directly", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-play-8")).toContainText("Line Out 8");
+    await expect(page.getByTestId("device-0-play-8-text")).toHaveText("USB Play 8, directly");
 
     // The card: Gazelle's name, and the vendor driver's name once, as a detail.
     await expect(page.getByTestId("device-1-name")).toHaveText("Quadro");
@@ -1378,30 +1378,30 @@ test.describe("with the routing read from the interfaces", () => {
 
     // The Channels part: each input named for what the routing sends it, the person's name first.
     await page.getByTestId("device-1-channels-open").click();
-    await expect(page.getByTestId("device-1-in-0-name")).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("device-1-in-1-name")).toHaveText("Preamp 2, USB A REC 2");
-    await expect(page.getByTestId("device-1-in-4-name")).toHaveText("USB A REC 5", { timeout: 2000 });
+    await expect(page.getByTestId("device-1-in-0-name")).toHaveText("Vocal mic, USB A Rec 1");
+    await expect(page.getByTestId("device-1-in-1-name")).toHaveText("Preamp 2, USB A Rec 2");
+    await expect(page.getByTestId("device-1-in-4-name")).toHaveText("USB A Rec 5", { timeout: 2000 });
     await expect(page.getByTestId("device-1-in-0-daw")).toHaveText("In a DAW: ... (Quadro 1)");
     await expect(page.getByTestId("device-1-in-0-label")).toHaveAttribute("placeholder", "Your name for it");
     // Each output is named for where the routing sends it: the loopback's first USB playback channel
     // goes to the line outs, the monitors and S/PDIF, through Mixes 1 and 2 to the headphones, and into
     // Mixes 3 and 4, which go nowhere; it is named for the monitors, which outrank the rest. The third
     // goes nowhere at all.
-    await expect(page.getByTestId("device-1-out-0-name")).toHaveText("Monitor L +6, USB 1 PLAY 1");
-    await expect(page.getByTestId("device-1-out-2-name")).toHaveText("USB 1 PLAY 3, not routed");
+    await expect(page.getByTestId("device-1-out-0-name")).toHaveText("Monitor L +6, USB 1 Play 1");
+    await expect(page.getByTestId("device-1-out-2-name")).toHaveText("USB 1 Play 3, not routed");
     await expect(page.getByTestId("device-1-out-2-daw")).toHaveText("In a DAW: Not routed (Quadro 3)");
 
     // The calibration's pickers and its cabling name the same channels the same way.
     await page.getByTestId("calibrate-direction").selectOption("outputs");
-    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Preamp 1, USB REC 1");
+    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Preamp 1, USB Rec 1");
     await page.getByTestId("calibrate-reference").selectOption("Quadro");
-    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 PLAY 1 on Quadro into Preamp 2, USB A REC 2 on Quadro");
+    await expect(page.getByTestId("calibrate-records-0").locator("option").first()).toHaveText("Vocal mic, USB A Rec 1");
+    await expect(page.getByTestId("calibrate-cable-1")).toContainText("USB 1 Play 1 on Quadro into Preamp 2, USB A Rec 2 on Quadro");
 
     // And the phase setup on the follower's card.
     await page.getByTestId("device-1-phase-open").click();
-    await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(1)).toHaveText("Vocal mic, USB A REC 1");
-    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("Monitor L +6, USB PLAY 1");
+    await expect(page.getByTestId("device-1-phase-arrives").locator("option").nth(1)).toHaveText("Vocal mic, USB A Rec 1");
+    await expect(page.getByTestId("device-1-phase-leaves").locator("option").nth(1)).toHaveText("Monitor L +6, USB Play 1");
   });
 
   test("renaming the device in Gazelle renames it on the page, and the callback master stays the same device", async ({ page }) => {
@@ -1456,7 +1456,7 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
   }
 
   /**
-   * What the owner has: USB 1 PLAY 1 and 2 into Mix 1's slots 17 and 18, Mix 1 out to both the
+   * What the owner has: USB 1 Play 1 and 2 into Mix 1's slots 17 and 18, Mix 1 out to both the
    * monitors and HP1, and the line outs fed by Mix 3, which no USB playback channel enters.
    */
   async function ownersRouting(): Promise<void> {
@@ -1475,22 +1475,22 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
     await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
     await page.goto(`${owner.url}/#/aggregate`);
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-out-0-name")).toHaveText("Monitor L +1, USB 1 PLAY 1", { timeout: 5000 });
-    await expect(page.getByTestId("device-0-out-1-name")).toHaveText("Monitor R +1, USB 1 PLAY 2");
+    await expect(page.getByTestId("device-0-out-0-name")).toHaveText("Monitor L +1, USB 1 Play 1", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-out-1-name")).toHaveText("Monitor R +1, USB 1 Play 2");
 
     const rows = page.locator('[data-testid^="device-0-play-"][data-state]');
     await expect(rows).toHaveCount(5);
     const line = (at: number) => page.getByTestId(`device-0-play-${at}`);
     await expect(line(0)).toContainText("Monitor");
-    await expect(page.getByTestId("device-0-play-0-text")).toHaveText("USB 1 PLAY 1 to 2, through Mix 1");
-    await expect(line(1)).toContainText("Line out");
+    await expect(page.getByTestId("device-0-play-0-text")).toHaveText("USB 1 Play 1 to 2, through Mix 1");
+    await expect(line(1)).toContainText("Line Out");
     await expect(page.getByTestId("device-0-play-1-text")).toHaveText("nothing from the DAW reaches it");
-    await expect(page.getByTestId("device-0-play-2-text")).toHaveText("USB 1 PLAY 1 to 2, through Mix 1");
+    await expect(page.getByTestId("device-0-play-2-text")).toHaveText("USB 1 Play 1 to 2, through Mix 1");
     await expect(line(2)).toContainText("HP1");
     await expect(page.getByTestId("device-0-play-0-send")).toHaveCount(0, { timeout: 1000 });
     const send = page.getByTestId("device-0-play-1-send");
-    await expect(send).toHaveText("Send USB 1 PLAY 3 to 4 here");
-    await expect(send).toHaveAttribute("title", "Line out stops playing Mix 3, and plays USB 1 PLAY 3 to 4 instead");
+    await expect(send).toHaveText("Send USB 1 Play 3 to 4 here");
+    await expect(send).toHaveAttribute("title", "Line Out stops playing Mix 3, and plays USB 1 Play 3 to 4 instead");
   });
 
   test("sending DAW channels to an output asks twice, then writes that one group and nothing else", async ({ page }) => {
@@ -1499,7 +1499,7 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
     const captured = await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
     await page.goto(`${owner.url}/#/aggregate`);
     const send = page.getByTestId("device-0-play-1-send");
-    await expect(send).toHaveText("Send USB 1 PLAY 3 to 4 here", { timeout: 5000 });
+    await expect(send).toHaveText("Send USB 1 Play 3 to 4 here", { timeout: 5000 });
 
     await send.click();
     await expect(send).toHaveText("Confirm");
@@ -1512,9 +1512,9 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
       { device_id: "loopback-0", command: "set_routing", args: { bank_idx: LINE_OUT, bank_configs: [hex(COM_PLAY, 2), hex(COM_PLAY, 3), ...Array.from({ length: 30 }, () => hex(MUTE, 0))] } },
     ]);
     // The line outs play the DAW now, and the page says so, from the routing it just wrote.
-    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB 1 PLAY 3 to 4, directly");
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB 1 Play 3 to 4, directly");
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("Line out L, USB 1 PLAY 3");
+    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("Line Out L, USB 1 Play 3");
   });
 });
 
@@ -1532,8 +1532,8 @@ test.describe("where the DAW can record", () => {
   // The Quadro's USB record group, its PREAMP and S/PDIF IN sources, and MUTE, by place.
   const COM_REC = 4, PREAMP = 0, SPDIF_IN = 4, MUTE = 10;
 
-  test("each input says what records it, and one nothing records is recorded on a free pair, not on the PREAMP 1 padding", async ({ page }) => {
-    // Every USB record slot left on (0, 0), which is PREAMP 1, as a Quadro fills slots nobody uses,
+  test("each input says what records it, and one nothing records is recorded on a free pair, not on the Preamp 1 padding", async ({ page }) => {
+    // Every USB record slot left on (0, 0), which is Preamp 1, as a Quadro fills slots nobody uses,
     // except the ninth and tenth, which are routed from MUTE.
     const pairs = Array.from({ length: 32 }, (_, at) => (at < 16 && at !== 8 && at !== 9 ? [PREAMP, 0] : [MUTE, 0])).flat();
     const written = await fetch(`${recording.url}/api/v1/devices/loopback-0/command/set_routing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bank_idx: COM_REC, bank_configs: pairs }) });
@@ -1545,13 +1545,13 @@ test.describe("where the DAW can record", () => {
     const line = (at: number) => page.getByTestId(`device-0-record-${at}`);
     await expect(page.locator('[data-testid^="device-0-record-"][data-state]')).toHaveCount(4 + 8 + 1);
     await expect(line(0).locator(".label")).toHaveText("Preamp 1");
-    await expect(page.getByTestId("device-0-record-0-text")).toHaveText("USB A REC 1 to 8 and 11 to 16, directly", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-record-0-text")).toHaveText("USB A Rec 1 to 8 and 11 to 16, directly", { timeout: 5000 });
     await expect(page.getByTestId("device-0-record-1-text")).toHaveText("nothing records it");
-    await expect(page.getByTestId("device-0-record-1-send")).toHaveText("Record it on USB A REC 9");
-    await expect(line(12)).toContainText("S/PDIF in");
+    await expect(page.getByTestId("device-0-record-1-send")).toHaveText("Record it on USB A Rec 9");
+    await expect(line(12)).toContainText("S/PDIF In");
     const send = page.getByTestId("device-0-record-12-send");
-    await expect(send).toHaveText("Record it on USB A REC 9 to 10");
-    await expect(send).toHaveAttribute("title", "USB A REC 9 to 10 records nothing now, and records S/PDIF in instead");
+    await expect(send).toHaveText("Record it on USB A Rec 9 to 10");
+    await expect(send).toHaveAttribute("title", "USB A Rec 9 to 10 records nothing now, and records S/PDIF In instead");
 
     await send.click();
     await expect(send).toHaveText("Confirm");
@@ -1562,12 +1562,12 @@ test.describe("where the DAW can record", () => {
     const slots = Array.from({ length: 32 }, (_, at) => (at === 8 ? hex(SPDIF_IN, 0) : at === 9 ? hex(SPDIF_IN, 1) : at < 16 ? hex(PREAMP, 0) : hex(MUTE, 0)));
     await expect.poll(() => captured.commands.filter((one) => one.command === "set_routing")).toEqual([{ device_id: "loopback-0", command: "set_routing", args: { bank_idx: COM_REC, bank_configs: slots } }]);
 
-    // S/PDIF in is recorded now, and the aggregate's inputs are named for it.
-    await expect(page.getByTestId("device-0-record-12-text")).toHaveText("USB A REC 9 to 10, directly");
+    // S/PDIF In is recorded now, and the aggregate's inputs are named for it.
+    await expect(page.getByTestId("device-0-record-12-text")).toHaveText("USB A Rec 9 to 10, directly");
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-in-8-name")).toHaveText("SPDIF IN 1, USB A REC 9");
-    // A preamp is called Preamp 1 in the channel names too, as it is in the list above, never PREAMP 1.
-    await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Preamp 1, USB A REC 1");
+    await expect(page.getByTestId("device-0-in-8-name")).toHaveText("S/PDIF In 1, USB A Rec 9");
+    // A preamp is called Preamp 1 in the channel names too, as it is in the list above, never Preamp 1.
+    await expect(page.getByTestId("device-0-in-0-name")).toHaveText("Preamp 1, USB A Rec 1");
     await expect(page.getByTestId("device-0-records")).not.toContainText("PREAMP");
     await expect(page.getByTestId("device-0-channels-part")).not.toContainText("PREAMP");
   });
@@ -1589,7 +1589,7 @@ test.describe("each name said once", () => {
     await fakeAggregate(page, answer({ devices: [deviceReport("Zen Quadro Synergy Core", { is_master: true })] }));
     await page.goto(`${reading.url}/#/aggregate`);
     await page.getByTestId("device-0-channels-open").click();
-    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("USB 1 PLAY 3, not routed", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("USB 1 Play 3, not routed", { timeout: 5000 });
     for (const side of ["in", "out"]) {
       for (let channel = 0; channel < 16; channel += 1) {
         const row = page.getByTestId(`device-0-${side}-${channel}`);

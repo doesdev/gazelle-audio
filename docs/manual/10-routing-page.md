@@ -6,8 +6,8 @@ The Routing page (`#/routing`) is the device's routing matrix: which source feed
 
 ## Reading it
 
-- **Sources** are grouped as the device groups them (PREAMP, USB PLAY, ADAT IN, AFX OUT, the mixes' outputs and so on), each group in its own colour.
-- **Destinations** are one row per group: the analogue outputs, the recording channels, the digital outputs, the effect chain inputs (AFX IN) and the mixer inputs. Each cell shows its source's short name, a dash when muted, or **?** before it has been read. Hovering shows the full route, for example "HP1 1 ← PREAMP 3".
+- **Sources** are grouped as the device groups them (Preamp, USB Play, ADAT In, AFX Out, the mixes' outputs and so on), each group in its own colour.
+- **Destinations** are one row per group: the analogue outputs, the recording channels, the digital outputs, the effect chain inputs (AFX In) and the mixer inputs. Each cell shows its source's short name, a dash when muted, or **?** before it has been read. Hovering shows the full route, for example "HP1 1 ← Preamp 3".
 - The mixer input rows are read-only here: channels on the [Mixer page](09-mixer-page.md) set them.
 
 ## Changing routes
@@ -23,7 +23,7 @@ Or select a cell and press Delete (or Backspace) to mute it. **Mute row** mutes 
 
 ## Dedicated cables
 
-The channels of a cable [dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock) are outlined and marked **PHASE**: on the callback master, its digital output's first channel and the USB playback channel that feeds it; on the other interface, the USB record channel that records the cable. Hovering says which cable keeps them.
+The channels of a cable [dedicated to phase and clock](16-surfaces-and-cables.md#dedicated-to-phase-and-clock) are outlined and marked **Phase**: on the callback master, its digital output's first channel and the USB playback channel that feeds it; on the other interface, the USB record channel that records the cable. Hovering says which cable keeps them.
 
 A change that would break that path is still allowed, but waits for a confirm that names the cable and says what the change does: another source (or mute) on the cable's output, the kept playback channel routed to any other destination, where the phase measurement's burst would then play too, or the kept record channel given something else to record. **Change it anyway** makes the change; **Cancel** leaves the routing as it is. The Aggregate page then says the path is broken and offers to put it back. To use those channels for something else, turn the dedication off on the Workspace page first. The [Mixer page](09-mixer-page.md#the-phase-cable) marks and guards the same path.
 

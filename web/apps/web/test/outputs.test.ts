@@ -30,13 +30,13 @@ test("each family's outputs and ids follow its panel: Quadro monitor, HP1, HP2, 
     { id: 0, name: "Monitor", dim: true, group: "MONITOR0" },
     { id: 1, name: "HP1", dim: true, group: "HEADPHONES0" },
     { id: 2, name: "HP2", dim: true, group: "HEADPHONES1" },
-    { id: 3, name: "Line out", dim: true, group: "LINE_OUT0" },
+    { id: 3, name: "Line Out", dim: true, group: "LINE_OUT0" },
   ]);
   assert.deepEqual(store.outputs("loopback-1").outputs.map((o) => [o.id, o.name, o.dim, o.group]), [
     [0, "Monitor", false, "MONITOR0"],
     [1, "HP1", false, "HEADPHONES0"],
     [2, "HP2", false, "HEADPHONES1"],
-    [3, "Line out", false, "LINE_OUT0"],
+    [3, "Line Out", false, "LINE_OUT0"],
     [4, "Reamp", false, "REAMP0"],
   ]);
   for (const deviceId of ["loopback-0", "loopback-1"]) {
@@ -102,8 +102,8 @@ test("trims: seven steps from 20 to 14 dBu, set with each model's command and re
   assert.deepEqual(TRIM_LABELS, ["20 dBu", "19 dBu", "18 dBu", "17 dBu", "16 dBu", "15 dBu", "14 dBu"]);
   const quadro = store.outputs("loopback-0");
   const studio = store.outputs("loopback-1");
-  assert.deepEqual(quadro.trims, [{ id: 0, name: "Monitor" }, { id: 1, name: "Line out" }]);
-  assert.deepEqual(studio.trims, [{ id: 0, name: "Monitor" }, { id: 1, name: "Line out" }, { id: 2, name: "ADC" }]);
+  assert.deepEqual(quadro.trims, [{ id: 0, name: "Monitor" }, { id: 1, name: "Line Out" }]);
+  assert.deepEqual(studio.trims, [{ id: 0, name: "Monitor" }, { id: 1, name: "Line Out" }, { id: 2, name: "ADC" }]);
 
   assert.deepEqual(quadro.trim(1).value, { known: false, index: 0 });
   quadro.activate();

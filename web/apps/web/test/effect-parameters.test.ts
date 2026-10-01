@@ -30,7 +30,7 @@ function setup(replies: Replies = {}, dryRun = false) {
 
 const slots = (...effects: [type: number, inst: number][]) => Array.from({ length: 8 }, (_, i) => ({ type: effects[i]?.[0] ?? 0, inst: effects[i]?.[1] ?? 0 }));
 
-/** Quadro chains: AFX IN 1 and 2 linked, each with a PowerGate then a PowerFFC; AFX IN 3 a FET-A76 and a Brainiac; AFX IN 4 a ClearQ. */
+/** Quadro chains: AFX In 1 and 2 linked, each with a PowerGate then a PowerFFC; AFX In 3 a FET-A76 and a Brainiac; AFX In 4 a ClearQ. */
 const quadroChains = (): Replies => {
   const chains: Record<number, [number, number][]> = { 0: [[39, 2], [2, 0]], 1: [[39, 3], [2, 1]], 2: [[9, 0], [85, 1]], 3: [[1, 0]] };
   return {
