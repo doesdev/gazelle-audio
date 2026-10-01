@@ -347,6 +347,35 @@ export function lossText(status: RecordingStatus | undefined): string | undefine
   return parts.length === 0 ? undefined : `Since Arm: ${parts.join("; ")}.`;
 }
 
+/** Samples in words: "1 sample", "32 samples". */
+function samplesText(samples: number): string {
+  const n = Math.abs(samples);
+  return `${n} sample${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * The alignment check in a line while armed: "Alignment checked 0.4 s ago: held.", or, with `warn`,
+ * a move away from where the interfaces were lined up or a check signal gone missing. Undefined while
+ * off, and from a server that does not check.
+ */
+export function alignmentText(status: RecordingStatus | undefined): { text: string; warn: boolean } | undefined {
+  const alignment = status?.alignment;
+  if (alignment === undefined || status === undefined || status.state === "off") return undefined;
+  if (alignment.state === "off") return { text: `Alignment is not being checked: ${alignment.reason ?? "there is no phase cable to check it over"}.`, warn: false };
+  if (alignment.state === "waiting") return { text: "Alignment: waiting for the first check over the phase cable.", warn: false };
+  if (alignment.silent_seconds !== undefined) return { text: `Alignment is not being confirmed: no check signal has arrived on the phase cable for ${secondsText(alignment.silent_seconds)}. Check the cable and its routing.`, warn: true };
+  if (alignment.offset === undefined) return { text: "Alignment: no check has found the signal yet.", warn: false };
+  const device = alignment.device ?? "The follower";
+  const slip = alignment.slip;
+  const when = slip?.take_seconds === undefined ? "while armed" : `at ${clockText(slip.take_seconds)} into this take`;
+  if (alignment.offset !== 0) {
+    return { text: `Alignment slipped by ${samplesText(alignment.offset)} ${when}: ${device} is ${alignment.offset > 0 ? "late" : "early"}. Nothing is corrected; the take's log says when.`, warn: true };
+  }
+  const ago = `checked ${secondsText(alignment.since_check_seconds ?? 0)} ago`;
+  if (slip !== undefined) return { text: `Alignment held again, ${ago}, after slipping by ${samplesText(slip.samples)} ${when}.`, warn: true };
+  return { text: `Alignment ${ago}: held.`, warn: false };
+}
+
 /**
  * Everything worth a warning line, in one sentence each: the last refusal, what the recorder says
  * went wrong, what was lost, a disk getting full, and a driver asking to be restarted. The

@@ -11,7 +11,7 @@ import type { MetronomeSettings, MetronomeStatus, RecordingSettings, RecordingSt
 import type { RemotePairing, RemoteStatus } from "./remote.ts";
 import type { UpdateRestart, UpdateStatus } from "./update.ts";
 import { GazelleError } from "./errors.ts";
-import { schemas, type Family, type FamilyTypes } from "./generated/index.ts";
+import type { Family, FamilyTypes } from "./generated/index.ts";
 import type { FamilySchema, FieldDescriptor } from "./schema.ts";
 import type { RecallAsk, RecallPlan, Snapshot, SnapshotDiff, SnapshotImport, SnapshotSummary } from "./snapshots.ts";
 import type { Workspace } from "./workspace.ts";
@@ -319,11 +319,32 @@ export interface ConnectOptions {
   reconnect?: { initialMs?: number; maxMs?: number };
 }
 
-/** Connects and resolves once the server's `hello` arrives. */
+/** Connects and resolves once the server's `hello` arrives and the schemas are here. */
 export async function connect(baseUrl: string, options: ConnectOptions = {}): Promise<Client> {
   const connection = new Connection(baseUrl, options);
+  // Fetched while the socket opens rather than after it. A start that fails is the error to report,
+  // so this one is only waited for once the start has gone through.
+  const schemas = loadSchemas();
+  void schemas.catch(() => undefined);
   await connection.start();
+  try {
+    connection.useSchemas(await schemas);
+  } catch (error) {
+    await connection.close();
+    throw error;
+  }
   return connection;
+}
+
+/**
+ * The command and report layouts each family's calls are encoded and decoded by. They are most of
+ * the client's size and nothing needs them before there is a connection, so they are a module of
+ * their own, which `connect` fetches while the socket opens: a bundler gives them a chunk of their
+ * own rather than putting them in an app's first code. The module map remembers the fetch, so
+ * asking again costs nothing.
+ */
+export async function loadSchemas(): Promise<Readonly<Record<Family, FamilySchema>>> {
+  return (await import("./generated/schemas.ts")).schemas;
 }
 
 interface Call {
@@ -367,15 +388,13 @@ function parseFrame(data: unknown): Frame | undefined {
   }
 }
 
-function familySchema(family: Family): FamilySchema {
-  return schemas[family];
-}
-
 class Connection implements Client {
   #status: Status = "closed";
   #server: ServerInfo = { version: "", backend: "", dry_run: false, notices: [], phone: false };
   #unpaired = false;
   readonly #devices = new Map<string, DeviceDescriptor>();
+  /** Set by `connect` before it hands the connection over, so every call and report has them. */
+  #schemas: Readonly<Record<Family, FamilySchema>> | undefined;
   readonly #listeners = new Map<string, Set<(value: unknown) => void>>();
   readonly #cyclic = new Map<string, Set<{ reportId: string; listener: (fields: unknown) => void }>>();
   readonly #pending = new Map<number, Pending>();
@@ -509,6 +528,10 @@ class Connection implements Client {
 
   start(): Promise<void> {
     return new Promise((resolve, reject) => this.#dial({ resolve, reject }));
+  }
+
+  useSchemas(schemas: Readonly<Record<Family, FamilySchema>>): void {
+    this.#schemas = schemas;
   }
 
   on<E extends keyof ClientEvents>(event: E, listener: (value: ClientEvents[E]) => void): () => void {
@@ -748,7 +771,7 @@ class Connection implements Client {
 
   #invoke(device: DeviceDescriptor, name: string, args: Record<string, unknown> | undefined, options: InvokeOptions = {}): Promise<InvokeResult<unknown>> {
     if (this.#status !== "open") return Promise.reject(new GazelleError("not_connected", `cannot invoke ${name}: the client is ${this.#status}`));
-    const descriptor = device.family === null ? undefined : familySchema(device.family).commands[name];
+    const descriptor = device.family === null ? undefined : this.#schemas?.[device.family].commands[name];
     return new Promise((resolve, reject) => {
       const call: Call = {
         deviceId: device.id,
@@ -841,7 +864,7 @@ class Connection implements Client {
     if (listeners === undefined || listeners.size === 0) return;
     const key = reportKey(reportId);
     const family = this.#devices.get(deviceId)?.family;
-    const layout = family === undefined || family === null ? undefined : familySchema(family).cyclic[key];
+    const layout = family === undefined || family === null ? undefined : this.#schemas?.[family].cyclic[key];
     const fields = layout === undefined ? values : decodeFields(layout, values);
     for (const entry of [...listeners]) if (entry.reportId === key) entry.listener(fields);
   }

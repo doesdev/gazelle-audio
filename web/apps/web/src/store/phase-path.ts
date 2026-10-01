@@ -27,10 +27,11 @@
 // they are, since both still work; the page offers to clear the phase setup as well, which gives the
 // two channels back to a DAW.
 
-import type { Aggregate, AggregateDevice, AggregateFix, AggregatePhaseSetting, AggregateReason, Cable, CableDedication, DeviceMixer, DigitalPort, Topology, Workspace } from "gazelle-audio-client";
+import type { Aggregate, AggregateDevice, AggregateFix, AggregatePhaseSetting, AggregateReason, Cable, CableDedication, DeviceMixer, DigitalPort, MixerChannel, RouteSource, Topology, Workspace } from "gazelle-audio-client";
 import { masterIndex, phaseFromPicks, phaseSetting, usbGroups, withPhase } from "./aggregate.ts";
 import { channelSpan, portName } from "./cables.ts";
 import { sourceLabel } from "./channels.ts";
+import { PROFILES } from "./profiles.ts";
 import type { RouteSlot } from "./routing.ts";
 import { displayName, type Store } from "./store.ts";
 
@@ -501,9 +502,9 @@ export function pathMarks(paths: readonly DedicatedPath[], deviceId: string): { 
  * cable, or nothing. It breaks one when it takes the cable's output away from its playback channel
  * (routing another source there, or muting it), sends that playback channel anywhere else (where the
  * burst would then play too), or takes the follower's record channel away from the cable. The change
- * is still allowed; the page asks first.
+ * is still allowed; the page asks first. `layout` names the device's mixes, as the Mixer page does.
  */
-export function breaks(paths: readonly DedicatedPath[], deviceId: string, destination: number, changes: readonly { channel: number; source: RouteSlot | null }[], mute: number, topology: Topology): string[] {
+export function breaks(paths: readonly DedicatedPath[], deviceId: string, destination: number, changes: readonly { channel: number; source: RouteSlot | null }[], mute: number, topology: Topology, layout?: DeviceMixer): string[] {
   const said: string[] = [];
   for (const path of paths) {
     const cable = `the dedicated ${portKind(path.cable.from.port)} cable, ${path.label}`;
@@ -513,7 +514,7 @@ export function breaks(paths: readonly DedicatedPath[], deviceId: string, destin
         said.push(`${path.out.words} would stop playing ${path.out.sourceWords}, so the phase measurement over ${cable} would hear nothing.`);
       }
       if (path.masterId === deviceId && sameSlot(slot, path.out.source) && !(destination === path.out.destination && channel === path.out.channel)) {
-        said.push(`${path.out.sourceWords} would play to ${destinationWords(topology, destination, channel)} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`);
+        said.push(`${path.out.sourceWords} would play to ${destinationWords(topology, destination, channel, layout)} as well, and the burst the driver plays into it at the start of every session with it. It is kept for the phase measurement over ${cable}.`);
       }
       if (path.followerId === deviceId && destination === path.record.destination && channel === path.record.channel && !sameSlot(slot, path.record.source)) {
         said.push(`${path.record.words} would stop recording ${path.record.sourceWords}, so the phase measurement over ${cable} would hear nothing.`);
@@ -521,6 +522,79 @@ export function breaks(paths: readonly DedicatedPath[], deviceId: string, destin
     }
   }
   return [...new Set(said)];
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Mixer's guard
+// ---------------------------------------------------------------------------------------------
+//
+// The Mixer page and the dock mark and guard a dedicated path as the Routing page does. They are in
+// the app's first chunk and this module is not, so it is fetched the first time the workspace
+// dedicates a cable (`phaseGuard` in element.ts), and until then they have nothing to mark or ask.
+// A Mixer change breaks a path the way a routing change does (`breaks`), since it is one: a channel
+// whose input is the kept playback channel routes that channel into its mixes, where the burst would
+// play too, and a mix sent to the cable's output, or to the follower's kept record channel, takes it
+// from the path. The Mixer still lets it happen, after a confirm that says why.
+
+export interface PhaseGuard {
+  /** Why a source is kept for the phase measurement, or undefined when it is not. Reading it is reactive. */
+  source(deviceId: string, source: RouteSource | undefined): string | undefined;
+  /** Why an output pair (by its left channel) is part of a phase path, or undefined. Reading it is reactive. */
+  output(deviceId: string, destination: number, channel: number): string | undefined;
+  /** What a channel on `slot` fed by `source` into `mixes` would break, a sentence each. */
+  feeding(deviceId: string, source: RouteSource | undefined, slot: number, mixes: readonly number[]): string[];
+  /** What sending a mix to an output pair would break. */
+  mixOutput(deviceId: string, mix: number, pair: { destination: number; channel: number }): string[];
+  /** What starting from a layout would break: a starting layout's id, or "saved:" and a saved one's, as the Start from menu has them. */
+  start(deviceId: string, choice: string): string[];
+  /** What routing changes in one destination group would break. */
+  routes(deviceId: string, destination: number, changes: readonly { channel: number; source: RouteSlot | null }[]): string[];
+}
+
+export function phaseGuard(store: Store): PhaseGuard {
+  // Worked out on each question, which is cheap: a workspace has a cable or two.
+  const paths = () => {
+    const context = phasePathContext(store);
+    return dedicatedPaths(store.workspace.value?.cables ?? [], { topology: context.topology, deviceName: context.deviceName });
+  };
+  const marks = (deviceId: string) => pathMarks(paths(), deviceId);
+  const layoutOf = (deviceId: string): DeviceMixer | undefined => store.workspace.peek()?.mixers?.[deviceId];
+  const routes: PhaseGuard["routes"] = (deviceId, destination, changes) => {
+    const topology = store.topology(deviceId);
+    const now = paths();
+    return topology === undefined || now.length === 0 ? [] : breaks(now, deviceId, destination, changes, store.routing(deviceId).mute, topology, layoutOf(deviceId));
+  };
+  const feeding: PhaseGuard["feeding"] = (deviceId, source, slot, mixes) =>
+    source === undefined ? [] : [...new Set(mixes.flatMap((mix) => routes(deviceId, store.mixInput(deviceId, mix), [{ channel: slot, source: { source: source.group, channel: source.channel } }])))];
+  return {
+    source: (deviceId, source) => (source === undefined ? undefined : marks(deviceId).sources.get(`${source.group}:${source.channel}`)),
+    output: (deviceId, destination, channel) => {
+      const kept = marks(deviceId).destinations;
+      return kept.get(`${destination}:${channel}`) ?? kept.get(`${destination}:${channel + 1}`);
+    },
+    feeding,
+    mixOutput: (deviceId, mix, pair) => {
+      const topology = store.topology(deviceId);
+      const group = topology?.outputs[pair.destination];
+      const id = topology?.mixers.outputGroups[mix];
+      const source = topology === undefined ? -1 : topology.inputs.findIndex((one) => one.id === id);
+      if (group === undefined || source < 0) return [];
+      const changes = [{ channel: pair.channel, source: { source, channel: 0 } }];
+      if (pair.channel + 1 < group.channels) changes.push({ channel: pair.channel + 1, source: { source, channel: 1 } });
+      return routes(deviceId, pair.destination, changes);
+    },
+    start: (deviceId, choice) => {
+      const channels = store.channels(deviceId);
+      const inputs = store.topology(deviceId)?.inputs ?? [];
+      const saved = choice.startsWith("saved:") ? channels.savedLayouts().find((one) => one.id === choice.slice("saved:".length)) : undefined;
+      // A starting layout's channels go on the first free slots, as `applyProfile` puts them.
+      const profile = (PROFILES as Record<string, (typeof PROFILES)["quadro"]>)[store.topology(deviceId)?.family ?? ""]?.find((one) => one.id === choice);
+      const laid: readonly Pick<MixerChannel, "slot" | "source" | "main_mix" | "sends">[] =
+        saved?.mixer.channels ?? (profile?.channels ?? []).map((one, at) => ({ slot: channels.firstSlot + at, source: { group: inputs.findIndex((group) => group.type === one.input), channel: one.channel }, main_mix: one.main_mix, sends: [...one.sends] }));
+      return [...new Set(laid.flatMap((one) => (one.main_mix === undefined ? [] : feeding(deviceId, one.source, one.slot, [one.main_mix, ...one.sends]))))];
+    },
+    routes,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

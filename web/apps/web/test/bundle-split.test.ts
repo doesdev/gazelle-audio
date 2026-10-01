@@ -1,7 +1,8 @@
 // The build is more than one file, and neither the effect parameter catalogue nor a page only one
 // route shows is in what the app loads. The catalogue is about 116 kB of generated tables that only
 // the Effects page needs; the pages are the Effects, Workspace, Inputs, Outputs, Routing,
-// Devices and surface pages, each fetched when its route opens (elements/lazy.ts). This builds the
+// Devices and surface pages, each fetched when its route opens (elements/lazy.ts). The client's
+// command and report layouts are a chunk of their own too, fetched as it connects. This builds the
 // app into a temporary directory and looks at what came out: a static import of any of them from
 // somewhere the app loads eagerly would put it back in the app's own chunks and fail here.
 
@@ -103,6 +104,27 @@ test("the explanations travel in a chunk of their own, fetched when the explain 
   assert.deepEqual(loaded, [], `the explanations are loaded with the app, through ${loaded.join(", ")}`);
   // The mode's own plumbing is in the app, since it has to be there to be turned on.
   assert.equal(onStartup(built).some((chunk) => holds(chunk, "elements/explain.ts")), true, "the mode itself comes with the app");
+});
+
+test("the client's schemas travel in a chunk of their own, fetched as it connects", async () => {
+  const built = await chunks();
+  // The command and report layouts are most of the client: needed once there is a connection, not
+  // to put the shell on screen, so `connect` fetches them while the socket opens.
+  const layouts = ["generated/schemas.ts", "generated/quadro.ts", "generated/studio.ts"];
+  for (const module of layouts) assert.equal(built.filter((chunk) => holds(chunk, module)).length, 1, `${module} is in exactly one chunk`);
+  const loaded = onStartup(built).filter((chunk) => layouts.some((module) => holds(chunk, module))).map((c) => c.fileName);
+  assert.deepEqual(loaded, [], `the schemas are loaded with the app, through ${loaded.join(", ")}`);
+  // The topologies are not: the store reads them before anything has connected.
+  assert.equal(onStartup(built).some((chunk) => holds(chunk, "generated/quadro-topology.ts")), true, "the topologies come with the app");
+});
+
+test("the Aggregate page's naming and views come with the pages that use them", async () => {
+  const built = await chunks();
+  const startup = onStartup(built);
+  const loaded = startup.filter((chunk) => holds(chunk, "store/aggregate.ts")).map((c) => c.fileName);
+  assert.deepEqual(loaded, [], `store/aggregate.ts is loaded with the app, through ${loaded.join(", ")}`);
+  // The model that polls the server is the store's, from the start.
+  assert.equal(startup.some((chunk) => holds(chunk, "store/aggregate-model.ts")), true, "the model comes with the app");
 });
 
 test("the entry chunk has room for the next page, not a few kB", async () => {

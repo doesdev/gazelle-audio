@@ -54,6 +54,28 @@ export interface RecordingDropouts {
   starved: number;
 }
 
+/**
+ * Whether the interfaces are still lined up while armed, by a check sent down the phase cable once a
+ * second. `off`: not checked, and `reason` says why; `waiting`: no check has come to anything yet.
+ * Offsets are in samples from where the follower was lined up; positive is late.
+ */
+export interface RecordingAlignment {
+  state: "checking" | "waiting" | "off";
+  /** The interface whose cable carries the check. */
+  device?: string;
+  reason?: string;
+  /** Checks since Arm. */
+  checks: number;
+  /** Since a check last found the signal. */
+  since_check_seconds?: number;
+  /** Where that check put the follower. */
+  offset?: number;
+  /** While the latest checks have found no signal: for how long. */
+  silent_seconds?: number;
+  /** The latest move away from where it was lined up, since Arm; `take_seconds` when it was during the take being recorded. */
+  slip?: { samples: number; take_seconds?: number };
+}
+
 /** Everything the Recording page and the Remote page's transport show. */
 export interface RecordingStatus {
   state: RecordingState;
@@ -74,6 +96,8 @@ export interface RecordingStatus {
   disk_low: boolean;
   /** A driver asked to be reset while armed; the recorder does not do that under a take. */
   reset_asked: boolean;
+  /** The alignment check while armed; older servers omit it. */
+  alignment?: RecordingAlignment;
   problem?: string;
   /** The preset last armed with, which is offered first. */
   last_preset?: string | null;
@@ -202,6 +226,8 @@ export interface RecordingTake {
   /** Why Gazelle ended it, when a person did not. */
   stopped_by?: string;
   problem?: string;
+  /** A check over the phase cable found the interfaces out of line during it; its log says when. */
+  alignment_slipped?: boolean;
   /** The take's Cubase track archive, when this computer has a seed and one was made. */
   cubase?: string;
 }

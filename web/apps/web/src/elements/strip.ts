@@ -8,7 +8,8 @@
 // the fader, from the field that meters that kind of input or, for an input the interface does not
 // meter by type, from its own mixer channel meters (the store's `stripMeter`).
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
-// name and the doubled badge, without pan, send, link or the peak readout.
+// name and the doubled and PHASE badges, without pan, send, link or the peak readout. The PHASE
+// badge marks a strip whose input a cable dedicated to the phase measurement keeps.
 // A channel strip's name bar selects its channel for the soft link (`selectable`), and its fader,
 // pan, mute and solo move the soft-linked channels with it, on the Mixer page and in the dock alike.
 // Attributes are read when the strip renders: change them by replacing the strip.
@@ -17,7 +18,7 @@ import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 import { faderPosition, formatLevel, formatPan, panAtPosition, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl, levelReset } from "./controls.ts";
-import { GaElement, sheet, useStore } from "./element.ts";
+import { GaElement, phaseGuard, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
 
 /** Where a double-click puts a fader or a send: -20 dB, a safe level (the user, 2026-09-18). Ctrl+click is unity. */
@@ -154,6 +155,8 @@ export class GaStrip extends GaElement {
       :host([compact]) .name { margin: 0 -2px; padding: 2px 1px; font-size: 10px; }
       /* The doubled badge stays on a dock strip: a mix summing one input twice matters wherever it is ridden. */
       :host([compact]) .doubled { padding: 0 3px; font-size: 9px; }
+      /* An input kept for the phase measurement: the Routing page's PHASE badge, in its colour. */
+      .doubled.phase { background: var(--ga-state-solo); font-size: 8px; font-weight: 700; }
     `),
   ];
 
@@ -282,6 +285,15 @@ export class GaStrip extends GaElement {
       const doubled = store.doubledFeed(deviceId, Number(this.getAttribute("mixer") ?? "0"), id);
       const badge = h("div", { class: "doubled", "data-testid": `doubled-${testId}`, hidden: "", "data-explain": "strip.doubled" }, "\u00d72");
       top.unshift(badge);
+      // An input a dedicated cable keeps for the phase measurement, here as on the Routing page.
+      const kept = h("div", { class: "doubled phase", "data-testid": `phase-${testId}`, hidden: "", "data-explain": "strip.phase" }, "PHASE");
+      top.unshift(kept);
+      this.watch(() => {
+        const why = phaseGuard()?.source(deviceId, source);
+        kept.hidden = why === undefined;
+        kept.title = why ?? "";
+        kept.setAttribute("aria-label", why ?? "");
+      });
       this.watch(() => {
         const message = doubled.value;
         badge.hidden = message === undefined;

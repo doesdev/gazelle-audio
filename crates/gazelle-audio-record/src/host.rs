@@ -22,14 +22,20 @@
 //!   every interface on every block before anything is handed out, so nothing else is ever played.
 //!   Outputs that cannot be placed are left out and said so ([`Opened::outputs_problem`]); they never
 //!   stop the recorder arming.
+//! - **the phase cable, when the setup has one** ([`Opened::phase_path`]): while the recorder is armed
+//!   the aggregate keeps a check running over it ([`crate::alignment`]), and the callback has nothing
+//!   to do for that beyond what the aggregate's own audio path does.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gazelle_aggregate::aggregate::{Aggregate, BufferPair, Wanted};
-use gazelle_aggregate::config::Config;
+use gazelle_aggregate::config::{Alignment, Config};
+use gazelle_aggregate::phase::Watch;
+use gazelle_aggregate::plan::Plan;
 use gazelle_aggregate::status::{Glitches, Noticing, Reporter};
+use gazelle_aggregate::stream::Stream;
 use gazelle_aggregate::sub::Host;
 use gazelle_audio_stream_abi::raw::{selector, CallbacksRaw, Time, ENGINE_VERSION_2};
 use gazelle_calibrate::{Layout, Pick};
@@ -97,6 +103,41 @@ pub struct Opened {
     pub outputs: Vec<Channel>,
     /// Why some picked outputs were left out, when they were.
     pub outputs_problem: Option<String>,
+    /// The cable dedicated to the phase measurement, which the alignment is checked over while the
+    /// recorder is armed, or why there is nothing to check it over.
+    pub phase_path: Result<PhasePath, String>,
+}
+
+/// The cable a follower's phase is measured over, as the setup has it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhasePath {
+    /// The interface whose input the cable arrives on, by its place in the setup.
+    pub device: usize,
+    /// Its name in the aggregate.
+    pub name: String,
+    /// Where the cable leaves among the master's opened outputs, and where it arrives among this
+    /// interface's opened inputs.
+    pub master_slot: usize,
+    pub input_slot: usize,
+    /// The phase measured when its trim was measured, if one has been.
+    pub reference: Option<i32>,
+}
+
+/// No cable to check the alignment over.
+pub const NO_PHASE_PATH: &str = "no phase path is set up, so there is no cable to send a check down. Set one up on the Aggregate page, under Phase path";
+/// The aggregate does not line the interfaces up at all.
+pub const NOT_ALIGNED: &str = "the aggregate is set to the lowest latency, which does not line the interfaces up, so there is no alignment to check";
+
+impl PhasePath {
+    /// The first follower the setup gives a phase cable, or why the alignment cannot be checked.
+    pub fn of(plan: &Plan) -> Result<PhasePath, String> {
+        let (device, found) = plan.devices.iter().enumerate().find_map(|(at, device)| device.phase.map(|phase| (at, (device, phase)))).ok_or_else(|| NO_PHASE_PATH.to_string())?;
+        if plan.alignment != Alignment::Aligned {
+            return Err(NOT_ALIGNED.into());
+        }
+        let (plan_device, phase) = found;
+        Ok(PhasePath { device, name: plan_device.name.clone(), master_slot: phase.master_slot, input_slot: phase.input_slot, reference: phase.reference })
+    }
 }
 
 /// **What the recorder hangs on the callback while armed**: which of the session's inputs to copy,
@@ -105,11 +146,24 @@ pub struct Tap {
     /// For each recorded channel, its place in [`Shared`]'s inputs.
     map: Vec<usize>,
     capture: Arc<Capture>,
+    /// The session position of the ring's position zero, written by the callback on every block:
+    /// what turns a check's place in the session into its place in a take. [`UNSET`] until the
+    /// first block.
+    origin: Arc<AtomicU64>,
 }
+
+/// An origin no block has written yet.
+pub const UNSET: u64 = u64::MAX;
 
 impl Tap {
     pub fn capture(&self) -> &Arc<Capture> {
         &self.capture
+    }
+
+    /// Where the ring's position zero is in the session, shared with whatever reads it off the
+    /// audio thread.
+    pub fn origin(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.origin)
     }
 }
 
@@ -147,7 +201,7 @@ impl Armed {
         let shape = Shape { rate: opened.rate, channels: channels.len(), block: opened.block };
         let sizing = sizing::size(memory.available(), request.percent, request.cap_seconds, shape)?;
         let capture = Arc::new(Capture::allocate(channels.len(), opened.block, sizing.capacity_frames, sizing.preroll_frames)?);
-        Ok(Armed { tap: Arc::new(Tap { map, capture }), channels, sizing })
+        Ok(Armed { tap: Arc::new(Tap { map, capture, origin: Arc::new(AtomicU64::new(UNSET)) }), channels, sizing })
     }
 }
 
@@ -162,6 +216,9 @@ pub struct Shared {
     /// The callback is looking at the tap.
     in_tap: AtomicBool,
     pub generator: Generator,
+    /// The aggregate's audio path, for hanging the alignment check's watch on it. Nothing here
+    /// calls into it from the callback.
+    stream: Option<Arc<Stream>>,
 }
 
 // The buffer pointers are the aggregate's, alive for as long as the session is open, and written
@@ -200,6 +257,19 @@ impl Shared {
         !self.tap.load(Ordering::Acquire).is_null()
     }
 
+    /// Start the alignment check over the phase cable: the aggregate sends its burst down it from
+    /// its next block on, and copies what arrives into the watch.
+    pub fn watch(&self, watch: Arc<Watch>) -> Result<(), String> {
+        self.stream.as_ref().ok_or("the aggregate has no audio path open")?.watch(watch)
+    }
+
+    /// Stop it. Answers once the aggregate's callback cannot be using the watch any more.
+    pub fn unwatch(&self) {
+        if let Some(stream) = &self.stream {
+            stream.unwatch();
+        }
+    }
+
     /// One block. Nothing here allocates, locks or logs.
     fn block_happened(&self, half: usize) {
         // Safety: this is the callback, the generator's one caller, and the output buffers are the
@@ -210,6 +280,8 @@ impl Shared {
         if !tap.is_null() {
             // Safety: `detach` waits for `in_tap` to fall before it lets the tap go.
             let tap = unsafe { &*tap };
+            // The ring counts from Arm and the session from its start, and the difference is fixed.
+            tap.origin.store(events.block_start.wrapping_sub(tap.capture.written()), Ordering::Release);
             if let Some(counted) = events.counted.filter(|counted| counted.then == Then::Record) {
                 // The ring counts from Arm and the generator from the session's start: the same
                 // block is `written` in one and `block_start` in the other.
@@ -318,6 +390,7 @@ impl Session {
         aggregate.init(request.config.clone(), request.source.clone())?;
         let plan = aggregate.plan().cloned().ok_or("the aggregate opened without a plan, which should not be possible")?;
         let layout = Layout::of(&plan, aggregate.descriptions());
+        let phase_path = PhasePath::of(&plan);
         let named = |names: &[String], index: usize, fallback: &str, device: usize, channel: i32| Channel {
             name: names.get(index).cloned().unwrap_or_else(|| format!("{fallback} {}", index + 1)),
             device: layout.interfaces.get(device).map_or_else(String::new, |i| i.name.clone()),
@@ -362,6 +435,7 @@ impl Session {
             tap: AtomicPtr::new(std::ptr::null_mut()),
             in_tap: AtomicBool::new(false),
             generator,
+            stream: aggregate.stream().cloned(),
         });
         SHARED.store(Arc::as_ptr(&shared) as *mut Shared, Ordering::Release);
         if let Err(why) = aggregate.start() {
@@ -379,7 +453,7 @@ impl Session {
             noticing: Noticing::new(),
             dropouts,
             latency,
-            opened: Opened { rate, block, master, layout, inputs, outputs, outputs_problem },
+            opened: Opened { rate, block, master, layout, inputs, outputs, outputs_problem, phase_path },
             closed: false,
             _turn: turn,
         })
@@ -387,6 +461,13 @@ impl Session {
 
     pub fn shared(&self) -> Arc<Shared> {
         Arc::clone(&self.shared)
+    }
+
+    /// What the start of the session measured on the phase cable, for the tests.
+    #[cfg(test)]
+    pub(crate) fn phase_measured(&self) -> Option<i32> {
+        let path = self.opened.phase_path.as_ref().ok()?;
+        Some(self.aggregate.stream()?.devices.get(path.device)?.phase_measured.load(Ordering::Acquire))
     }
 
     /// The aggregate's own counters of what each interface lost, kept up to date by
@@ -424,6 +505,7 @@ impl Session {
         }
         self.closed = true;
         self.housekeeping();
+        self.shared.unwatch();
         self.aggregate.stop();
         SHARED.store(std::ptr::null_mut(), Ordering::Release);
         let tap = self.shared.tap.load(Ordering::SeqCst);

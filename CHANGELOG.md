@@ -23,6 +23,14 @@ version that has not been published yet.
   the trim when the runs agree within a sample, measures again when they do not, and puts the rate
   and buffer size back at the end. It shows each setup as it goes, can be stopped at any time
   without losing what was saved, and carries on if the page is closed.
+- **Gazelle checks that the interfaces stay lined up while it records.** With a phase path set up
+  on the Aggregate page, Gazelle sends the phase measurement's short signal down that cable once a
+  second while armed and checks it arrives on the same sample. The Recording page says when it was
+  last checked and that it held, and warns if one interface slips, by how many samples and when, or
+  if the signal stops arriving. Each take's log says whether alignment held throughout ("Alignment
+  held: 48 checks, all at 0 samples"), or when and by how much it slipped and whether it came back,
+  and the take is marked in the list. Nothing is corrected: the files keep what was recorded. With
+  no phase path, the page and the log say alignment is not being checked, and why.
 - **The Downbeat marker lands where you play.** After a count-in, the Downbeat in a take is now
   placed where a performance in time with the click you hear actually lands in the files, one
   round trip of the interfaces' latency after the click was sent, instead of on the click itself.
@@ -33,6 +41,11 @@ version that has not been published yet.
   only in a session that happens to start where the measured one did; in any other its recordings
   can land 32 samples or more out. Ready to use now says so, and points at measuring the
   interfaces again, or at setting up the phase first where there is none.
+- **The Mixer guards the phase and clock cable.** While a cable is dedicated to phase and clock,
+  the Mixer page and the mixer dock mark a channel on its kept playback channel PHASE, and the
+  Input and + Output menus mark its channels "(phase)", as the Routing page does. Choosing one for
+  a channel or a mix, sending a mix to the cable's output, applying a layout, tidying a mix or
+  dropping a source on the dock that would break the path now waits for Confirm and says why.
 
 ### Fixed
 

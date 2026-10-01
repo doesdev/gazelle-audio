@@ -70,6 +70,7 @@ While it is dedicated:
 
 - the cable's row says what it keeps: **Dedicated to phase and clock: Quadro USB 1 PLAY 16 → S/PDIF out L → Studio+ USB REC 21**;
 - the [Routing page](10-routing-page.md#dedicated-cables) marks those channels **PHASE**, and asks before a change that would break the path;
+- the [Mixer page](09-mixer-page.md#the-phase-cable) and the mixer dock mark a channel on the kept playback channel **PHASE** and the cable's output **(phase)**, and ask before a channel, a mix, a layout or a drop would break the path;
 - the Aggregate page's **Ready to use** says when the path is broken, and **Put the phase path back** restores it.
 
 A dedication means something only while its cable leaves the callback master and the other interface's phase setup names its two channels. Choose another callback master, take an interface out of the aggregate, or change the phase setup, and the row and the Aggregate page say the dedication means nothing now: its routing stays as it was and nothing guards it.

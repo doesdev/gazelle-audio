@@ -14,7 +14,7 @@
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
-import { ARM_EXPLAINED_KEY, autoArmText, clockText, meterFill, PRESET_KEY, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, stateLabel, warnings } from "../store/recording.ts";
+import { alignmentText, ARM_EXPLAINED_KEY, autoArmText, clockText, meterFill, PRESET_KEY, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, stateLabel, warnings } from "../store/recording.ts";
 import { bindConfirm } from "./controls.ts";
 import { useStore } from "./element.ts";
 
@@ -65,6 +65,7 @@ export const TRANSPORT_STYLES = `
   .transport .note { margin: 0; font-size: 12px; color: var(--ga-text-muted); }
   .transport .warn { margin: 0; font-size: 12px; color: var(--ga-notice-warning); }
   .transport .warn[hidden], .transport .note[hidden], .transport .auto[hidden] { display: none; }
+  .transport .alignment[data-warn] { color: var(--ga-notice-warning); font-weight: 700; }
   .transport .auto { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 12px; color: var(--ga-text-secondary); }
   .transport .auto button { min-height: 24px; padding: 0 8px; font-size: 12px; }
   .transport .auto button[hidden] { display: none; }
@@ -115,6 +116,7 @@ export function recordingTransport(host: TransportHost, compact: boolean): HTMLE
   const disarm = h("button", { type: "button", class: "disarm", "data-testid": `${where}-disarm`, "data-explain": "recording.disarm" }, "Disarm");
   const bar = h("div", { class: "bar meter", role: "img", "aria-label": "Pre-roll held", "data-testid": `${where}-preroll-bar`, "data-explain": "recording.preroll" }, h("div", { class: "fill" }));
   const prerollLine = h("span", { "data-testid": `${where}-preroll`, "data-explain": "recording.preroll" });
+  const alignmentLine = h("p", { class: "note alignment", role: "status", "data-testid": `${where}-alignment`, "data-explain": "recording.alignment", hidden: true });
   const warn = h("p", { class: "warn", role: "status", "data-testid": `${where}-warning`, hidden: true });
   const hold = h("p", { class: "note", "data-testid": `${where}-driver-hold` }, compact ? DRIVER_HOLD_SHORT : DRIVER_HOLD);
   // Auto-arm, when it is on: what it is doing, and a way to turn it off on the computer.
@@ -158,6 +160,7 @@ export function recordingTransport(host: TransportHost, compact: boolean): HTMLE
     h("div", { class: "buttons" }, arm, record, stop, disarm),
     explain,
     h("div", { class: "preroll" }, bar, prerollLine),
+    alignmentLine,
     autoLine,
     warn,
     hold,
@@ -199,6 +202,10 @@ export function recordingTransport(host: TransportHost, compact: boolean): HTMLE
     disarm.disabled = !connected || busy === "disarm" || state === "disarming";
     bar.style.setProperty("--fill", String(prerollFill(status)));
     prerollLine.textContent = off ? "Arm to start holding a pre-roll." : prerollText(status);
+    const alignment = alignmentText(status);
+    alignmentLine.hidden = alignment === undefined;
+    alignmentLine.textContent = alignment?.text ?? "";
+    alignmentLine.toggleAttribute("data-warn", alignment?.warn === true);
     const said = warnings(model.problem.value, status);
     warn.hidden = said.length === 0;
     warn.textContent = said.join(" ");

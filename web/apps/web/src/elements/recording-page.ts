@@ -19,6 +19,7 @@
 
 import { h } from "../core/dom.ts";
 import { signal, untracked } from "../core/signal.ts";
+import { aggregateInputs } from "../store/aggregate.ts";
 import { fileOf, folderOf, newPreset, PATTERN_DEFAULT, PERCENT_DEFAULT, PERCENTS, PRESET_KEY, presetToOffer, recordingModel, takeLine, type RecordingPreset } from "../store/recording.ts";
 import type { Store } from "../store/store.ts";
 import { bindConfirm } from "./controls.ts";
@@ -334,7 +335,7 @@ export class GaRecording extends GaElement {
     );
 
     // The channels, by interface, as the Aggregate page names them.
-    const { devices, inputs } = untracked(() => store.aggregateInputs(true));
+    const { devices, inputs } = untracked(() => aggregateInputs(store, true));
     const chosen = new Set((preset.channels ?? []).map((c) => `${c.device}:${c.channel}`));
     const picker = h("div", { class: "picker", "data-testid": "recording-preset-channels" });
     if (inputs.length === 0) {
@@ -387,6 +388,7 @@ export class GaRecording extends GaElement {
             h("span", { class: "where", "data-explain": "recording.take-folder" }, take.folder === "" ? folderOf(take.files[0] ?? "") : take.folder),
             h("ul", { class: "files" }, ...take.files.map((file) => h("li", {}, fileOf(file))), h("li", {}, fileOf(take.log)), take.cubase === undefined ? false : h("li", { "data-testid": "recording-take-cubase" }, fileOf(take.cubase))),
             take.overruns + take.dropouts > 0 ? h("span", { class: "problem" }, `${take.overruns + take.dropouts} blocks were lost in this take; its log says where.`) : false,
+            take.alignment_slipped === true ? h("span", { class: "problem", "data-testid": "recording-take-alignment" }, "The interfaces slipped out of line during this take; its log says when and by how much.") : false,
             take.stopped_by === undefined ? false : h("span", { class: "problem" }, `Stopped by Gazelle: ${take.stopped_by}.`),
             take.problem === undefined ? false : h("span", { class: "problem" }, take.problem),
           ),
