@@ -87,8 +87,54 @@ export class GaChannelGroup extends GaElement {
   }
 }
 
+/**
+ * <ga-cable-band label="From Live room (ADAT)">: a run of channels whose inputs one cable brings from
+ * another interface, in no group of the user's, which the mixer page places inside it. Its band sits
+ * where a group's does and only names the cable: it is display only, nothing in the workspace, so
+ * it neither collapses nor renames, and a channel put in a group leaves it.
+ */
+export class GaCableBand extends GaElement {
+  static override styles = [
+    sheet(`
+      :host { position: relative; display: flex; flex-direction: column; min-width: 0; }
+      .band {
+        position: absolute;
+        top: -${GROUP_BAND_PX + 2}px;
+        left: 0;
+        right: 0;
+        height: ${GROUP_BAND_PX}px;
+        padding: 0 6px;
+        border: 1px dashed var(--ga-border-strong);
+        border-bottom: 0;
+        border-radius: 3px 3px 0 0;
+        color: var(--ga-text-secondary);
+        font: 600 11px/${GROUP_BAND_PX - 1}px "Josefin Sans Variable", system-ui, sans-serif;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .members { display: flex; flex: 1; gap: 2px; min-height: 0; }
+    `),
+  ];
+
+  static observedAttributes = ["label"];
+
+  readonly #band = h("div", { class: "band", "data-testid": "cable-band", "data-explain": "group.cable" });
+
+  attributeChangedCallback(): void {
+    const label = this.getAttribute("label") ?? "";
+    this.#band.textContent = label;
+    this.#band.title = `${label}: these channels' inputs come over the cable, named after what that interface sends down it`;
+  }
+
+  protected override render(): void {
+    this.root.replaceChildren(this.#band, h("div", { class: "members" }, h("slot")));
+  }
+}
+
 declare global {
   interface HTMLElementTagNameMap {
     "ga-channel-group": GaChannelGroup;
+    "ga-cable-band": GaCableBand;
   }
 }

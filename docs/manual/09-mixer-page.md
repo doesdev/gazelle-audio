@@ -30,7 +30,21 @@ A channel is a named strip for one input. Its head, above the fader, holds:
 | **Add to** / **In** | Sends the channel to the selected mix too, or takes it out. If that mix already has this channel's input on another channel, the button reads **Confirm** first and says what would be summed twice; a second click does it anyway |
 | Preamp controls | For a preamp input: its type, gain, 48V (two clicks, the second on **Confirm**) and Ø, the same as the [Inputs page](07-inputs-page.md) |
 
-A channel's colour comes from its group if the group has one, then its own, then its input's colour on the Routing page.
+A channel's colour comes from its group if the group has one, then its own, then, for an input a [digital cable](#channels-from-the-other-interface) brings, the sending interface's channel colour, then its input's colour on the Routing page.
+
+### Channels from the other interface
+
+When a [digital cable](16-surfaces-and-cables.md#digital-cables) brings another interface's ADAT or S/PDIF output into this one, a channel on the cable's inputs is named after what the other interface sends down it ("named through" the cable):
+
+- the other interface's channel on that source, by its name and colour, for example **Kick**;
+- else a mix by its name and side, for example **Cue L**;
+- else the source itself, for example **USB Play 3**.
+
+The name's tooltip, on the strip and on the name field, says where it comes from: "from Live room, ADAT In 1". A name you type for the channel always wins, and the through name moves into its tooltip ("Kick, from Live room, ADAT In 1"). Until the other interface's routing has been read, or where it sends nothing, the channel keeps its plain input name, such as **ADAT In 3**. Names follow the other interface's routing and channel names as they change. The [mixer dock](05-the-app.md#the-mixer-dock) shows the same names.
+
+Channels next to each other on one cable's inputs sit under a band, such as **From Live room (ADAT)**, where a group's band would be. The band only shows where they come from: it is not a group, is not saved, and never moves a channel. Channels on the cable that are not side by side each get a band of their own run, so your order stays as you set it. Put a channel in a group and the group's band shows instead.
+
+The **Input** menu says what each such input carries: **ADAT In 1: Kick (Live room)**. A cable dedicated to [phase and clock](#the-phase-cable) is not named through: the Mixer guards it instead.
 
 Below the head is the **strip**:
 
