@@ -220,7 +220,26 @@ export interface AggregateDevice {
    * the callback master itself.
    */
   phase?: AggregatePhaseSetting;
+  /**
+   * Input trims measured at one rate and one buffer size each, each with the phase reference
+   * measured beside it. A session uses the one for the rate and buffer size it runs at, and only
+   * where there is none falls back to `input_trim` and `phase.reference`: a trim whose setup was
+   * never written down, which every trim from before trims were kept per setup is.
+   */
+  trims?: AggregateSetupTrim[];
   [field: string]: unknown;
+}
+
+/** One input trim, measured at one rate and one buffer size. A trim is only right at the setup it was measured at. */
+export interface AggregateSetupTrim {
+  /** The rate it was measured at, in Hz. */
+  rate: number;
+  /** The buffer size it was measured at, in samples. */
+  buffer_size: number;
+  /** The trim, with the same meaning and sign as `input_trim`. Zero is a trim: this setup was measured and needs nothing. */
+  input_trim: number;
+  /** The phase measured beside it. Absent with no phase setup, or when nothing was heard on the cable. */
+  reference?: number;
 }
 
 /**

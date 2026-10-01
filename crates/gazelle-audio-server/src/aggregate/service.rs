@@ -22,12 +22,26 @@ use crate::aggregate::usb::UsbTopology;
 use crate::aggregate::{AggregateAnswer, ClockReading, DeviceReport, DriverSummary, MatchedBy, Registration, UsbChannels, STATUS_REPORT};
 use crate::device::descriptor::{DeviceDescriptor, DeviceId};
 use crate::device::manager::DeviceManager;
-use crate::driver::{now_ms, DriverAnswer, DriverService, Reading};
+use crate::driver::{now_ms, DriverAnswer, DriverChange, DriverService, DriverWriteReport, Reading, WriteRefusal};
 use crate::workspace::model::{Aggregate, AggregateDevice, Workspace};
 use crate::workspace::topology;
 
 /// How many entries of the driver's event log an answer carries.
 pub const EVENTS: usize = 50;
+
+/// What putting one device on a buffer size came to.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DeviceOutcome {
+    /// Gazelle's name for it, as the page names it.
+    pub device: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<DriverWriteReport>,
+    /// Why nothing was sent to this device. Its codes are the driver route's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<WriteRefusal>,
+}
 
 /// Everything the aggregate routes need, each part behind its own trait.
 pub struct AggregateService {
@@ -97,6 +111,7 @@ impl AggregateService {
         let configured = config.as_ref().is_some_and(|config| !config.devices.is_empty());
         let reasons: Vec<Reason> = readiness::reasons(configured, registration.registered, registration.dll_present, &devices, workspace);
         let rate_in_force = config.as_ref().and_then(rate_in_force);
+        let setup_in_force = config.as_ref().and_then(|config| readiness::setup_of(config, &devices));
         let (events, events_error) = match self.link.events(EVENTS) {
             Ok(events) => (events, None),
             Err(why) => (Vec::new(), Some(why)),
@@ -110,6 +125,7 @@ impl AggregateService {
             drivers_error,
             registration,
             rate_in_force,
+            setup_in_force,
             ready: readiness::ready(&reasons),
             reasons,
             devices,
@@ -117,6 +133,45 @@ impl AggregateService {
             events,
             events_error,
         }
+    }
+
+    /// **Put every configured device's driver on one buffer size**, through the same write path and
+    /// the same refusals as the per device driver route. Which interface each entry is comes from the
+    /// one rule the answer uses ([`match_device`]), so a device the page could read is never one this
+    /// says it cannot find. Each device is named as the page names it: Gazelle's name for the device
+    /// it is now. Blocking: it calls into each driver.
+    pub fn match_buffers(&self, config: &Aggregate, workspace: &Workspace, buffer_size: u32, force: bool, dry_run: bool) -> Vec<DeviceOutcome> {
+        let settled = self.settled(workspace);
+        let names = settled.aggregate.as_ref().map(|config| interface_names(config, &settled)).unwrap_or_default();
+        let change = DriverChange { buffer_size: Some(buffer_size), safe_mode: None, force };
+        let entries = self.registry.entries().unwrap_or_default();
+        let attached = self.devices.descriptors();
+        config
+            .devices
+            .iter()
+            .zip(names)
+            .map(|(device, name)| {
+                let found = match_device(device, &name, &entries, &attached);
+                let unavailable = |message: String, id: Option<String>| DeviceOutcome {
+                    device: name.clone(),
+                    device_id: id,
+                    result: None,
+                    error: Some(WriteRefusal { code: crate::driver::RefusalCode::Unavailable, message }),
+                };
+                let Some(descriptor) = found.descriptor else {
+                    let why = found.note.unwrap_or_else(|| format!("{name} could not be matched to a connected interface, so its driver cannot be found."));
+                    return unavailable(why, device.device_id.as_ref().map(|id| id.0.clone()));
+                };
+                let id = descriptor.id;
+                let Some(serial) = serial_of(&id) else {
+                    return unavailable(format!("{name} reports no serial, which is how its driver is found."), Some(id.0.clone()));
+                };
+                match self.driver.write(id.as_str(), serial, &change, dry_run) {
+                    Ok(report) => DeviceOutcome { device: name, device_id: Some(id.0), result: Some(report), error: None },
+                    Err(refusal) => DeviceOutcome { device: name, device_id: Some(id.0), result: None, error: Some(refusal) },
+                }
+            })
+            .collect()
     }
 
     /// The live event log on its own, for a page that polls it.

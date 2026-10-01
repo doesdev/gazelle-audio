@@ -20,6 +20,8 @@ import type {
   AggregateMatchBuffers,
   AggregateRegistrationRun,
   AggregateStatusReading,
+  AggregateSuite,
+  AggregateSuiteRequest,
   Timers,
 } from "gazelle-audio-client";
 
@@ -132,7 +134,16 @@ export interface AggregateContext {
   calibration(): Promise<AggregateCalibration>;
   calibrate(request: AggregateCalibrateRequest): Promise<{ started: boolean }>;
   stopCalibrate(): Promise<{ stopped: boolean }>;
+  /** The alignment suite's three calls, which the Aggregate page's own suite model makes. */
+  suite?: SuiteCalls;
   timers: Timers;
+}
+
+/** The alignment suite, as the server serves it. */
+export interface SuiteCalls {
+  state(): Promise<AggregateSuite>;
+  start(request: AggregateSuiteRequest): Promise<{ started: boolean }>;
+  stop(): Promise<{ stopped: boolean }>;
 }
 
 /** What the page is doing, so a button can say so and not be pressed twice. */
@@ -241,6 +252,16 @@ export class AggregateModel {
         this.#calibrateTimer = undefined;
       }
     };
+  }
+
+  /** The alignment suite's calls, for the page's own model of it; none in a context without them. */
+  get suiteCalls(): SuiteCalls | undefined {
+    return this.#context.suite;
+  }
+
+  /** The timers the page's own models run on, the same ones this model polls with. */
+  get timers(): Timers {
+    return this.#context.timers;
   }
 
   /** Reads once, now. What a button presses after it has changed something. */

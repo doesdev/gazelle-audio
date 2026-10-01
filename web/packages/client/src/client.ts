@@ -5,7 +5,7 @@
 // codes and `detail` pass through unchanged. Data from the server keeps its snake_case keys.
 
 import { decodeFields, encodeArgs, isObject } from "./bytes.ts";
-import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun } from "./aggregate.ts";
+import type { AggregateAnswer, AggregateCalibrateRequest, AggregateCalibrateStarted, AggregateCalibrateStopped, AggregateCalibration, AggregateMatchBuffers, AggregateRegistrationRun, AggregateSuite, AggregateSuiteRequest } from "./aggregate.ts";
 import type { DriverChange, DriverReport, DriverWriteReport } from "./driver.ts";
 import type { MetronomeSettings, MetronomeStatus, RecordingSettings, RecordingStatus, RecordingTake, RecordingWindows } from "./recording.ts";
 import type { RemotePairing, RemoteStatus } from "./remote.ts";
@@ -204,6 +204,16 @@ export interface Client {
     calibrate(request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted>;
     /** Stops the run that is going. Stopping one that is not is answered, not refused. */
     stopCalibrate(): Promise<AggregateCalibrateStopped>;
+    /** The alignment suite: idle, or each setup it was asked for and how far it has got. */
+    suite(): Promise<AggregateSuite>;
+    /**
+     * Starts the alignment suite on the server, which goes on whether or not a page is watching.
+     * Rejects, having changed nothing, without `confirmed`, while a measurement or the recorder has
+     * the interfaces, and when the setups or the cabling are not ones it can measure.
+     */
+    startSuite(request: AggregateSuiteRequest): Promise<AggregateCalibrateStarted>;
+    /** Stops the suite after giving up on the run that is going; what was saved stays saved. */
+    stopSuite(): Promise<AggregateCalibrateStopped>;
   };
   /**
    * The recorder: Arm holds a pre-roll of the aggregate's inputs in memory, Record starts a take
@@ -452,6 +462,9 @@ class Connection implements Client {
     calibrate: async (request: AggregateCalibrateRequest): Promise<AggregateCalibrateStarted> =>
       (await this.#http("POST", "aggregate/calibrate", request)) as AggregateCalibrateStarted,
     stopCalibrate: async (): Promise<AggregateCalibrateStopped> => (await this.#http("POST", "aggregate/calibrate/stop", {})) as AggregateCalibrateStopped,
+    suite: async (): Promise<AggregateSuite> => (await this.#http("GET", "aggregate/suite")) as AggregateSuite,
+    startSuite: async (request: AggregateSuiteRequest): Promise<AggregateCalibrateStarted> => (await this.#http("POST", "aggregate/suite", request)) as AggregateCalibrateStarted,
+    stopSuite: async (): Promise<AggregateCalibrateStopped> => (await this.#http("POST", "aggregate/suite/stop", {})) as AggregateCalibrateStopped,
   };
 
   readonly recording = {

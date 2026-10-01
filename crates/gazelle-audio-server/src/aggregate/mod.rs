@@ -26,6 +26,7 @@ pub mod readiness;
 pub mod registry;
 pub mod seam;
 pub mod service;
+pub mod suite;
 pub mod status;
 pub mod usb;
 
@@ -241,6 +242,10 @@ pub struct AggregateAnswer {
     /// at one rate Gazelle can read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_in_force: Option<RateInForce>,
+    /// The rate and the buffer size a session would run at now, which is the setup whose trims
+    /// are in force (`crate::aggregate::config::setup_in_force`), or nothing when either is not known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_in_force: Option<config::SetupInForce>,
     pub ready: bool,
     pub reasons: Vec<readiness::Reason>,
     pub status: status::StatusReading,

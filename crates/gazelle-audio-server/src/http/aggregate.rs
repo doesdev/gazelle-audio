@@ -24,6 +24,12 @@
 //!   never the aggregate's own numbering, which only the run can work out because only it opens
 //!   the drivers. The body may also name `witnesses`, the same way: extra input channels to record
 //!   and report, which take no part in any trim.
+//! - `GET` and `POST /api/v1/aggregate/suite`, and `POST /api/v1/aggregate/suite/stop`: the
+//!   alignment suite, which measures each of a list of rates and buffer sizes in turn and keeps a
+//!   trim for each one whose runs agree (`crate::aggregate::suite`). It changes the aggregate's rate
+//!   and every interface's buffer size as it goes and puts both back at the end, so the body has to
+//!   say `"confirmed": true`. It runs on the server, so a page that closes and comes back finds it
+//!   where it is.
 //!
 //! **Loopback peers only**, like the update and window routes. Registering a driver and changing
 //! a DAW's buffer size are the machine's own business, not something a server reachable from a
@@ -43,14 +49,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::aggregate::calibrate::{Ask, Calibration};
-use crate::aggregate::naming::interface_names;
+use crate::aggregate::suite::{Suite, SuiteAsk, ThisPc};
 use crate::aggregate::elevate::{arguments_for, command_for, DllSearch, REGISTRAR};
-use crate::aggregate::service::{match_device, serial_of, AggregateService};
-use crate::driver::{DriverChange, DriverWriteReport, WriteRefusal};
+use crate::aggregate::service::AggregateService;
 use crate::error::ServerError;
 use crate::handover;
 use crate::workspace::store::WorkspaceStore;
@@ -66,6 +71,8 @@ pub fn routes(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, fo
 /// [`routes`], with the one calibration the recorder also knows about: the two share the
 /// aggregate, and each refuses to start while the other has it.
 pub fn routes_sharing(service: Arc<AggregateService>, store: Arc<dyn WorkspaceStore>, force_dry_run: bool, measuring: Arc<Calibration>) -> Router {
+    let bench = Arc::new(ThisPc { store: store.clone(), service: service.clone(), dry_run: force_dry_run });
+    let suite = Arc::new(Suite::new(measuring.clone(), bench, SETTLE));
     Router::new()
         .route("/api/v1/aggregate", get(read))
         .route("/api/v1/aggregate/match-buffers", post(match_buffers))
@@ -73,11 +80,19 @@ pub fn routes_sharing(service: Arc<AggregateService>, store: Arc<dyn WorkspaceSt
         .route("/api/v1/aggregate/unregister", post(unregister))
         .route("/api/v1/aggregate/calibrate", get(calibration).post(calibrate))
         .route("/api/v1/aggregate/calibrate/stop", post(calibrate_stop))
+        .route("/api/v1/aggregate/suite", get(suite_state).post(suite_start))
+        .route("/api/v1/aggregate/suite/stop", post(suite_stop))
+        .layer(Extension(suite))
         .layer(Extension(service))
         .layer(Extension(store))
         .layer(Extension(measuring))
         .layer(Extension(ForceDryRun(force_dry_run)))
 }
+
+/// How long the suite leaves the drivers after putting them on a new buffer size, before it
+/// measures: a driver whose buffer changes restarts its audio, and the first run should not meet
+/// that restart.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// An error body as every other route shapes one.
 fn error(status: StatusCode, code: &str, message: String) -> Response {
@@ -123,20 +138,6 @@ struct MatchBuffers {
     force: bool,
 }
 
-/// What one device came to.
-#[derive(Serialize)]
-struct DeviceOutcome {
-    /// Gazelle's name for it, as the page names it.
-    device: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    device_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<DriverWriteReport>,
-    /// Why nothing was sent to this device. Its codes are the driver route's own.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<WriteRefusal>,
-}
-
 async fn match_buffers(
     Extension(service): Extension<Arc<AggregateService>>,
     Extension(store): Extension<Arc<dyn WorkspaceStore>>,
@@ -156,45 +157,9 @@ async fn match_buffers(
             "No interfaces have been chosen for the aggregate yet, so there is nothing to match.".into(),
         ));
     };
-    let wanted = config.devices.clone();
-
-    let outcomes = tokio::task::spawn_blocking(move || {
-        // Each named as the page names it: Gazelle's name for the device it is now.
-        let settled = service.settled(&workspace);
-        let names = settled.aggregate.as_ref().map(|config| interface_names(config, &settled)).unwrap_or_default();
-        let change = DriverChange { buffer_size: Some(ask.buffer_size), safe_mode: None, force: ask.force };
-        // Which interface each entry is, worked out exactly as the answer on the page worked it
-        // out, so a device the page could read is never one this route says it cannot find.
-        let entries = service.registry.entries().unwrap_or_default();
-        let attached = service.devices.descriptors();
-        wanted
-            .iter()
-            .zip(names)
-            .map(|(device, name)| {
-                let found = match_device(device, &name, &entries, &attached);
-                let unavailable = |message: String, id: Option<String>| DeviceOutcome {
-                    device: name.clone(),
-                    device_id: id,
-                    result: None,
-                    error: Some(WriteRefusal { code: crate::driver::RefusalCode::Unavailable, message }),
-                };
-                let Some(descriptor) = found.descriptor else {
-                    let why = found.note.unwrap_or_else(|| format!("{name} could not be matched to a connected interface, so its driver cannot be found."));
-                    return unavailable(why, device.device_id.as_ref().map(|id| id.0.clone()));
-                };
-                let id = descriptor.id;
-                let Some(serial) = serial_of(&id) else {
-                    return unavailable(format!("{name} reports no serial, which is how its driver is found."), Some(id.0.clone()));
-                };
-                match service.driver.write(id.as_str(), serial, &change, force_dry_run) {
-                    Ok(report) => DeviceOutcome { device: name, device_id: Some(id.0), result: Some(report), error: None },
-                    Err(refusal) => DeviceOutcome { device: name, device_id: Some(id.0), result: None, error: Some(refusal) },
-                }
-            })
-            .collect::<Vec<_>>()
-    })
-    .await
-    .map_err(|e| ServerError::Storage(format!("changing the drivers stopped part way: {e}")))?;
+    let outcomes = tokio::task::spawn_blocking(move || service.match_buffers(&config, &workspace, ask.buffer_size, ask.force, force_dry_run))
+        .await
+        .map_err(|e| ServerError::Storage(format!("changing the drivers stopped part way: {e}")))?;
 
     let refused = outcomes.iter().filter(|outcome| outcome.error.is_some()).count();
     Ok(Json(json!({
@@ -258,6 +223,59 @@ async fn calibrate_stop(Extension(job): Extension<Arc<Calibration>>, request: Re
     }
     let running = job.is_running();
     job.stop();
+    Ok(Json(json!({ "stopped": running })).into_response())
+}
+
+/// How far the alignment suite has got, setup by setup. Idle is the ordinary answer.
+async fn suite_state(Extension(suite): Extension<Arc<Suite>>, request: Request) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    Ok(Json(suite.state()).into_response())
+}
+
+/// Start the alignment suite. Everything that can be refused is refused here, before the setup or
+/// a driver is touched; the suite itself then runs on a thread of its own.
+async fn suite_start(
+    Extension(suite): Extension<Arc<Suite>>,
+    Extension(store): Extension<Arc<dyn WorkspaceStore>>,
+    recording: Option<Extension<Arc<crate::recording::RecordingService>>>,
+    request: Request,
+) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    if recording.is_some_and(|Extension(recording)| recording.is_active()) {
+        return Ok(error(
+            StatusCode::CONFLICT,
+            "recording_armed",
+            "The Recording page is armed, or its metronome is playing, so it has the interfaces. Disarm and stop the metronome there, and start the suite again.".into(),
+        ));
+    }
+    let body: Result<Json<SuiteAsk>, JsonRejection> = <Json<SuiteAsk> as axum::extract::FromRequest<()>>::from_request(request, &()).await;
+    let Json(ask) = body.map_err(|e| ServerError::BadValue(e.body_text()))?;
+    let workspace = store.load()?;
+    if workspace.aggregate.is_none_or(|config| config.devices.len() < 2) {
+        return Ok(error(
+            StatusCode::CONFLICT,
+            "not_configured",
+            "Lining the interfaces up needs at least two of them in the aggregate, and there are not.".into(),
+        ));
+    }
+    match suite.start(&ask) {
+        Ok(()) => Ok(Json(json!({ "started": true })).into_response()),
+        Err(refusal) => Ok(error(StatusCode::CONFLICT, "not_started", refusal)),
+    }
+}
+
+/// Stop the suite after the run that is going, which is given up on. What was saved stays saved,
+/// and the rate and buffer size from before are put back.
+async fn suite_stop(Extension(suite): Extension<Arc<Suite>>, request: Request) -> Result<Response, ServerError> {
+    if let Some(refusal) = refuse_unless_local(&request) {
+        return Ok(refusal);
+    }
+    let running = suite.is_running();
+    suite.stop();
     Ok(Json(json!({ "stopped": running })).into_response())
 }
 
@@ -335,6 +353,7 @@ mod tests {
         link: Arc<FakeLink>,
         quadro: Arc<FakeDll>,
         studio: Arc<FakeDll>,
+        service: Arc<AggregateService>,
     }
 
     /// Both interfaces attached over the loopback transport, both drivers registered, ours too,
@@ -391,7 +410,7 @@ mod tests {
             bundled: crate::aggregate::bundled::Status::NotCarried,
         });
         let store = Arc::new(MemoryStore::default());
-        Harness { app: routes(service, store.clone(), false), devices, store, elevator, link, quadro, studio }
+        Harness { app: routes(service.clone(), store.clone(), false), devices, store, elevator, link, quadro, studio, service }
     }
 
     /// The setup phase 0 measured, with the Quadro driving the callback.
@@ -490,6 +509,73 @@ mod tests {
         let (_, state) = get(&app, "/api/v1/aggregate/calibrate").await;
         assert_eq!(state["state"], "idle", "nothing was started");
         tokio::task::spawn_blocking(move || recording.disarm(true)).await.unwrap().unwrap();
+    }
+
+    /// The suite's own body: the setups, the runs and the same cabling a single run takes.
+    const SUITE: &str = r#"{"setups":[{"rate":96000,"buffer_size":512},{"rate":48000,"buffer_size":256}],"runs":3,"outputs":[{"device":0,"channel":0},{"device":0,"channel":1}],"inputs":[{"device":0,"channel":0},{"device":1,"channel":0}]"#;
+
+    #[tokio::test]
+    async fn the_suite_is_idle_until_started_and_will_not_start_unconfirmed() {
+        let h = harness();
+        let (status, body) = get(&h.app, "/api/v1/aggregate/suite").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, serde_json::json!({ "state": "idle", "setups": [], "saved": 0 }));
+
+        h.store.save(&workspace_with(pair())).unwrap();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/suite", &format!("{SUITE}}}")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "not_started");
+        assert!(body["error"]["message"].as_str().unwrap().contains("Confirm those changes first"), "{body}");
+        assert_eq!(h.store.load().unwrap().aggregate.unwrap().rate, Some(96000), "nothing was changed");
+        assert_eq!(h.quadro.sets().len(), 0, "and no driver was touched");
+
+        let mut alone = pair();
+        alone.devices.truncate(1);
+        h.store.save(&workspace_with(alone)).unwrap();
+        let (status, body) = post(&h.app, "/api/v1/aggregate/suite", &format!("{SUITE},\"confirmed\":true}}")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"]["code"], "not_configured");
+
+        let (status, body) = post(&h.app, "/api/v1/aggregate/suite/stop", "{}").await;
+        assert_eq!((status, body), (StatusCode::OK, serde_json::json!({ "stopped": false })), "stopping nothing is answered");
+    }
+
+    /// The suite's hands on this PC: the setup's rate and buffer size saved, every driver put on the
+    /// buffer size the way Match buffer sizes does it, the trims kept per setup, and what was there
+    /// put back, the rate the setup left to the interfaces included.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_suite_switches_the_setup_and_the_drivers_keeps_trims_and_puts_both_back() {
+        use crate::aggregate::config::SetupInForce;
+        use crate::aggregate::suite::{Before, Bench, Kept};
+        let h = harness();
+        let mut workspace = workspace_with(pair());
+        workspace.aggregate.as_mut().unwrap().rate = None;
+        workspace.aggregate.as_mut().unwrap().devices[1].input_trim = Some(60);
+        h.store.save(&workspace).unwrap();
+        let bench = ThisPc { store: h.store.clone(), service: h.service.clone(), dry_run: false };
+        let switched = tokio::task::spawn_blocking(move || {
+            let before = bench.before().expect("what is in force");
+            let at = SetupInForce { rate: 48000, buffer_size: 256 };
+            bench.switch_to(at).expect("it switches");
+            let kept = Kept { index: 1, device: "Studio+".into(), input_trim: 31, reference: Some(-12), spread_samples: 0.2 };
+            bench.keep(at, &[kept]).expect("it keeps");
+            let during = bench.store.load().unwrap();
+            bench.put_back(&Before { interfaces_rate: Some(96000), ..before }).expect("it puts back");
+            (before, during, bench.store.load().unwrap())
+        })
+        .await
+        .unwrap();
+        let (before, during, after) = switched;
+        assert_eq!((before.rate, before.buffer_size), (None, Some(512)), "what the setup said");
+        let config = during.aggregate.unwrap();
+        assert_eq!((config.rate, config.buffer_size), (Some(48000), Some(256)));
+        assert_eq!(config.devices[1].trims, vec![crate::workspace::model::AggregateTrim { rate: 48000, buffer_size: 256, input_trim: 31, reference: Some(-12) }]);
+        assert_eq!(config.devices[1].input_trim, Some(60), "the trim whose setup was never written down stays where it was");
+        assert_eq!(h.quadro.sets().len(), 2, "on 256 samples, and back");
+        assert_eq!(h.studio.sets().len(), 2);
+        let config = after.aggregate.unwrap();
+        assert_eq!((config.rate, config.buffer_size), (None, Some(512)), "put back exactly, rate left to the interfaces again");
+        assert_eq!(config.devices[1].trims.len(), 1, "and what was kept stays kept");
     }
 
     #[tokio::test]

@@ -967,6 +967,11 @@ export class Store {
     calibration: () => this.#local(() => this.#client.aggregate.calibration()),
     calibrate: (request) => this.#local(() => this.#client.aggregate.calibrate(request)),
     stopCalibrate: () => this.#local(() => this.#client.aggregate.stopCalibrate()),
+    suite: {
+      state: () => this.#local(() => this.#client.aggregate.suite()),
+      start: (request) => this.#local(() => this.#client.aggregate.startSuite(request)),
+      stop: () => this.#local(() => this.#client.aggregate.stopSuite()),
+    },
     command: (deviceId, command, args) => this.#invokeCommand(deviceId, command, args, {}),
     setupRate: (rate) => this.editAggregate((current) => ({ ...current, rate })),
     // Through `this`, not `this.#timers` itself: a field's value is worked out before the

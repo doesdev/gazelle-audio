@@ -598,7 +598,7 @@ test("a run's outcome is put in the page's names, so its trims reach the right c
   const run = withPageNames(measured({ reference: "Quadro", readings: [heard({ device: "Quadro", is_reference: true }), heard({ device: "Studio+" })], trims: [{ device: "Studio+", direction: "inputs", was: 0, measured: 28, now: 28 }] }), it.naming);
   assert.equal(run?.reference, "Zen Quadro Synergy Core");
   assert.deepEqual(run?.readings.map((one) => one.device), ["Zen Quadro Synergy Core", "Zen Studio+"]);
-  assert.deepEqual(withMeasuredTrims(it.config, run, interfaceNames(it.config, it.naming)).devices?.[1]?.input_trim, 28);
+  assert.deepEqual(withMeasuredTrims(it.config, run, interfaceNames(it.config, it.naming)).devices?.[1]?.trims, [{ rate: 96000, buffer_size: 512, input_trim: 28 }]);
   assert.equal(pageNameOf("Studio+", it.naming), "Zen Studio+");
   assert.equal(pageNameOf("Someone else", it.naming), "Someone else");
 });
@@ -940,19 +940,28 @@ test("a trim row shows what it is now, what was measured and what it would becom
   assert.equal(trimRows(measured({ trims: [{ device: "Studio+", direction: "inputs", field: "output_trim", was: 0, measured: 5, now: 5 }] }))[0]?.what, "Output trim");
 });
 
-test("applying the trims writes them into the setup, by the name the run gives each interface", () => {
+const at96 = (input_trim: number, reference?: number) => ({ rate: 96000, buffer_size: 512, input_trim, ...(reference === undefined ? {} : { reference }) });
+
+test("applying the trims keeps each input trim for the setup it was measured at, by the name the run gives each interface", () => {
   const config = { devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", input_trim: 4 }] };
   const written = writeTrims(config, measured());
-  assert.deepEqual(written.devices, [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", input_trim: 28 }]);
-  // Zero is the field being absent, as every other trim on this page is written.
-  const back = writeTrims(written, measured({ trims: [{ device: "Studio+", direction: "inputs", was: 28, measured: 0, now: 0 }] }));
-  assert.deepEqual(back.devices, [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+" }]);
+  assert.deepEqual(written.devices, [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", input_trim: 4, trims: [at96(28)] }], "the old trim, whose setup was never written down, stays where it was");
+  // Zero is kept as zero for its setup: that setup was measured and needs nothing.
+  const back = writeTrims(written, measured({ trims: [{ device: "Studio+", direction: "inputs", was: 28, measured: -28, now: 0 }] }));
+  assert.deepEqual(back.devices?.[1]?.trims, [at96(0)]);
+  // Another setup is kept beside it, in order of rate and then buffer size.
+  const other = writeTrims(back, measured({ rate: 48000, buffer_size: 256, trims: [{ device: "Studio+", direction: "inputs", was: 0, measured: 14, now: 14 }] }));
+  assert.deepEqual(other.devices?.[1]?.trims, [{ rate: 48000, buffer_size: 256, input_trim: 14 }, at96(0)]);
+  // An output trim is still the one field, absent at zero.
+  const out = writeTrims(config, measured({ trims: [{ device: "Studio+", direction: "outputs", field: "output_trim", was: 0, measured: 5, now: 5 }] }));
+  assert.deepEqual(out.devices?.[1], { key: "S", name: "Studio+", input_trim: 4, output_trim: 5 });
   // An interface the measurement names and the setup no longer has changes nothing.
   assert.deepEqual(writeTrims({ devices: [{ key: "Q", name: "Quadro" }] }, measured()).devices, [{ key: "Q", name: "Quadro" }]);
   assert.deepEqual(writeTrims(config, undefined), config);
   // The names are the page's, which are Gazelle's: a run names the device by its name in Gazelle.
-  assert.deepEqual(withMeasuredTrims({ devices: [{ key: "Q" }, { key: "S" }] }, measured(), ["Quadro", "Studio+"]).devices, [{ key: "Q" }, { key: "S", input_trim: 28 }]);
+  assert.deepEqual(withMeasuredTrims({ devices: [{ key: "Q" }, { key: "S" }] }, measured(), ["Quadro", "Studio+"]).devices, [{ key: "Q" }, { key: "S", trims: [at96(28)] }]);
   assert.match(appliedTrimsText(trimsToApply(measured())), /1 trim written: Studio\+ in 28\./);
+  assert.equal(appliedTrimsText(trimsToApply(measured()), measured()), "1 trim written: Studio+ in 28. Input trims are kept for 96 kHz at 512 samples, and used whenever a session runs there.");
   assert.match(appliedTrimsText([]), /Nothing to change/);
 });
 
@@ -966,21 +975,22 @@ const withReference = (reference: { was: number | null; now: number | null }, tr
 
 const phased = { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } };
 
-test("writing a trim writes the phase reference measured beside it", () => {
+test("writing a trim keeps the phase reference measured beside it, with it, for its setup", () => {
   const written = writeTrims({ devices: [{ key: "Q", name: "Quadro" }, { key: "S", name: "Studio+", phase: { master_output: 15, input: 8 } }] }, withReference({ was: null, now: -84 }));
-  assert.deepEqual(written.devices?.[1], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
-  // A new reference replaces the old one, and the path it was measured on is left as it was.
-  const again = writeTrims({ devices: [phased] }, withReference({ was: -84, now: -148 }, { was: 28, measured: 30, now: 30 }));
-  assert.deepEqual(again.devices?.[0], { key: "S", name: "Studio+", input_trim: 30, phase: { master_output: 15, input: 8, reference: -148 } });
+  assert.deepEqual(written.devices?.[1], { key: "S", name: "Studio+", phase: { master_output: 15, input: 8 }, trims: [at96(28, -84)] });
+  // A new one for the same setup replaces it; the old trim and its reference, whose setup was never
+  // written down, and the path it was measured on are all left as they were.
+  const again = writeTrims({ devices: [{ ...phased, trims: [at96(28, -84)] }] }, withReference({ was: -84, now: -148 }, { was: 28, measured: 30, now: 30 }));
+  assert.deepEqual(again.devices?.[0], { ...phased, trims: [at96(30, -148)] });
 });
 
-test("a trim offered with nothing heard on the cable takes the old reference out", () => {
-  const written = writeTrims({ devices: [phased] }, withReference({ was: -84, now: null }, { was: 28, measured: 31, now: 31 }));
-  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 31, phase: { master_output: 15, input: 8 } });
+test("a trim offered with nothing heard on the cable is kept with no reference beside it", () => {
+  const written = writeTrims({ devices: [{ ...phased, trims: [at96(28, -84)] }] }, withReference({ was: -84, now: null }, { was: 28, measured: 31, now: 31 }));
+  assert.deepEqual(written.devices?.[0], { ...phased, trims: [at96(31)] });
   // Even when the trim itself comes out the same, because the old reference no longer belongs beside it.
   const same = withReference({ was: -84, now: null }, { was: 28, measured: 28, now: 28 });
   assert.equal(trimsToApply(same).length, 1);
-  assert.deepEqual(writeTrims({ devices: [phased] }, same).devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } });
+  assert.deepEqual(writeTrims({ devices: [{ ...phased, trims: [at96(28, -84)] }] }, same).devices?.[0], { ...phased, trims: [at96(28)] });
 });
 
 test("a first run whose trim is unchanged but whose reference is new is still there to write", () => {
@@ -990,7 +1000,7 @@ test("a first run whose trim is unchanged but whose reference is new is still th
   assert.equal(trimsToApply(first).length, 1, "the button is offered");
   assert.equal(trimRows(first)[0]?.changed, true);
   const written = writeTrims({ devices: [{ key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 } }] }, first);
-  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8, reference: -84 } });
+  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28, phase: { master_output: 15, input: 8 }, trims: [at96(28, -84)] });
   assert.equal(appliedTrimsText(trimsToApply(first)), "1 trim written: Studio+ in 28 (phase reference -84).");
   // And nothing changing on either count is still nothing to write.
   const settled = withReference({ was: -84, now: -84 }, { was: 28, measured: 28, now: 28 });
@@ -1001,7 +1011,7 @@ test("a first run whose trim is unchanged but whose reference is new is still th
 test("a reference is only written where there is a phase path to go with it", () => {
   // The phase setting was cleared after the run: the trim is written, and no half setting is made up.
   const written = writeTrims({ devices: [{ key: "S", name: "Studio+" }] }, withReference({ was: null, now: -84 }));
-  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", input_trim: 28 });
+  assert.deepEqual(written.devices?.[0], { key: "S", name: "Studio+", trims: [at96(28)] });
   // An output trim never carries one, whatever arrives beside it.
   const out = withReference({ was: null, now: -84 }, { direction: "outputs", field: "output_trim" });
   assert.deepEqual(writeTrims({ devices: [phased] }, out).devices?.[0], { ...phased, output_trim: 28 });

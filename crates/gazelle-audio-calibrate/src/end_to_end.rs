@@ -115,6 +115,11 @@ impl Cable {
 /// Run the whole measurement with the two interfaces cabled as the README describes, `late`
 /// samples of extra cable on the one going to B, and `trims` already in the configuration.
 fn measured(trims: [i32; 2], late: usize, plugged: [bool; 2]) -> Outcome {
+    measured_from(config(trims), late, plugged)
+}
+
+/// [`measured`], with the whole configuration given.
+fn measured_from(config: Config, late: usize, plugged: [bool; 2]) -> Outcome {
     let pc = two_interfaces();
     let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(&pc) });
     let (a, b): (Arc<FakeDevice>, Arc<FakeDevice>) = (pc.device("Device A"), pc.device("Device B"));
@@ -143,7 +148,7 @@ fn measured(trims: [i32; 2], late: usize, plugged: [bool; 2]) -> Outcome {
         true
     };
 
-    measure_against(host, config(trims), "a test".to_string(), &rig(), &settings(), &mut pump)
+    measure_against(host, config, "a test".to_string(), &rig(), &settings(), &mut pump)
 }
 
 /// The same two interfaces, with B's **second** input carried along as a witness and cabled to a
@@ -287,6 +292,22 @@ fn putting_that_trim_into_the_file_nulls_the_offset_and_a_second_run_finds_nothi
     assert!(left_over.lag_samples.abs() < 0.5, "the trim cancelled it: {left_over:?}");
 
     // And the file keeps the trim it already had, because there is nothing left to add to it.
+    let trim = &outcome.trims[1];
+    assert_eq!((trim.old, trim.measured, trim.new), (CABLED_LATE, 0, CABLED_LATE));
+}
+
+/// **A run is added to the trim the session is running on**, which is the one measured at the rate
+/// and buffer size the run happens at, and not the old one whose setup nobody wrote down.
+#[test]
+fn a_run_adds_to_the_trim_for_its_own_rate_and_buffer_size() {
+    let mut keyed = config([0, 5]);
+    keyed.devices[1].trims = vec![
+        gazelle_aggregate::config::SetupTrim { rate: RATE, buffer_size: BLOCK, input_trim: CABLED_LATE, reference: None },
+        gazelle_aggregate::config::SetupTrim { rate: RATE, buffer_size: BLOCK * 2, input_trim: 99, reference: None },
+    ];
+    let outcome = measured_from(keyed, CABLED_LATE as usize, [true, true]);
+    assert_eq!(outcome.refusal, None);
+    assert!(outcome.readings[1].lag_samples.abs() < 0.5, "this setup's trim was in force: {:?}", outcome.readings[1]);
     let trim = &outcome.trims[1];
     assert_eq!((trim.old, trim.measured, trim.new), (CABLED_LATE, 0, CABLED_LATE));
 }

@@ -663,21 +663,9 @@ pub fn measure_reporting(
     }
 
     // What the file already says, kept before the configuration is handed over, because that is
-    // what this run's measurement is added to.
-    let old: Vec<i32> = (0..rig.devices())
-        .map(|index| {
-            let device = config.devices.get(index);
-            match direction {
-                Direction::Inputs => device.and_then(|d| d.input_trim).unwrap_or(0),
-                Direction::Outputs => device.and_then(|d| d.output_trim).unwrap_or(0),
-            }
-        })
-        .collect();
-    // And the phase each of those trims was measured at, which the new trims replace in the same
-    // breath.
-    let old_references: Vec<Option<i32>> = (0..rig.devices())
-        .map(|index| config.devices.get(index).and_then(|d| d.phase).and_then(|phase| phase.reference))
-        .collect();
+    // what this run's measurement is added to. Which input trim that is depends on the rate and the
+    // buffer size the run happens at, so it is chosen once both are known, below.
+    let configured = config.devices.clone();
 
     // The driver's own object, reporting the way the driver reports: everything below this line
     // that the aggregate itself refuses is written into the record and the log by the aggregate,
@@ -727,6 +715,22 @@ pub fn measure_reporting(
         return refuse("these interfaces did not say what rate they are running at".to_string());
     }
     let block = settings.buffer_size.unwrap_or(plan.preferred);
+    // The trim the aggregate is running this session on, for each interface, chosen exactly as the
+    // driver chose it: the one measured at this rate and this buffer size, else the one whose setup
+    // was never written down. That is what this run's measurement is added to.
+    let old: Vec<i32> = (0..rig.devices())
+        .map(|index| {
+            let device = configured.get(index);
+            match direction {
+                Direction::Inputs => device.map_or(0, |d| d.trim_for(rate, block).input_trim),
+                Direction::Outputs => device.and_then(|d| d.output_trim).unwrap_or(0),
+            }
+        })
+        .collect();
+    // And the phase each of those trims was measured at, which the new trims replace in the same
+    // breath.
+    let old_references: Vec<Option<i32>> =
+        (0..rig.devices()).map(|index| configured.get(index).and_then(|d| d.trim_for(rate, block).reference)).collect();
 
     // Everything the run needs, allocated before a single device is started.
     let samples = click::run_length(settings.clicks, settings.settle_seconds, settings.spacing_seconds, rate);

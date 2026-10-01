@@ -12,6 +12,17 @@ version that has not been published yet.
 
 ### Added
 
+- **A trim for every rate and buffer size.** A trim is only right at the rate and buffer size it
+  was measured at, so each interface now keeps one per setup, and the aggregate uses the one for
+  the rate and buffer size a session actually runs at. Writing a measured trim keeps it for the
+  setup it was measured at. A trim from before is kept and used wherever nothing was measured for
+  the session's setup, and Ready to use says when a setup has no trim of its own. Each interface's
+  card lists its trims, the one in force marked.
+- **Measure every setup.** On the Aggregate page, tick the rates and buffer sizes you use and how
+  many runs each gets, confirm the list of changes once, and Gazelle measures each in turn, keeps
+  the trim when the runs agree within a sample, measures again when they do not, and puts the rate
+  and buffer size back at the end. It shows each setup as it goes, can be stopped at any time
+  without losing what was saved, and carries on if the page is closed.
 - **Gazelle checks that the interfaces stay lined up while it records.** With a phase path set up
   on the Aggregate page, Gazelle sends the phase measurement's short signal down that cable once a
   second while armed and checks it arrives on the same sample. The Recording page says when it was
