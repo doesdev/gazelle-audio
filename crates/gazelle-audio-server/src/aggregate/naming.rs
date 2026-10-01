@@ -202,8 +202,9 @@ pub fn counted(names: Vec<String>) -> Vec<String> {
 
 /// What a routing source is called, in Gazelle's own words, with the person's own names first: the
 /// Mixer channel they named that takes this source, else the mix they named when the source is a
-/// mix's output, else the source as the Routing page and the Mixer show it ("PREAMP 1", "AFX OUT 3",
-/// "USB 1 PLAY 5"). MUTE is nothing, and so is a source the model does not have.
+/// mix's output, else the source as the Routing page and the Mixer show it ("AFX OUT 3",
+/// "USB 1 PLAY 5"), except a preamp, which the Aggregate page calls "Preamp 1" wherever it names one.
+/// MUTE is nothing, and so is a source the model does not have.
 pub fn source_name(family: &str, source: u8, channel: u8, mixer: Option<&DeviceMixer>) -> Option<String> {
     let group = topology::source_groups(family)?.get(usize::from(source))?;
     if group.kind == "MUTE" {
@@ -216,6 +217,9 @@ pub fn source_name(family: &str, source: u8, channel: u8, mixer: Option<&DeviceM
     let mix = topology::mix_outputs(family).and_then(|outputs| outputs.iter().position(|id| *id == group.id));
     if let Some(name) = mix.and_then(|mix| mixer?.mixes.get(mix)?.name.clone()).filter(|name| !name.trim().is_empty()) {
         return Some(format!("{} {}", plain(&name), side(u32::from(channel), 2)));
+    }
+    if group.kind == "PREAMP" {
+        return Some(format!("Preamp {}", u32::from(channel) + 1));
     }
     Some(group_channel(group, u32::from(channel)))
 }
@@ -531,12 +535,12 @@ mod tests {
 
     #[test]
     fn a_source_is_named_as_the_routing_page_names_it_and_by_the_persons_own_names_first() {
-        assert_eq!(source_name("quadro", 0, 0, None).as_deref(), Some("PREAMP 1"));
+        assert_eq!(source_name("quadro", 0, 0, None).as_deref(), Some("Preamp 1"));
         assert_eq!(source_name("quadro", 5, 2, None).as_deref(), Some("AFX OUT 3"));
         assert_eq!(source_name("quadro", 10, 0, None), None, "MUTE is nothing");
         let mixer = DeviceMixer { mixes: vec![MixConfig { name: Some("Cue".into()), mono: None }], groups: Vec::new(), channels: vec![channel("", 0, 1), channel("Vocal mic", 0, 0)] };
         assert_eq!(source_name("quadro", 0, 0, Some(&mixer)).as_deref(), Some("Vocal mic"));
-        assert_eq!(source_name("quadro", 0, 1, Some(&mixer)).as_deref(), Some("PREAMP 2"));
+        assert_eq!(source_name("quadro", 0, 1, Some(&mixer)).as_deref(), Some("Preamp 2"));
         assert_eq!(source_name("quadro", 6, 0, Some(&mixer)).as_deref(), Some("Cue L"));
     }
 
@@ -668,7 +672,7 @@ mod tests {
         let (inputs, outputs) = driver_labels(&device, &workspace);
         assert_eq!((inputs.len(), outputs.len()), (16, 16));
         assert_eq!(inputs[&0], "Vocal mic");
-        assert_eq!(inputs[&1], "PREAMP 2");
+        assert_eq!(inputs[&1], "Preamp 2");
         assert_eq!(inputs[&2], "USB A REC 3");
         device.input_names.insert(0, "Lead vocal".into());
         assert_eq!(driver_labels(&device, &workspace).0[&0], "Lead vocal");

@@ -61,6 +61,10 @@ pub enum ReasonCode {
     /// driver cannot measure where its capture actually started and will line it up by the figures
     /// its driver reports instead.
     PhaseNotMeasured,
+    /// A follower has an input trim and no phase reference beside it, so no session is lined up to
+    /// the one the trim was measured in, and the trim is right only in a session that happens to
+    /// start where that one did.
+    TrimWithoutReference,
     /// A follower's phase setup names channels the interfaces' routing does not join: the master's
     /// playback channel does not reach the cable directly, goes somewhere else as well, or the
     /// follower's record channel does not record the cable (`crate::aggregate::phase_path`).
@@ -175,7 +179,54 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
     reasons.extend(buffers(devices));
     reasons.extend(clocks(devices, &workspace.cables));
     reasons.extend(phases(devices, &workspace.cables));
+    reasons.extend(trims(devices, workspace));
     reasons.extend(crate::aggregate::phase_path::reasons(devices, workspace));
+    reasons
+}
+
+/// Followers with an input trim and no phase reference to go with it.
+///
+/// A trim is a constant, and where a follower's capture starts moves by a whole multiple of 32
+/// samples from one session to the next. The driver puts each session back where the trim was
+/// measured only when it has the phase measured in that session, the reference, which a measurement
+/// writes together with the trim. Without one the trim holds only in a session that happens to start
+/// where its own did, so a recording can land 32 samples or more from where the trim puts it.
+///
+/// A follower with no phase setup and no cable into it is left to [`clocks`], which already says
+/// there is no cable: there is nothing to measure a phase over until there is one.
+fn trims(devices: &[DeviceReport], workspace: &Workspace) -> Vec<Reason> {
+    let Some(config) = workspace.aggregate.as_ref() else { return Vec::new() };
+    let mut reasons = Vec::new();
+    for device in devices.iter().filter(|d| !d.is_master) {
+        let Some(entry) = config.devices.get(device.index) else { continue };
+        let Some(trim) = entry.input_trim.filter(|trim| *trim != 0) else { continue };
+        let phase = entry.phase.as_ref();
+        if phase.is_some_and(|phase| phase.reference.is_some()) {
+            continue;
+        }
+        let cabled = device.device_id.as_ref().is_some_and(|id| {
+            workspace.cables.iter().any(|cable| &cable.to.device_id == id && devices.iter().any(|other| other.device_id.as_ref() == Some(&cable.from.device_id)))
+        });
+        if phase.is_none() && !cabled {
+            continue;
+        }
+        let (missing, fix) = if phase.is_some() {
+            ("no phase reference to go with it", "Measure the interfaces once under Line the interfaces up")
+        } else {
+            ("no phase setup", "Set up its phase on its card, then measure the interfaces once under Line the interfaces up")
+        };
+        reasons.push(
+            Reason::new(
+                ReasonCode::TrimWithoutReference,
+                Severity::Warning,
+                format!(
+                    "{name} has an input trim of {trim} samples and {missing}, so no session is lined up to the one the trim was measured in. Where {name}'s capture starts moves by a whole multiple of 32 samples from one session to the next, so the trim is right only in a session that happens to start where its own did, and in any other a recording from {name} lands 32 samples or more from where the trim puts it. {fix}: that writes the trim again together with its reference, and every session after that is lined up to it.",
+                    name = device.name
+                ),
+            )
+            .about(device),
+        );
+    }
     reasons
 }
 
@@ -544,7 +595,7 @@ mod tests {
     use super::*;
     use crate::aggregate::usb::UsbController;
     use crate::aggregate::{ClockReading, DriverSummary};
-    use crate::workspace::model::CableEnd;
+    use crate::workspace::model::{Aggregate, AggregateDevice, AggregatePhase, CableEnd};
 
     fn quadro() -> DeviceReport {
         DeviceReport {
@@ -638,6 +689,54 @@ mod tests {
         let master_only = DeviceReport { phase_configured: false, ..quadro() };
         let about_master = reasons(true, true, true, &[master_only, studio()], &cabled());
         assert!(about_master.is_empty(), "{about_master:?}");
+    }
+
+    /// The setup phase 0 measured, with the Studio+ given an input trim of 60 and the phase setup
+    /// this test passes, if any.
+    fn trimmed(trim: Option<i32>, phase: Option<AggregatePhase>) -> Workspace {
+        let device = |key: &str, serial: &str| AggregateDevice { key: Some(key.into()), device_id: Some(DeviceId::from_serial(serial)), ..AggregateDevice::default() };
+        let studio = AggregateDevice { input_trim: trim, phase, ..device("ZenStudioTB", "S") };
+        Workspace { aggregate: Some(Aggregate { devices: vec![device("Zen Quadro Synergy Core", "Q"), studio], ..Aggregate::default() }), ..cabled() }
+    }
+
+    /// A trim with nothing to line a session up to the one it was measured in is right only in a
+    /// session that starts where that one did. It is worth knowing, and it says how to put it right.
+    #[test]
+    fn a_trim_with_no_phase_reference_beside_it_is_said_so_with_what_it_means() {
+        let set_up = AggregatePhase { master_output: Some(8), input: Some(16), reference: None };
+        let reasons = reasons(true, true, true, &[quadro(), studio()], &trimmed(Some(60), Some(set_up)));
+        assert_eq!(codes(&reasons), [ReasonCode::TrimWithoutReference]);
+        let reason = &reasons[0];
+        assert_eq!(reason.severity, Severity::Warning);
+        assert_eq!((reason.device.as_deref(), reason.device_index), (Some("Studio+"), Some(1)));
+        assert!(reason.message.starts_with("Studio+ has an input trim of 60 samples and no phase reference to go with it"), "{}", reason.message);
+        assert!(reason.message.contains("whole multiple of 32 samples"), "{}", reason.message);
+        assert!(reason.message.contains("Measure the interfaces once under Line the interfaces up"), "{}", reason.message);
+        assert!(ready(&reasons), "the interfaces still record");
+
+        // With no phase setup at all it says both: what the phase is, and what that does to the trim.
+        let none = DeviceReport { phase_configured: false, ..studio() };
+        let both = super::reasons(true, true, true, &[quadro(), none], &trimmed(Some(60), None));
+        assert_eq!(codes(&both), [ReasonCode::PhaseNotMeasured, ReasonCode::TrimWithoutReference]);
+        assert!(both[1].message.contains("and no phase setup"), "{}", both[1].message);
+        assert!(both[1].message.contains("Set up its phase on its card, then measure"), "{}", both[1].message);
+    }
+
+    #[test]
+    fn a_trim_with_its_reference_no_trim_and_the_masters_trim_are_not_said() {
+        let referenced = AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-84) };
+        assert!(reasons(true, true, true, &[quadro(), studio()], &trimmed(Some(60), Some(referenced))).is_empty());
+        let set_up = AggregatePhase { reference: None, ..referenced };
+        assert!(reasons(true, true, true, &[quadro(), studio()], &trimmed(None, Some(set_up))).is_empty(), "no trim");
+        assert!(reasons(true, true, true, &[quadro(), studio()], &trimmed(Some(0), Some(set_up))).is_empty(), "a trim of nothing");
+        // The callback master is what the others are lined up against: its trim needs no reference.
+        let mut master_trimmed = trimmed(None, Some(referenced));
+        master_trimmed.aggregate.as_mut().unwrap().devices[0].input_trim = Some(40);
+        assert!(reasons(true, true, true, &[quadro(), studio()], &master_trimmed).is_empty());
+        // With no cable into it there is nothing to measure a phase over, and no cable is said already.
+        let none = DeviceReport { phase_configured: false, ..studio() };
+        let uncabled = Workspace { cables: Vec::new(), ..trimmed(Some(60), None) };
+        assert_eq!(codes(&reasons(true, true, true, &[quadro(), none], &uncabled)), [ReasonCode::NoCable]);
     }
 
     #[test]

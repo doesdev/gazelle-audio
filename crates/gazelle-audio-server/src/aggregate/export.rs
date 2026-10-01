@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(store.load().unwrap().aggregate.unwrap().devices[0].known, Some(known), "the client's copy counts for nothing");
         // And the file still names the device and its channels from what was known.
         assert_eq!(read(&path)["devices"][0]["name"], "Quadro");
-        assert_eq!(read(&path)["devices"][0]["input_names"]["0"], "PREAMP 1");
+        assert_eq!(read(&path)["devices"][0]["input_names"]["0"], "Preamp 1");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

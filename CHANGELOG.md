@@ -10,11 +10,25 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **The Aggregate page warns about a trim with no phase reference.** An interface with an input
+  trim and no phase reference to go with it, such as a trim typed in by hand, is lined up right
+  only in a session that happens to start where the measured one did; in any other its recordings
+  can land 32 samples or more out. Ready to use now says so, and points at measuring the
+  interfaces again, or at setting up the phase first where there is none.
+
 ### Fixed
 
 - **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such
   as renaming a channel, could put the button back, so the second click asked again instead of
   going ahead.
+- **A preamp is Preamp 1 all over the Aggregate page.** Where the DAW can record said Preamp 1
+  while the channel names, the cabling and the warnings said PREAMP 1. They all say Preamp 1 now,
+  and so do the channel names the DAW shows for the aggregate.
+- **A USB playback channel that only feeds an effect is no longer offered as free.** On the
+  Aggregate page, Send here could pick a channel routed into an effect and send it to an output
+  as well, so the DAW would have played it in two places.
 
 ## [2.1.0] - 2026-09-30
 

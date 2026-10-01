@@ -526,8 +526,7 @@ const plain = (text: string): string => text.replace(/\p{Cc}/gu, " ").trim();
 /**
  * What a routing source is called, in Gazelle's own words, with the person's own names first: the
  * Mixer channel they named that takes this source, else the mix they named when the source is a
- * mix's output, else the source as the Routing page and the Mixer show it ("PREAMP 1", "AFX OUT 3").
- * MUTE is nothing.
+ * mix's output, else the source as the page names it (`pageSourceLabel`). MUTE is nothing.
  */
 export function sourceName(topology: Topology, source: RouteSlot, layout?: DeviceMixer): string | undefined {
   const group = topology.inputs[source.source];
@@ -537,6 +536,17 @@ export function sourceName(topology: Topology, source: RouteSlot, layout?: Devic
   const mix = topology.mixers.outputGroups.indexOf(group.id);
   const mixName = mix < 0 ? undefined : layout?.mixes[mix]?.name?.trim();
   if (mixName !== undefined && mixName !== "") return `${plain(mixName)} ${source.channel === 0 ? "L" : source.channel === 1 ? "R" : source.channel + 1}`;
+  return pageSourceLabel(topology, source);
+}
+
+/**
+ * A routing source as this page names it: a preamp as "Preamp 1", the way the record list names it,
+ * and anything else as the Routing page and the Mixer show it ("AFX OUT 3"). The server names the
+ * driver's channels the same way, so what the page says the DAW sees is what it sees.
+ */
+function pageSourceLabel(topology: Topology, source: RouteSlot): string {
+  const group = topology.inputs[source.source];
+  if (group?.type === "PREAMP") return `${INPUT_SOCKETS["PREAMP"]} ${source.channel + 1}`;
   return sourceLabel(topology, { group: source.source, channel: source.channel });
 }
 
@@ -684,9 +694,9 @@ function mixName(layout: DeviceMixer | undefined, mix: number): string {
  * "Nothing from the DAW reaches it" is said only once the output's group, and the mix input behind
  * any mix feeding it, have been read, the same rule the names follow; before that it is not read
  * yet. An output nothing reaches offers a button that sends it the first free run of USB playback
- * channels of its width, where free is reaching nothing and being in no mix, once every group the
- * names come from has been read: a pair takes a free pair that starts on an odd channel from one,
- * and a single socket a single free channel.
+ * channels of its width, where free is reaching nothing, being in no mix and feeding no effect, once
+ * every group the page reads has been read: a pair takes a free pair that starts on an odd channel
+ * from one, and a single socket a single free channel.
  */
 export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOutput[] {
   const topology = naming?.topology;
@@ -705,10 +715,12 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
       return Array.from({ length: group.channels }, (_, c) => ({ group, destination, label: `${name} ${c + 1}`, channels: [c] }));
     });
 
-  // Which USB playback channels are free: every group the names come from read, and the channel in none of them.
-  const allRead = namingGroups(topology).every((at) => routing[at] !== undefined);
+  // Which USB playback channels are free: every group the page reads read, and the channel in none of
+  // them. The effect inputs count: a channel that only feeds an effect chain is still playing through
+  // it, wherever the effect's output goes.
+  const allRead = readGroups(topology).every((at) => routing[at] !== undefined);
   const used = new Set<number>();
-  for (const at of namingGroups(topology)) for (const slot of routing[at] ?? []) if (slot.source === groups.playbackPosition) used.add(slot.channel);
+  for (const at of readGroups(topology)) for (const slot of routing[at] ?? []) if (slot.source === groups.playbackPosition) used.add(slot.channel);
 
   return units.map(({ group, destination, label, channels }): PlaybackOutput => {
     const slots = routing[destination];
@@ -728,7 +740,7 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
         continue;
       }
       const mix = topology.mixers.outputGroups.indexOf(from.id);
-      const feed = mix >= 0 ? mixName(naming.layout, mix) : sourceLabel(topology, { group: slot.source, channel: slot.channel });
+      const feed = mix >= 0 ? mixName(naming.layout, mix) : pageSourceLabel(topology, slot);
       if (!feeds.includes(feed)) feeds.push(feed);
       if (mix < 0) continue;
       const input = topology.outputs.findIndex((one) => one.id === topology.mixers.inputGroups[mix]);
@@ -2084,22 +2096,28 @@ export function eventView(event: AggregateEvent): EventView {
 
 /** The sentence a reason carries beside the server's own message, when the page has one to add. */
 export function reasonHint(reason: AggregateReason): string | undefined {
-  if (reason.code !== "phase_not_measured") return undefined;
   const which = reason.device === undefined ? "its card" : `${reason.device}'s card`;
+  if (reason.code === "trim_without_reference") {
+    return `The trim is Input trim on ${which}, and Line the interfaces up, further down this page, measures it again with its reference. A trim typed in by hand never has one.`;
+  }
+  if (reason.code !== "phase_not_measured") return undefined;
   return `The phase setup is under Phase on ${which}. A trim does not answer this: the trim is a constant, and this moves every session.`;
 }
 
 /**
- * The card a reason is about, by its place in the setup, for a button that goes to it: the place the
- * server gives, else the card of that name.
+ * The card a reason is about, by its place in the setup, for a button that opens its phase setup:
+ * the place the server gives, else the card of that name. A trim with no reference has one only
+ * while that card has no phase setup; with one, measuring is what puts it right, not the setup.
  */
 export function reasonCard(reason: AggregateReason, config: Aggregate | undefined, naming?: AggregateNaming): number | undefined {
-  if (reason.code !== "phase_not_measured") return undefined;
+  if (reason.code !== "phase_not_measured" && reason.code !== "trim_without_reference") return undefined;
   const count = (config?.devices ?? []).length;
-  if (typeof reason.device_index === "number") return reason.device_index >= 0 && reason.device_index < count ? reason.device_index : undefined;
-  if (reason.device === undefined) return undefined;
-  const found = interfaceNames(config, naming).indexOf(reason.device);
-  return found >= 0 ? found : undefined;
+  let found: number | undefined;
+  if (typeof reason.device_index === "number") found = reason.device_index >= 0 && reason.device_index < count ? reason.device_index : undefined;
+  else if (reason.device !== undefined) found = interfaceNames(config, naming).indexOf(reason.device);
+  if (found === undefined || found < 0) return undefined;
+  if (reason.code === "trim_without_reference" && config?.devices?.[found]?.phase !== undefined) return undefined;
+  return found;
 }
 
 /** What the model needs of the client, so it can be decided without one. */
