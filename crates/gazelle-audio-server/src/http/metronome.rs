@@ -10,8 +10,9 @@
 //! - `POST /api/v1/metronome/stop`: stop it. A count-in under way is cancelled.
 //! - `POST /api/v1/metronome/preview`: one bar, 12 dB under the volume, only while armed.
 //! - `GET /api/v1/metronome/settings` and `PUT` with any of `tempo`, `numerator`, `denominator`,
-//!   `accent`, `subdivision`, `sound`, `volume_db`, `outputs`, `count_in_bars`, `follow_record`; what
-//!   is left out stays. 400 `bad_value` for nonsense, 409 `outputs_fixed` for new outputs while the
+//!   `accent`, `subdivision`, `sound`, `volume_db`, `outputs`, `count_in_bars`, `follow_record`,
+//!   `latency_offset_ms` (-100 to 100, added to the latencies the aggregate reports when a take's
+//!   Downbeat is placed after a count-in); what is left out stays. 400 `bad_value` for nonsense, 409 `outputs_fixed` for new outputs while the
 //!   interfaces are open.
 //!
 //! Tap tempo is worked out by the page that is tapped: the taps are its own, and a round trip per
@@ -114,6 +115,7 @@ struct Change {
     outputs: Option<Vec<Pick>>,
     count_in_bars: Option<u32>,
     follow_record: Option<bool>,
+    latency_offset_ms: Option<f64>,
 }
 
 impl Change {
@@ -127,6 +129,7 @@ impl Change {
             || self.outputs.is_some()
             || self.count_in_bars.is_some()
             || self.follow_record.is_some()
+            || self.latency_offset_ms.is_some()
     }
 }
 
@@ -140,7 +143,7 @@ async fn set_settings(Extension(service): Extension<Arc<RecordingService>>, requ
         return refuse(StatusCode::FORBIDDEN, "not_local", "A phone may change the metronome's tempo and volume; everything else about it is changed on the computer.".into());
     }
     let result = service.change_metronome(|settings| {
-        let Change { tempo, volume_db, numerator, denominator, accent, subdivision, sound, outputs, count_in_bars, follow_record } = change;
+        let Change { tempo, volume_db, numerator, denominator, accent, subdivision, sound, outputs, count_in_bars, follow_record, latency_offset_ms } = change;
         if let Some(value) = tempo {
             settings.tempo = value;
         }
@@ -170,6 +173,9 @@ async fn set_settings(Extension(service): Extension<Arc<RecordingService>>, requ
         }
         if let Some(value) = follow_record {
             settings.follow_record = value;
+        }
+        if let Some(value) = latency_offset_ms {
+            settings.latency_offset_ms = value;
         }
     });
     match result {
@@ -237,11 +243,15 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let (status, _) = send(&app, "PUT", "/api/v1/metronome/settings", Some(r#"{"swing":0.5}"#), HERE).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, body) = send(&app, "PUT", "/api/v1/metronome/settings", Some(r#"{"latency_offset_ms":-1.25}"#), HERE).await;
+        assert_eq!((status, body["latency_offset_ms"].as_f64()), (StatusCode::OK, Some(-1.25)), "{body}");
+        let (status, body) = send(&app, "PUT", "/api/v1/metronome/settings", Some(r#"{"latency_offset_ms":250}"#), HERE).await;
+        assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_value")));
 
         let (status, body) = send(&app, "PUT", "/api/v1/metronome/settings", Some(r#"{"tempo":140,"volume_db":-24}"#), PHONE).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!((body["tempo"].as_f64(), body["volume_db"].as_f64()), (Some(140.0), Some(-24.0)));
-        for change in [r#"{"outputs":[]}"#, r#"{"tempo":100,"sound":"click"}"#, r#"{"count_in_bars":1}"#, r#"{"follow_record":true}"#] {
+        for change in [r#"{"outputs":[]}"#, r#"{"tempo":100,"sound":"click"}"#, r#"{"count_in_bars":1}"#, r#"{"follow_record":true}"#, r#"{"latency_offset_ms":3}"#] {
             let (status, body) = send(&app, "PUT", "/api/v1/metronome/settings", Some(change), PHONE).await;
             assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::FORBIDDEN, Some("not_local")), "{change}");
         }

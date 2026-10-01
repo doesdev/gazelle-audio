@@ -221,6 +221,9 @@ impl RecordingService {
         if let Err(why) = self.recorder.set_metronome(settings.params(), settings.outputs.clone(), settings.count_in_bars, settings.follow_record) {
             tracing::warn!("the metronome's settings were not taken up: {why}");
         }
+        if let Err(why) = self.recorder.set_downbeat_offset_ms(settings.latency_offset_ms) {
+            tracing::warn!("the metronome's latency offset was not taken up: {why}");
+        }
     }
 
     pub fn metronome_settings(&self) -> MetronomeSettings {
@@ -253,6 +256,7 @@ impl RecordingService {
         self.recorder
             .set_metronome(next.params(), next.outputs.clone(), next.count_in_bars, next.follow_record)
             .map_err(|why| Refusal::new(if why == gazelle_record::engine::OUTPUTS_FIXED { "outputs_fixed" } else { "bad_value" }, why))?;
+        self.recorder.set_downbeat_offset_ms(next.latency_offset_ms).map_err(|why| Refusal::new("bad_value", why))?;
         self.metronome.put(next.clone()).map_err(|why| Refusal::new("storage_error", why))?;
         self.publish();
         Ok(next)

@@ -12,7 +12,8 @@
 //! **audio the writer lost because it fell behind**, with where in the take and how much, each filled
 //! with silence so the files stay lined up; **audio the aggregate lost**, interface by interface
 //! (what its own counters say it dropped or was starved of); a disk running low; and why the take
-//! ended.
+//! ended. After a count-in it says where the Downbeat is and how far it was placed after the click,
+//! from what figures ([`crate::latency`]).
 //!
 //! # The disk
 //!
@@ -40,6 +41,7 @@ use serde::Serialize;
 
 use crate::capture::{Capture, Window, PARKED};
 use crate::cubase::{self, TakeFile};
+use crate::latency::{self, LatencySlot, OffsetSlot};
 use crate::names::{self, TakeWords};
 use crate::system::{Civil, Clock, Disk, FileOut};
 use crate::wav::{Bext, SampleFormat, WavWriter, RIFF_LIMIT};
@@ -87,6 +89,11 @@ pub struct TakeSettings {
     /// The Cubase track archive each take's archive is made from, when this PC has one set. Read
     /// when a take finishes, so a seed set while armed counts from the next take.
     pub cubase_seed: SeedSlot,
+    /// The latencies the aggregate reports, which place the Downbeat after a count-in where a
+    /// performer playing with the click lands ([`crate::latency`]). Read when a take finishes.
+    pub latency: LatencySlot,
+    /// This PC's offset on top of them, in milliseconds. Read when a take finishes too.
+    pub offset_ms: OffsetSlot,
 }
 
 /// Where this PC's Cubase seed is, shared by the recorder and every take it writes.
@@ -407,10 +414,24 @@ impl Drain {
             log(&mut open, &line);
         }
         let start = open.window.start;
-        let cue = open.window.cue.filter(|&cue| cue >= start && cue < end).map(|cue| cue - start);
-        if let Some(at) = cue {
-            let line = format!("Count-in: the downbeat after it is sample {at} of the take ({}), marked in every file with a cue named {CUE_LABEL}.", clock_words(at as f64 / rate));
-            log(&mut open, &line);
+        // The click's downbeat, moved to where a performer playing with it lands.
+        let compensation = open.window.cue.map(|_| {
+            let reported = self.settings.latency.lock().ok().and_then(|reported| reported.clone());
+            let offset_ms = self.settings.offset_ms.lock().map_or(0.0, |offset| *offset);
+            latency::compensation(reported.as_ref(), offset_ms, rate)
+        });
+        let shift = compensation.as_ref().map_or(0, |compensation| compensation.samples);
+        let cue = open.window.cue.map(|cue| cue.saturating_add_signed(shift)).filter(|&cue| cue >= start && cue < end).map(|cue| cue - start);
+        if let Some(compensation) = &compensation {
+            log(&mut open, &compensation.words);
+        }
+        match cue {
+            Some(at) => {
+                let line = format!("Count-in: the downbeat after it is sample {at} of the take ({}), marked in every file with a cue named {CUE_LABEL}.", clock_words(at as f64 / rate));
+                log(&mut open, &line);
+            }
+            None if compensation.is_some() => log(&mut open, "Count-in: the take ended before its downbeat, so no file has a cue."),
+            None => {}
         }
         // What the Cubase archive needs of each file that was made: its length, and where its audio starts.
         let mut made = Vec::with_capacity(open.files.len());
@@ -596,6 +617,8 @@ mod tests {
             originator: "Gazelle 9.9.9".into(),
             rf64_limit: RF64_AT,
             cubase_seed: SeedSlot::default(),
+            latency: LatencySlot::default(),
+            offset_ms: OffsetSlot::default(),
         }
     }
 

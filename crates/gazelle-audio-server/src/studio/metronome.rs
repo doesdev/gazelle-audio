@@ -9,12 +9,14 @@
 //! preset would be wrong more often than right, since a preset is about channels, not songs.
 //!
 //! A missing file is the defaults: 120 BPM in 4/4, the click, -18 dBFS, no outputs chosen (so the
-//! metronome cannot play until someone chooses them), no count-in, not following Record. An
+//! metronome cannot play until someone chooses them), no count-in, not following Record, no latency
+//! offset. An
 //! unreadable one is the same and a warning. `--no-persist` keeps it in memory.
 
 use std::sync::Mutex;
 
 use gazelle_calibrate::Pick;
+use gazelle_record::latency::OFFSET_MS_MAX;
 use gazelle_record::metronome::{Params, Subdivision, COUNT_IN_MAX, DEFAULT_VOLUME_DBFS};
 use gazelle_record::sounds::Sound;
 use serde::{Deserialize, Serialize};
@@ -42,6 +44,9 @@ pub struct MetronomeSettings {
     pub count_in_bars: u32,
     /// The click runs whenever a take does, and stops with it.
     pub follow_record: bool,
+    /// Milliseconds, either way, added to the latencies the aggregate reports when a take's Downbeat
+    /// is placed after a count-in: -100 to 100, 0 by default. This PC's, as its wiring is.
+    pub latency_offset_ms: f64,
 }
 
 impl Default for MetronomeSettings {
@@ -58,6 +63,7 @@ impl Default for MetronomeSettings {
             outputs: Vec::new(),
             count_in_bars: 0,
             follow_record: false,
+            latency_offset_ms: 0.0,
         }
     }
 }
@@ -86,6 +92,9 @@ impl MetronomeSettings {
         }
         if self.count_in_bars > COUNT_IN_MAX {
             return Some(format!("a count-in is 0 to {COUNT_IN_MAX} bars, not {}", self.count_in_bars));
+        }
+        if !(self.latency_offset_ms.is_finite() && (-OFFSET_MS_MAX..=OFFSET_MS_MAX).contains(&self.latency_offset_ms)) {
+            return Some(format!("the latency offset is between -{OFFSET_MS_MAX} and {OFFSET_MS_MAX} ms, not {}", self.latency_offset_ms));
         }
         if self.outputs.iter().any(|pick| pick.device < 0 || pick.channel < 0) {
             return Some("an output is an interface and one of its outputs, counted from zero".into());
@@ -149,6 +158,7 @@ mod tests {
         assert!(settings.outputs.is_empty(), "no outputs until somebody chooses them");
         assert_eq!(settings.count_in_bars, 0);
         assert!(!settings.follow_record);
+        assert_eq!(settings.latency_offset_ms, 0.0);
         assert_eq!(settings.problem(), None);
     }
 
@@ -166,6 +176,9 @@ mod tests {
         assert!(with(|s| s.count_in_bars = 5).unwrap().contains("0 to 4"));
         assert!(with(|s| s.volume_db = f64::INFINITY).is_some());
         assert!(with(|s| s.outputs = vec![Pick::new(0, -1)]).is_some());
+        assert!(with(|s| s.latency_offset_ms = 100.5).unwrap().contains("between -100 and 100 ms"));
+        assert!(with(|s| s.latency_offset_ms = f64::NAN).is_some());
+        assert!(with(|s| s.latency_offset_ms = -100.0).is_none());
     }
 
     #[test]
@@ -175,7 +188,7 @@ mod tests {
         let path = dir.join("metronome.json");
         let store = MetronomeStore::in_memory();
         assert_eq!(store.load(Backing::File(path.clone())), None, "a missing file is the defaults, said nothing about");
-        let chosen = MetronomeSettings { tempo: 97.5, sound: Sound::Cowbell, outputs: vec![Pick::new(0, 6), Pick::new(0, 7)], count_in_bars: 2, ..MetronomeSettings::default() };
+        let chosen = MetronomeSettings { tempo: 97.5, sound: Sound::Cowbell, outputs: vec![Pick::new(0, 6), Pick::new(0, 7)], count_in_bars: 2, latency_offset_ms: -2.5, ..MetronomeSettings::default() };
         store.put(chosen.clone()).unwrap();
         let again = MetronomeStore::in_memory();
         assert_eq!(again.load(Backing::File(path.clone())), None);
