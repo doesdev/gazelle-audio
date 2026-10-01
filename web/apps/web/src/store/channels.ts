@@ -11,7 +11,7 @@
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
 import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
-import { channelSpan } from "./cables.ts";
+import { channelSpan, type Through } from "./cables.ts";
 import { LEVEL_MAX, PAN_CENTRE } from "./mixer.ts";
 import { groupName } from "./names.ts";
 import type { MixerModel } from "./mixer.ts";
@@ -61,6 +61,8 @@ export interface ChannelsContext {
   mixer(mix: number): Pick<MixerModel, "strip" | "sendPan" | "setLevel">;
   /** Where the metered mix is kept: the store remembers it per device. A signal of its own without. */
   meteredMix?: { get(): ReadonlySignal<number>; set(mix: number): void };
+  /** What a cable from another device brings into an input (`CablesModel.through`), or undefined. Reactive. */
+  through?(source: RouteSource): Through | undefined;
 }
 
 export const emptyLayout = (): DeviceMixer => ({ mixes: [], groups: [], channels: [] });
@@ -105,6 +107,8 @@ export interface ChannelStrip {
   color: string | undefined;
   /** The input the strip meters. */
   source: RouteSource | undefined;
+  /** Where a cable brings its input from, for the name's tooltip (`ChannelsModel.detail`). */
+  detail?: string | undefined;
   /** Set up in the mix, as its main mix or a send: otherwise the strip is greyed and unmetered. */
   inMix: boolean;
 }
@@ -260,11 +264,42 @@ export class ChannelsModel {
 
   /**
    * What a channel is called: the name typed for it, else its input's name, else its mixer input
-   * (the user, 2026-09-16). An unnamed channel follows its input as the input changes.
+   * (the user, 2026-09-16). An unnamed channel follows its input as the input changes. An input a
+   * cable brings from another device is named through it, after what that device sends down it
+   * ("Kick"), once its routing is known and sends something.
    */
   displayName(channel: MixerChannel): string {
     if (channel.name !== "") return channel.name;
-    return channel.source === undefined ? `Ch ${channel.slot + 1}` : this.sourceLabel(channel.source);
+    if (channel.source === undefined) return `Ch ${channel.slot + 1}`;
+    return this.through(channel.source)?.name ?? this.sourceLabel(channel.source);
+  }
+
+  /** What a cable brings into an input (`CablesModel.through`), or undefined. Reactive. */
+  through(source: RouteSource): Through | undefined {
+    return this.#context.through?.(source);
+  }
+
+  /**
+   * Where a cable brings a channel's input from, for its name's tooltip: "from Live room, ADAT In 1",
+   * led by the through name when the user's own name shows instead ("Kick, from Live room, ADAT In
+   * 1"). Undefined for an input no cable brings. Reactive.
+   */
+  detail(channel: MixerChannel): string | undefined {
+    const through = channel.source === undefined ? undefined : this.through(channel.source);
+    if (through === undefined) return undefined;
+    return channel.name !== "" && through.name !== undefined ? `${through.name}, ${through.from}` : through.from;
+  }
+
+  /**
+   * A channel's colour (`channelColor`), with one step added: a channel with no group or own colour
+   * whose input a cable brings takes the colour of the sender's channel on it, before its input's.
+   * Reactive.
+   */
+  color(channel: MixerChannel, palette: readonly string[]): { color: string | undefined; from: ChannelColorSource } {
+    const own = channelColor(channel, { groups: this.layout.value.groups, inputs: this.#context.topology.inputs, palette });
+    if (own.from === "group" || own.from === "custom" || channel.source === undefined) return own;
+    const sent = this.through(channel.source)?.color;
+    return sent === undefined ? own : { color: sent, from: "cable" };
   }
 
   sourceLabel(source: RouteSource): string {
@@ -278,8 +313,11 @@ export class ChannelsModel {
    */
   strip(channel: MixerChannel, mix: number): ChannelStrip {
     // No palette here: a strip without a colour takes the theme palette's by slot itself.
-    const { color } = channelColor(channel, { groups: this.layout.value.groups, inputs: this.#context.topology.inputs, palette: [] });
-    return { label: this.displayName(channel), color, source: channel.source, inMix: this.isActive(channel) && (channel.main_mix === mix || channel.sends.includes(mix)) };
+    const { color } = this.color(channel, []);
+    const strip: ChannelStrip = { label: this.displayName(channel), color, source: channel.source, inMix: this.isActive(channel) && (channel.main_mix === mix || channel.sends.includes(mix)) };
+    const detail = this.detail(channel);
+    if (detail !== undefined) strip.detail = detail;
+    return strip;
   }
 
   /**
@@ -685,7 +723,7 @@ export class ChannelsModel {
 }
 
 /** Where a channel's strip colour came from, strongest first. */
-export type ChannelColorSource = "group" | "custom" | "input" | "palette";
+export type ChannelColorSource = "group" | "custom" | "cable" | "input" | "palette";
 
 /** What `channelColor` reads: the device's layout groups, its topology inputs, and the theme palette. */
 export interface ChannelColorContext {

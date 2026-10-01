@@ -396,7 +396,18 @@ export function followMix(store: ReturnType<typeof useStore>, deviceId: string):
     }),
     effect(() => store.mixer(deviceId, channels.meteredMix.value).activate()),
     effect(() => store.pointMeterBank(deviceId, channels.meteredMix.value)),
+    readCableSenders(store, deviceId),
   ];
+}
+
+/**
+ * Reads, once each, what the other end of every cable into a device routes to its output, so the
+ * channels on those inputs are named through the cable (`CablesModel.through`). Returns the disposer.
+ */
+export function readCableSenders(store: ReturnType<typeof useStore>, deviceId: string): () => void {
+  return effect(() => {
+    for (const sender of store.cables.sendersInto(deviceId)) if (store.routesToRead(sender.deviceId, [sender.destination])) untracked(() => void store.readRoutes(sender.deviceId, [sender.destination]));
+  });
 }
 
 /** The question a drop that would double an input waits behind. */

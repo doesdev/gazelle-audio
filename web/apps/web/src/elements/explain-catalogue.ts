@@ -367,6 +367,10 @@ export const CATALOGUE: Catalogue = {
   "group.name": { title: "Group name", what: "The group's name. " + WORKSPACE },
   "group.colour": { title: "Group colour", what: "The colour every channel in the group shows, over their own." },
   "group.remove": { title: "Remove the group", what: "Removes the group; its channels stay, ungrouped. " + NOTHING_SENT },
+  "group.cable": {
+    title: "From another interface",
+    what: "These channels' inputs arrive over a digital cable from another interface, so each is named after what that interface sends down it, until you name it yourself. The band only shows where they come from: put the channels in a group of your own and the group shows instead.",
+  },
 
   // A mix's master head.
   "master.name": { title: "Mix name", what: "The mix's name, shown in menus and on its master. " + WORKSPACE + " " + NOTHING_SENT },

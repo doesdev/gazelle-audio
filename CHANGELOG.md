@@ -46,6 +46,13 @@ version that has not been published yet.
   Input and + Output menus mark its channels "(phase)", as the Routing page does. Choosing one for
   a channel or a mix, sending a mix to the cable's output, applying a layout, tidying a mix or
   dropping a source on the dock that would break the path now waits for Confirm and says why.
+- **Channels from the other interface are named after what it sends.** With a digital cable
+  declared, a Mixer channel on the cable's inputs takes the name of what the other interface sends
+  down it: that interface's own channel name and colour ("Kick"), a mix by name, or the source
+  ("USB Play 3"). Its tooltip says where it comes from ("from Live room, ADAT In 1"), side by side
+  channels from one cable sit under a band such as "From Live room (ADAT)", and the Input menu
+  shows "ADAT In 1: Kick (Live room)". A name or colour you give a channel, or a group you put it
+  in, still wins. The mixer dock shows the same names.
 
 ### Changed
 

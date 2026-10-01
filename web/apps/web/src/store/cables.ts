@@ -61,6 +61,26 @@ export interface Provenance {
   text: string;
 }
 
+/**
+ * What a cable brings into one of a receiving device's inputs, named through the cable: what the
+ * sending device routes to the matching channel of its output, as its own Mixer calls it.
+ */
+export interface Through {
+  cable: Cable;
+  /** The sending device's name: "Live room". */
+  sender: string;
+  /**
+   * The sender's channel on that source by its name ("Kick"), else a mix by its name and side
+   * ("Cue L"), else the source's label ("Preamp 3"). Undefined while the sender's routing is not
+   * read, or where it routes nothing (Mute).
+   */
+  name: string | undefined;
+  /** That sender channel's colour, if it has one. */
+  color: string | undefined;
+  /** "from Live room, ADAT In 1": the sender and the receiving input. */
+  from: string;
+}
+
 export interface CablesContext {
   cables: ReadonlySignal<readonly Cable[]>;
   edit(update: (cables: Cable[]) => Cable[]): boolean;
@@ -70,6 +90,8 @@ export interface CablesContext {
   /** A device's mix name and its mixer channels, for labels. */
   mixName(deviceId: string, mix: number): string;
   mixerChannels(deviceId: string): readonly MixerChannel[];
+  /** A device's channel's colour as its strip shows it (its group's, its own or its input's), or undefined. */
+  channelColor(deviceId: string, channel: MixerChannel): string | undefined;
   deviceName(deviceId: string): string;
   /** What the device reports about its clock, or undefined before it reports. Reactive. */
   clock(deviceId: string): { rate: number; locked: boolean } | undefined;
@@ -242,6 +264,44 @@ export class CablesModel {
       if (named !== undefined) text += ` (${named.name})`;
     }
     return { cable, channel: sent, text };
+  }
+
+  /**
+   * A receiving device's input named through the cable that brings it in (`Through`), or undefined
+   * for an input no cable brings, or one a cable dedicated to the phase measurement brings (the
+   * Mixer guards those already). Reactive: it follows the cables and the sender's routing and layout.
+   */
+  through(deviceId: string, source: RouteSource): Through | undefined {
+    const topology = this.#context.model(deviceId)?.topology;
+    const group = topology?.inputs[source.group];
+    const port = group?.type;
+    if (group === undefined || (port !== "ADAT_IN" && port !== "SPDIF_IN") || this.position(deviceId, port) !== source.group) return undefined;
+    const cable = this.#cableInto(deviceId, port, source.channel);
+    if (cable === undefined || cable.dedicated !== undefined) return undefined;
+    const senderId = cable.from.device_id;
+    const sender = this.#context.deviceName(senderId);
+    const from = `from ${sender}, ${groupName(group)} ${source.channel + 1}`;
+    const slot = this.#sentFrom(cable, cable.from.first + (source.channel - cable.to.first));
+    const senderTopology = this.#context.model(senderId)?.topology;
+    if (slot === undefined || senderTopology === undefined || slot.source === this.#context.routing(senderId).mute) return { cable, sender, name: undefined, color: undefined, from };
+    const on = this.#context.mixerChannels(senderId).filter((c) => c.source?.group === slot.source && c.source.channel === slot.channel);
+    const channel = on.find((c) => c.name !== "") ?? on[0];
+    const name = channel !== undefined && channel.name !== "" ? channel.name : this.#slotLabel(senderId, senderTopology, slot);
+    return { cable, sender, name, color: channel === undefined ? undefined : this.#context.channelColor(senderId, channel), from };
+  }
+
+  /** What the band over a cable's channels on the receiving Mixer says: "From Live room (ADAT)". Reactive. */
+  band(cable: Cable): string {
+    return `From ${this.#context.deviceName(cable.from.device_id)} (${cable.from.port === "ADAT_OUT" ? "ADAT" : "S/PDIF"})`;
+  }
+
+  /** The senders' routing groups that name a device's inputs through its cables, so a page can read them once. Reactive. */
+  sendersInto(deviceId: string): { deviceId: string; destination: number }[] {
+    return this.list.value.flatMap((cable) => {
+      if (cable.to.device_id !== deviceId || cable.dedicated !== undefined) return [];
+      const destination = this.position(cable.from.device_id, cable.from.port);
+      return destination < 0 ? [] : [{ deviceId: cable.from.device_id, destination }];
+    });
   }
 
   /** The sender's routing group a provenance needs, so a page can read it once. */

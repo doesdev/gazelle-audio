@@ -25,6 +25,7 @@ import { clearSoftLinkOnEscape, LINK_STYLES, linkBar, SOFT_STYLES, softLinkBar }
 import { replaceRoute } from "./router.ts";
 import { keepOpen, keepScroll } from "./view-state.ts";
 import { loadElement } from "./lazy.ts";
+import { readCableSenders } from "./mixer-dock.ts";
 
 export class GaMixer extends GaElement {
   static override styles = [
@@ -117,19 +118,19 @@ export class GaMixer extends GaElement {
       /* Auto: channels share the row between the limits, and scroll once they reach the floor. Fixed: every channel is --strip-width. */
       .strips ga-channel { flex: 1 1 0; min-width: var(--strip-width-min); max-width: var(--strip-width-max); }
       /* Outside the selected mix: hidden by default, dimmed and secondary while every channel is shown. */
-      .strips ga-channel[hidden], .strips ga-channel-group[hidden] { display: none; }
+      .strips ga-channel[hidden], .strips ga-channel-group[hidden], .strips ga-cable-band[hidden] { display: none; }
       .strips ga-channel[data-out-of-mix] { opacity: 0.55; }
       .strips ga-channel[data-out-of-mix]:hover, .strips ga-channel[data-out-of-mix]:focus-within { opacity: 1; }
       .empty-mix { flex: 0 1 auto; align-self: center; max-width: 34ch; padding: 8px 12px; font-size: 12px; line-height: 1.4; }
       .empty-mix[hidden] { display: none; }
       .strips.fixed ga-channel { flex: 0 0 var(--strip-width); min-width: 0; max-width: none; }
-      /* A group grows like its channels together: n channels' share, limits and gaps. */
-      ga-channel-group {
+      /* A group, or a cable's band, grows like its channels together: n channels' share, limits and gaps. */
+      ga-channel-group, ga-cable-band {
         flex: var(--members) var(--members) 0;
         min-width: calc(var(--members) * var(--strip-width-min) + (var(--members) - 1) * 2px);
         max-width: calc(var(--members) * var(--strip-width-max) + (var(--members) - 1) * 2px);
       }
-      .strips.fixed ga-channel-group { flex: 0 0 auto; min-width: 0; max-width: none; }
+      .strips.fixed ga-channel-group, .strips.fixed ga-cable-band { flex: 0 0 auto; min-width: 0; max-width: none; }
       ga-channel-group[collapsed] { flex: 0 0 28px; min-width: 28px; max-width: 28px; }
       .add {
         flex: 0 0 36px;
@@ -439,6 +440,8 @@ export class GaMixer extends GaElement {
     // A strip fed by AFX Out is metered by its chain's last effect, which needs the chains read and
     // the effect-meter report followed while the page is open.
     this.watch(() => store.effects(deviceId).activate());
+    // Channels on a cable's inputs are named after what the other interface sends down it.
+    this.onDisconnect(readCableSenders(store, deviceId));
 
     // Channels in layout order (consecutive channels of one group inside a group element), then
     // "+", then the masters of the mixes in use.
@@ -523,19 +526,40 @@ export class GaMixer extends GaElement {
         }
         return element;
       };
-      const runs: { group: string | undefined; members: { id: string; slot: number }[] }[] = [];
+      // A run of ungrouped channels on one cable's inputs gets a band naming where they come from:
+      // display only, in the user's order, so channels on the cable that are not side by side get
+      // a band per run rather than being moved together.
+      const runs: { group: string | undefined; cable?: { id: string; label: string }; members: { id: string; slot: number }[] }[] = [];
       for (const c of list) {
         const group = c.group !== undefined && layout.groups.some((g) => g.id === c.group) ? c.group : undefined;
+        const through = group === undefined && c.source !== undefined ? channels.through(c.source)?.cable : undefined;
+        const cable = through === undefined ? undefined : { id: through.id, label: store.cables.band(through) };
         const last = runs.at(-1);
         if (group !== undefined && last?.group === group) last.members.push({ id: c.id, slot: c.slot });
-        else runs.push({ group, members: [{ id: c.id, slot: c.slot }] });
+        else if (cable !== undefined && last?.cable?.id === cable.id) last.members.push({ id: c.id, slot: c.slot });
+        else runs.push({ group, ...(cable === undefined ? {} : { cable }), members: [{ id: c.id, slot: c.slot }] });
       }
-      const runsKey = runs.map((run) => `${run.group ?? "-"}:${run.members.map((m) => m.id).join(",")}`).join("|");
+      const runsKey = runs.map((run) => `${run.group ?? run.cable?.label ?? "-"}:${run.members.map((m) => m.id).join(",")}`).join("|");
       if (runsKey !== structure) {
         structure = runsKey;
         const seen = new Map<string, number>();
         const kept = new Set<string>();
         const children = runs.map((run) => {
+          if (run.cable !== undefined) {
+            const count = seen.get(run.cable.id) ?? 0;
+            seen.set(run.cable.id, count + 1);
+            const bandKey = `cable:${run.cable.id}#${count}`;
+            kept.add(bandKey);
+            let element = groupElements.get(bandKey);
+            if (element === undefined) {
+              element = h("ga-cable-band", {});
+              groupElements.set(bandKey, element);
+            }
+            element.setAttribute("label", run.cable.label);
+            element.style.setProperty("--members", String(run.members.length));
+            element.replaceChildren(...run.members.map((m) => channelElement(m.id, m.slot)));
+            return element;
+          }
           if (run.group === undefined) return run.members.map((m) => channelElement(m.id, m.slot));
           // A group split by moving a channel on its own gets one element per run.
           const count = seen.get(run.group) ?? 0;

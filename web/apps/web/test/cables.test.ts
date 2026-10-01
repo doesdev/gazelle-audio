@@ -217,3 +217,96 @@ test("the S/PDIF converter answers the clock warnings: with it on, rates need no
   );
   for (const off of offs) off();
 });
+
+test("a channel on a cable's input is named through it: the sender's channel, a mix, or the source, and plain while unread or muted", async () => {
+  const { client, store } = setup();
+  await store.start();
+  // Studio+ ADAT Out 1..5: Preamp 1, USB Play 3, Mix 2 L, Mute, Preamp 1 again.
+  answerRouting(client, { [STUDIO]: { 7: [[0, 0], [3, 2], [8, 0], [11, 0], [0, 0]] } });
+  store.renameDevice(STUDIO, "Live room");
+  store.cables.declare(adat.from, adat.to, 6);
+  const studio = store.channels(STUDIO);
+  const kick = studio.add() as string;
+  studio.rename(kick, "Kick");
+  studio.setChannelColor(kick, "#aa3311");
+  await studio.setSource(kick, { group: 0, channel: 0 });
+  studio.renameMix(1, "Cue");
+
+  const quadro = store.channels(QUADRO);
+  const ids: string[] = [];
+  for (let k = 0; k < 6; k++) {
+    const id = quadro.add() as string;
+    await quadro.setSource(id, { group: 3, channel: k });
+    ids.push(id);
+  }
+  const channel = (k: number) => quadro.channel(ids[k]!)!;
+  const names = () => ids.map((_, k) => quadro.displayName(channel(k)));
+
+  // Not read yet: the plain input labels, with where they come from all the same.
+  assert.deepEqual(names(), ["ADAT In 1", "ADAT In 2", "ADAT In 3", "ADAT In 4", "ADAT In 5", "ADAT In 6"]);
+  assert.equal(quadro.detail(channel(0)), "from Live room, ADAT In 1");
+  assert.equal(store.cables.band(store.cables.list.value[0]!), "From Live room (ADAT)");
+  assert.deepEqual(store.cables.sendersInto(QUADRO), [{ deviceId: STUDIO, destination: 7 }]);
+  assert.deepEqual(store.cables.sendersInto(STUDIO), []);
+
+  await store.readRoutes(STUDIO, [7]);
+  // The sender's channel by name, a playback channel and a mix by their labels, Mute and silence plain.
+  assert.deepEqual(names(), ["Kick", "USB Play 3", "Cue L", "ADAT In 4", "Kick", "ADAT In 6"]);
+  assert.equal(quadro.through({ group: 3, channel: 3 })?.name, undefined, "Mute names nothing");
+  assert.equal(quadro.through({ group: 3, channel: 6 }), undefined, "ADAT In 7 is past the cable");
+  assert.equal(quadro.through({ group: 4, channel: 0 }), undefined, "no cable brings S/PDIF In");
+  assert.equal(quadro.through({ group: 0, channel: 0 }), undefined, "a preamp is no cable's");
+  // The sender's channel colour, under the receiver's own.
+  assert.deepEqual(quadro.strip(channel(0), 0), { label: "Kick", color: "#aa3311", source: { group: 3, channel: 0 }, inMix: false, detail: "from Live room, ADAT In 1" });
+  assert.equal(quadro.color(channel(1), []).from, "input", "no sender channel, no sender colour: its own input's");
+
+  // It follows the sender's layout and name as they change.
+  studio.rename(kick, "Kick In");
+  store.renameDevice(STUDIO, "Drum room");
+  assert.equal(quadro.displayName(channel(0)), "Kick In");
+  assert.equal(quadro.detail(channel(0)), "from Drum room, ADAT In 1");
+
+  // A name the user gave wins, and the through name moves to the tooltip. So do their colours.
+  quadro.rename(ids[0]!, "Bass drum");
+  quadro.setChannelColor(ids[0]!, "#00ff00");
+  assert.equal(quadro.displayName(channel(0)), "Bass drum");
+  assert.equal(quadro.detail(channel(0)), "Kick In, from Drum room, ADAT In 1");
+  assert.deepEqual(quadro.color(channel(0), []), { color: "#00ff00", from: "custom" });
+  quadro.setChannelColor(ids[0]!, undefined);
+  assert.deepEqual(quadro.color(channel(0), []), { color: "#aa3311", from: "cable" });
+  const group = quadro.addGroup("Drums", [ids[0]!]) as string;
+  quadro.setGroupColor(group, "#0000ff");
+  assert.deepEqual(quadro.color(channel(0), []), { color: "#0000ff", from: "group" });
+
+  // A cable dedicated to the phase measurement names nothing: the Mixer guards it instead.
+  store.editWorkspace((workspace) => ({ ...workspace, cables: (workspace.cables ?? []).map((cable) => ({ ...cable, dedicated: { phase_output: 0, phase_input: 0 } })) }));
+  assert.deepEqual(names(), ["Bass drum", "ADAT In 2", "ADAT In 3", "ADAT In 4", "ADAT In 5", "ADAT In 6"]);
+  assert.equal(quadro.detail(channel(1)), undefined);
+  assert.deepEqual(store.cables.sendersInto(QUADRO), []);
+  await flush();
+});
+
+test("naming through works the other way too: the Quadro's S/PDIF Out names the Studio+'s S/PDIF In channels", async () => {
+  const { client, store } = setup();
+  await store.start();
+  // Quadro S/PDIF Out: Preamp 2, then Mix 4's right side.
+  answerRouting(client, { [QUADRO]: { 6: [[0, 1], [9, 1]] } });
+  store.renameDevice(QUADRO, "Desk");
+  store.cables.declare(spdif.from, spdif.to, 2);
+  const vox = store.channels(QUADRO).add() as string;
+  store.channels(QUADRO).rename(vox, "Vox");
+  await store.channels(QUADRO).setSource(vox, { group: 0, channel: 1 });
+  store.channels(QUADRO).renameMix(3, "Music");
+  await store.readRoutes(QUADRO, [6]);
+
+  const studio = store.channels(STUDIO);
+  assert.equal(studio.through({ group: 5, channel: 0 })?.name, "Vox");
+  assert.equal(studio.through({ group: 5, channel: 0 })?.sender, "Desk");
+  assert.equal(studio.through({ group: 5, channel: 1 })?.name, "Music R");
+  const id = studio.add() as string;
+  await studio.setSource(id, { group: 5, channel: 0 });
+  assert.equal(studio.displayName(studio.channel(id)!), "Vox");
+  assert.equal(studio.detail(studio.channel(id)!), "from Desk, S/PDIF In 1");
+  assert.equal(store.cables.band(store.cables.list.value[0]!), "From Desk (S/PDIF)");
+  await flush();
+});

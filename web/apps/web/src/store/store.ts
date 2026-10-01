@@ -17,7 +17,7 @@
 
 import { connect, GazelleError, topologies, type UpdateStatus, type Client, type DeviceDescriptor, type ChannelRef, type DeviceMixer, type Group, type Link, type LinkKind, type MixerChannel, type RouteSource, type ServerInfo, type Status, type Surface, type SurfaceStrip, type Topology, type Workspace, type Aggregate, type Cable, type CableEnd, type DigitalPort } from "gazelle-audio-client";
 
-import { ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
+import { channelColor, ChannelsModel, emptyLayout, sourceLabel } from "./channels.ts";
 import { EffectsModel } from "./effects.ts";
 import { ECHO_HOLD_MS, InputsModel } from "./inputs.ts";
 import { LinksModel } from "./links.ts";
@@ -875,6 +875,8 @@ export class Store {
       saved: computed(() => this.#workspace.value?.layouts ?? []),
       editSaved: (update) => this.editWorkspace((workspace) => ({ ...workspace, layouts: update([...(workspace.layouts ?? [])]) })),
       mixer: (mix) => this.mixer(deviceId, mix),
+      // What a cable brings into an input, so a channel on it is named after what the sender plays.
+      through: (source) => this.cables.through(deviceId, source),
       // The Quadro's panning law; the Studio+ has none and loses nothing at centre (measured 2026-09-20).
       centreAttenuation: () => this.centreAttenuation(deviceId),
       meteredMix: {
@@ -925,6 +927,10 @@ export class Store {
     routing: (deviceId) => this.routing(deviceId),
     mixName: (deviceId, mix) => this.channels(deviceId).mixName(mix),
     mixerChannels: (deviceId) => (this.topology(deviceId) === undefined ? [] : this.channels(deviceId).layout.value.channels),
+    channelColor: (deviceId, channel) => {
+      const topology = this.topology(deviceId);
+      return topology === undefined ? undefined : channelColor(channel, { groups: this.channels(deviceId).layout.value.groups, inputs: topology.inputs, palette: [] }).color;
+    },
     deviceName: (deviceId) => {
       const device = this.#devices.value.find((d) => d.id === deviceId);
       return device === undefined ? deviceId : displayName(device, this.#workspace.value);

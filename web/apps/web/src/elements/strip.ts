@@ -1,8 +1,9 @@
-// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel] [compact]>: one
+// <ga-strip device-id="…" mixer="0" strip="3|master" [label="Vox"] [detail="from Live room, ADAT In 1"] [color="#rrggbb"] [inactive] [meter="off"] [input-group input-channel] [compact]>: one
 // mixer channel strip, in the dense style of DAW mixers. Top to bottom: send (Studio+ Mix 1), pan,
 // mute/solo/link, a fader with its dB scale beside a meter with a clip light, level and peak
 // readouts, and a coloured name bar. Values and scales come from the store's MixerModel (the vendor
-// panels' own scales). `label` names the strip; `inactive` disables its controls (a channel with no
+// panels' own scales). `label` names the strip, and `detail` adds where a cable brings its input from
+// to the name's tooltip; `inactive` disables its controls (a channel with no
 // input or main mix); `meter="off"` blanks its meter (a channel not in the selected mix). The meter
 // shows the channel's input, named by `input-group` and `input-channel`: the signal arriving, before
 // the fader, from the field that meters that kind of input or, for an input the interface does not
@@ -308,7 +309,8 @@ export class GaStrip extends GaElement {
       });
     }
 
-    const nameBar = h("div", { class: "name", title: label, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1));
+    const detail = this.getAttribute("detail");
+    const nameBar = h("div", { class: "name", title: detail === null ? label : `${label} (${detail})`, "data-explain": "strip.name", "data-explain-name": label }, name !== "" ? name : id === "master" ? "Master" : String(id + 1));
     // A `fixed` strip (an effect return) is not a channel, so it takes no part in the soft link.
     if (id !== "master" && !inactive && !this.hasAttribute("fixed")) selectable(nameBar, deviceId, Number(this.getAttribute("mixer") ?? "0"), id, label, (fn) => this.watch(fn), this);
     this.root.replaceChildren(h("div", { class: "strip" }, top, h("div", { class: "row" }, buttons), levelArea, readouts, nameBar));
