@@ -210,9 +210,79 @@ pub struct DeviceConfig {
     /// session runs on the figures the drivers report, exactly as it did before.
     #[serde(default)]
     pub phase: Option<PhaseConfig>,
+    /// Input trims measured at one rate and one buffer size each, with the phase reference each was
+    /// measured at. A session uses the one for the rate and the buffer size it actually runs at, and
+    /// only when there is none for that pair does it fall back to `input_trim` and `phase.reference`,
+    /// which are a trim whose setup was never written down.
+    #[serde(default)]
+    pub trims: Vec<SetupTrim>,
+}
+
+/// One input trim, measured at one rate and one buffer size, and the phase reference measured
+/// beside it in the same session.
+///
+/// **A trim is only true of the setup it was measured at.** What it corrects is the part of an
+/// interface's path its driver does not admit to, and the drivers' own figures change with the rate
+/// and with the buffer, so a trim measured at 96 kHz and 512 samples says nothing reliable about
+/// 48 kHz or 128 samples.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+pub struct SetupTrim {
+    /// The rate it was measured at, in Hz.
+    pub rate: f64,
+    /// The buffer size it was measured at, in samples.
+    pub buffer_size: i32,
+    /// The trim itself, with the same meaning and sign as `input_trim`.
+    pub input_trim: i32,
+    /// The phase measured in the session the trim was measured in, as `phase.reference` is.
+    #[serde(default)]
+    pub reference: Option<i32>,
+}
+
+impl SetupTrim {
+    /// Whether this is the trim for a session at `rate` and `block`. Rates are compared to the
+    /// nearest hertz, because a driver can hand back 96000 as 95999.99.
+    pub fn is_for(&self, rate: f64, block: i32) -> bool {
+        self.buffer_size == block && (self.rate - rate).abs() < 0.5
+    }
+}
+
+/// Where the input trim a session uses came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrimFrom {
+    /// One measured at exactly this rate and buffer size.
+    ThisSetup,
+    /// `input_trim`, whose rate and buffer size were never written down. Used only where nothing
+    /// was measured for this setup.
+    UnknownSetup,
+    /// Nothing at all: the session runs on the drivers' own figures for this interface.
+    Nothing,
+}
+
+/// The input trim a session uses, and the phase reference that goes with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChosenTrim {
+    pub input_trim: i32,
+    pub reference: Option<i32>,
+    pub from: TrimFrom,
 }
 
 impl DeviceConfig {
+    /// **The input trim for a session at this rate and this buffer size**, with its reference.
+    ///
+    /// The one measured at exactly this setup, else the one whose setup is not known, else none.
+    /// Never a trim from another rate or another buffer size: a trim measured somewhere else is a
+    /// guess, and the old `input_trim` is already the one guess the file holds.
+    pub fn trim_for(&self, rate: f64, block: i32) -> ChosenTrim {
+        if let Some(measured) = self.trims.iter().find(|trim| trim.is_for(rate, block)) {
+            return ChosenTrim { input_trim: measured.input_trim, reference: measured.reference, from: TrimFrom::ThisSetup };
+        }
+        let reference = self.phase.and_then(|phase| phase.reference);
+        match self.input_trim {
+            Some(trim) => ChosenTrim { input_trim: trim, reference, from: TrimFrom::UnknownSetup },
+            None => ChosenTrim { input_trim: 0, reference, from: TrimFrom::Nothing },
+        }
+    }
+
     /// How this entry reads in a message.
     pub fn described(&self) -> String {
         match (&self.name, &self.key, &self.clsid) {
@@ -330,6 +400,22 @@ impl Config {
             }
             if let Some(why) = device.phase.as_ref().and_then(PhaseConfig::problem) {
                 return Err(format!("{}: {why}", device.described()));
+            }
+            for (at, trim) in device.trims.iter().enumerate() {
+                if !(trim.rate.is_finite() && trim.rate > 0.0) || trim.buffer_size <= 0 {
+                    return Err(format!(
+                        "{}: every one of its trims needs the rate and the buffer size it was measured at, both more than zero",
+                        device.described()
+                    ));
+                }
+                if device.trims[..at].iter().any(|earlier| earlier.is_for(trim.rate, trim.buffer_size)) {
+                    return Err(format!(
+                        "{} has two trims for {} Hz at {} samples, and a setup has one",
+                        device.described(),
+                        trim.rate,
+                        trim.buffer_size
+                    ));
+                }
             }
             for (field, labels) in [("input_names", &device.input_names), ("output_names", &device.output_names)] {
                 if let Some(why) = labels.problem() {
@@ -527,6 +613,48 @@ mod tests {
         )
         .expect_err("there is no channel below zero");
         assert!(below_zero.contains("below zero"), "{below_zero}");
+    }
+
+    /// The trim a session uses is the one measured at its own rate and buffer size, then the one
+    /// nobody wrote the setup of, then none, and the reference always comes with the trim it was
+    /// measured beside.
+    #[test]
+    fn a_session_uses_the_trim_measured_at_its_own_rate_and_buffer_size() {
+        let config = Config::parse(
+            r#"{"devices": [{"key": "Zen Quadro"},
+                            {"key": "ZenStudioTB", "name": "Studio+", "input_trim": 144,
+                             "phase": {"master_output": 8, "input": 16, "reference": -84},
+                             "trims": [{"rate": 96000, "buffer_size": 512, "input_trim": 60, "reference": -148},
+                                       {"rate": 48000, "buffer_size": 256, "input_trim": 31}]}]}"#,
+        )
+        .expect("trims keyed by setup");
+        let studio = &config.devices[1];
+        assert_eq!(studio.trim_for(96000.0, 512), ChosenTrim { input_trim: 60, reference: Some(-148), from: TrimFrom::ThisSetup });
+        assert_eq!(studio.trim_for(95999.99, 512).from, TrimFrom::ThisSetup, "a rate a driver rounds is the same rate");
+        assert_eq!(
+            studio.trim_for(48000.0, 256),
+            ChosenTrim { input_trim: 31, reference: None, from: TrimFrom::ThisSetup },
+            "measured with nothing heard on the cable, so no reference, and never the other trim's"
+        );
+        // Another buffer size at a rate that has a trim is still another setup.
+        assert_eq!(studio.trim_for(96000.0, 256), ChosenTrim { input_trim: 144, reference: Some(-84), from: TrimFrom::UnknownSetup });
+        assert_eq!(studio.trim_for(44100.0, 512).from, TrimFrom::UnknownSetup);
+        // With nothing older to fall back on there is nothing at all.
+        assert_eq!(config.devices[0].trim_for(96000.0, 512), ChosenTrim { input_trim: 0, reference: None, from: TrimFrom::Nothing });
+    }
+
+    #[test]
+    fn a_trim_with_no_setup_or_two_for_one_setup_is_refused_by_device() {
+        let unkeyed = Config::parse(r#"{"devices": [{"key": "a", "name": "Studio+", "trims": [{"rate": 0, "buffer_size": 512, "input_trim": 4}]}]}"#)
+            .expect_err("a trim keyed by nothing");
+        assert!(unkeyed.starts_with("Studio+: every one of its trims needs the rate"), "{unkeyed}");
+        let twice = Config::parse(
+            r#"{"devices": [{"key": "a", "name": "Studio+", "trims": [{"rate": 96000, "buffer_size": 512, "input_trim": 4},
+                                                                         {"rate": 96000, "buffer_size": 512, "input_trim": 5}]}]}"#,
+        )
+        .expect_err("which one would a session use?");
+        assert_eq!(twice, "Studio+ has two trims for 96000 Hz at 512 samples, and a setup has one");
+        assert!(Config::parse(r#"{"devices": [{"key": "a", "trims": [{"rate": 96000, "input_trim": 4}]}]}"#).is_err(), "the buffer size is part of the key");
     }
 
     #[test]

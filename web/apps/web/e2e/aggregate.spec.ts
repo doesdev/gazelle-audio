@@ -105,6 +105,9 @@ interface Captured {
   calibration: Record<string, unknown>[];
   /** When set, starting a run is refused with this message rather than started. */
   refuseCalibrate?: string;
+  /** What `GET /aggregate/suite` answers next, read in turn as `calibration` is. */
+  suite: Record<string, unknown>[];
+  suiteReads: number;
 }
 
 /**
@@ -113,7 +116,7 @@ interface Captured {
  * reach the server.
  */
 async function fakeAggregate(page: Page, ...readings: Record<string, unknown>[]): Promise<Captured> {
-  const captured: Captured = { posts: [], commands: [], reads: 0, calibrationReads: 0, calibration: [{ state: "idle" }] };
+  const captured: Captured = { posts: [], commands: [], reads: 0, calibrationReads: 0, calibration: [{ state: "idle" }], suite: [{ state: "idle", setups: [], saved: 0 }], suiteReads: 0 };
   // A device command is a frame on the event socket. It still reaches this loopback server, which
   // is in dry run, so nothing is written anywhere; what is checked is the frame the page sent.
   page.on("websocket", (socket) =>
@@ -133,6 +136,13 @@ async function fakeAggregate(page: Page, ...readings: Record<string, unknown>[])
     if (request.method() === "POST") {
       captured.posts.push({ route: path, body: request.postDataJSON() });
       if (path.endsWith("match-buffers")) return route.fulfill({ json: { buffer_size: (request.postDataJSON() as { buffer_size: number }).buffer_size, changed: 2, refused: 0, devices: [] } });
+      if (path.endsWith("suite/stop")) {
+        const now = captured.suite[Math.min(captured.suiteReads, captured.suite.length - 1)];
+        captured.suite = [{ ...now, state: "stopping" }];
+        captured.suiteReads = 0;
+        return route.fulfill({ json: { stopped: true } });
+      }
+      if (path.endsWith("aggregate/suite")) return route.fulfill({ json: { started: true } });
       if (path.endsWith("calibrate/stop")) {
         const wasRunning = captured.calibration[Math.min(captured.calibrationReads, captured.calibration.length - 1)]?.["state"] === "running";
         captured.calibration = [{ state: "idle" }];
@@ -150,6 +160,11 @@ async function fakeAggregate(page: Page, ...readings: Record<string, unknown>[])
     if (path.endsWith("aggregate/calibrate")) {
       const state = calibration();
       captured.calibrationReads += 1;
+      return route.fulfill({ json: state });
+    }
+    if (path.endsWith("aggregate/suite")) {
+      const state = captured.suite[Math.min(captured.suiteReads, captured.suite.length - 1)];
+      captured.suiteReads += 1;
       return route.fulfill({ json: state });
     }
     const at = Math.min(captured.reads, readings.length - 1);
@@ -935,6 +950,125 @@ test("a check sends each cable end as an interface and that interface's own chan
   ]);
 });
 
+// ---------------------------------------------------------------------------------------------
+// Measuring every setup: the alignment suite
+// ---------------------------------------------------------------------------------------------
+
+/** The suite as the server answers it part way: the first setup saved, the second measuring. */
+const suiteRunning = (parts: Record<string, unknown> = {}) => ({
+  state: "running",
+  runs: 3,
+  saved: 1,
+  setups: [
+    { rate: 48000, buffer_size: 128, state: "saved", trims: [{ index: 1, device: "Studio+", input_trim: 14, spread_samples: 0.2 }] },
+    { rate: 96000, buffer_size: 256, state: "measuring", run: 2, round: 1 },
+  ],
+  before: { rate: 96000, buffer_size: 256, driver_buffer: 256, interfaces_rate: 96000 },
+  ...parts,
+});
+
+test("the suite measures the ticked setups after one confirm that lists every change, and shows each as it goes", async ({ page }) => {
+  await bothConfigured();
+  const config = { devices: [{ key: "Quadro", device_id: "loopback-0" }, { key: "Studio+", device_id: "loopback-1" }], callback_master: "Quadro", rate: 96000, buffer_size: 256 };
+  const captured = await fakeAggregate(page, answer({ devices: withBoth(), config }));
+  await open(page);
+
+  // Nothing ticked is nothing to start.
+  await expect(page.getByTestId("suite-problem")).toHaveText("Tick at least one rate and buffer size.");
+  await expect(page.getByTestId("suite-start")).toBeDisabled();
+  await expect(page.getByTestId("suite-runs")).toHaveValue("3");
+
+  await page.getByTestId("suite-cell-96000-256").check();
+  await page.getByTestId("suite-cell-48000-128").check();
+  await expect(page.getByTestId("suite-problem")).toBeHidden();
+  await page.getByTestId("suite-start").click();
+
+  // One confirm for the whole run, every change on it, the putting back last.
+  await expect(page.getByTestId("suite-confirm")).toBeVisible();
+  await expect(page.getByTestId("suite-change-0")).toHaveText(
+    "Put the aggregate at 48 kHz, and every interface's driver on 128 samples, which restarts the audio of every program using those drivers; then play 3 runs of clicks.",
+  );
+  await expect(page.getByTestId("suite-change-1")).toContainText("Put the aggregate at 96 kHz, and every interface's driver on 256 samples");
+  await expect(page.getByTestId("suite-change-2")).toHaveText("At the end, or when stopped, put the aggregate's rate back to 96 kHz and its buffer size to 256 samples, and every interface's driver back on 256 samples.");
+  await page.waitForTimeout(300);
+  expect(captured.posts, "showing the list changes nothing").toEqual([]);
+
+  captured.suite = [
+    suiteRunning(),
+    {
+      ...suiteRunning({ state: "done", restored: "Put back to 96 kHz and 256 samples, as it was before the suite." }),
+      setups: [
+        suiteRunning().setups[0],
+        { rate: 96000, buffer_size: 256, state: "failed", why: "The runs did not agree within 1 sample: Studio+ came to 20.0, 28.0 and 28.1 (8.1 samples apart). Measured 3 times over, and nothing was kept for this setup." },
+      ],
+    },
+  ];
+  captured.suiteReads = 0;
+  await page.getByTestId("suite-go").click();
+  await expect.poll(() => captured.posts).toEqual([
+    {
+      route: "aggregate/suite",
+      body: {
+        setups: [{ rate: 48000, buffer_size: 128 }, { rate: 96000, buffer_size: 256 }],
+        runs: 3,
+        outputs: [{ device: 0, channel: 0 }, { device: 0, channel: 1 }],
+        inputs: [{ device: 0, channel: 0 }, { device: 1, channel: 0 }],
+        clicks: 8,
+        level_dbfs: -20,
+        confirmed: true,
+      },
+    },
+  ]);
+  await expect(page.getByTestId("suite-confirm")).toBeHidden();
+
+  // Each setup as it goes, and then what it came to.
+  await expect(page.getByTestId("suite-setup-0-state")).toHaveText("Saved: Studio+ 14, runs 0.2 apart");
+  await expect(page.getByTestId("suite-setup-1-state")).toContainText("Failed: The runs did not agree within 1 sample: Studio+ came to 20.0, 28.0 and 28.1");
+  await expect(page.getByTestId("suite-summary")).toHaveText("Finished: 1 of 2 setups saved, 1 failed. Put back to 96 kHz and 256 samples, as it was before the suite.");
+  await expect(page.getByTestId("suite-start")).toBeVisible();
+  await expect(page.getByTestId("suite-stop")).toBeHidden();
+});
+
+test("a page that comes back to a running suite shows where it is, and can stop it", async ({ page }) => {
+  await bothConfigured();
+  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  captured.suite = [suiteRunning()];
+  await open(page);
+  await expect(page.getByTestId("suite-setup-0")).toContainText("48 kHz at 128 samples");
+  await expect(page.getByTestId("suite-setup-1-state")).toHaveText("Measuring 2 of 3");
+  await expect(page.getByTestId("suite-start")).toBeHidden();
+  await expect(page.getByTestId("suite-cell-96000-256")).toBeDisabled();
+  // It is followed while it goes.
+  await expect.poll(() => captured.suiteReads, { timeout: 5000 }).toBeGreaterThan(2);
+  await page.getByTestId("suite-stop").click();
+  await expect.poll(() => captured.posts.map((post) => post.route)).toEqual(["aggregate/suite/stop"]);
+  await expect(page.getByTestId("suite-stop")).toHaveText("Stopping");
+});
+
+test("a card lists the trims kept per setup, the one in force marked, and a setup without one is a reason", async ({ page }) => {
+  await setUp({
+    devices: [
+      { key: "Quadro", device_id: "loopback-0" },
+      { key: "Studio+", device_id: "loopback-1", input_trim: 60, trims: [{ rate: 96000, buffer_size: 256, input_trim: 28, reference: -148 }, { rate: 48000, buffer_size: 128, input_trim: 14 }] },
+    ],
+    callback_master: "Quadro",
+  });
+  const message = "Studio+ has no trim measured for 44.1 kHz at 256 samples, so the aggregate uses its input trim of 60 samples, whose rate and buffer size were never written down.";
+  await fakeAggregate(
+    page,
+    answer({
+      devices: withBoth(),
+      setup_in_force: { rate: 96000, buffer_size: 256 },
+      reasons: [{ code: "trim_setup_unknown", severity: "warning", message, device: "Studio+", device_index: 1, device_id: "loopback-1" }],
+    }),
+  );
+  await open(page);
+  await expect(page.getByTestId("device-1-trims")).toHaveText("48 kHz at 128 samples: 14; 96 kHz at 256 samples: 28, phase reference -148 (in force)");
+  await expect(page.getByTestId("device-0-trims")).toHaveText("None yet: Input trim is used at every setup");
+  await expect(page.getByTestId("reason-trim_setup_unknown")).toHaveText(message);
+  await expect(page.getByTestId("reason-hint-trim_setup_unknown")).toContainText("Measure every setup");
+});
+
 test("a run shows its step and how far along it is, and can be stopped", async ({ page }) => {
   await bothConfigured();
   const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
@@ -980,17 +1114,20 @@ test("a finished run says how far out each interface is, how steady it was, and 
   await expect(page.getByTestId("calibrate-trim-1-now")).toHaveText("28");
 });
 
-test("the measured trims are written into the setup by one button, and show up in the card", async ({ page }) => {
+test("the measured trims are kept for the run's setup by one button, and show up in the card", async ({ page }) => {
   await bothConfigured();
-  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  const captured = await fakeAggregate(page, answer({ devices: withBoth(), setup_in_force: { rate: 96000, buffer_size: 512 } }));
   captured.calibration = [done()];
   await open(page);
 
   await expect(page.getByTestId("device-1-in-trim")).toHaveValue("0");
   await page.getByTestId("calibrate-apply").click();
-  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[1]?.input_trim).toBe(28);
-  await expect(page.getByTestId("device-1-in-trim")).toHaveValue("28");
+  await expect.poll(async () => ((await (await fetch(`${server.url}/api/v1/workspace`)).json()).aggregate?.devices ?? [])[1]?.trims).toEqual([{ rate: 96000, buffer_size: 512, input_trim: 28 }]);
+  // The trim for any other setup is left exactly as it was.
+  await expect(page.getByTestId("device-1-in-trim")).toHaveValue("0");
+  await expect(page.getByTestId("device-1-trims")).toHaveText("96 kHz at 512 samples: 28 (in force)");
   await expect(page.getByTestId("calibrate-applied")).toContainText("Studio+ in 28");
+  await expect(page.getByTestId("calibrate-applied")).toContainText("Input trims are kept for 96 kHz at 512 samples");
 });
 
 test("a run the server will not start says why, in the server's own words", async ({ page }) => {
@@ -1203,9 +1340,9 @@ test("checking asks twice, sends a check, and reads as a verdict with no trims t
   await expect(page.getByTestId("calibrate-lag-Studio+")).toHaveCount(0);
 });
 
-test("writing a measured trim writes the phase reference measured beside it", async ({ page }) => {
+test("writing a measured trim keeps the phase reference measured beside it", async ({ page }) => {
   await phaseConfigured();
-  const captured = await fakeAggregate(page, answer({ devices: withBoth() }));
+  const captured = await fakeAggregate(page, answer({ devices: withBoth(), setup_in_force: { rate: 96000, buffer_size: 512 } }));
   captured.calibration = [
     done({
       clean: true,
@@ -1227,8 +1364,8 @@ test("writing a measured trim writes the phase reference measured beside it", as
   await expect(page.getByTestId("calibrate-trim-1-reference")).toHaveText("Phase reference: none yet, becomes -84 samples");
 
   await page.getByTestId("calibrate-apply").click();
-  await expect.poll(async () => [(await studio())["input_trim"], (await studio())["phase"]]).toEqual([28, { master_output: 3, input: 1, reference: -84 }]);
-  await expect(page.getByTestId("calibrate-applied")).toHaveText("1 trim written: Studio+ in 28 (phase reference -84).");
+  await expect.poll(async () => [(await studio())["trims"], (await studio())["phase"]]).toEqual([[{ rate: 96000, buffer_size: 512, input_trim: 28, reference: -84 }], { master_output: 3, input: 1 }]);
+  await expect(page.getByTestId("calibrate-applied")).toHaveText("1 trim written: Studio+ in 28 (phase reference -84). Input trims are kept for 96 kHz at 512 samples, and used whenever a session runs there.");
   await expect(page.getByTestId("device-1-phase-summary")).toHaveText("Set up, reference -84 samples");
 });
 
@@ -1246,8 +1383,9 @@ test("a first run whose trim comes out unchanged still writes its new reference"
   await expect(page.getByTestId("calibrate-trim-0-now")).toHaveText("28");
   await expect(page.getByTestId("calibrate-apply")).toBeVisible();
   await page.getByTestId("calibrate-apply").click();
-  await expect.poll(async () => (await studio())["phase"]).toEqual({ master_output: 3, input: 1, reference: -148 });
+  await expect.poll(async () => (await studio())["trims"]).toEqual([{ rate: 96000, buffer_size: 512, input_trim: 28, reference: -148 }]);
   expect((await studio())["input_trim"]).toBe(28);
+  expect((await studio())["phase"], "the path stays as it was").toEqual({ master_output: 3, input: 1 });
 });
 
 test("a run that was not clean, or whose phase was refused, reads as such", async ({ page }) => {
@@ -1280,9 +1418,11 @@ test("a run that was not clean, or whose phase was refused, reads as such", asyn
   await expect(page.getByTestId("calibrate-witness-0")).toContainText("USB REC 2, on Studio+");
   await expect(page.getByTestId("calibrate-witness-0-lag")).toHaveText("3.2 samples late");
 
-  // Writing it takes the old reference out rather than leaving it beside the new trim.
+  // Writing it keeps the new trim for its setup with no reference beside it, rather than the old one,
+  // and the trim whose setup was never written down keeps its own.
   await page.getByTestId("calibrate-apply").click();
-  await expect.poll(async () => [(await studio())["input_trim"], (await studio())["phase"]]).toEqual([31, { master_output: 3, input: 1 }]);
+  await expect.poll(async () => (await studio())["trims"]).toEqual([{ rate: 96000, buffer_size: 512, input_trim: 31 }]);
+  expect([(await studio())["input_trim"], (await studio())["phase"]]).toEqual([28, { master_output: 3, input: 1, reference: -84 }]);
 });
 
 test("while a DAW has it open each follower's phase is read out beside its gap", async ({ page }) => {

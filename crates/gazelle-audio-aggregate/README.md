@@ -85,6 +85,16 @@ by recording one source into both devices and comparing, but a trim written by h
 reference beside it, so it holds only in sessions that happen to start in the state it was
 measured in. See "The phase" below for why that matters.
 
+**A trim per setup.** A trim is only true at the rate and buffer size it was measured at, because
+the drivers' own latency figures change with both. So a device can carry `trims`, one input trim
+per rate and buffer size, each with the phase reference measured beside it:
+`"trims": [{"rate": 96000, "buffer_size": 512, "input_trim": 144, "reference": -148}]`. When the
+DAW asks for its buffers, the driver takes the one for the rate the devices are at and the buffer
+size the DAW asked for, and lines the session up to that one's reference. Only where there is none
+for that setup does it use `input_trim` and `phase.reference`, which are then a trim whose setup
+was never written down: every trim from before trims were kept per setup is one of those. Never a
+trim from another rate or buffer size. The session's line in the event log says which it used.
+
 **Naming the channels.** A device's channels are its USB audio channels, the ones its vendor driver
 publishes: input *k* is its USB record channel *k* and output *k* its USB playback channel *k* (16
 each way on the Zen Quadro Synergy Core, `USB A REC` and `USB 1 PLAY`; 24 each way on the Zen Studio+,
@@ -149,6 +159,7 @@ clocks it:
 | `devices[].clsid` | The vendor driver's class id, which is the sure way to name one. Used in preference to `key`. | |
 | `devices[].name` | What to call this device's channels. Gazelle writes its own name for the device here. | its registry key |
 | `devices[].input_trim` | Samples to add to what this device's driver says its input latency is. A device that records late takes a positive trim, and the others are held back to match it. | 0 |
+| `devices[].trims` | Input trims measured per setup, as `[{"rate": n, "buffer_size": n, "input_trim": n, "reference": n}]`, `reference` left out when none was measured. A session uses the one for its own rate and buffer size, and `input_trim` with `phase.reference` only where there is none. Two for one setup are refused. | none |
 | `devices[].output_trim` | The same for its outputs. | 0 |
 | `devices[].phase` | How this interface's capture phase is measured at the start of a session, as `{"master_output": n, "input": n, "reference": n}`: the output of the interface that drives the callback the cable leaves from, and this interface's own input it arrives on, both by the devices' own channel numbering from zero, and the phase measured when its input trim was measured, which a calibration run writes. Not for the interface that drives the callback. See "The phase" below. | not measured |
 | `devices[].inputs` | Which of its inputs to expose, by the device's own numbering from zero. | all of them |

@@ -160,6 +160,8 @@ export type AggregateReasonCode =
   | "not_locked"
   | "phase_not_measured"
   | "trim_without_reference"
+  | "trim_setup_unknown"
+  | "no_trim_for_setup"
   | "phase_path_broken"
   | "phase_dedication_stale";
 
@@ -326,6 +328,12 @@ export interface AggregateAnswer {
    * the rate every interface is running at. Absent when neither is known. Older servers leave it out.
    */
   rate_in_force?: AggregateRateInForce;
+  /**
+   * The rate and buffer size a session would run at now, which is the setup whose trims are in
+   * force: the rate in force and the buffer size the drivers are on. Absent when either is not known.
+   * Older servers leave it out.
+   */
+  setup_in_force?: AggregateSetup;
   ready: boolean;
   reasons: AggregateReason[];
   status: AggregateStatusReading;
@@ -516,6 +524,79 @@ export interface AggregateCalibrateStarted {
 /** What stopping answers: whether anything was going. Stopping nothing is not an error. */
 export interface AggregateCalibrateStopped {
   stopped: boolean;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The alignment suite: every setup measured in turn
+// ---------------------------------------------------------------------------------------------
+
+/** One rate and one buffer size, which is what a trim is kept for. */
+export interface AggregateSetup {
+  rate: number;
+  buffer_size: number;
+}
+
+/** One interface's trim, as the suite kept it for a setup. */
+export interface AggregateSuiteTrim {
+  /** The interface's place in the setup, from zero. */
+  index: number;
+  /** What the driver's file and the measurement call it. */
+  device: string;
+  input_trim: number;
+  reference?: number;
+  /** How far apart the runs were, in samples. */
+  spread_samples: number;
+}
+
+/** How one setup is getting on. */
+export interface AggregateSuiteSetup extends AggregateSetup {
+  state: "waiting" | "switching" | "measuring" | "saved" | "failed" | "stopped";
+  /** Which run is going, from one, while it measures. */
+  run?: number;
+  /** Which time over the setup is being measured, from one. */
+  round?: number;
+  /** What was kept, once it is saved. */
+  trims?: AggregateSuiteTrim[];
+  /** Why it was not saved, with the figures. */
+  why?: string;
+}
+
+/** What was in force before the suite started, which it puts back. */
+export interface AggregateSuiteBefore {
+  rate?: number;
+  buffer_size?: number;
+  driver_buffer?: number;
+  interfaces_rate?: number;
+}
+
+/** The suite, as `GET /aggregate/suite` answers it. */
+export interface AggregateSuite {
+  state: "idle" | "running" | "stopping" | "done" | "stopped" | "failed";
+  /** How many runs each setup is measured with. */
+  runs?: number;
+  setups: AggregateSuiteSetup[];
+  /** How many setups have had their trims saved so far: a page reads the setup again when it moves. */
+  saved: number;
+  before?: AggregateSuiteBefore;
+  /** What putting back came to, once it has been. */
+  restored?: string;
+  restore_failed?: boolean;
+  refusal?: string;
+}
+
+/**
+ * What starting the suite takes: the setups in the order to measure them, how many runs each, the
+ * same cabling a single run takes, and `confirmed`, which says the person was shown every change the
+ * suite makes to the rate and the buffer sizes and said yes to all of them.
+ */
+export interface AggregateSuiteRequest {
+  setups: AggregateSetup[];
+  runs: number;
+  outputs: AggregateCalibrateChannel[];
+  inputs: AggregateCalibrateChannel[];
+  clicks: number;
+  level_dbfs: number;
+  confirmed: boolean;
 }
 
 /** What one device's buffer change came to. A refusal keeps the driver route's own codes. */

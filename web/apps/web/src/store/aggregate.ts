@@ -39,7 +39,13 @@ import type {
   AggregateReason,
   AggregateRegistrationRun,
   AggregateDevice,
+  AggregateSetup,
+  AggregateSetupTrim,
   AggregateStatusReading,
+  AggregateSuite,
+  AggregateSuiteRequest,
+  AggregateSuiteSetup,
+  AggregateSuiteTrim,
   AggregateTrimReference,
   AggregateUsbChannels,
   Cable,
@@ -77,7 +83,13 @@ export type {
   AggregateRateInForce,
   AggregateReason,
   AggregateRegistrationRun,
+  AggregateSetup,
+  AggregateSetupTrim,
   AggregateStatusReading,
+  AggregateSuite,
+  AggregateSuiteRequest,
+  AggregateSuiteSetup,
+  AggregateSuiteTrim,
   AggregateTrimReference,
   AggregateUsbChannels,
 };
@@ -1675,14 +1687,18 @@ export function trimsToApply(outcome: AggregateCalibrateOutcome | undefined): Ag
  * names each interface as the driver's file does, which is Gazelle's name for it, so `names` is the
  * page's names for the setup's interfaces, in order.
  *
- * Zero is written as the field being absent, as everything else on this page writes a trim; an
- * interface the measurement names that the setup no longer has is passed over rather than added,
- * and so is a trim the server says it is not offering.
+ * **An input trim is kept for the rate and buffer size it was measured at**, in that interface's
+ * `trims`, replacing the one that was there for that setup and leaving every other setup's alone,
+ * and the old `input_trim` (the trim whose setup was never written down) where it was. Zero is kept
+ * as zero there: it says this setup was measured and needs nothing. An output trim is still the one
+ * field, written as the field being absent when it is zero, as everything else on this page writes
+ * a trim. An interface the measurement names that the setup no longer has is passed over rather
+ * than added, and so is a trim the server says it is not offering.
  *
- * **An input trim's phase reference is written with it**, into that interface's `phase.reference`,
- * and taken out when nothing was heard on the cable, so a new trim is never left beside a reference
- * from another session. An interface whose phase setting has gone since the run keeps no reference:
- * a reference with no path to measure on means nothing.
+ * **An input trim's phase reference is kept with it**, beside it in the same entry, and left out
+ * when nothing was heard on the cable, so a trim is never kept beside a reference from another
+ * session. An interface whose phase setting has gone since the run keeps no reference: a reference
+ * with no path to measure on means nothing.
  */
 export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrateOutcome | undefined, names?: readonly string[]): Aggregate {
   const trims = trimsToApply(outcome);
@@ -1692,25 +1708,30 @@ export function withMeasuredTrims(config: Aggregate, outcome: AggregateCalibrate
     const trim = trims.find((one) => one.device === called[index]);
     if (trim === undefined) return device;
     const field = trimField(trim);
+    if (field === "input_trim" && outcome !== undefined) {
+      const heard = trim.phase_reference?.now;
+      const reference = phaseSetting(device) !== undefined && typeof heard === "number" ? heard : undefined;
+      return withSetupTrim(device, { rate: outcome.rate, buffer_size: outcome.buffer_size, input_trim: trim.now, ...(reference === undefined ? {} : { reference }) });
+    }
     const next = { ...device };
     if (trim.now === 0) delete next[field];
     else next[field] = trim.now;
-    const reference = trim.phase_reference;
-    const setting = phaseSetting(device);
-    if (reference !== undefined && field === "input_trim" && setting !== undefined) {
-      const phase: AggregatePhaseSetting = { ...setting };
-      if (reference.now === null || reference.now === undefined) delete phase.reference;
-      else phase.reference = reference.now;
-      next.phase = phase;
-    }
     return next;
   });
   return { ...config, devices };
 }
 
+/** One interface with a trim kept for its setup, replacing the one that setup had, the list in order of rate and then buffer size. */
+export function withSetupTrim(device: AggregateDevice, trim: AggregateSetupTrim): AggregateDevice {
+  const kept = (Array.isArray(device.trims) ? (device.trims as AggregateSetupTrim[]) : []).filter((one) => one.rate !== trim.rate || one.buffer_size !== trim.buffer_size);
+  const trims = [...kept, trim].sort((a, b) => a.rate - b.rate || a.buffer_size - b.buffer_size);
+  return { ...device, trims };
+}
+
 /** What applying the trims came to, as one line. */
-export function appliedTrimsText(trims: AggregateCalibrateTrim[]): string {
+export function appliedTrimsText(trims: AggregateCalibrateTrim[], setup?: { rate: number; buffer_size: number }): string {
   if (trims.length === 0) return "Nothing to change: every trim is already what was measured.";
+  const kept = setup !== undefined && trims.some((trim) => trimField(trim) === "input_trim") ? ` Input trims are kept for ${khz(setup.rate)} at ${setup.buffer_size} samples, and used whenever a session runs there.` : "";
   const named = trims
     .map((trim) => {
       const written = `${trim.device} ${trim.direction === "inputs" ? "in" : "out"} ${trim.now}`;
@@ -1719,7 +1740,7 @@ export function appliedTrimsText(trims: AggregateCalibrateTrim[]): string {
       return now === null ? `${written} (phase reference taken out)` : `${written} (phase reference ${now})`;
     })
     .join(", ");
-  return `${trims.length} trim${trims.length === 1 ? "" : "s"} written: ${named}.`;
+  return `${trims.length} trim${trims.length === 1 ? "" : "s"} written: ${named}.${kept}`;
 }
 
 /** Whether a run lost any audio while it went, in words, or nothing from a server too old to say. */
@@ -1922,7 +1943,7 @@ export interface PhaseSetupView {
   tone: "idle" | "warn" | "good";
 }
 
-export function phaseSetupView(device: AggregateDevice, isMaster: boolean, master: string): PhaseSetupView {
+export function phaseSetupView(device: AggregateDevice, isMaster: boolean, master: string, inForce?: AggregateSetup): PhaseSetupView {
   const setting = phaseSetting(device);
   if (isMaster) {
     return setting === undefined
@@ -1936,7 +1957,10 @@ export function phaseSetupView(device: AggregateDevice, isMaster: boolean, maste
       tone: "warn",
     };
   }
-  const reference = phaseReference(device);
+  // The reference beside the trim a session at the setup in force runs on: that setup's own, when
+  // one was measured there, else the one beside the trim whose setup was never written down.
+  const keyed = inForce === undefined ? undefined : (Array.isArray(device.trims) ? (device.trims as AggregateSetupTrim[]) : []).find((trim) => trim.rate === inForce.rate && trim.buffer_size === inForce.buffer_size);
+  const reference = keyed === undefined ? phaseReference(device) : typeof keyed.reference === "number" ? keyed.reference : undefined;
   if (reference === undefined) {
     return {
       summary: "Set up, no reference yet",
@@ -2100,6 +2124,9 @@ export function reasonHint(reason: AggregateReason): string | undefined {
   if (reason.code === "trim_without_reference") {
     return `The trim is Input trim on ${which}, and Line the interfaces up, further down this page, measures it again with its reference. A trim typed in by hand never has one.`;
   }
+  if (reason.code === "trim_setup_unknown" || reason.code === "no_trim_for_setup") {
+    return "Measure every setup, further down this page, measures each rate and buffer size you tick and keeps a trim for each, and its card lists the setups that have one.";
+  }
   if (reason.code !== "phase_not_measured") return undefined;
   return `The phase setup is under Phase on ${which}. A trim does not answer this: the trim is a constant, and this moves every session.`;
 }
@@ -2134,7 +2161,16 @@ export interface AggregateContext {
   calibration(): Promise<AggregateCalibration>;
   calibrate(request: AggregateCalibrateRequest): Promise<{ started: boolean }>;
   stopCalibrate(): Promise<{ stopped: boolean }>;
+  /** The alignment suite's three calls, which the Aggregate page's own suite model makes. */
+  suite?: SuiteCalls;
   timers: Timers;
+}
+
+/** The alignment suite, as the server serves it. */
+export interface SuiteCalls {
+  state(): Promise<AggregateSuite>;
+  start(request: AggregateSuiteRequest): Promise<{ started: boolean }>;
+  stop(): Promise<{ stopped: boolean }>;
 }
 
 /** What the page is doing, so a button can say so and not be pressed twice. */
@@ -2243,6 +2279,16 @@ export class AggregateModel {
         this.#calibrateTimer = undefined;
       }
     };
+  }
+
+  /** The alignment suite's calls, for the page's own model of it; none in a context without them. */
+  get suiteCalls(): SuiteCalls | undefined {
+    return this.#context.suite;
+  }
+
+  /** The timers the page's own models run on, the same ones this model polls with. */
+  get timers(): Timers {
+    return this.#context.timers;
   }
 
   /** Reads once, now. What a button presses after it has changed something. */

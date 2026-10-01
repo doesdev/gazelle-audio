@@ -120,6 +120,7 @@ import {
   type VerdictView,
   type WitnessView,
 } from "../store/aggregate.ts";
+import { NO_PICKS, pickedSetups, setupKey, setupTrimViews, setupWords, suiteBuffers, suiteChanges, SuiteModel, suiteProblem, suiteRequest, suiteRunning, suiteSetupView, suiteSummary, SUITE_RATES, SUITE_RUNS, toggled, type SuitePicks } from "../store/aggregate-suite.ts";
 import { driverControls } from "../store/driver.ts";
 import { cableLabel, phasePathContext, reasonPage, restorePath, restoreWrites, staleness, storeRouteWriter } from "../store/phase-path.ts";
 import { displayName, SAMPLE_RATES, type Store } from "../store/store.ts";
@@ -237,6 +238,21 @@ export class GaAggregate extends GaElement {
       .reason .hint { grid-column: 2 / -1; font-size: 11px; color: var(--ga-text-muted); }
       .events .gazelle { padding: 0 4px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--ga-accent-text); background: var(--ga-accent); align-self: center; }
       .events .kind[data-problem] { color: var(--ga-state-mute); }
+      /* The alignment suite: a grid of rates by buffer sizes, the list to confirm, and a line per setup. */
+      .suite-grid { border-collapse: collapse; margin-top: 6px; font-size: 11px; }
+      .suite-grid th { padding: 2px 6px; font-weight: 700; color: var(--ga-text-secondary); text-align: center; white-space: nowrap; }
+      .suite-grid th[scope="row"] { text-align: right; }
+      .suite-grid td { padding: 1px 6px; text-align: center; }
+      .suite-wrap { overflow-x: auto; }
+      .suite-list { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+      .suite-list li { display: grid; grid-template-columns: minmax(0, 12em) minmax(0, 1fr); gap: 10px; padding: 4px 8px; border-radius: 3px; background: var(--ga-surface-raised); }
+      .suite-list li > * { min-width: 0; overflow-wrap: anywhere; }
+      .suite-list [data-tone="good"] { color: var(--ga-accent); }
+      .suite-list [data-tone="bad"] { color: var(--ga-state-mute); font-weight: 700; }
+      .suite-list [data-tone="waiting"] { color: var(--ga-text-muted); }
+      .suite-confirm { margin-top: 8px; padding: 6px 8px; border-radius: 3px; outline: 2px dashed var(--ga-state-mute); outline-offset: -2px; }
+      .suite-confirm ol { margin: 4px 0; padding-left: 18px; font-size: 11px; }
+      .trims-kept { font-size: 11px; overflow-wrap: anywhere; }
 
       /* Phone width: nothing sits side by side, and the long readouts wrap rather than scroll. */
       @media (max-width: 480px) {
@@ -245,6 +261,7 @@ export class GaAggregate extends GaElement {
         .device-head .name { flex: 1 1 100%; }
         .live-row { grid-template-columns: minmax(0, 1fr) auto; }
         .calibrate-row, .reading, .trim-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .suite-list li { grid-template-columns: minmax(0, 1fr); }
         .verdict-row, .phase-row { grid-template-columns: minmax(0, 1fr); }
         .reason .hint { grid-column: 1 / -1; }
         .events li { flex-wrap: wrap; }
@@ -350,6 +367,7 @@ export class GaAggregate extends GaElement {
     );
 
     const calibrateSection = this.#buildCalibrate(store);
+    const suiteSection = this.#buildSuite(store);
 
     const plan = h("dl", { class: "fields", "data-testid": "aggregate-plan" });
     const live = h("div", { class: "live", "data-testid": "aggregate-live" });
@@ -365,7 +383,7 @@ export class GaAggregate extends GaElement {
       { class: "placeholder", "data-testid": "aggregate-unavailable", hidden: true },
       "This server does not offer the aggregate driver. It is answered only to a program on the same PC, so a Gazelle reached over the network shows nothing here.",
     );
-    const sections = h("div", { "data-testid": "aggregate-sections" }, readySection, registrationSection, devicesSection, setupSection, calibrateSection, liveSection, eventsSection);
+    const sections = h("div", { "data-testid": "aggregate-sections" }, readySection, registrationSection, devicesSection, setupSection, calibrateSection, suiteSection, liveSection, eventsSection);
 
     this.root.replaceChildren(h("div", { class: "bar" }, verdict, state, h("span", { class: "spacer" }), readAt, again), problem, unavailable, sections);
 
@@ -658,6 +676,9 @@ export class GaAggregate extends GaElement {
     outTrim.value = String(device.output_trim ?? 0);
     inTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "input_trim", trimOf(inTrim.value))));
     outTrim.addEventListener("change", () => this.#editDevice(store, index, (current) => withField(current, "output_trim", trimOf(outTrim.value))));
+    // The input trims measured per setup, the one in force marked. Input trim above is used only
+    // where none was measured for the setup a session runs at.
+    const trimsKept = h("span", { class: "readout trims-kept", "data-testid": `${testid}-trims`, "data-explain": "aggregate.device-trims" });
 
     // Every channel of this interface: which of them the aggregate exposes, and what a DAW calls
     // each one. Closed, it is the one line that says what is exposed and how many are named.
@@ -719,6 +740,7 @@ export class GaAggregate extends GaElement {
         ...field("Gap", gap),
         ...field("Input trim", inTrim),
         ...field("Output trim", outTrim),
+        ...field("Measured trims", trimsKept),
         ...field("Phase now", phaseNow),
         channelsPart,
         playsPart,
@@ -788,6 +810,8 @@ export class GaAggregate extends GaElement {
       if (!safe.hasAttribute("data-armed")) safe.textContent = summary?.safe_mode === undefined && controls === undefined ? "Not read" : safeMode ? "On" : "Off";
       safe.disabled = id === undefined || !store.connected.value;
       for (const field of [inTrim, outTrim]) field.disabled = !store.connected.value;
+      const kept = setupTrimViews(device, model.answer.value?.setup_in_force);
+      trimsKept.textContent = kept.length === 0 ? "None yet: Input trim is used at every setup" : kept.map((one) => one.text).join("; ");
     });
 
     // The channel rows are rebuilt only when how many there are, or what they are called, changes:
@@ -904,7 +928,7 @@ export class GaAggregate extends GaElement {
       const masterDevice = at === undefined ? undefined : config?.devices?.[at];
       const master = masterDevice === undefined || at === undefined ? "the callback master" : interfaceName(naming, at, masterDevice);
       const own = interfaceName(naming, index, device);
-      const view = phaseSetupView(device, isMaster, master);
+      const view = phaseSetupView(device, isMaster, master, answer?.setup_in_force);
       part.hidden = isMaster && setting === undefined;
       summary.textContent = view.summary;
       summary.setAttribute("data-tone", view.tone);
@@ -1469,6 +1493,169 @@ export class GaAggregate extends GaElement {
     return section;
   }
 
+  /**
+   * **Measure every setup**: the alignment suite. A grid of the rates and buffer sizes to measure,
+   * how many runs each, one confirm listing every change for the whole run, and a line per setup
+   * as it goes. It runs on the server with the cabling of Line the interfaces up, so this page can
+   * close and come back to it; when it saves a setup's trims the workspace is read again.
+   */
+  #buildSuite(store: Store): HTMLElement {
+    const aggregate = store.aggregate;
+    const model = new SuiteModel(aggregate.suiteCalls, aggregate.timers, () => {
+      void store.loadWorkspace();
+      void aggregate.refresh();
+    });
+    this.onDisconnect(model.activate());
+    const picked = store.view<SuitePicks>("aggregate:suite", NO_PICKS);
+    const confirming = store.view<boolean>("aggregate:suite:confirming", false);
+    const naming = (): AggregateNaming => untracked(() => this.#naming(store));
+    const cabling = () => reconcilePicks(store.view<CalibratePicks | undefined>("aggregate:calibrate", undefined).peek(), store.workspace.peek()?.aggregate, naming());
+    const single = () => calibrateRequest(cabling(), store.workspace.peek()?.aggregate, naming());
+
+    const grid = h("table", { class: "suite-grid", "data-testid": "suite-grid" });
+    const runs = h("select", { "aria-label": "How many runs each setup is measured with", "data-testid": "suite-runs", "data-no-wheel": true, "data-explain": "aggregate.suite-runs" });
+    runs.replaceChildren(...SUITE_RUNS.map((count) => h("option", { value: String(count) }, `${count} runs`)));
+    runs.addEventListener("change", () => {
+      picked.value = { ...picked.peek(), runs: Number(runs.value) };
+    });
+    const problem = h("p", { class: "note warning", "data-testid": "suite-problem", hidden: true });
+    const start = h("button", { type: "button", "data-testid": "suite-start", "data-explain": "aggregate.suite-start", "on:click": () => (confirming.value = true) }, "Measure the ticked setups");
+    const stop = h("button", { type: "button", "data-testid": "suite-stop", "data-explain": "aggregate.suite-stop", hidden: true, "on:click": () => void model.stop() }, "Stop");
+    const changes = h("ol", { "data-testid": "suite-changes" });
+    const go = h(
+      "button",
+      {
+        type: "button",
+        "data-testid": "suite-go",
+        "data-explain": "aggregate.suite-go",
+        "on:click": () => {
+          const request = single();
+          confirming.value = false;
+          if (request !== undefined) void model.start(suiteRequest(picked.peek(), request));
+        },
+      },
+      "Start the suite",
+    );
+    const cancel = h("button", { type: "button", "data-testid": "suite-cancel", "data-explain": "aggregate.suite-cancel", "on:click": () => (confirming.value = false) }, "Cancel");
+    const confirm = h("div", { class: "suite-confirm", role: "alertdialog", "data-testid": "suite-confirm", hidden: true }, h("p", { class: "note" }, "The suite makes these changes, in this order, and asks nothing more until it has finished:"), changes, h("div", { class: "add" }, go, cancel));
+    const progress = h("ul", { class: "suite-list", "data-testid": "suite-progress" });
+    const summary = h("p", { class: "note", role: "status", "data-testid": "suite-summary", hidden: true });
+    const refusal = h("p", { class: "note warning", role: "alert", "data-testid": "suite-refusal", hidden: true });
+    const unavailable = h("p", { class: "note", "data-testid": "suite-unavailable", hidden: true }, "This server does not run the suite. It is a newer part of Gazelle than the server this page is talking to.");
+
+    const section = h(
+      "ga-section",
+      { heading: "Measure every setup", explain: "aggregate.suite" },
+      h(
+        "p",
+        { class: "note" },
+        "A trim is only right at the rate and buffer size it was measured at, so each interface keeps one per setup, and a session uses the one for the setup it runs at. This measures every rate and buffer size you tick, one after another, with the cabling and the clicks of Line the interfaces up above: it puts the aggregate at each, measures it the number of runs chosen, keeps the trim when the runs agree within a sample and measures again when they do not, and at the end puts back the rate and buffer size that were in force.",
+      ),
+      h("div", { class: "suite-wrap" }, grid),
+      h("div", { class: "setup field-grid pairs" }, h("span", { class: "label" }, "Runs"), runs),
+      problem,
+      h("div", { class: "add" }, start, stop),
+      confirm,
+      refusal,
+      progress,
+      summary,
+      unavailable,
+    );
+
+    /** The checkboxes, rebuilt only when the buffer sizes offered change. */
+    let cells: { key: string; box: HTMLInputElement }[] = [];
+    let builtFor: string | undefined;
+    let shown: string | undefined;
+
+    this.watch(() => {
+      const answer = aggregate.answer.value;
+      const offered = (answer?.devices ?? []).map((report) => {
+        const id = report.device_id;
+        return id === undefined ? undefined : driverControls(store.driver(id).value)?.sizes;
+      });
+      const buffers = suiteBuffers(offered);
+      const shape = buffers.join();
+      if (shape !== builtFor) {
+        builtFor = shape;
+        cells = [];
+        const head = h("tr", {}, h("th", {}, ""), ...buffers.map((size) => h("th", { scope: "col" }, `${size}`)));
+        const rows = SUITE_RATES.map((rate, at) =>
+          h(
+            "tr",
+            {},
+            h("th", { scope: "row" }, SAMPLE_RATES[RATE_HZ.indexOf(rate)] ?? `${rate}`),
+            ...buffers.map((size) => {
+              const setup = { rate, buffer_size: size };
+              const box = h("input", { type: "checkbox", "aria-label": setupWords(setup), "data-testid": `suite-cell-${rate}-${size}`, "data-explain": "aggregate.suite-cell" });
+              box.addEventListener("change", () => {
+                picked.value = toggled(picked.peek(), setup, box.checked);
+              });
+              cells.push({ key: setupKey(setup), box });
+              return h("td", { "data-row": String(at) }, box);
+            }),
+          ),
+        );
+        grid.replaceChildren(h("thead", {}, head), h("tbody", {}, ...rows));
+      }
+      const picks = picked.value;
+      const state = model.state.value;
+      const isRunning = suiteRunning(state);
+      for (const { key, box } of cells) {
+        box.checked = picks.setups.includes(key);
+        box.disabled = isRunning || !store.connected.value;
+      }
+      runs.value = String(picks.runs);
+      runs.disabled = isRunning || !store.connected.value;
+
+      // What would stop it, from the cabling above and the ticks here.
+      const config = store.workspace.value?.aggregate;
+      const named = this.#naming(store);
+      const cable = reconcilePicks(store.view<CalibratePicks | undefined>("aggregate:calibrate", undefined).value, config, named);
+      const why = suiteProblem(picks, calibrateRequest(cable, config, named), cable.direction);
+      problem.hidden = why === undefined || isRunning;
+      problem.textContent = why ?? "";
+      const off = model.offered.value === false;
+      unavailable.hidden = !off;
+      start.hidden = isRunning;
+      start.disabled = why !== undefined || off || model.busy.value || !store.connected.value;
+      stop.hidden = !isRunning;
+      stop.disabled = state?.state === "stopping" || model.busy.value;
+      stop.textContent = state?.state === "stopping" ? "Stopping" : "Stop";
+
+      // The one confirm, listing every change, for the whole run.
+      const asking = confirming.value && !isRunning && why === undefined;
+      confirm.hidden = !asking;
+      if (asking) changes.replaceChildren(...suiteChanges(pickedSetups(picks), picks.runs, answer).map((line, at) => h("li", { "data-testid": `suite-change-${at}` }, line)));
+
+      const said = model.problem.value;
+      refusal.hidden = said === undefined;
+      refusal.textContent = said ?? "";
+
+      // A line per setup, rebuilt only when what the server says changes.
+      const now = JSON.stringify(state ?? null);
+      if (now !== shown) {
+        shown = now;
+        progress.replaceChildren(
+          ...(state?.setups ?? []).map((one, at) => {
+            const view = suiteSetupView(one, state?.runs);
+            return h(
+              "li",
+              { "data-testid": `suite-setup-${at}` },
+              h("span", { class: "who" }, view.setup),
+              h("span", { class: "readout", "data-tone": view.tone, "data-testid": `suite-setup-${at}-state`, "data-explain": "aggregate.suite-state" }, view.text),
+            );
+          }),
+        );
+        const end = suiteSummary(state);
+        summary.hidden = end === undefined;
+        summary.textContent = end?.text ?? "";
+        summary.classList.toggle("warning", end?.problem === true);
+      }
+    });
+
+    return section;
+  }
+
   /** One interface's row: the output that carries its click, and the input that records it. */
   #calibrateRow(
     picks: CalibratePicks,
@@ -1599,7 +1786,7 @@ export class GaAggregate extends GaElement {
     const outcome = withPageNames(store.aggregate.calibration.peek()?.outcome, naming);
     const changing = trimsToApply(outcome);
     store.editAggregate((current) => withMeasuredTrims(current, outcome, interfaceNames(current, naming)));
-    store.view<string | undefined>("aggregate:calibrate:applied", undefined).value = appliedTrimsText(changing);
+    store.view<string | undefined>("aggregate:calibrate:applied", undefined).value = appliedTrimsText(changing, outcome);
   }
 
   // -------------------------------------------------------------------------------------------

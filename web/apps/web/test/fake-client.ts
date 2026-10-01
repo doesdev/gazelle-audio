@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type MetronomeSettings, type MetronomeStatus, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
+import { GazelleError, type AggregateAnswer, type AggregateCalibrateRequest, type AggregateCalibrateStarted, type AggregateCalibrateStopped, type AggregateCalibration, type AggregateMatchBuffers, type AggregateRegistrationRun, type AggregateSuite, type AggregateSuiteRequest, type Client, type ClientEvents, type DeviceDescriptor, type DeviceHandle, type DriverChange, type DriverReport, type DriverWriteReport, type MetronomeSettings, type MetronomeStatus, type RecordingSettings, type RecordingStatus, type RecordingTake, type RecordingWindows, type ServerInfo, type RecallAsk, type RecallPlan, type RemotePairing, type RemoteStatus, type Snapshot, type SnapshotDiff, type SnapshotSummary, type Status, type UpdateRestart, type UpdateStatus, type UserTheme, type Workspace } from "gazelle-audio-client";
 
 import type { KeyValueStorage } from "../src/store/store.ts";
 import type { ThemeSource } from "../src/themes/theme.ts";
@@ -373,7 +373,26 @@ export class FakeClient implements Client {
       if (this.calibration !== undefined) this.calibration = { state: "idle" };
       return { stopped: wasRunning };
     },
+    suite: async (): Promise<AggregateSuite> => {
+      this.aggregateCalls.push("suite");
+      if (this.suiteState === undefined) throw new GazelleError("http_404", "GET /api/v1/aggregate/suite returned HTTP 404");
+      return this.suiteState;
+    },
+    startSuite: async (request: AggregateSuiteRequest): Promise<AggregateCalibrateStarted> => {
+      this.aggregateCalls.push(`start-suite:${request.setups.map((setup) => `${setup.rate}/${setup.buffer_size}`).join(",")}:${request.runs}${request.confirmed ? ":confirmed" : ""}`);
+      this.suiteState = { state: "running", runs: request.runs, saved: 0, setups: request.setups.map((setup) => ({ ...setup, state: "waiting" })) };
+      return { started: true };
+    },
+    stopSuite: async (): Promise<AggregateCalibrateStopped> => {
+      this.aggregateCalls.push("stop-suite");
+      const wasRunning = this.suiteState?.state === "running";
+      if (this.suiteState !== undefined && wasRunning) this.suiteState = { ...this.suiteState, state: "stopped" };
+      return { stopped: wasRunning };
+    },
   };
+
+  /** What `GET /aggregate/suite` answers, or undefined for a server that does not serve it. */
+  suiteState: AggregateSuite | undefined;
 
   /** What `GET /aggregate/calibrate` answers, or undefined for a server that does not serve it. */
   calibration: AggregateCalibration | undefined;

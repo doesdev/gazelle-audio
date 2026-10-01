@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use crate::aggregate::{Aggregate, Wanted};
-use crate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
+use crate::config::{Alignment, Config, DeviceConfig, PhaseConfig, SetupTrim};
 use crate::daw;
 use crate::fake::{FakeHost, FakePc, Spec, Step, Takes};
 use crate::phase;
@@ -790,6 +790,67 @@ fn a_trim_in_the_file_moves_a_device_and_the_latency_the_daw_is_told() {
     let mut big = running(&pc, config);
     assert_eq!(big.latencies().expect("a plan exists").0, 600, "the master's own path, which nothing trimmed");
     big.dispose_buffers();
+}
+
+/// **A session runs on the trim measured at its own rate and buffer size**, whatever block it was
+/// opened at: the trim is chosen again when the DAW asks for its buffers, and the old trim whose
+/// setup nobody wrote down is used only where nothing was measured for this one.
+#[test]
+fn a_session_runs_on_the_trim_measured_at_the_buffer_size_the_daw_asked_for() {
+    let _order = daw::session();
+    let pc = Arc::new(
+        FakePc::new()
+            .with("Device A", "{AAAAAAAA-0000-0000-0000-000000000001}", r"c:\antelope\a.dll", spec(1, 1, 600, 700))
+            .with("Device B", "{BBBBBBBB-0000-0000-0000-000000000002}", r"c:\antelope\b.dll", spec(1, 1, 600, 700)),
+    );
+    let mut plain = running(&pc, both(Alignment::Aligned));
+    let (was_in, _) = plain.latencies().expect("a plan exists");
+    plain.dispose_buffers();
+
+    let mut config = both(Alignment::Aligned);
+    config.devices[1].input_trim = Some(2);
+    config.devices[1].trims = vec![
+        SetupTrim { rate: 96_000.0, buffer_size: BLOCK, input_trim: 9, reference: None },
+        SetupTrim { rate: 96_000.0, buffer_size: BLOCK * 2, input_trim: 5, reference: None },
+    ];
+    let mut measured = running(&pc, config.clone());
+    assert_eq!(measured.latencies().unwrap().0, was_in + 9, "the trim measured at {BLOCK} samples");
+    measured.dispose_buffers();
+
+    // Another block from the same driver, without opening it again: the trim follows the block.
+    let wanted = everything(&measured);
+    measured.create_buffers(&wanted, BLOCK * 2, daw::callbacks()).expect("a block the devices take");
+    let plan = measured.plan().expect("a plan");
+    assert_eq!(plan.devices[1].latency_in, 600 + 5, "the trim measured at {} samples", BLOCK * 2);
+    measured.dispose_buffers();
+
+    // At a block nothing was measured at, the trim whose setup is not known, and nothing else.
+    measured.create_buffers(&wanted, BLOCK * 4, daw::callbacks()).expect("a block the devices take");
+    assert_eq!(measured.plan().unwrap().devices[1].latency_in, 600 + 2);
+    measured.dispose_buffers();
+}
+
+/// The reference that goes with a trim is the one measured beside it, so a session at one setup is
+/// lined up to that setup's own reference and never to another's, over the cable it always had.
+#[test]
+fn the_reference_a_session_is_lined_up_to_is_the_one_beside_its_own_trim() {
+    let _order = daw::session();
+    let mut config = cabled_to(Some(0));
+    config.devices[1].input_trim = Some(3);
+    config.devices[1].trims = vec![SetupTrim { rate: QUIET_RATE, buffer_size: BLOCK, input_trim: 0, reference: Some(40) }];
+    let pc = quiet_pc();
+    let (mut aggregate, reader, written) = reporting(&pc, config);
+    go(&mut aggregate);
+    run_measuring(&pc, Some(40), 140);
+    let follower = reader.read().unwrap().devices()[1];
+    assert_eq!(follower.phase_state, phase_state::APPLIED);
+    assert_eq!(follower.phase_applied, 0, "measured where this setup's trim was measured, so nothing moves");
+    assert_eq!(aggregate.plan().unwrap().devices[1].phase.map(|phase| phase.reference), Some(Some(40)), "over the same cable, to this setup's reference");
+    // The session's line in the log says which trim it ran on.
+    let started = written.of("session-started");
+    assert_eq!(started.len(), 1, "{:?}", written.lines());
+    assert!(started[0].contains("B input trim 0 measured at 2 kHz and 4 samples"), "{}", started[0]);
+    aggregate.dispose_buffers();
 }
 
 // ---------------------------------------------------------------------------------------------

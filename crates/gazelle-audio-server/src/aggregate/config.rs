@@ -45,6 +45,31 @@ pub fn rate_in_force(config: &Aggregate) -> Option<RateInForce> {
     seen.all(|rate| rate == Some(first)).then_some(RateInForce { hz: first, from: RateFrom::Interfaces })
 }
 
+/// The rate and the buffer size a session would run at now, which is the setup whose trims are in
+/// force: the rate in force ([`rate_in_force`]), and the buffer size the interfaces' drivers are on,
+/// read from the one driving the callback first, else the one the setup offers a DAW. The drivers'
+/// own wins because the aggregate can only offer what they take. Nothing when either is not known.
+pub fn setup_in_force(config: &Aggregate, drivers: &[(bool, Option<u32>)]) -> Option<SetupInForce> {
+    let rate = rate_in_force(config)?.hz;
+    let driver = drivers.iter().find(|(master, _)| *master).and_then(|(_, size)| *size).or_else(|| drivers.iter().find_map(|(_, size)| *size));
+    let buffer_size = driver.or(config.buffer_size)?;
+    Some(SetupInForce { rate, buffer_size })
+}
+
+/// One rate and one buffer size: what a trim is kept for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SetupInForce {
+    pub rate: u32,
+    pub buffer_size: u32,
+}
+
+impl SetupInForce {
+    /// "96 kHz at 512 samples", as every message says a setup.
+    pub fn words(&self) -> String {
+        format!("{} at {} samples", crate::aggregate::khz(self.rate), self.buffer_size)
+    }
+}
+
 /// Which device drives the callback, by its place in the setup: the one `callback_master` names,
 /// else the first.
 pub fn master_index(config: &Aggregate) -> Option<usize> {
@@ -154,6 +179,24 @@ pub fn check(config: &Aggregate, workspace: &Workspace) -> Result<(), String> {
                 return bad(
                     "it drives the callback, and a phase is measured against the interface that drives the callback, so it cannot be measured against itself".into(),
                 );
+            }
+        }
+        for (at, trim) in device.trims.iter().enumerate() {
+            let setup = format!("{} at {} samples", crate::aggregate::khz(trim.rate), trim.buffer_size);
+            if rate_index(trim.rate).is_none() || !BUFFER_SIZES.contains(&trim.buffer_size) {
+                return bad(format!(
+                    "it has a trim for {} Hz at {} samples, and a trim is kept for a rate and a buffer size the aggregate can run at",
+                    trim.rate, trim.buffer_size
+                ));
+            }
+            if trim.input_trim.abs() > TRIM_MAX {
+                return bad(format!("its trim for {setup} is {} samples, which is outside -{TRIM_MAX}..{TRIM_MAX}", trim.input_trim));
+            }
+            if trim.reference.is_some_and(|r| r.saturating_abs() > PHASE_REFERENCE_MAX) {
+                return bad(format!("its trim for {setup} has a phase reference outside -{PHASE_REFERENCE_MAX}..{PHASE_REFERENCE_MAX}. Measure the interfaces again rather than typing one in."));
+            }
+            if device.trims[..at].iter().any(|earlier| (earlier.rate, earlier.buffer_size) == (trim.rate, trim.buffer_size)) {
+                return bad(format!("it has two trims for {setup}, and a setup has one"));
             }
         }
         for (what, channels) in [("inputs", &device.inputs), ("outputs", &device.outputs)] {
@@ -280,6 +323,23 @@ fn export_device(device: &AggregateDevice, name: &str, workspace: &Workspace) ->
             out.insert("phase".into(), cable);
         }
     }
+    // The trims measured per setup, each with the reference measured beside it. The driver uses the
+    // one for the rate and buffer size a session actually runs at, and the plain `input_trim` and
+    // `phase.reference` above only where none was measured for it.
+    if !device.trims.is_empty() {
+        let trims = device
+            .trims
+            .iter()
+            .map(|trim| {
+                let mut one = serde_json::json!({ "rate": trim.rate, "buffer_size": trim.buffer_size, "input_trim": trim.input_trim });
+                if let Some(reference) = trim.reference {
+                    one["reference"] = Value::from(reference);
+                }
+                one
+            })
+            .collect();
+        out.insert("trims".into(), Value::Array(trims));
+    }
     // Every channel's label: the automatic one from Gazelle's routing and names, with the person's
     // typed one over it. A map with nothing in it is left out rather than written as an empty object.
     let (inputs, outputs) = driver_labels(device, workspace);
@@ -299,7 +359,7 @@ fn export_device(device: &AggregateDevice, name: &str, workspace: &Workspace) ->
 mod tests {
     use super::*;
     use crate::device::descriptor::DeviceId;
-    use crate::workspace::model::{AggregateKnown, AggregatePhase, DeviceMixer, MixerChannel, RouteSource};
+    use crate::workspace::model::{AggregateKnown, AggregatePhase, AggregateTrim, DeviceMixer, MixerChannel, RouteSource};
 
     /// An entry for one of Gazelle's devices, which is how every entry the page makes looks once the
     /// device has been matched.
@@ -610,6 +670,68 @@ mod tests {
         let document = export_document(&config, &named());
         assert_eq!(document["devices"][1]["phase"], serde_json::json!({ "master_output": 8, "input": 16, "reference": -84 }));
         assert_eq!(document["devices"][1]["input_trim"], 60);
+    }
+
+    /// **Trims per setup**: kept in the workspace beside the old trim, exported beside it to the
+    /// driver, and the old one is left exactly where it was, as the trim whose setup is not known.
+    #[test]
+    fn trims_per_setup_are_kept_beside_the_old_trim_and_exported_with_their_references() {
+        // A workspace from before: one trim, one reference, nothing to say where they were measured.
+        let before = r#"{"key": "ZenStudioTB", "input_trim": 60, "phase": {"master_output": 8, "input": 16, "reference": -84}}"#;
+        let old: AggregateDevice = serde_json::from_str(before).expect("an older entry");
+        assert!(old.trims.is_empty(), "nothing is made up about where it was measured");
+        assert_eq!(old.input_trim, Some(60));
+        assert!(serde_json::to_value(&old).unwrap().get("trims").is_none(), "and it is written back exactly as it came");
+
+        let mut config = pair();
+        config.devices[1].input_trim = Some(60);
+        config.devices[1].phase = Some(AggregatePhase { master_output: Some(8), input: Some(16), reference: Some(-84) });
+        config.devices[1].keep_trim(AggregateTrim { rate: 96000, buffer_size: 512, input_trim: 144, reference: Some(-148) });
+        config.devices[1].keep_trim(AggregateTrim { rate: 48000, buffer_size: 256, input_trim: 0, reference: None });
+        config.devices[1].keep_trim(AggregateTrim { rate: 96000, buffer_size: 512, input_trim: 146, reference: Some(-147) });
+        check(&config, &named()).expect("trims per setup");
+        assert_eq!(config.devices[1].trims.len(), 2, "a setup measured again replaces its own trim");
+        assert_eq!(config.devices[1].trim_at(96000, 512).map(|trim| trim.input_trim), Some(146));
+        let document = export_document(&config, &named());
+        assert_eq!(
+            document["devices"][1]["trims"],
+            serde_json::json!([
+                { "rate": 48000, "buffer_size": 256, "input_trim": 0 },
+                { "rate": 96000, "buffer_size": 512, "input_trim": 146, "reference": -147 }
+            ])
+        );
+        assert_eq!(document["devices"][1]["input_trim"], 60, "the old trim goes on, for every setup nothing was measured at");
+        assert_eq!(document["devices"][1]["phase"]["reference"], -84, "with its own reference");
+        assert!(document["devices"][0].get("trims").is_none());
+        // And the driver reads exactly that, picking the one for its own setup.
+        let driver = gazelle_aggregate::config::Config::parse(&document.to_string()).expect("the driver reads it");
+        assert_eq!(driver.devices[1].trim_for(96000.0, 512).input_trim, 146);
+        assert_eq!(driver.devices[1].trim_for(44100.0, 512).input_trim, 60);
+    }
+
+    #[test]
+    fn a_trim_per_setup_must_be_for_a_setup_that_exists_once() {
+        let mut config = pair();
+        config.devices[1].trims = vec![AggregateTrim { rate: 97000, buffer_size: 512, input_trim: 4, reference: None }];
+        assert!(check(&config, &named()).unwrap_err().starts_with("device 'Studio+': it has a trim for 97000 Hz at 512 samples"));
+        config.devices[1].trims = vec![AggregateTrim { rate: 96000, buffer_size: 500, input_trim: 4, reference: None }];
+        assert!(check(&config, &named()).is_err());
+        config.devices[1].trims = vec![AggregateTrim { rate: 96000, buffer_size: 512, input_trim: TRIM_MAX + 1, reference: None }];
+        assert!(check(&config, &named()).unwrap_err().contains("its trim for 96 kHz at 512 samples is 192001 samples"));
+        let one = AggregateTrim { rate: 96000, buffer_size: 512, input_trim: 4, reference: None };
+        config.devices[1].trims = vec![one, one];
+        assert_eq!(check(&config, &named()).unwrap_err(), "device 'Studio+': it has two trims for 96 kHz at 512 samples, and a setup has one");
+    }
+
+    #[test]
+    fn the_setup_in_force_is_the_rate_in_force_and_the_drivers_buffer_size() {
+        let config = pair();
+        assert_eq!(setup_in_force(&config, &[(false, Some(256)), (true, Some(128))]), Some(SetupInForce { rate: 96000, buffer_size: 128 }), "the master's driver first");
+        assert_eq!(setup_in_force(&config, &[(false, Some(256)), (true, None)]), Some(SetupInForce { rate: 96000, buffer_size: 256 }));
+        assert_eq!(setup_in_force(&config, &[]), Some(SetupInForce { rate: 96000, buffer_size: 512 }), "else what the setup offers a DAW");
+        let unrated = Aggregate { rate: None, ..pair() };
+        assert_eq!(setup_in_force(&unrated, &[(true, Some(128))]), None, "no rate in force, no setup");
+        assert_eq!(SetupInForce { rate: 44100, buffer_size: 64 }.words(), "44.1 kHz at 64 samples");
     }
 
     #[test]

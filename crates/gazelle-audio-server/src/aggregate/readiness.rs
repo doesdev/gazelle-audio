@@ -12,10 +12,10 @@
 
 use serde::Serialize;
 
-use crate::aggregate::config::rate_in_force;
+use crate::aggregate::config::{rate_in_force, setup_in_force, SetupInForce};
 use crate::aggregate::{khz, rate_index, DeviceReport, RateFrom, RateInForce};
 use crate::device::descriptor::DeviceId;
-use crate::workspace::model::{Cable, Workspace};
+use crate::workspace::model::{Aggregate, AggregateDevice, Cable, Workspace};
 use crate::workspace::topology;
 
 /// Why the aggregate is not ready. A code per reason, so a page can offer the right fix without
@@ -65,6 +65,13 @@ pub enum ReasonCode {
     /// the one the trim was measured in, and the trim is right only in a session that happens to
     /// start where that one did.
     TrimWithoutReference,
+    /// A follower has no trim measured at the rate and buffer size a session would run at now, and
+    /// the aggregate falls back to a trim whose rate and buffer size were never written down: every
+    /// trim from before Gazelle kept one per setup is one of those.
+    TrimSetupUnknown,
+    /// A follower has trims measured at other rates or buffer sizes and none at the one a session
+    /// would run at now, so that session lines it up by its driver's own figures.
+    NoTrimForSetup,
     /// A follower's phase setup names channels the interfaces' routing does not join: the master's
     /// playback channel does not reach the cable directly, goes somewhere else as well, or the
     /// follower's record channel does not record the cable (`crate::aggregate::phase_path`).
@@ -184,26 +191,95 @@ pub fn reasons(configured: bool, registered: bool, dll_present: bool, devices: &
     reasons
 }
 
-/// Followers with an input trim and no phase reference to go with it.
+/// The setup whose trims are in force: the rate in force, and the buffer size the interfaces'
+/// drivers are on, the callback master's first ([`setup_in_force`]).
+pub fn setup_of(config: &Aggregate, devices: &[DeviceReport]) -> Option<SetupInForce> {
+    let drivers: Vec<(bool, Option<u32>)> = devices.iter().map(|device| (device.is_master, device.driver.buffer_size)).collect();
+    setup_in_force(config, &drivers)
+}
+
+/// The setups one interface has trims for, in words: "48 kHz at 256 samples and 96 kHz at 512 samples".
+fn setups_with_trims(entry: &AggregateDevice) -> String {
+    let setups: Vec<String> = entry.trims.iter().map(|trim| SetupInForce { rate: trim.rate, buffer_size: trim.buffer_size }.words()).collect();
+    match setups.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
+}
+
+/// What to do about a setup with no trim of its own, said the same way every time.
+const MEASURE_THIS_SETUP: &str =
+    "Measure the interfaces at this setup under Line the interfaces up, or measure every setup you use at once with the alignment suite there.";
+
+/// The trims, against the setup a session would run at now.
 ///
-/// A trim is a constant, and where a follower's capture starts moves by a whole multiple of 32
-/// samples from one session to the next. The driver puts each session back where the trim was
-/// measured only when it has the phase measured in that session, the reference, which a measurement
-/// writes together with the trim. Without one the trim holds only in a session that happens to start
-/// where its own did, so a recording can land 32 samples or more from where the trim puts it.
+/// **A trim is only right at the rate and buffer size it was measured at**, so each follower's trim
+/// is looked for at the setup in force. Measured there, it is the one in force, and the only thing
+/// left to say is whether it has its phase reference. Not measured there, the aggregate falls back
+/// to the trim whose setup was never written down (every trim from before trims were kept per setup)
+/// and says so, or, with nothing to fall back on but trims measured elsewhere, says that this setup
+/// runs on the drivers' own figures. With no setup in force nothing is said about setups at all.
 ///
-/// A follower with no phase setup and no cable into it is left to [`clocks`], which already says
-/// there is no cable: there is nothing to measure a phase over until there is one.
+/// Then the reference: a trim is a constant, and where a follower's capture starts moves by a whole
+/// multiple of 32 samples from one session to the next. The driver puts each session back where the
+/// trim was measured only when it has the phase measured in that session, the reference, which a
+/// measurement writes together with the trim. Without one the trim holds only in a session that
+/// happens to start where its own did, so a recording can land 32 samples or more from where the
+/// trim puts it. A follower with no phase setup and no cable into it is left to [`clocks`], which
+/// already says there is no cable: there is nothing to measure a phase over until there is one.
 fn trims(devices: &[DeviceReport], workspace: &Workspace) -> Vec<Reason> {
     let Some(config) = workspace.aggregate.as_ref() else { return Vec::new() };
+    let setup = setup_of(config, devices);
     let mut reasons = Vec::new();
     for device in devices.iter().filter(|d| !d.is_master) {
         let Some(entry) = config.devices.get(device.index) else { continue };
-        let Some(trim) = entry.input_trim.filter(|trim| *trim != 0) else { continue };
-        let phase = entry.phase.as_ref();
-        if phase.is_some_and(|phase| phase.reference.is_some()) {
+        let name = &device.name;
+        let measured = setup.and_then(|setup| entry.trim_at(setup.rate, setup.buffer_size).map(|trim| (setup, *trim)));
+        // The trim a session at the setup in force runs on, and the reference beside it.
+        let (trim, reference, whose) = match measured {
+            Some((setup, measured)) => (measured.input_trim, measured.reference, format!("an input trim of {} samples for {}", measured.input_trim, setup.words())),
+            None => {
+                let flat = entry.input_trim.filter(|trim| *trim != 0);
+                if let Some(setup) = setup {
+                    if let Some(trim) = flat {
+                        let elsewhere = if entry.trims.is_empty() { String::new() } else { format!(" It has trims measured for {}.", setups_with_trims(entry)) };
+                        reasons.push(
+                            Reason::new(
+                                ReasonCode::TrimSetupUnknown,
+                                Severity::Warning,
+                                format!(
+                                    "{name} has no trim measured for {}, so the aggregate uses its input trim of {trim} samples, whose rate and buffer size were never written down: it was measured before Gazelle kept a trim for each setup. A trim is only right at the rate and buffer size it was measured at.{elsewhere} {MEASURE_THIS_SETUP}",
+                                    setup.words()
+                                ),
+                            )
+                            .about(device),
+                        );
+                    } else if !entry.trims.is_empty() {
+                        reasons.push(
+                            Reason::new(
+                                ReasonCode::NoTrimForSetup,
+                                Severity::Warning,
+                                format!(
+                                    "{name} has trims for {} and none for {}, so a session at this setup lines {name} up by the figures its driver reports, which can be tens of samples out. {MEASURE_THIS_SETUP}",
+                                    setups_with_trims(entry),
+                                    setup.words()
+                                ),
+                            )
+                            .about(device),
+                        );
+                    }
+                }
+                match flat {
+                    Some(trim) => (trim, entry.phase.as_ref().and_then(|phase| phase.reference), format!("an input trim of {trim} samples")),
+                    None => continue,
+                }
+            }
+        };
+        if trim == 0 || reference.is_some() {
             continue;
         }
+        let phase = entry.phase.as_ref();
         let cabled = device.device_id.as_ref().is_some_and(|id| {
             workspace.cables.iter().any(|cable| &cable.to.device_id == id && devices.iter().any(|other| other.device_id.as_ref() == Some(&cable.from.device_id)))
         });
@@ -220,8 +296,7 @@ fn trims(devices: &[DeviceReport], workspace: &Workspace) -> Vec<Reason> {
                 ReasonCode::TrimWithoutReference,
                 Severity::Warning,
                 format!(
-                    "{name} has an input trim of {trim} samples and {missing}, so no session is lined up to the one the trim was measured in. Where {name}'s capture starts moves by a whole multiple of 32 samples from one session to the next, so the trim is right only in a session that happens to start where its own did, and in any other a recording from {name} lands 32 samples or more from where the trim puts it. {fix}: that writes the trim again together with its reference, and every session after that is lined up to it.",
-                    name = device.name
+                    "{name} has {whose} and {missing}, so no session is lined up to the one the trim was measured in. Where {name}'s capture starts moves by a whole multiple of 32 samples from one session to the next, so the trim is right only in a session that happens to start where its own did, and in any other a recording from {name} lands 32 samples or more from where the trim puts it. {fix}: that writes the trim again together with its reference, and every session after that is lined up to it."
                 ),
             )
             .about(device),
@@ -595,7 +670,7 @@ mod tests {
     use super::*;
     use crate::aggregate::usb::UsbController;
     use crate::aggregate::{ClockReading, DriverSummary};
-    use crate::workspace::model::{Aggregate, AggregateDevice, AggregatePhase, CableEnd};
+    use crate::workspace::model::{AggregatePhase, AggregateTrim, CableEnd};
 
     fn quadro() -> DeviceReport {
         DeviceReport {
@@ -720,6 +795,87 @@ mod tests {
         assert_eq!(codes(&both), [ReasonCode::PhaseNotMeasured, ReasonCode::TrimWithoutReference]);
         assert!(both[1].message.contains("and no phase setup"), "{}", both[1].message);
         assert!(both[1].message.contains("Set up its phase on its card, then measure"), "{}", both[1].message);
+    }
+
+    /// The same, with the aggregate at 96 kHz in its setup and the Studio+'s trims per setup, so that
+    /// the setup in force is 96 kHz at the 512 samples the drivers are on.
+    fn keyed(flat: Option<i32>, trims: Vec<AggregateTrim>, reference: Option<i32>) -> Workspace {
+        let set_up = AggregatePhase { master_output: Some(8), input: Some(16), reference };
+        let mut workspace = trimmed(flat, Some(set_up));
+        let config = workspace.aggregate.as_mut().unwrap();
+        config.rate = Some(96000);
+        config.devices[1].trims = trims;
+        workspace
+    }
+
+    fn at(rate: u32, buffer_size: u32, input_trim: i32, reference: Option<i32>) -> AggregateTrim {
+        AggregateTrim { rate, buffer_size, input_trim, reference }
+    }
+
+    /// **The trim measured at the setup in force is the one in force**, and with its reference
+    /// beside it there is nothing to say, whatever else is kept.
+    #[test]
+    fn a_trim_measured_at_the_setup_in_force_is_the_one_used_and_says_nothing() {
+        let workspace = keyed(Some(60), vec![at(48000, 256, 31, Some(-12)), at(96000, 512, 144, Some(-84))], None);
+        assert_eq!(setup_of(workspace.aggregate.as_ref().unwrap(), &[quadro(), studio()]), Some(SetupInForce { rate: 96000, buffer_size: 512 }));
+        assert!(reasons(true, true, true, &[quadro(), studio()], &workspace).is_empty(), "the old trim with no reference is not the one in force");
+
+        // Measured there with nothing heard on the cable is a trim with no reference, and says so for its setup.
+        let unheard = keyed(None, vec![at(96000, 512, 144, None)], None);
+        let said = reasons(true, true, true, &[quadro(), studio()], &unheard);
+        assert_eq!(codes(&said), [ReasonCode::TrimWithoutReference]);
+        assert!(said[0].message.starts_with("Studio+ has an input trim of 144 samples for 96 kHz at 512 samples and no phase reference"), "{}", said[0].message);
+    }
+
+    /// A trim kept from before trims were kept per setup is used only where nothing was measured for
+    /// the setup in force, and is said in plain words, with what was measured elsewhere.
+    #[test]
+    fn a_trim_whose_setup_was_never_written_down_is_used_with_a_warning() {
+        let old = keyed(Some(60), Vec::new(), Some(-84));
+        let said = reasons(true, true, true, &[quadro(), studio()], &old);
+        assert_eq!(codes(&said), [ReasonCode::TrimSetupUnknown]);
+        let reason = &said[0];
+        assert_eq!(reason.severity, Severity::Warning);
+        assert_eq!(reason.device.as_deref(), Some("Studio+"));
+        assert!(reason.message.starts_with("Studio+ has no trim measured for 96 kHz at 512 samples, so the aggregate uses its input trim of 60 samples"), "{}", reason.message);
+        assert!(reason.message.contains("never written down"), "{}", reason.message);
+        assert!(reason.message.contains("alignment suite"), "{}", reason.message);
+        assert!(ready(&said), "the interfaces still record");
+
+        let with_others = keyed(Some(60), vec![at(48000, 256, 31, Some(-12))], Some(-84));
+        let said = reasons(true, true, true, &[quadro(), studio()], &with_others);
+        assert_eq!(codes(&said), [ReasonCode::TrimSetupUnknown]);
+        assert!(said[0].message.contains("It has trims measured for 48 kHz at 256 samples."), "{}", said[0].message);
+
+        // And its missing reference is still said, about the trim in force.
+        let unreferenced = keyed(Some(60), Vec::new(), None);
+        assert_eq!(codes(&reasons(true, true, true, &[quadro(), studio()], &unreferenced)), [ReasonCode::TrimSetupUnknown, ReasonCode::TrimWithoutReference]);
+    }
+
+    #[test]
+    fn trims_for_other_setups_and_none_for_this_one_say_which_setups_have_them() {
+        let elsewhere = keyed(None, vec![at(48000, 256, 31, Some(-12)), at(96000, 128, 40, Some(-20)), at(96000, 1024, 41, None)], None);
+        let said = reasons(true, true, true, &[quadro(), studio()], &elsewhere);
+        assert_eq!(codes(&said), [ReasonCode::NoTrimForSetup]);
+        assert_eq!(
+            said[0].message,
+            "Studio+ has trims for 48 kHz at 256 samples, 96 kHz at 128 samples and 96 kHz at 1024 samples and none for 96 kHz at 512 samples, so a session at this setup lines Studio+ up by the figures its driver reports, which can be tens of samples out. Measure the interfaces at this setup under Line the interfaces up, or measure every setup you use at once with the alignment suite there."
+        );
+        // The drivers' buffer size is the one in force, over what the setup offers a DAW.
+        let mut offered = elsewhere.clone();
+        offered.aggregate.as_mut().unwrap().buffer_size = Some(128);
+        assert_eq!(codes(&reasons(true, true, true, &[quadro(), studio()], &offered)), [ReasonCode::NoTrimForSetup]);
+        let unread = DriverSummary { buffer_size: None, ..quadro().driver };
+        let neither = [DeviceReport { driver: unread.clone(), ..quadro() }, DeviceReport { driver: unread, ..studio() }];
+        assert!(reasons(true, true, true, &neither, &offered).is_empty(), "the drivers unread, the setup's 128 is the one, and it has a trim");
+    }
+
+    /// With no rate in force there is no setup to look a trim up for, so nothing is said about setups.
+    #[test]
+    fn with_no_setup_in_force_nothing_is_said_about_setups() {
+        let mut workspace = keyed(Some(60), vec![at(48000, 256, 31, Some(-12))], Some(-84));
+        workspace.aggregate.as_mut().unwrap().rate = None;
+        assert!(reasons(true, true, true, &[quadro(), studio()], &workspace).is_empty());
     }
 
     #[test]

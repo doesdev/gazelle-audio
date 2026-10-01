@@ -291,12 +291,41 @@ pub struct Calibration {
     /// Set by a person pressing stop, read by the run between blocks.
     stop: AtomicBool,
     running: AtomicBool,
+    /// Set while the alignment suite holds the measurement, so that a run asked for meanwhile is
+    /// told what is measuring rather than only that something is.
+    suite: AtomicBool,
     measurer: Arc<dyn Measurer>,
+}
+
+/// **The measurement held for a whole alignment suite.** While it is held no single run starts and
+/// the recorder will not arm, exactly as while one run goes; letting go of it is what frees them.
+pub struct Held {
+    calibration: Arc<Calibration>,
+}
+
+impl Held {
+    /// One measurement, on the suite's own thread, with the same measurer a single run uses.
+    pub fn measure(&self, rig: &Rig, settings: &Settings, watch: &mut dyn FnMut(usize) -> bool) -> Outcome {
+        self.calibration.measurer.measure(rig, settings, watch)
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.calibration.suite.store(false, Ordering::Release);
+        self.calibration.running.store(false, Ordering::Release);
+    }
 }
 
 impl Calibration {
     pub fn new(measurer: Arc<dyn Measurer>) -> Calibration {
-        Calibration { state: Mutex::new(Progress::default()), stop: AtomicBool::new(false), running: AtomicBool::new(false), measurer }
+        Calibration {
+            state: Mutex::new(Progress::default()),
+            stop: AtomicBool::new(false),
+            running: AtomicBool::new(false),
+            suite: AtomicBool::new(false),
+            measurer,
+        }
     }
 
     /// This PC's, which is what the server runs with.
@@ -322,7 +351,7 @@ impl Calibration {
     pub fn start(self: &Arc<Self>, ask: &Ask) -> Result<(), String> {
         let (rig, settings) = ask.taken()?;
         if self.running.swap(true, Ordering::AcqRel) {
-            return Err("A measurement is already running. Wait for it, or stop it first.".into());
+            return Err(self.busy());
         }
         self.stop.store(false, Ordering::Release);
         *self.state.lock().expect("the calibration state") = Progress {
@@ -342,6 +371,25 @@ impl Calibration {
                 format!("The measurement could not be started: {e}")
             })?;
         Ok(())
+    }
+
+    /// Hold the measurement for the alignment suite, for as long as the answer is kept, or say why
+    /// not: one run, or another suite, already has it.
+    pub fn hold(self: &Arc<Self>) -> Result<Held, String> {
+        if self.running.swap(true, Ordering::AcqRel) {
+            return Err(self.busy());
+        }
+        self.suite.store(true, Ordering::Release);
+        Ok(Held { calibration: Arc::clone(self) })
+    }
+
+    /// What a run asked for while the measurement is taken is told.
+    fn busy(&self) -> String {
+        if self.suite.load(Ordering::Acquire) {
+            "The alignment suite is measuring. Wait for it, or stop it first.".into()
+        } else {
+            "A measurement is already running. Wait for it, or stop it first.".into()
+        }
     }
 
     fn run(self: Arc<Self>, rig: Rig, settings: Settings) {
@@ -798,6 +846,27 @@ mod tests {
         assert_eq!(job.start(&ask()).unwrap_err(), "A measurement is already running. Wait for it, or stop it first.");
         job.stop();
         settled(&job);
+    }
+
+    /// The suite holds the measurement as one long run: nothing else starts while it does, the
+    /// refusal says what is measuring, and letting go frees it.
+    #[test]
+    fn the_suite_holds_the_measurement_and_letting_go_frees_it() {
+        let job = Arc::new(Calibration::new(Fake::new(outcome(), 2)));
+        let held = job.hold().expect("nothing is running");
+        assert!(job.is_running(), "the recorder reads this, and will not arm");
+        assert_eq!(job.start(&ask()).unwrap_err(), "The alignment suite is measuring. Wait for it, or stop it first.");
+        assert!(job.hold().is_err(), "and nor does a second suite");
+        let (rig, settings) = ask().taken().unwrap();
+        let measured = held.measure(&rig, &settings, &mut |_| true);
+        assert_eq!(measured.trims[1].new, 28, "with the measurer a single run uses");
+        drop(held);
+        assert!(!job.is_running());
+        let other = Arc::new(Calibration::new(Fake::new(outcome(), 2000)));
+        other.start(&ask()).expect("it starts");
+        assert!(other.hold().err().is_some_and(|why| why.starts_with("A measurement is already running")));
+        other.stop();
+        settled(&other);
     }
 
     #[test]

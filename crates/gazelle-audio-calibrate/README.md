@@ -308,6 +308,13 @@ next to a trim it does not belong to; a trim that is not offered keeps its old r
 trims, the interface everything was measured against, and interfaces with no phase setting have none.
 The pairing is read from the audio path itself, so it is there whether or not the run could publish.
 
+**What the file had is the trim for this run's setup.** A device can keep one input trim per rate and
+buffer size (`trims` in `aggregate.json`), and the aggregate runs every session, a run's included, on
+the one for the rate and buffer size it is at, else on the plain `input_trim`. So a run's `old`, and
+the reference beside it, are whichever of those the run was lined up with, chosen by the same rule
+the driver uses, and the new trim belongs to that same rate and buffer size, which the outcome
+carries.
+
 **Not being able to publish never fails a run.** If the shared section cannot be made the run
 measures exactly what it would have, and writes its lines to the log if it has one. `phases` is then
 empty, because the phase is only ever reported through the record: empty means there was nothing to

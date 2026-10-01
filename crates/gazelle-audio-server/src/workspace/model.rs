@@ -238,6 +238,13 @@ pub struct AggregateDevice {
     /// reports. Only an interface that does not drive the callback can have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<AggregatePhase>,
+    /// Input trims measured at one rate and one buffer size each, each with the phase reference
+    /// measured beside it. A session uses the one for the rate and buffer size it runs at. Only where
+    /// there is none for that setup does it fall back to [`AggregateDevice::input_trim`] and
+    /// [`AggregatePhase::reference`], which are a trim whose setup was never written down: every
+    /// trim from before trims were kept per setup is one of those, and it is kept as it was.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trims: Vec<AggregateTrim>,
     /// Which Gazelle device this is, when the user has said so, which is how the readiness answer
     /// reads its clock, its rate and its buffer. Gazelle's own, not the driver's: it is left out
     /// of the exported file.
@@ -317,6 +324,39 @@ pub struct AggregatePhase {
     /// measured once. It belongs to the trim beside it: a trim typed in by hand has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<i32>,
+}
+
+/// One input trim, measured at one rate and one buffer size, with the phase reference measured
+/// beside it in the same session. A trim is only true of the setup it was measured at, because the
+/// drivers' own latency figures change with the rate and the buffer size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregateTrim {
+    /// The rate it was measured at, in Hz.
+    pub rate: u32,
+    /// The buffer size it was measured at, in samples.
+    pub buffer_size: u32,
+    /// The trim, with the same meaning and sign as [`AggregateDevice::input_trim`]. Zero is a trim:
+    /// it says this setup was measured and needs nothing.
+    pub input_trim: i32,
+    /// The phase measured in that session, as [`AggregatePhase::reference`] is. Absent when the
+    /// interface has no phase setup, or nothing was heard on its cable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<i32>,
+}
+
+impl AggregateDevice {
+    /// The trim measured at exactly this rate and buffer size, if there is one.
+    pub fn trim_at(&self, rate: u32, buffer_size: u32) -> Option<&AggregateTrim> {
+        self.trims.iter().find(|trim| trim.rate == rate && trim.buffer_size == buffer_size)
+    }
+
+    /// Put a trim measured at its own setup in, replacing the one that was there for that setup.
+    /// Kept in order of rate and then buffer size, so the file reads the same way the page lists them.
+    pub fn keep_trim(&mut self, trim: AggregateTrim) {
+        self.trims.retain(|kept| (kept.rate, kept.buffer_size) != (trim.rate, trim.buffer_size));
+        self.trims.push(trim);
+        self.trims.sort_by_key(|kept| (kept.rate, kept.buffer_size));
+    }
 }
 
 /// How the aggregate lines its devices up.

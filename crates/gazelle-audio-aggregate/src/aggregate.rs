@@ -8,7 +8,7 @@ use std::sync::Arc;
 use gazelle_audio_stream_abi::raw::{selector, CallbacksRaw};
 use gazelle_audio_stream_abi::{sample, Entry};
 
-use crate::config::{Config, DeviceConfig};
+use crate::config::{ChosenTrim, Config, DeviceConfig, PhaseConfig, TrimFrom};
 use crate::plan::{self, Found, Plan};
 use crate::status::{Glitches, Reporter};
 use crate::stream::Stream;
@@ -94,6 +94,9 @@ pub struct Aggregate {
     /// Whether this is a calibration run's session rather than a DAW's: every phase is measured,
     /// and none of them is used.
     measuring_trims: bool,
+    /// The input trim each device's session uses, chosen for the rate and the buffer size the DAW
+    /// actually asked for, in the plan's order. Said in the session's line of the event log.
+    trims_in_force: Vec<ChosenTrim>,
 }
 
 impl Aggregate {
@@ -127,6 +130,7 @@ impl Aggregate {
             generation: 0,
             queued: None,
             measuring_trims: false,
+            trims_in_force: Vec::new(),
         }
     }
 
@@ -313,6 +317,12 @@ impl Aggregate {
             }
         }
         self.rate = found.first().map(|d| d.description.rate).unwrap_or(0.0);
+        // The trims are chosen for the rate and the buffer size the DAW will be offered, which is
+        // only known once a plan says what that buffer size is. `createBuffers` chooses again for
+        // the one it actually asks for.
+        if let Ok(first) = plan::plan(&found, &self.config, None) {
+            self.trims_in_force = with_trims(&mut found, &self.from_file, self.rate, first.preferred);
+        }
 
         match plan::plan(&found, &self.config, None) {
             Ok(plan) => {
@@ -704,7 +714,7 @@ impl Aggregate {
 
         // Re-plan at the block the DAW actually asked for: the latencies and the padding depend
         // on it.
-        let found = self.found_again();
+        let found = self.found_again(block);
         let plan = match plan::plan(&found, &self.config, Some(block)) {
             Ok(plan) => plan,
             Err(why) => return self.fail(why),
@@ -772,10 +782,12 @@ impl Aggregate {
         Ok(pairs)
     }
 
-    /// The devices as [`plan::plan`] wants them, from what was read at `init`.
-    fn found_again(&self) -> Vec<Found> {
+    /// The devices as [`plan::plan`] wants them, from what was read at `init`, with each one's
+    /// input trim the one for this rate and `block`.
+    fn found_again(&mut self, block: i32) -> Vec<Found> {
         let names = self.plan_names();
-        self.descriptions
+        let mut found: Vec<Found> = self
+            .descriptions
             .iter()
             .enumerate()
             .map(|(index, description)| {
@@ -793,7 +805,33 @@ impl Aggregate {
                     phase: wanted.and_then(|w| w.phase),
                 }
             })
-            .collect()
+            .collect();
+        self.trims_in_force = with_trims(&mut found, &self.from_file, self.rate, block);
+        found
+    }
+
+    /// What the session's line in the event log says about the trims: for each interface that has
+    /// one, or has some and none for this setup, which one it runs on.
+    fn trims_said(&self) -> String {
+        let names = self.plan_names();
+        let master = self.plan.as_ref().map(|plan| plan.master);
+        let setup = format!("{} and {} samples", khz(self.rate), self.plan.as_ref().map_or(0, |plan| plan.block));
+        self.trims_in_force
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != master)
+            .filter_map(|(index, chosen)| {
+                let name = names.get(index).cloned().unwrap_or_else(|| format!("device {index}"));
+                let keyed = self.from_file.get(index).is_some_and(|wanted| !wanted.trims.is_empty());
+                match chosen.from {
+                    TrimFrom::ThisSetup => Some(format!("{name} input trim {} measured at {setup}", chosen.input_trim)),
+                    TrimFrom::UnknownSetup => Some(format!("{name} input trim {} from a setup that was not written down", chosen.input_trim)),
+                    TrimFrom::Nothing if keyed => Some(format!("{name} has no trim measured at {setup}")),
+                    TrimFrom::Nothing => None,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     /// Start every device. The ones that follow go first, so that the one driving the callback is
@@ -826,7 +864,13 @@ impl Aggregate {
         self.session_lost = stream.glitches();
         let reporter = Arc::clone(&self.reporter);
         let (inputs, outputs) = (stream.daw_inputs(), stream.daw_outputs());
-        reporter.session(true, self.session_nanos, &format!("{inputs} in, {outputs} out at {} Hz", self.rate));
+        let trims = self.trims_said();
+        let detail = if trims.is_empty() {
+            format!("{inputs} in, {outputs} out at {} Hz", self.rate)
+        } else {
+            format!("{inputs} in, {outputs} out at {} Hz; {trims}", self.rate)
+        };
+        reporter.session(true, self.session_nanos, &detail);
         Ok(())
     }
 
@@ -931,6 +975,22 @@ impl Trouble {
 
 /// Two rates that are the same rate. A driver hands back a double, and 96000 need not come back
 /// bit for bit.
+/// Give each device the input trim for a session at `rate` and `block`, and the phase reference
+/// measured beside that trim, and say which each one got. The cable the phase is measured over stays
+/// exactly as the file has it: only the reference goes with the trim.
+fn with_trims(found: &mut [Found], wanted: &[DeviceConfig], rate: f64, block: i32) -> Vec<ChosenTrim> {
+    found
+        .iter_mut()
+        .zip(wanted)
+        .map(|(device, wanted)| {
+            let chosen = wanted.trim_for(rate, block);
+            device.input_trim = chosen.input_trim;
+            device.phase = wanted.phase.map(|phase| PhaseConfig { reference: chosen.reference, ..phase });
+            chosen
+        })
+        .collect()
+}
+
 fn same_rate(a: f64, b: f64) -> bool {
     (a - b).abs() < 0.5
 }
