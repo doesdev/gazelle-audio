@@ -110,7 +110,8 @@ fn mix_name(mixer: Option<&DeviceMixer>, mix: usize) -> String {
 }
 
 /// What a routing slot plays, in the person's words: a mix's side by the mix's name ("Mix 1 L"),
-/// else the source as the Routing page shows it ("PREAMP 1"). MUTE, or a slot not known, is nothing.
+/// else the source as the Aggregate page names it ("AFX OUT 3", "Preamp 1"). MUTE, or a slot not
+/// known, is nothing.
 fn slot_words(family: &str, slot: Option<&[u8; 2]>, mixer: Option<&DeviceMixer>) -> Option<String> {
     let [source, channel] = *slot?;
     let group = topology::source_groups(family)?.get(usize::from(source))?;
@@ -484,7 +485,7 @@ mod tests {
         rig.studio.get_mut("USB_REC0").unwrap()[23] = [0, 2];
         let reason = only(reasons(&devices(), &rig.workspace()));
         assert!(reason.message.contains("USB 1 PLAY 16 also goes to Monitor R and Mix 2, and the short burst"), "{}", reason.message);
-        assert!(reason.message.contains("Studio+'s USB REC 24 no longer records S/PDIF in L: it records PREAMP 3 now."), "{}", reason.message);
+        assert!(reason.message.contains("Studio+'s USB REC 24 no longer records S/PDIF in L: it records Preamp 3 now."), "{}", reason.message);
         assert_eq!(
             writes(&reason),
             json!([
