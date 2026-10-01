@@ -1,4 +1,4 @@
-export { API_PATH, CLOSE_UNPAIRED, DEFAULT_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, connect } from "./client.ts";
+export { API_PATH, CLOSE_UNPAIRED, DEFAULT_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, connect, loadSchemas } from "./client.ts";
 export type {
   Client,
   ClientEvents,
@@ -28,7 +28,7 @@ export { GazelleError } from "./errors.ts";
 export type { ClientErrorCode, ErrorCode, ServerErrorCode } from "./errors.ts";
 export { fromHex, toHex } from "./bytes.ts";
 export type { Bytes, CommandDescriptor, FamilySchema, FieldDescriptor, Scalar, Topology, TopologyGroup } from "./schema.ts";
-export { schemas, topologies } from "./generated/index.ts";
+export { topologies } from "./generated/index.ts";
 export type { Family, FamilyTypes } from "./generated/index.ts";
 export { SNAPSHOT_VERSION } from "./snapshots.ts";
 export type { Change, ChangeKind, DeviceDiff, DeviceSnapshot, RecallAsk, RecallDevicePlan, RecallExcluded, RecallPart, RecallPlan, RecallRaisedOutput, RecallStep, SectionDiff, Snapshot, SnapshotDeviceSummary, SnapshotDiff, SnapshotImport, SnapshotSummary, Unreadable } from "./snapshots.ts";

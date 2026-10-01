@@ -19,6 +19,7 @@
 
 import { h } from "../core/dom.ts";
 import { signal, untracked } from "../core/signal.ts";
+import { aggregateInputs } from "../store/aggregate.ts";
 import { fileOf, folderOf, newPreset, PATTERN_DEFAULT, PERCENT_DEFAULT, PERCENTS, PRESET_KEY, presetToOffer, recordingModel, takeLine, type RecordingPreset } from "../store/recording.ts";
 import type { Store } from "../store/store.ts";
 import { bindConfirm } from "./controls.ts";
@@ -334,7 +335,7 @@ export class GaRecording extends GaElement {
     );
 
     // The channels, by interface, as the Aggregate page names them.
-    const { devices, inputs } = untracked(() => store.aggregateInputs(true));
+    const { devices, inputs } = untracked(() => aggregateInputs(store, true));
     const chosen = new Set((preset.channels ?? []).map((c) => `${c.device}:${c.channel}`));
     const picker = h("div", { class: "picker", "data-testid": "recording-preset-channels" });
     if (inputs.length === 0) {

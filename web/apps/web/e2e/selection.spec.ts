@@ -101,11 +101,13 @@ test("labels, readouts and headings inside a shadow root look the same selected,
 
 test("a field keeps a visible selection in the theme's accent, in a shadow root", async ({ page }) => {
   await page.goto(`${server.url}/#/devices/loopback-0`);
+  // The theme is the app's to apply, so it is read once the app is on screen.
+  const name = page.getByTestId("device-name");
+  await expect(name).toBeVisible();
   const accent = await themeColour(page, "--ga-accent");
   const accentText = await themeColour(page, "--ga-accent-text");
   expect(accent).not.toBe(TRANSPARENT);
 
-  const name = page.getByTestId("device-name");
   await name.fill("Desk Quadro");
   expect(await name.evaluate((el) => ({ background: getComputedStyle(el, "::selection").backgroundColor, color: getComputedStyle(el, "::selection").color }))).toEqual({ background: accent, color: accentText });
   // And it is drawn: the field looks different with its text selected.

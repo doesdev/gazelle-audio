@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { byteSize, type Field } from "../../../../tools/gen-types/src/field.ts";
-import { connect, GazelleError, schemas, type Client, type FamilySchema, type FamilyTypes, type FieldDescriptor } from "../../src/index.ts";
+import { connect, GazelleError, loadSchemas, type Client, type FamilySchema, type FamilyTypes, type FieldDescriptor } from "../../src/index.ts";
 import { startServer, type RunningServer } from "./server.ts";
 
 let server: RunningServer;
@@ -40,7 +40,7 @@ for (const [id, family] of [["loopback-0", "quadro"], ["loopback-1", "studio"]] 
     const response = await fetch(`${server.url}/api/v1/devices/${id}/commands`);
     assert.equal(response.status, 200);
     const body = (await response.json()) as ServerCommands;
-    const schema: FamilySchema = schemas[family];
+    const schema: FamilySchema = (await loadSchemas())[family];
 
     assert.deepEqual(body.commands.map((c) => c.name).sort(), Object.keys(schema.commands).sort());
     for (const command of body.commands) {

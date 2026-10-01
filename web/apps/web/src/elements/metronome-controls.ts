@@ -10,6 +10,7 @@
 
 import { h } from "../core/dom.ts";
 import { untracked } from "../core/signal.ts";
+import { aggregateInputs } from "../store/aggregate.ts";
 import {
   beatAt,
   clampTempo,
@@ -110,7 +111,7 @@ export function beatLights(host: TransportHost, testid: string, most = 16): HTML
 function outputNames(status: MetronomeStatus | undefined): string[] {
   const store = useStore();
   if (status?.open === true && status.outputs.length > 0) return status.outputs.map((c) => c.name);
-  const { inputs: outputs } = untracked(() => store.aggregateInputs(false));
+  const { inputs: outputs } = untracked(() => aggregateInputs(store, false));
   return (status?.settings.outputs ?? []).map((pick) => outputs.find((c) => c.index === pick.device && c.channel === pick.channel)?.text ?? `Output ${pick.channel + 1} of interface ${pick.device + 1}`);
 }
 
@@ -280,7 +281,7 @@ export function metronomeSection(host: TransportHost): HTMLElement {
   let built = "";
   host.watch(() => {
     const { status, settings } = metronomeOf(store);
-    const list = store.aggregateInputs(false);
+    const list = aggregateInputs(store, false);
     const locked = phone || status?.open === true || !store.connected.value || settings === undefined;
     const chosen = settings?.outputs ?? [];
     const key = JSON.stringify([list, chosen, locked]);
