@@ -2,7 +2,8 @@
 // element's own, effects that are disposed when the element leaves the page, and access to the
 // app's store (provided once by the entry point).
 
-import { effect, type Signal } from "../core/signal.ts";
+import { effect, signal, type Signal } from "../core/signal.ts";
+import type { PhaseGuard } from "../store/phase-path.ts";
 import type { Store } from "../store/store.ts";
 import { cssProperties } from "../themes/theme.ts";
 import { shared } from "./styles.ts";
@@ -16,6 +17,26 @@ export function provideStore(store: Store): void {
 export function useStore(): Store {
   if (appStore === undefined) throw new Error("the store has not been provided; call provideStore() before adding elements");
   return appStore;
+}
+
+const guarding = signal<PhaseGuard | undefined>(undefined);
+let guardAsked = false;
+
+/**
+ * What the Mixer page and the dock ask about a cable dedicated to the phase measurement: which of
+ * their channels and outputs are on its path, and what a change would break of it. Undefined until
+ * the workspace dedicates a cable, when its chunk is fetched (`phase-guard.ts`), since until then it
+ * has nothing to say. Reading it is reactive, so a mark drawn from it appears once the chunk is here.
+ */
+export function phaseGuard(): PhaseGuard | undefined {
+  if (!guardAsked && useStore().workspace.value?.cables?.some((cable) => cable.dedicated !== undefined) === true) {
+    guardAsked = true;
+    import("./phase-guard.ts").then(
+      (module) => (guarding.value = module.guard()),
+      () => (guardAsked = false),
+    );
+  }
+  return guarding.value;
 }
 
 /** Put the chosen theme on the document; inside a watch, it follows the choice. The app, the widget and the hub each do. */

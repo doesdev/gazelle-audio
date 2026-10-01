@@ -10,6 +10,14 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Added
+
+- **The Mixer guards the phase and clock cable.** While a cable is dedicated to phase and clock,
+  the Mixer page and the mixer dock mark a channel on its kept playback channel PHASE, and the
+  Input and + Output menus mark its channels "(phase)", as the Routing page does. Choosing one for
+  a channel or a mix, sending a mix to the cable's output, applying a layout, tidying a mix or
+  dropping a source on the dock that would break the path now waits for Confirm and says why.
+
 ### Fixed
 
 - **Replace and Apply on the Mixer page keep their Confirm.** A change saved in the meantime, such
