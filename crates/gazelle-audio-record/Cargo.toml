@@ -12,6 +12,7 @@ name = "gazelle_record"
 
 [dependencies]
 gazelle-audio-aggregate = { path = "../gazelle-audio-aggregate" }
+gazelle-audio-aggregate-status = { path = "../gazelle-audio-aggregate-status" }
 gazelle-audio-calibrate = { path = "../gazelle-audio-calibrate" }
 gazelle-audio-stream-abi = { path = "../gazelle-audio-stream-abi" }
 serde = { version = "1", features = ["derive"] }

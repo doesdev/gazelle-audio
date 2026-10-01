@@ -291,6 +291,12 @@ impl Detector {
         self.state == State::Done
     }
 
+    /// What the drivers' own figures say the signal takes to come back, which every later check
+    /// over the same cable is measured against too.
+    pub fn expected(&self) -> i32 {
+        self.expected
+    }
+
     /// Ready to measure again, which is what a DAW starting the audio a second time without
     /// letting the buffers go is. Nothing is allocated: it is the same detector.
     pub fn rearm(&mut self) {
@@ -333,6 +339,104 @@ impl Detector {
             return Some(Measurement { measured: 0, outcome: Outcome::Refused(Refusal::NotHeard) });
         }
         None
+    }
+}
+
+/// **The check that keeps running**, for a host that wants to know the alignment held after the
+/// start of a session, which nothing else here looks at again.
+///
+/// While one is hung on a stream ([`crate::stream::Stream::watch`]), the master's callback sends the
+/// same burst as the start of the session did, down the same cable, every [`Watch::every`] blocks
+/// once the session's own measurement is over (and only if that measurement heard its burst: one
+/// that did not is a routing that may play it somewhere else), and copies the follower's measurement channel into
+/// the watch's ring on every block, as the device handed it over and before anything holds it back.
+/// That is all the audio path does for it: a burst written into a buffer that is already there, and
+/// one block copied into a ring that was allocated when the watch was made. Finding the burst, and
+/// what it means, is the host's work on a thread of its own.
+pub struct Watch {
+    /// The follower whose cable is watched, by its place in the plan.
+    pub device: usize,
+    /// How many of the master's blocks go by between one burst and the next.
+    pub every: u64,
+    block: usize,
+    ring: crate::ring::Ring,
+}
+
+/// What one block of a watch carries besides its samples, in the ring's own `i32`s.
+const WATCH_HEADER: usize = 8;
+/// The block sent a burst, and `due` says where the drivers' figures put its arrival.
+const WATCH_SENT: i32 = 1;
+
+/// One block of a follower's measurement channel, as a watch hands it to the host.
+#[derive(Clone, Copy, Debug)]
+pub struct Heard<'a> {
+    /// The master's block it arrived in, counted as the start of a session counts them.
+    pub block_number: u64,
+    /// When a burst went out on this block: where it should arrive if the follower is where the
+    /// drivers' own figures put it, in samples of the master's stream. What it actually arrived at
+    /// less this is measured exactly as the start of the session measures it.
+    pub due: Option<i64>,
+    /// What the start of the session made of this follower, as it stood on this block: one of
+    /// [`gazelle_audio_aggregate_status::record::phase`], what it measured, and what it applied.
+    pub state: u32,
+    pub measured: i32,
+    pub applied: i32,
+    /// The block itself.
+    pub samples: &'a [i32],
+}
+
+impl Watch {
+    /// A watch of one follower, a burst every `every` blocks, with room in its ring for `slots`
+    /// blocks the host has not read yet. Made by the host, off the audio path.
+    pub fn new(device: usize, every: u64, block: usize, slots: usize) -> Watch {
+        Watch { device, every: every.max(1), block, ring: crate::ring::Ring::new(slots.max(2), WATCH_HEADER + block) }
+    }
+
+    /// Samples in one block.
+    pub fn block(&self) -> usize {
+        self.block
+    }
+
+    /// Blocks the audio path had to throw away because the host had not read the ring in time.
+    pub fn dropped(&self) -> u64 {
+        self.ring.dropped()
+    }
+
+    /// Whether a burst goes out on this block.
+    pub fn sends_on(&self, block_number: u64) -> bool {
+        block_number.is_multiple_of(self.every)
+    }
+
+    /// One block, from the audio path. Nothing here allocates or waits: a full ring drops it.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record(&self, block_number: u64, due: Option<i64>, state: u32, measured: i32, applied: i32, run: &[i32]) {
+        self.ring.push_with(|slot| {
+            let (head, samples) = slot.split_at_mut(WATCH_HEADER);
+            let due_or_zero = due.unwrap_or(0);
+            head[0] = block_number as u32 as i32;
+            head[1] = (block_number >> 32) as u32 as i32;
+            head[2] = due_or_zero as u64 as u32 as i32;
+            head[3] = ((due_or_zero as u64) >> 32) as u32 as i32;
+            head[4] = if due.is_some() { WATCH_SENT } else { 0 };
+            head[5] = state as i32;
+            head[6] = measured;
+            head[7] = applied;
+            let n = samples.len().min(run.len());
+            samples[..n].copy_from_slice(&run[..n]);
+            samples[n..].fill(0);
+        });
+    }
+
+    /// The oldest block the host has not read, handed to `take`. False when there is none. Only
+    /// one thread may read a watch.
+    pub fn read(&self, take: impl FnOnce(Heard<'_>)) -> bool {
+        self.ring.pop_with(|slot| {
+            let (head, samples) = slot.split_at(WATCH_HEADER);
+            let word = |at: usize| u64::from(head[at] as u32);
+            let block_number = word(0) | (word(1) << 32);
+            let due = (head[4] & WATCH_SENT != 0).then(|| (word(2) | (word(3) << 32)) as i64);
+            take(Heard { block_number, due, state: head[5] as u32, measured: head[6], applied: head[7], samples });
+        })
     }
 }
 
@@ -469,6 +573,24 @@ mod tests {
             assert_eq!(nothing.applied(), 0, "a refusal corrects nothing, which is not a correction of zero");
             assert_eq!(nothing.measured, 0);
         }
+    }
+
+    #[test]
+    fn a_watch_hands_over_each_block_whole_with_where_its_burst_is_due() {
+        let watch = Watch::new(1, 3, 4, 4);
+        assert!(watch.sends_on(0) && !watch.sends_on(1) && watch.sends_on(6), "every third block");
+        let far = (1u64 << 40) + 5;
+        watch.record(far, Some(-(1i64 << 35)), codes::APPLIED, -148, -64, &[1, 2, 3, 4]);
+        watch.record(far + 1, None, codes::APPLIED, -148, -64, &[5, 6]);
+        let mut seen = Vec::new();
+        while watch.read(|heard| seen.push((heard.block_number, heard.due, heard.state, heard.measured, heard.applied, heard.samples.to_vec()))) {}
+        assert_eq!(seen[0], (far, Some(-(1i64 << 35)), codes::APPLIED, -148, -64, vec![1, 2, 3, 4]), "every number survives the ring");
+        assert_eq!(seen[1], (far + 1, None, codes::APPLIED, -148, -64, vec![5, 6, 0, 0]), "and a short run is padded with silence");
+        // A ring the host has not read drops the newest and counts it, and never waits.
+        for block in 0..5 {
+            watch.record(block, None, 0, 0, 0, &[0; 4]);
+        }
+        assert_eq!(watch.dropped(), 2);
     }
 
     #[test]

@@ -15,7 +15,9 @@
 //! - [`sizing`] works out how big the ring is, from the memory free at Arm.
 //! - [`writer`] drains a take into one Broadcast WAV per channel ([`wav`]), keeps its log, and
 //!   watches the disk.
-//! - [`recorder`] is the states (Off, Armed, Recording) and the two threads behind them.
+//! - [`recorder`] is the states (Off, Armed, Recording) and the threads behind them.
+//! - [`alignment`] keeps checking, while armed, that the interfaces are still lined up, over the
+//!   cable the phase is measured on, and says in each take's log whether they were.
 //! - [`env`] is the PC: this one, or the loopback's, made of data ([`sim`]).
 //!
 //! # The audio thread
@@ -24,6 +26,7 @@
 //! not allocate, lock, log, touch a file or wait. The ring was allocated, committed and touched page
 //! by page at Arm, so it cannot fail later or wait for memory to be brought in.
 
+pub mod alignment;
 pub mod capture;
 pub mod cubase;
 pub mod engine;

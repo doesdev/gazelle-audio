@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { GazelleError, type RecordingAutoArm, type RecordingStatus } from "gazelle-audio-client";
 
-import { autoArmShort, autoArmText, clockText, diskLeftText, diskText, fileOf, folderOf, lossText, meterFill, newPreset, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, RecordingModel, secondsText, stateLabel, takeLine, timeOfDay, warnings } from "../src/store/recording.ts";
+import { alignmentText, autoArmShort, autoArmText, clockText, diskLeftText, diskText, fileOf, folderOf, lossText, meterFill, newPreset, prerollFill, prerollText, presetProblem, presetToOffer, recordingModel, RecordingModel, secondsText, stateLabel, takeLine, timeOfDay, warnings } from "../src/store/recording.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, FakeClient, MemoryStorage } from "./fake-client.ts";
 
@@ -168,3 +168,23 @@ test("the settings and the windows are read and changed through the model, and a
   assert.equal(model.problem.value, "no windows here");
 });
 
+
+test("the alignment check is one line while armed, and a warning when the interfaces slip or the signal goes missing", () => {
+  assert.equal(alignmentText(armed), undefined, "a server that does not check says nothing");
+  assert.equal(alignmentText({ ...armed, state: "off", alignment: { state: "checking", checks: 3, offset: 0 } }), undefined, "nor does an off recorder");
+  const checking = { state: "checking" as const, device: "Studio+", checks: 12, since_check_seconds: 0.4, offset: 0 };
+  assert.deepEqual(alignmentText({ ...armed, alignment: checking }), { text: "Alignment checked 0.4 s ago: held.", warn: false });
+  assert.deepEqual(alignmentText({ ...armed, alignment: { state: "waiting", device: "Studio+", checks: 0 } }), { text: "Alignment: waiting for the first check over the phase cable.", warn: false });
+  const off = alignmentText({ ...armed, alignment: { state: "off", checks: 0, reason: "no phase path is set up" } });
+  assert.deepEqual(off, { text: "Alignment is not being checked: no phase path is set up.", warn: false });
+
+  const slipped = alignmentText({ ...armed, state: "recording", alignment: { ...checking, offset: 32, slip: { samples: 32, take_seconds: 83.5 } } });
+  assert.deepEqual(slipped, { text: "Alignment slipped by 32 samples at 1:23.5 into this take: Studio+ is late. Nothing is corrected; the take's log says when.", warn: true });
+  const early = alignmentText({ ...armed, alignment: { ...checking, offset: -1, slip: { samples: -1 } } });
+  assert.equal(early?.text, "Alignment slipped by 1 sample while armed: Studio+ is early. Nothing is corrected; the take's log says when.");
+  const back = alignmentText({ ...armed, alignment: { ...checking, slip: { samples: 32, take_seconds: 5 } } });
+  assert.deepEqual(back, { text: "Alignment held again, checked 0.4 s ago, after slipping by 32 samples at 0:05.0 into this take.", warn: true });
+  const silent = alignmentText({ ...armed, alignment: { ...checking, silent_seconds: 4.2 } });
+  assert.equal(silent?.warn, true);
+  assert.match(silent?.text ?? "", /no check signal has arrived on the phase cable for 4\.2 s/);
+});

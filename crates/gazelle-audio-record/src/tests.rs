@@ -5,25 +5,27 @@
 //! itself, exactly as the calibration's tests do. Every test that hosts the aggregate takes
 //! [`hosting`] first: the callbacks are global, and so is the turn.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use gazelle_aggregate::config::{Alignment, Config, DeviceConfig};
+use gazelle_aggregate::config::{Alignment, Config, DeviceConfig, PhaseConfig};
 use gazelle_aggregate::fake::{FakeDevice, FakeHost, FakePc, Spec};
 use gazelle_aggregate::status::Reporter;
 use gazelle_aggregate::sub::Host;
 use gazelle_calibrate::Pick;
 
+use crate::alignment::{self, Against, AlignmentLive, Board, Checker, SharedBoard};
 use crate::capture::Capture;
-use crate::host::{ArmRequest, Armed, OpenRequest, Session, MEASURING};
+use crate::host::{ArmRequest, Armed, OpenRequest, PhasePath, Session, MEASURING};
 use crate::metronome::{Params, Then};
 use crate::recorder::{Environment, Preset, Recorder, CONFIRM_DISARM};
 use crate::sim::Timing;
 use crate::system::{Clock, Disk, LocalClock, Memory, ThisPcDisk};
 use crate::testing::{FreeMemory, MemoryDisk, StoppedClock};
 use crate::wav::SampleFormat;
-use crate::writer::{Drain, TakeSettings, RF64_AT};
+use crate::writer::{Drain, TakeRecord, TakeSettings, RF64_AT};
 
 const BLOCK: i32 = 64;
 const RATE: f64 = 48_000.0;
@@ -647,4 +649,358 @@ fn the_ring_is_the_size_arm_worked_out() {
     let capture = Capture::allocate(2, 64, 64 * 100, 64 * 70).unwrap();
     assert_eq!(capture.bytes(), 64 * 100 * 2 * 4);
     assert_eq!(capture.preroll_frames(), 64 * 70);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The alignment check over the phase cable.
+// ---------------------------------------------------------------------------------------------
+
+/// The cable leaves A's second output and arrives on B's second input, which the aggregate keeps
+/// for itself, with the reference given or none.
+fn cabled(reference: Option<i32>) -> Config {
+    let mut config = config();
+    config.devices[1].phase = Some(PhaseConfig { master_output: Some(1), input: Some(1), reference });
+    config
+}
+
+fn open_with(pc: &Arc<FakePc>, config: Config) -> Session {
+    let host: Box<dyn Host> = Box::new(FakeHost { pc: Arc::clone(pc) });
+    Session::open(host, &OpenRequest { config, source: "a test".into(), outputs: vec![], params: Params::default() }, Arc::new(Reporter::silent())).expect("open")
+}
+
+/// What the cable takes, on top of the block the fake's own arithmetic needs.
+const CABLE_DELAY: usize = BLOCK as usize + 37;
+
+/// Both converters, with a digital cable from A's phase output to B's phase input that a test can
+/// lengthen, shorten or pull out.
+struct PhaseCable {
+    a: Arc<FakeDevice>,
+    b: Arc<FakeDevice>,
+    path: PhasePath,
+    line: VecDeque<i32>,
+    unplugged: bool,
+    next: u64,
+}
+
+impl PhaseCable {
+    fn of(pc: &FakePc, session: &Session) -> PhaseCable {
+        let path = session.opened.phase_path.clone().expect("a phase path");
+        PhaseCable { a: pc.device("Device A"), b: pc.device("Device B"), path, line: std::iter::repeat_n(0, CABLE_DELAY).collect(), unplugged: false, next: 0 }
+    }
+
+    fn block(&mut self) {
+        let half = ((self.next / BLOCK as u64) & 1) as usize;
+        let samples: Vec<i32> = (0..BLOCK as u64).map(|i| ramp(self.next + i)).collect();
+        let carried: Vec<i32> = (0..BLOCK).map(|_| self.line.pop_front().unwrap_or(0)).collect();
+        for channel in 0..2 {
+            self.a.set_input(channel, half, &samples);
+        }
+        self.b.set_input(0, half, &samples);
+        self.b.set_input(self.path.input_slot, half, if self.unplugged { &[0; BLOCK as usize] } else { &carried });
+        self.b.fire(half);
+        self.a.fire(half);
+        self.line.extend(self.a.output(self.path.master_slot, half));
+        self.next += BLOCK as u64;
+    }
+
+    /// The follower's capture lands `by` samples later from now on, as a slip at the interface does.
+    fn slip(&mut self, by: usize) {
+        for _ in 0..by {
+            self.line.push_front(0);
+        }
+    }
+
+    /// And back, with nothing on the cable at the time.
+    fn slip_back(&mut self, by: usize) {
+        assert!(self.line.iter().take(by).all(|&s| s == 0), "nothing on the cable is thrown away");
+        self.line.drain(..by);
+    }
+}
+
+/// Seconds of blocks.
+fn blocks(seconds: f64) -> u64 {
+    (seconds * RATE / BLOCK as f64).round() as u64
+}
+
+/// An armed session with the check running, as the recorder wires it, and a writer for its takes.
+struct Checked {
+    capture: Arc<Capture>,
+    board: SharedBoard,
+    checker: Option<Checker>,
+    drain: Drain,
+    disk: Arc<MemoryDisk>,
+}
+
+impl Checked {
+    fn arm(session: &Session) -> (Checked, Armed) {
+        let armed = arm(session, vec![Pick::new(0, 0), Pick::new(1, 0)], GB).expect("armed");
+        let (board, checker) = match &session.opened.phase_path {
+            Ok(path) => {
+                let board = Board::checking(&path.name);
+                let watch = alignment::watch_for(path, session.opened.rate, session.opened.block);
+                session.shared().watch(Arc::clone(&watch)).expect("watched");
+                (Arc::clone(&board), Some(Checker::new(watch, armed.tap.origin(), board, path)))
+            }
+            Err(why) => (Board::not_checking(why), None),
+        };
+        let disk = Arc::new(MemoryDisk::default());
+        let names = armed.channels.iter().map(|c| c.name.clone()).collect();
+        let drain = Drain::new(settings(names, SampleFormat::Int24), disk.clone(), Arc::new(StoppedClock), session.dropouts()).with_alignment(Arc::clone(&board));
+        (Checked { capture: Arc::clone(armed.tap.capture()), board, checker, drain, disk }, armed)
+    }
+
+    fn run(&mut self, cable: &mut PhaseCable, count: u64) {
+        for _ in 0..count {
+            cable.block();
+            if let Some(checker) = self.checker.as_mut() {
+                checker.step();
+            }
+            self.drain.step(&self.capture);
+        }
+    }
+
+    /// Stop the take, finish it, and read its log.
+    fn finish(&mut self, cable: &mut PhaseCable) -> (TakeRecord, String) {
+        self.capture.want_recording(false);
+        self.run(cable, 2);
+        while self.drain.step(&self.capture) {}
+        let take = self.drain.state().lock().unwrap().takes[0].clone();
+        let log = String::from_utf8(self.disk.read(Path::new(&take.log))).unwrap();
+        (take, log)
+    }
+}
+
+/// The sample of the take a line of the log names.
+fn sample_named(line: &str) -> u64 {
+    let at = line.find("(sample ").expect("a sample") + "(sample ".len();
+    line[at..].split_whitespace().next().unwrap().parse().unwrap()
+}
+
+/// What the start of a session measures over this cable, so a test can give a reference that
+/// puts the session wherever it wants it.
+fn measured_at_the_start() -> i32 {
+    let pc = two_interfaces();
+    let session = open_with(&pc, cabled(None));
+    let mut cable = PhaseCable::of(&pc, &session);
+    for _ in 0..blocks(0.5) {
+        cable.block();
+    }
+    session.phase_measured().expect("measured")
+}
+
+#[test]
+fn alignment_that_held_through_a_take_is_said_in_its_log_and_on_the_page() {
+    let _one = hosting();
+    let measured = measured_at_the_start();
+    // A reference 64 samples off what this session measures: the start of the session lines the
+    // follower up by 64, and every check after it is against that alignment.
+    let pc = two_interfaces();
+    let mut session = open_with(&pc, cabled(Some(measured - 64)));
+    let mut cable = PhaseCable::of(&pc, &session);
+    let (mut checked, _armed) = Checked::arm(&session);
+    checked.run(&mut cable, blocks(2.0));
+    {
+        let board = checked.board.lock().unwrap();
+        assert_eq!(board.against, Some(Against::Start), "lined up by what the start measured");
+        let live = AlignmentLive::of(&board, None, RATE, Instant::now());
+        assert_eq!(live.state, "checking");
+        assert_eq!(live.device.as_deref(), Some("B"));
+        assert_eq!(live.offset, Some(0), "{live:?}");
+        assert!(live.checks >= 1 && live.since_check_seconds.unwrap() < 1.0 && live.slip.is_none(), "{live:?}");
+    }
+    checked.capture.want_recording(true);
+    checked.run(&mut cable, blocks(6.0));
+    let (take, log) = checked.finish(&mut cable);
+    session.close();
+    let line = log.lines().find(|l| l.starts_with("Alignment")).expect("a line about the alignment");
+    assert!(line.starts_with("Alignment held: ") && line.ends_with(" checks, all at 0 samples."), "{log}");
+    let count: u32 = line["Alignment held: ".len()..].split(' ').next().unwrap().parse().unwrap();
+    assert!((6..=8).contains(&count), "a check a second, pre-roll and all: {log}");
+    assert!(log.contains("Checked once a second over the phase cable into B, against the phase measured at the start of the session"), "{log}");
+    assert!(!take.alignment_slipped);
+}
+
+#[test]
+fn a_slip_of_32_samples_mid_take_is_logged_with_its_time_and_size_and_whether_it_came_back() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let mut session = open_with(&pc, cabled(None));
+    let mut cable = PhaseCable::of(&pc, &session);
+    let (mut checked, _armed) = Checked::arm(&session);
+    checked.run(&mut cable, blocks(1.5));
+    checked.capture.want_recording(true);
+    checked.run(&mut cable, blocks(3.3));
+    let start = checked.capture.take().expect("a take").start;
+    let slipped_at = checked.capture.written() - start;
+    cable.slip(32);
+    checked.run(&mut cable, blocks(2.4));
+    {
+        let board = checked.board.lock().unwrap();
+        let live = AlignmentLive::of(&board, Some(start), RATE, Instant::now());
+        assert_eq!(live.offset, Some(32), "the page shows the slip: {live:?}");
+        let slip = live.slip.expect("a slip");
+        assert_eq!(slip.samples, 32);
+        let at = slip.take_seconds.expect("during this take");
+        assert!(at * RATE + 2.0 * CABLE_DELAY as f64 >= slipped_at as f64 && at * RATE <= (slipped_at + 48_000) as f64, "{at}");
+    }
+    let back_at = checked.capture.written() - start;
+    cable.slip_back(32);
+    checked.run(&mut cable, blocks(2.4));
+    let (take, log) = checked.finish(&mut cable);
+    session.close();
+
+    assert!(take.alignment_slipped);
+    let summary = log.lines().find(|l| l.starts_with("Alignment")).unwrap();
+    assert!(summary.starts_with("Alignment did not hold: 3 of ") && summary.contains("found B away from where it was lined up"), "{log}");
+    assert!(summary.contains("back where it was lined up by the end of the take") && summary.contains("Nothing was corrected"), "{log}");
+    let slipped = log.lines().find(|l| l.starts_with("Alignment slipped at ")).expect("when it slipped");
+    assert!(slipped.ends_with("B is 32 samples late against the others."), "{slipped}");
+    // The first check sent after the cable moved: within a second of it, and never before what was
+    // already on the cable.
+    let found = sample_named(slipped);
+    assert!(found + 2 * CABLE_DELAY as u64 >= slipped_at && found <= slipped_at + 48_000, "{found} against {slipped_at}");
+    let back = log.lines().find(|l| l.starts_with("Alignment came back at ")).expect("when it came back");
+    let found_back = sample_named(back);
+    assert!(found_back + 2 * CABLE_DELAY as u64 >= back_at && found_back <= back_at + 48_000, "{found_back} against {back_at}");
+    assert!(log.contains("against the phase measured at the start of the session (there is no reference"), "{log}");
+}
+
+#[test]
+fn a_check_signal_that_disappears_is_said_and_the_take_is_not_called_held() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let mut session = open_with(&pc, cabled(None));
+    let mut cable = PhaseCable::of(&pc, &session);
+    let (mut checked, _armed) = Checked::arm(&session);
+    checked.run(&mut cable, blocks(1.5));
+    checked.capture.want_recording(true);
+    checked.run(&mut cable, blocks(2.0));
+    cable.unplugged = true;
+    checked.run(&mut cable, blocks(4.0));
+    {
+        let board = checked.board.lock().unwrap();
+        assert!(board.silent_since.is_some(), "the last checks found nothing");
+        let live = AlignmentLive::of(&board, None, RATE, Instant::now() + Duration::from_secs(2));
+        assert!(live.silent_seconds.is_some(), "the page says the signal is missing: {live:?}");
+        assert_eq!(live.offset, Some(0), "and where the last one that arrived put it");
+    }
+    cable.unplugged = false;
+    checked.run(&mut cable, blocks(3.0));
+    let (take, log) = checked.finish(&mut cable);
+    session.close();
+
+    assert!(!take.alignment_slipped);
+    assert!(!log.contains("Alignment held:"), "{log}");
+    let summary = log.lines().find(|l| l.starts_with("Alignment")).unwrap();
+    assert!(summary.starts_with("Alignment held at every check that found the signal") && summary.contains("found no signal, so it is not known for those stretches"), "{log}");
+    let gap = log.lines().find(|l| l.starts_with("No check signal arrived from ")).expect("where the signal was missing");
+    let missing: u32 = gap.split(": ").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
+    assert!((3..=5).contains(&missing), "about four seconds of checks: {gap}");
+}
+
+#[test]
+fn a_start_measurement_that_was_refused_shows_at_the_first_check() {
+    let _one = hosting();
+    let measured = measured_at_the_start();
+    // Sixteen samples from the reference is not a whole number of 32 sample steps, so the start of
+    // the session refuses it and runs on the drivers' figures, as though the follower were where
+    // its trim was measured. It is not: every check finds it 16 samples late.
+    let pc = two_interfaces();
+    let mut session = open_with(&pc, cabled(Some(measured - 16)));
+    let mut cable = PhaseCable::of(&pc, &session);
+    let (mut checked, _armed) = Checked::arm(&session);
+    checked.capture.want_recording(true);
+    checked.run(&mut cable, blocks(3.5));
+    let (take, log) = checked.finish(&mut cable);
+    session.close();
+    assert!(take.alignment_slipped);
+    assert!(log.contains("against the phase its trim was measured at, because the measurement at the start of the session was not used"), "{log}");
+    assert!(log.lines().any(|l| l.starts_with("At the first check, ") && l.ends_with("B is 16 samples late against the others.")), "{log}");
+}
+
+#[test]
+fn with_no_phase_path_nothing_is_sent_and_the_log_says_alignment_was_not_checked() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let mut session = open(&pc, vec![], Params::default()).expect("open");
+    assert_eq!(session.opened.phase_path, Err(crate::host::NO_PHASE_PATH.to_string()));
+    let (mut checked, _armed) = Checked::arm(&session);
+    assert!(checked.checker.is_none());
+    let mut converters = Converters::of(&pc);
+    checked.capture.want_recording(true);
+    for _ in 0..blocks(1.5) {
+        converters.block();
+        checked.drain.step(&checked.capture);
+    }
+    checked.capture.want_recording(false);
+    converters.block();
+    while checked.drain.step(&checked.capture) {}
+    session.close();
+    let take = checked.drain.state().lock().unwrap().takes[0].clone();
+    let log = String::from_utf8(checked.disk.read(Path::new(&take.log))).unwrap();
+    assert!(log.contains("Alignment between the interfaces was not checked during this take: no phase path is set up"), "{log}");
+    let live = AlignmentLive::of(&checked.board.lock().unwrap(), None, RATE, Instant::now());
+    assert_eq!(live.state, "off");
+    assert!(live.reason.unwrap().contains("Aggregate page"));
+    // Lowest latency lines nothing up, so there is nothing to check either.
+    drop(session);
+    let mut loose = cabled(None);
+    loose.alignment = Alignment::LowestLatency;
+    let loose = open_with(&pc, loose);
+    assert_eq!(loose.opened.phase_path, Err(crate::host::NOT_ALIGNED.to_string()));
+}
+
+/// The whole recorder, with its threads, on the fake PC with the loopback's own cable: the page
+/// sees the check, and the take's log says it held.
+#[test]
+fn an_armed_recorder_checks_the_alignment_and_its_status_says_so() {
+    let _one = hosting();
+    let folder = temp("alignment");
+    let recorder = Recorder::new(Arc::new(Fakes { pc: Mutex::new(None) }));
+    let preset = Preset {
+        id: "cabled".into(),
+        name: "Cabled".into(),
+        request: ArmRequest { config: cabled(None), ..request(vec![Pick::new(0, 0), Pick::new(1, 0)]) },
+        folder: folder.clone(),
+        pattern: crate::names::DEFAULT_PATTERN.into(),
+        format: SampleFormat::Int24,
+    };
+    recorder.arm(preset).expect("armed");
+    wait_for("two checks", || recorder.status().alignment.is_some_and(|a| a.checks >= 2));
+    let alignment = recorder.status().alignment.unwrap();
+    assert_eq!((alignment.state, alignment.device.as_deref(), alignment.offset), ("checking", Some("B"), Some(0)), "{alignment:?}");
+    recorder.record().unwrap();
+    std::thread::sleep(Duration::from_millis(1_500));
+    recorder.stop();
+    wait_for("the take", || !recorder.takes().is_empty());
+    recorder.disarm(true).unwrap();
+    let take = recorder.takes()[0].clone();
+    let log = std::fs::read_to_string(&take.log).unwrap();
+    assert!(log.lines().any(|l| l.starts_with("Alignment held: ")), "{log}");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn a_cable_the_start_of_the_session_never_heard_gets_no_checks_down_it_and_says_why() {
+    let _one = hosting();
+    let pc = two_interfaces();
+    let mut session = open_with(&pc, cabled(None));
+    let mut cable = PhaseCable::of(&pc, &session);
+    cable.unplugged = true;
+    let (mut checked, _armed) = Checked::arm(&session);
+    checked.capture.want_recording(true);
+    let mut bursts = 0;
+    for _ in 0..blocks(3.5) {
+        let before = cable.line.len();
+        checked.run(&mut cable, 1);
+        // What the master played on the cable's channel this block is the newest on the line.
+        bursts += usize::from(cable.line.iter().skip(before - BLOCK as usize).any(|&s| s != 0));
+    }
+    assert_eq!(bursts, 1, "the start of the session's own burst, and nothing after it");
+    let (take, log) = checked.finish(&mut cable);
+    session.close();
+    assert!(!take.alignment_slipped);
+    assert!(log.contains(&format!("Alignment between the interfaces was not checked during this take: {}.", alignment::START_NOT_HEARD)), "{log}");
+    let live = AlignmentLive::of(&checked.board.lock().unwrap(), None, RATE, Instant::now());
+    assert_eq!(live.state, "off");
 }

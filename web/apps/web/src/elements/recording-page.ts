@@ -387,6 +387,7 @@ export class GaRecording extends GaElement {
             h("span", { class: "where", "data-explain": "recording.take-folder" }, take.folder === "" ? folderOf(take.files[0] ?? "") : take.folder),
             h("ul", { class: "files" }, ...take.files.map((file) => h("li", {}, fileOf(file))), h("li", {}, fileOf(take.log)), take.cubase === undefined ? false : h("li", { "data-testid": "recording-take-cubase" }, fileOf(take.cubase))),
             take.overruns + take.dropouts > 0 ? h("span", { class: "problem" }, `${take.overruns + take.dropouts} blocks were lost in this take; its log says where.`) : false,
+            take.alignment_slipped === true ? h("span", { class: "problem", "data-testid": "recording-take-alignment" }, "The interfaces slipped out of line during this take; its log says when and by how much.") : false,
             take.stopped_by === undefined ? false : h("span", { class: "problem" }, `Stopped by Gazelle: ${take.stopped_by}.`),
             take.problem === undefined ? false : h("span", { class: "problem" }, take.problem),
           ),

@@ -39,7 +39,24 @@ pub fn simulated_pc() -> Arc<FakePc> {
 pub struct Timing {
     pub rate: f64,
     pub block: usize,
+    /// The phase cable, when the setup has one: the pump carries what the master plays on it to
+    /// the follower's input, as the real cable does, instead of a tone.
+    pub cable: Option<Cable>,
 }
+
+/// A digital cable from one of the master's opened outputs to one of a follower's opened inputs,
+/// by the aggregate's places for both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cable {
+    pub master: usize,
+    pub master_slot: usize,
+    pub follower: usize,
+    pub input_slot: usize,
+}
+
+/// What the loopback's cable takes, in samples on top of a block: a few for the converters at
+/// either end, so what the start of a session measures is not a round number.
+pub const CABLE_SAMPLES: usize = 37;
 
 /// A pump for the fake PC: every device's blocks, at the rate the aggregate runs at, the devices in
 /// `order` (the ones that follow first, the one driving the callback last, as the hardware does).
@@ -52,6 +69,12 @@ pub fn pump(order: Vec<Arc<FakeDevice>>, timing: Timing) -> impl FnMut(usize) ->
     let rate = timing.rate.max(1.0);
     let mut fired: u64 = 0;
     let mut samples = vec![0i32; block];
+    // The cable's ends, by the devices' places in the aggregate, and what is on it.
+    let ends = timing.cable.and_then(|cable| {
+        let at = |index: usize| order.iter().position(|device| device.stream_index() == Some(index));
+        Some((cable, at(cable.master)?, at(cable.follower)?))
+    });
+    let mut line: std::collections::VecDeque<i32> = std::iter::repeat_n(0, block + CABLE_SAMPLES).collect();
     move |_index| {
         let due = (started.elapsed().as_secs_f64() * rate / block as f64) as u64;
         // Far behind (a paused debugger, a sleeping laptop) is skipped, not played back in a rush.
@@ -63,12 +86,22 @@ pub fn pump(order: Vec<Arc<FakeDevice>>, timing: Timing) -> impl FnMut(usize) ->
             let first = fired * block as u64;
             for (device, fake) in order.iter().enumerate() {
                 for channel in 0..fake.input_count() {
-                    tone(&mut samples, first, rate, device, channel);
+                    match ends {
+                        Some((cable, _, follower)) if follower == device && cable.input_slot == channel => {
+                            for sample in samples.iter_mut() {
+                                *sample = line.pop_front().unwrap_or(0);
+                            }
+                        }
+                        _ => tone(&mut samples, first, rate, device, channel),
+                    }
                     fake.set_input(channel, half, &samples);
                 }
             }
             for fake in &order {
                 fake.fire(half);
+            }
+            if let Some((cable, master, _)) = ends {
+                line.extend(order[master].output(cable.master_slot, half));
             }
             fired += 1;
         }

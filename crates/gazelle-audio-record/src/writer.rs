@@ -11,8 +11,9 @@
 //! rate and format, its files, how much of it is pre-roll, and then anything that happened to it:
 //! **audio the writer lost because it fell behind**, with where in the take and how much, each filled
 //! with silence so the files stay lined up; **audio the aggregate lost**, interface by interface
-//! (what its own counters say it dropped or was starved of); a disk running low; and why the take
-//! ended.
+//! (what its own counters say it dropped or was starved of); a disk running low; whether the
+//! alignment between the interfaces held, from the checks over the phase cable that went out during
+//! it ([`crate::alignment`]), or why it was not checked; and why the take ended.
 //!
 //! # The disk
 //!
@@ -38,6 +39,7 @@ use std::time::{Duration, Instant};
 use gazelle_aggregate::status::Glitches;
 use serde::Serialize;
 
+use crate::alignment::{self, Check, SharedBoard};
 use crate::capture::{Capture, Window, PARKED};
 use crate::cubase::{self, TakeFile};
 use crate::names::{self, TakeWords};
@@ -135,6 +137,10 @@ pub struct TakeRecord {
     /// it with a cue named "Downbeat".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub downbeat_seconds: Option<f64>,
+    /// The alignment between the interfaces moved during it, by the checks over the phase cable. Its
+    /// log says when and by how much.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub alignment_slipped: bool,
     /// Why Gazelle ended it, when it was not a person pressing Stop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stopped_by: Option<String>,
@@ -179,6 +185,8 @@ struct Open {
     problem: Option<String>,
     stopped_by: Option<String>,
     dropouts_at_start: Vec<Glitches>,
+    /// The alignment checks that went out during it, oldest first.
+    checks: Vec<Check>,
     /// Nothing is written any more: the take could not be opened, or a file failed.
     skipping: bool,
 }
@@ -194,11 +202,61 @@ pub struct Drain {
     open: Option<Open>,
     next_take: u32,
     last_look: Option<Instant>,
+    /// The alignment checks, when the recorder is keeping track of them, and the ones taken from it
+    /// that no take has claimed yet.
+    alignment: Option<SharedBoard>,
+    checks: std::collections::VecDeque<Check>,
 }
 
 impl Drain {
     pub fn new(settings: TakeSettings, disk: Arc<dyn Disk>, clock: Arc<dyn Clock>, dropouts: Arc<Mutex<Vec<Glitches>>>) -> Drain {
-        Drain { settings, disk, clock, dropouts, state: Arc::new(Mutex::new(WriterState::default())), open: None, next_take: 1, last_look: None }
+        Drain {
+            settings,
+            disk,
+            clock,
+            dropouts,
+            state: Arc::new(Mutex::new(WriterState::default())),
+            open: None,
+            next_take: 1,
+            last_look: None,
+            alignment: None,
+            checks: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Say in each take's log whether the alignment held, from the checks on `board`.
+    pub fn with_alignment(mut self, board: SharedBoard) -> Drain {
+        self.alignment = Some(board);
+        self
+    }
+
+    /// Take the checks decided since the last look, and give the open take those that went out
+    /// during it, up to `upto`. With no take open, only the checks a take could still reach back to
+    /// are kept.
+    fn claim_checks(&mut self, capture: &Capture, upto: u64) {
+        let Some(board) = &self.alignment else { return };
+        if let Ok(mut board) = board.lock() {
+            self.checks.extend(board.take_fresh());
+        }
+        match self.open.as_mut() {
+            Some(open) => {
+                while let Some(check) = self.checks.front().copied() {
+                    if check.at >= upto {
+                        break;
+                    }
+                    self.checks.pop_front();
+                    if check.at >= open.window.start {
+                        open.checks.push(check);
+                    }
+                }
+            }
+            None => {
+                let reach = capture.written().saturating_sub(capture.capacity_frames());
+                while self.checks.front().is_some_and(|check| check.at < reach) {
+                    self.checks.pop_front();
+                }
+            }
+        }
     }
 
     /// What the page reads, shared.
@@ -222,6 +280,7 @@ impl Drain {
     /// thread knows whether to wait.
     pub fn step(&mut self, capture: &Capture) -> bool {
         let Some(window) = capture.take() else {
+            self.claim_checks(capture, u64::MAX);
             self.look_at_disk(capture, false);
             return false;
         };
@@ -230,6 +289,7 @@ impl Drain {
         }
         let block = capture.block() as u64;
         let end = capture.take_end();
+        self.claim_checks(capture, end);
         let limit = end.min(capture.written());
         let mut at = capture.read_position();
         let mut wrote = 0;
@@ -320,6 +380,7 @@ impl Drain {
             problem: None,
             stopped_by: None,
             dropouts_at_start,
+            checks: Vec::new(),
             skipping: false,
         };
         let made = disk
@@ -436,6 +497,13 @@ impl Drain {
             );
             log(&mut open, &line);
         }
+        let alignment_slipped = self.alignment.is_some() && alignment::slipped(&open.checks);
+        if let Some(board) = &self.alignment {
+            let lines = board.lock().map(|board| alignment::take_lines(&board, &open.checks, start, rate)).unwrap_or_default();
+            for line in lines {
+                log(&mut open, &line);
+            }
+        }
         let seconds = end.saturating_sub(open.window.start) as f64 / rate;
         let summary = format!(
             "Ended after {seconds:.3} s ({} samples). {}",
@@ -472,6 +540,7 @@ impl Drain {
             overruns: open.lost_blocks,
             dropouts,
             downbeat_seconds: cue.map(|at| at as f64 / rate),
+            alignment_slipped,
             stopped_by: open.stopped_by,
             problem: open.problem.clone(),
         };
@@ -558,7 +627,7 @@ fn lost_line(start: u64, from: u64, frames: u64, rate: f64) -> String {
 }
 
 /// `m:ss.mmm`.
-fn clock_words(seconds: f64) -> String {
+pub(crate) fn clock_words(seconds: f64) -> String {
     let minutes = (seconds / 60.0).floor();
     format!("{}:{:06.3}", minutes as u64, seconds - minutes * 60.0)
 }

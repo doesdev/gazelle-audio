@@ -12,7 +12,8 @@
 //!
 //! - **Arm** holds the shared session ([`crate::engine`]), opening the aggregate if the metronome has
 //!   not already, reserves the pre-roll, hangs the tap on the callback, and starts the *writer*
-//!   thread. It answers once all of that has happened, or with the sentence that says why it has not,
+//!   thread, and, when the setup has a phase cable, the alignment check and the thread that reads it
+//!   ([`crate::alignment`]). It answers once all of that has happened, or with the sentence that says why it has not,
 //!   and then nothing is left held.
 //! - **Record** and **Stop** are one flag each way, read by the callback at its next block
 //!   ([`crate::capture`]). They answer at once; the take begins, or ends, a block later.
@@ -46,6 +47,7 @@ use gazelle_aggregate::sub::Host;
 use gazelle_calibrate::Pick;
 use serde::Serialize;
 
+use crate::alignment::{self, AlignmentLive, Board, Checker, SharedBoard};
 use crate::capture::Capture;
 use crate::engine::{Engine, Lease, User};
 use crate::host::{self, ArmRequest, Armed, Channel};
@@ -163,6 +165,10 @@ pub struct Status {
     pub disk_low: bool,
     /// A driver asked to be reset while armed, which the recorder does not do under a take.
     pub reset_asked: bool,
+    /// Whether the alignment between the interfaces is holding, by the checks over the phase cable,
+    /// or why it is not being checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<AlignmentLive>,
     /// The last thing that went wrong, in a sentence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -185,6 +191,7 @@ impl Status {
             disk_seconds_left: None,
             disk_low: false,
             reset_asked: false,
+            alignment: None,
             problem,
         }
     }
@@ -267,6 +274,10 @@ struct Running {
     writer: Option<JoinHandle<()>>,
     peaks: Vec<Option<f64>>,
     peaks_read: Instant,
+    /// The alignment check: what it has found, and the thread that reads it.
+    alignment: SharedBoard,
+    stop_checker: Arc<AtomicBool>,
+    checker: Option<JoinHandle<()>>,
 }
 
 enum Phase {
@@ -310,6 +321,8 @@ pub struct Recorder {
 
 /// How long the writer waits when there is nothing to write.
 const WRITER_IDLE: Duration = Duration::from_millis(5);
+/// How long the alignment checker waits when the audio path has handed it nothing new.
+const CHECKER_IDLE: Duration = Duration::from_millis(10);
 /// How long a stopped click is given to ring out before the session under it closes.
 const RING_OUT: Duration = Duration::from_millis(300);
 
@@ -449,7 +462,11 @@ impl Recorder {
             rf64_limit: RF64_AT,
             cubase_seed: Arc::clone(&self.cubase_seed),
         };
-        let mut drain = Drain::new(settings, self.env.disk(), self.env.clock(), Arc::clone(&lease.dropouts));
+        let board = match &lease.opened.phase_path {
+            Ok(path) => Board::checking(&path.name),
+            Err(why) => Board::not_checking(why),
+        };
+        let mut drain = Drain::new(settings, self.env.disk(), self.env.clock(), Arc::clone(&lease.dropouts)).with_alignment(Arc::clone(&board));
         let writer_state = drain.state();
         let stop_writer = Arc::new(AtomicBool::new(false));
         let (ring, leave) = (Arc::clone(&capture), Arc::clone(&stop_writer));
@@ -475,6 +492,8 @@ impl Recorder {
             self.engine.release(User::Recorder);
             return Err(why);
         }
+        let stop_checker = Arc::new(AtomicBool::new(false));
+        let checker = self.start_checking(&lease, &armed, &board, &stop_checker);
         let dropouts_at_arm = lease.dropouts.lock().map(|d| d.clone()).unwrap_or_default();
         let count = armed.channels.len();
         Ok(Running {
@@ -489,7 +508,47 @@ impl Recorder {
             writer: Some(writer),
             peaks: vec![None; count],
             peaks_read: Instant::now(),
+            alignment: board,
+            stop_checker,
+            checker,
         })
+    }
+
+    /// Hang the alignment check's watch on the aggregate and start the thread that reads it, when
+    /// there is a phase cable to check over. Whatever stops it is said on `board` instead, and never
+    /// stops the recorder arming.
+    fn start_checking(&self, lease: &Lease, armed: &Armed, board: &SharedBoard, stop: &Arc<AtomicBool>) -> Option<JoinHandle<()>> {
+        let path = lease.opened.phase_path.as_ref().ok()?;
+        let not_checking = |why: String| {
+            if let Ok(mut board) = board.lock() {
+                board.why_not = Some(why);
+            }
+        };
+        let watch = alignment::watch_for(path, lease.opened.rate, lease.opened.block);
+        if let Err(why) = lease.shared.watch(Arc::clone(&watch)) {
+            not_checking(why);
+            return None;
+        }
+        let mut checker = Checker::new(watch, armed.tap.origin(), Arc::clone(board), path);
+        let leave = Arc::clone(stop);
+        let thread = std::thread::Builder::new().name("gazelle-record-alignment".into()).spawn(move || loop {
+            let busy = checker.step();
+            if leave.load(Ordering::Acquire) {
+                checker.step();
+                break;
+            }
+            if !busy {
+                std::thread::sleep(CHECKER_IDLE);
+            }
+        });
+        match thread {
+            Ok(thread) => Some(thread),
+            Err(why) => {
+                lease.shared.unwatch();
+                not_checking(format!("the thread that reads the checks could not start: {why}"));
+                None
+            }
+        }
     }
 
     /// **Record**: a take starts at the callback's next block, reaching back into the pre-roll; with
@@ -566,6 +625,11 @@ impl Recorder {
         self.stop_the_takes_click();
         // Off the callback, then the take is ended where the audio ended, as a stopped stream ends it.
         running.lease.shared.detach();
+        running.lease.shared.unwatch();
+        running.stop_checker.store(true, Ordering::Release);
+        if let Some(checker) = running.checker.take() {
+            let _ = checker.join();
+        }
         running.capture.close_after_stream_stopped();
         running.stop_writer.store(true, Ordering::Release);
         if let Some(writer) = running.writer.take() {
@@ -636,6 +700,8 @@ impl Recorder {
                 files: writer.take.as_ref().map(|t| t.files.clone()).unwrap_or_default(),
             }
         });
+        let take_start = snapshot.window.filter(|_| snapshot.recording).map(|window| window.start);
+        let alignment = running.alignment.lock().ok().map(|board| AlignmentLive::of(&board, take_start, rate, Instant::now()));
         let now = running.lease.dropouts.lock().map(|d| d.clone()).unwrap_or_default();
         let lost = gazelle_aggregate::status::lost_since(&running.dropouts_at_arm, &now);
         Status {
@@ -659,6 +725,7 @@ impl Recorder {
             disk_seconds_left: writer.disk_seconds_left,
             disk_low: writer.disk_low,
             reset_asked: host::reset_asked(),
+            alignment,
             problem: writer.problem.or(problem),
         }
     }
