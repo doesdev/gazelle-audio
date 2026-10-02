@@ -1585,8 +1585,8 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
   });
 
   // The Quadro's routing groups by place, and its sources by place, as its topology lists them.
-  const LINE_OUT = 0, HP1 = 1, HP2 = 2, MONITOR = 3, SPDIF_OUT = 6, MIX_IN = [8, 9, 10, 11];
-  const COM_PLAY = 1, MIX1_OUT = 6, MIX3_OUT = 8, MUTE = 10;
+  const LINE_OUT = 0, HP1 = 1, HP2 = 2, MONITOR = 3, SPDIF_OUT = 6, AFX_IN = 7, MIX_IN = [8, 9, 10, 11];
+  const COM_PLAY = 1, AFX_OUT = 5, MIX1_OUT = 6, MIX3_OUT = 8, MUTE = 10;
 
   /** One destination group's 32 slots, MUTE except where `slots` says, written through the command route. */
   async function route(group: number, slots: Record<number, [number, number]>): Promise<void> {
@@ -1655,6 +1655,28 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
     await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB 1 Play 3 to 4, directly");
     await page.getByTestId("device-0-channels-open").click();
     await expect(page.getByTestId("device-0-out-2-name")).toHaveText("Line Out L, USB 1 Play 3");
+  });
+
+  test("a DAW channel that reaches an output through an effect is said to, and nothing is offered in its place", async ({ page }) => {
+    // USB 1 Play 5 into AFX 1, and AFX 1 out straight to S/PDIF Out's left and into Mix 3, which feeds the line outs.
+    await ownersRouting();
+    await route(AFX_IN, { 0: [COM_PLAY, 4] });
+    await route(SPDIF_OUT, { 0: [AFX_OUT, 0] });
+    await route(MIX_IN[2] as number, { 0: [AFX_OUT, 0] });
+    await putWorkspace(owner, { aliases: OWN_NAMES, aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
+    await page.goto(`${owner.url}/#/aggregate`);
+
+    await expect(page.getByTestId("device-0-play-4")).toContainText("S/PDIF Out", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-play-4-text")).toHaveText("USB 1 Play 5, through AFX 1");
+    await expect(page.getByTestId("device-0-play-4")).toHaveAttribute("data-state", "reached");
+    await expect(page.getByTestId("device-0-play-1-text")).toHaveText("USB 1 Play 5, through AFX 1 then Mix 3");
+    await expect(page.getByTestId("device-0-play-0-text")).toHaveText("USB 1 Play 1 to 2, through Mix 1");
+    await expect(page.getByTestId("device-0-play-4-send")).toHaveCount(0, { timeout: 1000 });
+    await expect(page.getByTestId("device-0-play-1-send")).toHaveCount(0, { timeout: 1000 });
+    // HP2 is still fed by nothing, and the channel in the effect is not one it is offered.
+    await expect(page.getByTestId("device-0-play-3-text")).toHaveText("nothing from the DAW reaches it");
+    await expect(page.getByTestId("device-0-play-3-send")).toHaveText("Send USB 1 Play 3 to 4 here");
   });
 });
 

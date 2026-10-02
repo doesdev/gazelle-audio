@@ -74,6 +74,12 @@ version that has not been published yet.
 - **A USB playback channel that only feeds an effect is no longer offered as free.** On the
   Aggregate page, Send here could pick a channel routed into an effect and send it to an output
   as well, so the DAW would have played it in two places.
+- **An output the DAW reaches through an effect says so.** On the Aggregate page, Where the DAW can
+  play said nothing from the DAW reached an output when a USB playback channel got there through an
+  effect, and offered to send it other channels instead. It now names the channel and the way it
+  takes, "USB 1 Play 5, through AFX 1", or "USB 1 Play 5, through AFX 1 then Mix 1" when the effect
+  is in a mix that goes there, on both interfaces, and waits until the effects' routing has been
+  read before saying nothing reaches an output.
 
 ## [2.1.0] - 2026-09-30
 
