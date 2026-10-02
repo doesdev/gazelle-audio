@@ -229,6 +229,7 @@ export class GaMixer extends GaElement {
         {},
         h("li", {}, "A channel works once it has an input and a main mix. Its fader sets its level in the mix you have picked, so each mix keeps its own balance."),
         h("li", {}, "A mix shows only the channels routed to it. Show all channels shows the rest, dimmed, so one can be moved in from its head."),
+        h("li", {}, "To hear a mid and a side microphone decoded to stereo, select the mid channel and then the side channel by their name bars, and press Monitor as M/S."),
         levelsNote,
       ),
     );
@@ -370,6 +371,35 @@ export class GaMixer extends GaElement {
     const notice = h("ga-mix-notice", { "device-id": deviceId, hidden: true });
     const returns = topology.family === "quadro" ? h("ga-effect-returns", { "device-id": deviceId }) : undefined;
     void loadElement("ga-mix-notice").catch(() => undefined);
+    // Monitoring a mid and a side microphone as stereo (store/mid-side.ts): its decodes, their
+    // warnings and its confirms, in a lazy chunk of its own. The top bar's button only says which
+    // two channels are meant: the first selected is the mid, the second the side, and the confirm
+    // can swap them.
+    const midSide = h("ga-mid-side", { "device-id": deviceId, hidden: true });
+    void loadElement("ga-mid-side").catch(() => undefined);
+    const midSideAsk = store.view<{ kind: "setup"; mid: string; side: string } | { kind: string; group: string } | undefined>(`mid-side:${deviceId}:ask`, undefined);
+    const midSideButton = h(
+      "button",
+      {
+        type: "button",
+        class: "show-all",
+        "data-testid": "mid-side-start",
+        "data-explain": "mixer.mid-side",
+        title: "Hear the two selected channels as a mid and a side microphone decoded to stereo in this mix: lists every change first, and makes none until you confirm",
+        hidden: true,
+        "on:click": () => {
+          const selection = store.softLink.selection.peek();
+          const [mid, side] = (selection?.deviceId === deviceId ? selection.slots : []).map((slot) => channels.layout.peek().channels.find((c) => c.slot === slot)?.id);
+          if (mid !== undefined && side !== undefined) midSideAsk.value = { kind: "setup", mid, side };
+        },
+      },
+      "Monitor as M/S...",
+    );
+    this.watch(() => {
+      const selection = store.softLink.selection.value;
+      midSideButton.hidden = selection?.deviceId !== deviceId || selection.slots.length !== 2;
+      midSideButton.disabled = !store.connected.value;
+    });
     const strips = h("div", { class: "strips" });
     const add = h("button", { type: "button", class: "add", title: "Add a channel", "aria-label": "Add a channel", "data-testid": "add-channel", "data-explain": "mixer.add-channel", "on:click": () => channels.add() }, "+");
     const masters = h("div", { class: "masters", "aria-label": "Mix masters" });
@@ -414,11 +444,12 @@ export class GaMixer extends GaElement {
     strips.style.setProperty("--strip-width-max", `${STRIP_WIDTH_MAX}px`);
 
     this.root.replaceChildren(
-      h("div", { class: "bar" }, h("div", { class: "width" }, h("span", { class: "caption", "aria-hidden": "true" }, "Mix"), mixGroup, showAllButton), softLinkBar((fn) => this.watch(fn), () => deviceId), h("span", { class: "spacer" }), width, lastSent),
+      h("div", { class: "bar" }, h("div", { class: "width" }, h("span", { class: "caption", "aria-hidden": "true" }, "Mix"), mixGroup, showAllButton), softLinkBar((fn) => this.watch(fn), () => deviceId), midSideButton, h("span", { class: "spacer" }), width, lastSent),
       linkBar((fn) => this.watch(fn), deviceId),
       starts,
       notes,
       notice,
+      midSide,
       strips,
     );
 

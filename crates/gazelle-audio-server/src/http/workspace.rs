@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::device::descriptor::DeviceId;
 use crate::error::ServerError;
-use crate::workspace::model::{Cable, CableDedication, ChannelLink, ControlRoom, DeviceMixer, Group, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
+use crate::workspace::model::{Cable, CableDedication, ChannelLink, ControlRoom, DeviceMixer, Group, MidSide, Surface, SurfaceStrip, Workspace, CABLE_RECEIVES, CABLE_SENDS, INPUT_KINDS, LINK_KINDS, LINK_MODES, MID_SIDE_VIAS, MIXER_COUNT, MIXER_SLOTS, STRIP_KINDS, WORKSPACE_VERSION};
 use crate::workspace::topology;
 use crate::AppState;
 
@@ -255,6 +255,39 @@ fn check_layouts(layouts: &[crate::workspace::model::SavedLayout]) -> Result<(),
     Ok(())
 }
 
+/// A mid-side decode names three different channels, a known way of inverting with what that way
+/// needs, and pans and mixes the hardware has.
+fn check_mid_side(mid_side: &MidSide) -> Result<(), String> {
+    use crate::workspace::model::{PAN_MAX, PAN_MIN};
+    let ids = [&mid_side.mid, &mid_side.side, &mid_side.inverted];
+    if ids.iter().any(|id| id.is_empty()) || ids[0] == ids[1] || ids[0] == ids[2] || ids[1] == ids[2] {
+        return Err("needs three different channels".into());
+    }
+    match mid_side.via.as_str() {
+        "preamp" if mid_side.preamp.is_none() => return Err("through a preamp needs the preamp".into()),
+        "effect" if mid_side.chain.is_none() || mid_side.effect_type.is_none() || mid_side.effect_inst.is_none() => return Err("through an effect needs the chain and the effect".into()),
+        "preamp" | "effect" => {}
+        other => return Err(format!("via must be one of {}, not {other:?}", MID_SIDE_VIAS.join(", "))),
+    }
+    for (&mix, pans) in &mid_side.pans {
+        if mix >= MIXER_COUNT {
+            return Err(format!("pans are for mix {mix}, outside 0..{}", MIXER_COUNT - 1));
+        }
+        if !(PAN_MIN..=PAN_MAX).contains(&pans.mid) || !(PAN_MIN..=PAN_MAX).contains(&pans.side) {
+            return Err(format!("pans for mix {mix} are outside {PAN_MIN}..{PAN_MAX}"));
+        }
+    }
+    if mid_side.returns_muted.iter().any(|&mix| mix >= MIXER_COUNT) {
+        return Err(format!("muted returns name a mix outside 0..{}", MIXER_COUNT - 1));
+    }
+    for link in &mid_side.displaced_links {
+        if !LINK_KINDS.contains(&link.kind.as_str()) || !LINK_MODES.contains(&link.mode.as_str()) {
+            return Err(format!("displaced link '{}' has an unknown kind or mode", link.id));
+        }
+    }
+    Ok(())
+}
+
 fn valid_colour(colour: &str) -> bool {
     colour.len() == 7 && colour.starts_with('#') && colour[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -336,6 +369,9 @@ fn check_mixer(mixer: &DeviceMixer) -> Result<(), String> {
         }
         if group.color.as_deref().is_some_and(|c| !valid_colour(c)) {
             return Err(format!("group '{}': color must be #rrggbb", group.id));
+        }
+        if let Some(mid_side) = &group.mid_side {
+            check_mid_side(mid_side).map_err(|message| format!("group '{}': mid-side {message}", group.id))?;
         }
     }
     let (mut ids, mut slots) = (HashSet::new(), HashSet::new());

@@ -356,8 +356,15 @@ export class MixerModel {
    *   the same (absolute) or by the same step (relative).
    *
    * A strip in both kinds of link is changed once, as a soft-linked one, so nothing moves twice.
+   *
+   * Whatever watches the strips is told once, after all of them have moved: nothing ever sees a
+   * link half followed, one member at its new level and the other still at its old.
    */
   #update(id: StripId, change: Partial<StripState>, soft = false, follow = true): void {
+    batch(() => this.#change(id, change, soft, follow));
+  }
+
+  #change(id: StripId, change: Partial<StripState>, soft: boolean, follow: boolean): void {
     const strip = this.#signal(id);
     const before = strip.peek();
     strip.value = { ...before, ...change };

@@ -53,6 +53,8 @@ const loaders: Readonly<Record<string, () => Promise<Definitions>>> = {
     ];
   },
   "ga-effect-returns": async () => [["ga-effect-returns", (await import("./mix-health.ts")).GaEffectReturns]],
+  // Monitoring a mid and a side microphone as stereo: fetched when the Mixer page first opens.
+  "ga-mid-side": async () => [["ga-mid-side", (await import("./mid-side.ts")).GaMidSide]],
   "ga-surface-strip": async () => [["ga-surface-strip", (await import("./surface-strip.ts")).GaSurfaceStrip]],
 };
 

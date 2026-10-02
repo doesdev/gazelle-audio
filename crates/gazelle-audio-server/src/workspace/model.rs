@@ -552,6 +552,74 @@ pub struct MixerGroup {
     pub collapsed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Present while the group plays a mid and a side microphone decoded to stereo. Additive: a
+    /// workspace without it loads with none and writes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mid_side: Option<MidSide>,
+}
+
+/// How the inverted copy of the side signal is made: a second preamp fed by a split of the side
+/// microphone with its polarity switched, or an effect chain holding one effect with its polarity
+/// switch on.
+pub const MID_SIDE_VIAS: &[&str] = &["preamp", "effect"];
+
+/// A mid and a side microphone played as stereo in the hardware mix: the mid channel centred, the
+/// side channel hard left and an inverted copy of it hard right at the same level, so the left is
+/// mid plus side and the right is mid minus side. The strips have no polarity switch, so the copy is
+/// a channel of its own on a source that inverts (see [`MID_SIDE_VIAS`]).
+///
+/// The client sets it up and takes it down; this is what it needs to notice the decode has been
+/// broken and to put back what it changed. The channel ids are not checked against the layout: a
+/// channel removed by hand leaves the group to say so.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MidSide {
+    /// [`MixerChannel`] ids.
+    pub mid: String,
+    pub side: String,
+    /// The channel that carries the inverted copy.
+    pub inverted: String,
+    /// One of [`MID_SIDE_VIAS`].
+    pub via: String,
+    /// The second preamp, from 0, when `via` is `preamp`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preamp: Option<u32>,
+    /// The effect chain, from 0, and the effect in it, when `via` is `effect`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_type: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_inst: Option<u32>,
+    /// The inputs the mid and side channels had when it was set up, to notice them swapped.
+    pub mid_source: RouteSource,
+    pub side_source: RouteSource,
+    /// Per mix it plays in: the pans the mid and side channels had before, to put back.
+    #[serde(default)]
+    pub pans: BTreeMap<u32, MidSidePans>,
+    /// The [`MixerGroup`]s the mid and side channels were in before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mid_group: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_group: Option<String>,
+    /// Links its own links took channels out of, to make again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub displaced_links: Vec<ChannelLink>,
+    /// The second preamp's polarity switch before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase_invert: Option<bool>,
+    /// What routing fed the effect chain before; none when it was muted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_input: Option<RouteSource>,
+    /// Mixes whose effect return strip for the chain was muted, so the copy does not play twice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub returns_muted: Vec<u32>,
+}
+
+/// The pans (2..=62) a mid and a side channel had in one mix.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct MidSidePans {
+    pub mid: u32,
+    pub side: u32,
 }
 
 /// One user channel. It occupies one mixer input slot in every mix: routed to its source in its

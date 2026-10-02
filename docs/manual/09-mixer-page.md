@@ -12,6 +12,7 @@ The Mixer page (`#/mixer`) is a view of **one mix** at a time: the channels rout
 - **How this mixer works** opens a short explanation.
 - **Save as** saves the current channels, groups and mix names as a named **layout** that any device of the same model can start from. Names are unique for each model: type a name already saved, in any case, and **Save layout** becomes **Replace**. Its first click reads **Confirm**, and a second within three seconds overwrites that layout in place, so it keeps its place in the list. Choosing a saved layout in **Start from** puts its name in the field, so saving replaces it; a new name you are typing is left alone. A workspace from before names were unique may hold two layouts of one name: the list shows the second as "Name (2)", so you can tell them apart, replace or delete either.
 - **N channels soft-linked** appears once channels are selected for a [soft link](#soft-link), with **Clear**.
+- **Monitor as M/S...** appears while exactly two channels are selected: it sets them up as a mid and a side microphone heard decoded to stereo. See [Monitoring a mid and a side microphone](#monitoring-a-mid-and-a-side-microphone).
 
 **Start from** offers the starting layouts for the model (Tracking, Podcast or Playback on the Quadro; Tracking, Drums or Playback on the Studio+) and your saved ones, whether or not channels are set up. **Apply** replaces the channels and routes them. With channels already set up it asks first: the first click reads **Confirm**, and a second within three seconds replaces them, so save the current ones as a layout before you switch if you want them back. A layout that would route the playback channel a [dedicated cable](#the-phase-cable) keeps asks first too, its tooltip saying why. The first time the page opens for a device that has none, Gazelle builds channels from the device's existing routing.
 
@@ -49,6 +50,7 @@ The **Input** menu says what each such input carries: **ADAT In 1: Kick (Live ro
 Below the head is the **strip**:
 
 - **Phase**, a badge shown only when the channel's input is the playback channel a [dedicated cable](#the-phase-cable) keeps for the phase measurement. Its tooltip names the cable.
+- **M**, **S** or **-S**, a badge shown only on the three channels of a [mid-side decode](#monitoring-a-mid-and-a-side-microphone): the mid, the side, and the inverted copy of the side. It turns to the warning colour when something has broken the decode in this mix, and its tooltip says what.
 - **×2**, a badge shown only when the same audio reaches this mix twice. Its tooltip says how. Gazelle also asks before it happens: choosing an **Input** or a **Main mix** that would put one input into a mix twice holds the change behind a **Confirm** button beside the menu, with the reason on it; press Confirm to do it anyway, or leave it and the menu goes back. Dry alongside the same signal through an effect chain is a parallel setup, not a doubling, and is not asked about. See [Doubled signals](02-safety.md#doubled-signals).
 - **Send** (Studio+, mix 1 only): the reverb send, which is a different thing from being sent to another mix. Double-click turns it off, Ctrl+click puts it at 0 dB. There is no per-mix send control: the fader is the level in the mix you have picked, so pick the mix and use the fader.
 - **Pan**, shown as L 100%, C, R 100%. Dragging snaps to centre near the middle; the wheel and arrow keys step through it one value at a time. While the mix is in mono, the pan shows where it will return to.
@@ -140,3 +142,55 @@ A soft link makes several channels move together for a while, like Cubase's Q-Li
 3. **Clear**, or Escape, ends it. So does a plain click on the only channel still selected.
 
 A soft link acts in the mix you are working in, on the channels of one device: a selected channel that is not in that mix is left alone, and selecting a channel on another device starts a new selection there. It works the same way in the mixer dock, but not on the Remote page or on a surface. Each channel is sent the same command its own control would send. A channel that is also in a saved link moves once, not twice, and that link's other members follow it as they always do. A soft link is never saved in the workspace and never sent to the device: reloading the page ends it.
+
+## Monitoring a mid and a side microphone
+
+A mid-side (M/S) pair is a microphone pointing at the source (the mid) and a figure-of-eight microphone pointing sideways (the side). You record the two as they are and decode them to stereo later: left is mid plus side, right is mid minus side. This helper lets you **hear** the decoded stereo in a hardware mix while you track, without changing what is recorded.
+
+Neither interface's mixer can flip a strip's polarity, so "minus side" needs an inverted copy of the side signal from somewhere. The decode is three channels: the mid panned centre, the side panned hard left, and the inverted copy panned hard right at the same level.
+
+### Where the inverted copy comes from
+
+- **A second preamp.** Split the side microphone with a Y cable into a spare preamp. Gazelle switches that preamp's **Ø** to the opposite of the side preamp's and links its gain, type and 48V to the side preamp's. This always works. It costs a preamp and a cable, and the spare preamp is one more input your DAW can record, which you can ignore.
+- **An effect chain.** Gazelle routes the side input into an empty effect chain as well, loads one effect that has a polarity switch (BAE-1073, BAE-1023 or BAE-1084) with that switch on and every other setting at its starting value, and uses the chain's output as the copy. It costs no preamp and nothing extra is recorded. It is offered only when a chain is empty, unlinked and unused and a free instance of one of those effects is left; otherwise the confirm says why not.
+
+> **Note.** The effect way has not been checked on a device. Nothing in the vendor's software says whether an effect chain delays what passes through it, or whether those equaliser models are perfectly flat at their starting values. Any delay against the dry side signal makes the decode comb: the sound turns thin or hollow, and a voice dead ahead of the mid microphone does not sit in the centre. Try it, listen for that, and use a second preamp if you hear it. The second preamp is the default for that reason.
+
+### Setting it up
+
+1. Pick the mix you want to hear it in.
+2. Click the **mid** channel's name bar, then Ctrl+click the **side** channel's. The top bar shows **Monitor as M/S...**.
+3. Press it. A panel above the channels shows the two roles, with **Swap** if they are the wrong way round, a menu for where the inverted copy comes from, and every change it would make.
+4. **Confirm** makes the changes, in the order listed. **Cancel** changes nothing. Nothing is sent to the device and nothing is saved before you confirm.
+
+The changes: the mid panned to the centre, the side panned hard left, a new channel named after the side with **Ø** (the inverted copy) panned hard right at the side's level, the two side channels [linked](#links) so their levels, mutes and solos always match, and the three gathered in a group called **M/S:** and the mid's name. With a second preamp, its polarity, gain and link are listed too; with an effect chain, the route into it, the effect, and on the Quadro the mute of that chain's [effect return](#effect-returns-on-the-quadro), which would otherwise play the copy a second time.
+
+**What is recorded does not change.** The mid and side inputs reach your DAW raw, exactly as before, and the panel says so each time. Only the mix hears the decode.
+
+### Width
+
+Each decode has a line above the channels with a **Width** control: how loud the side signal is against the mid in this mix. 0 dB puts the side strips level with the mid; lower is narrower, higher is wider. It moves the side channel, and the link moves the inverted copy with it. Either side fader does the same. The mid's fader is never moved, and the side strips cannot go above 0 dB, so to widen further bring the mid down.
+
+### In another mix
+
+The decode applies to the mix you set it up in. Pick another mix and its line offers **Play in (that mix) too...**, which lists the same kind of changes for that mix (the three channels sent there, their pans, the copy's level) and waits for **Confirm**. The link between the side strips holds in every mix.
+
+The [mixer dock](05-the-app.md#the-mixer-dock) shows the three channels with their **M**, **S** and **-S** badges, and its side faders move together the same way.
+
+### When the decode is broken
+
+A decode fails quietly: nothing clips, it just stops being stereo or leans to one side. Gazelle watches for what breaks it and says so on the decode's line, in the warning colour, with a **!** on the group's band and the three strips' badges:
+
+- the two side strips' levels or mutes apart, or the link between them removed;
+- a pan moved off hard left, hard right or centre;
+- the copy no longer inverted: the second preamp's **Ø** the same as the side preamp's, or the effect bypassed, removed, or its polarity switch off;
+- the second preamp's gain or type different from the side preamp's;
+- the mid and side channels' inputs swapped or changed, or one of the three channels taken out of the mix or removed.
+
+**Put it back...** lists the changes that mend it and makes them when you confirm. A mix in [mono](#the-mix-master) is not a broken decode: the pans are remembered and return when mono ends. Things Gazelle has not been told yet (a preamp's polarity before the device's first report, an effect's settings before they are read) are never warned about on a guess.
+
+> **Note.** A preamp link copies **Ø** as well as gain, so pressing Ø on the side preamp also switches the second one and the two end up the same. The warning catches it, and **Put it back** switches only the second preamp, leaving the side preamp, which is recorded, as you set it.
+
+### Removing it
+
+**Remove...** on the decode's line, or the **×** on its group's band, lists what it puts back and waits for **Confirm**: the mid's and side's pans in every mix it played in, the inverted copy's channel removed, the links unmade and any link it displaced made again, the second preamp's polarity as it was (or the effect removed, the chain's input and the effect return as they were), and the group removed, with the mid and side back in the groups they came from. Saving a [layout](#the-top-bar) keeps the group but not the decode, which belongs to this device's preamps and effects.
