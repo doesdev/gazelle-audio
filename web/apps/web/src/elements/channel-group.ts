@@ -4,7 +4,7 @@
 // ungrouped faders stay level; collapsed, the group is a narrow tile showing its name.
 
 import { h } from "../core/dom.ts";
-import { commitOnEnter, GaElement, sheet, useStore } from "./element.ts";
+import { commitOnEnter, GaElement, midSideGuard, sheet, useStore } from "./element.ts";
 
 /** The band's height; the mixer row reserves this much above every channel. */
 export const GROUP_BAND_PX = 22;
@@ -39,6 +39,7 @@ export class GaChannelGroup extends GaElement {
       }
       .band input[type="color"] { flex: 0 0 18px; width: 18px; min-height: 16px; padding: 0; border: 0; background: none; cursor: pointer; }
       .band button { min-width: 0; min-height: 16px; padding: 0 4px; border: 0; background: rgb(0 0 0 / 0.18); color: inherit; font-size: 10px; }
+      .band .broken { flex: 0 0 14px; height: 14px; border-radius: 50%; background: var(--ga-notice-warning); color: var(--ga-surface-inset); font-size: 10px; font-weight: 700; line-height: 14px; text-align: center; cursor: help; }
       .members { display: flex; flex: 1; gap: 2px; min-height: 0; }
       .vertical { display: none; font: 600 11px "Josefin Sans Variable", system-ui, sans-serif; white-space: nowrap; overflow: hidden; writing-mode: vertical-rl; }
       :host([collapsed]) { margin-top: -${GROUP_BAND_PX + 2}px; }
@@ -59,10 +60,35 @@ export class GaChannelGroup extends GaElement {
     const name = h("input", { type: "text", "aria-label": "Group name", "data-explain": "group.name" });
     const showName = commitOnEnter(name, (value) => channels.renameGroup(groupId, value.trim() === "" ? (current()?.name ?? "") : value.trim()), () => current()?.name ?? "", store.view<string | undefined>(`draft:mixer:${deviceId}:group:${groupId}:name`, undefined));
     const color = h("input", { type: "color", "data-explain": "group.colour", "on:input": () => channels.setGroupColor(groupId, color.value) });
-    const remove = h("button", { type: "button", class: "remove", "data-explain": "group.remove", "on:click": () => channels.removeGroup(groupId) }, "×");
+    // A mid-side decode's group is taken down by the decode's own Remove, which lists what it puts
+    // back first (pans, links, the inverted copy's channel): the band's × opens that, and never
+    // drops the group alone, which would leave all of it behind with nothing to say what it was.
+    const remove = h(
+      "button",
+      {
+        type: "button",
+        class: "remove",
+        "data-explain": "group.remove",
+        "on:click": () => {
+          if (current()?.mid_side === undefined) channels.removeGroup(groupId);
+          else store.view<{ kind: string; group: string } | undefined>(`mid-side:${deviceId}:ask`, undefined).value = { kind: "remove", group: groupId };
+        },
+      },
+      "×",
+    );
+    const broken = h("span", { class: "broken", "data-testid": `group-warning-${groupId}`, hidden: true }, "!");
     const vertical = h("span", { class: "vertical" });
 
-    this.root.replaceChildren(h("div", { class: "band" }, toggle, name, color, remove, vertical), h("div", { class: "members" }, h("slot")));
+    this.root.replaceChildren(h("div", { class: "band" }, toggle, broken, name, color, remove, vertical), h("div", { class: "members" }, h("slot")));
+
+    // A decode something has broken in the mix shown is marked on its band, with what in the tooltip.
+    this.watch(() => {
+      const decode = channels.layout.value.groups.find((g) => g.id === groupId)?.mid_side;
+      const why = decode === undefined ? undefined : midSideGuard()?.group(deviceId, channels.meteredMix.value, groupId);
+      broken.hidden = why === undefined;
+      broken.title = why ?? "";
+      remove.title = decode === undefined ? "Remove the group; its channels stay" : "Remove this mid-side decode: what it puts back is listed first";
+    });
 
     this.watch(() => {
       const group = channels.layout.value.groups.find((g) => g.id === groupId);
@@ -71,7 +97,6 @@ export class GaChannelGroup extends GaElement {
       color.value = group.color ?? "#5a5f66";
       color.setAttribute("aria-label", `${group.name} colour`);
       remove.setAttribute("aria-label", `Remove group ${group.name}`);
-      remove.title = "Remove the group; its channels stay";
       vertical.textContent = group.name;
       this.toggleAttribute("collapsed", group.collapsed);
       toggle.textContent = group.collapsed ? "▸" : "▾";

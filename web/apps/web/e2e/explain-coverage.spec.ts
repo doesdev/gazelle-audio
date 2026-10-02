@@ -98,8 +98,19 @@ async function workspace(): Promise<void> {
       // Two channels on one input in one mix: the doubled badge. A group with a band.
       [QUADRO]: {
         mixes: [{ name: "Monitors" }, { name: "Cue" }],
-        groups: [{ id: "g", name: "Drums", collapsed: false, color: "#b5473a" }],
-        channels: [{ ...channel("a", "Kick", 6, 0, 0, [1]), group: "g" }, { ...channel("b", "Snare", 7, 0, 0), group: "g" }, channel("c", "Vox", 8, 1, 0)],
+        // And a mid-side decode through an effect chain: its line with the Width, and its strips' marks.
+        groups: [
+          { id: "g", name: "Drums", collapsed: false, color: "#b5473a" },
+          { id: "ms", name: "M/S: Room mid", collapsed: false, mid_side: { mid: "d", side: "e", inverted: "f", via: "effect", chain: 2, effect_type: 7, effect_inst: 0, mid_source: { group: 0, channel: 2 }, side_source: { group: 0, channel: 3 }, pans: { "0": { mid: 32, side: 32 } } } },
+        ],
+        channels: [
+          { ...channel("a", "Kick", 6, 0, 0, [1]), group: "g" },
+          { ...channel("b", "Snare", 7, 0, 0), group: "g" },
+          channel("c", "Vox", 8, 1, 0),
+          { ...channel("d", "Room mid", 10, 2, 0), group: "ms" },
+          { ...channel("e", "Room side", 11, 3, 0), group: "ms" },
+          { ...channel("f", "Room side inverted", 12, 0, 0), source: { group: 5, channel: 2 }, group: "ms" },
+        ],
       },
       // Nothing set up: the starting layouts.
       [STUDIO]: { mixes: [{ name: "Main" }], channels: [channel("k", "", 0, undefined)] },
@@ -319,6 +330,15 @@ test("every control, readout, badge and heading on every page carries a key the 
   await page.getByTestId("layout-save").click();
   await expect(page.locator("ga-notices .notice").first()).toBeVisible();
   await check(page, `mixer ${QUADRO} with a notice`);
+  // Two channels selected: Monitor as M/S, and its confirm with the roles, the way and the list.
+  await expect(page.locator("ga-mid-side").getByTestId("mid-side-row-ms")).toBeVisible();
+  await page.getByTestId("select-6").click();
+  await page.getByTestId("select-8").click({ modifiers: ["Control"] });
+  await page.getByTestId("mid-side-start").click();
+  await expect(page.getByTestId("mid-side-go")).toBeVisible();
+  await check(page, `mixer ${QUADRO} with a mid-side confirm`);
+  await page.getByTestId("mid-side-cancel").click();
+  await page.keyboard.press("Escape");
   // The Studio+'s, with nothing set up: its starting layouts, and its reverb send on Mix 1.
   await visit(`mixer/${STUDIO}`, "ga-channel");
   await check(page, `mixer ${STUDIO}`);

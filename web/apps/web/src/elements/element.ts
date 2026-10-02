@@ -3,6 +3,7 @@
 // app's store (provided once by the entry point).
 
 import { effect, signal, type Signal } from "../core/signal.ts";
+import type { MidSideGuard } from "../store/mid-side.ts";
 import type { PhaseGuard } from "../store/phase-path.ts";
 import type { Store } from "../store/store.ts";
 import { cssProperties } from "../themes/theme.ts";
@@ -37,6 +38,25 @@ export function phaseGuard(): PhaseGuard | undefined {
     );
   }
   return guarding.value;
+}
+
+const decoding = signal<MidSideGuard | undefined>(undefined);
+let decodingAsked = false;
+
+/**
+ * What a strip or a group band asks about a mid-side decode (`store/mid-side.ts`): which part of one
+ * a strip is, and what has broken it. Undefined until the workspace holds a decode, when its chunk is
+ * fetched, as `phaseGuard`'s is. Reading it is reactive.
+ */
+export function midSideGuard(): MidSideGuard | undefined {
+  if (!decodingAsked && Object.values(useStore().workspace.value?.mixers ?? {}).some((mixer) => mixer.groups.some((group) => group.mid_side !== undefined))) {
+    decodingAsked = true;
+    import("../store/mid-side.ts").then(
+      (module) => (decoding.value = module.midSideGuard(useStore())),
+      () => (decodingAsked = false),
+    );
+  }
+  return decoding.value;
 }
 
 /** Put the chosen theme on the document; inside a watch, it follows the choice. The app, the widget and the hub each do. */

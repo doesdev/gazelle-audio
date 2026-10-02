@@ -163,6 +163,53 @@ async fn mono_mixes_round_trip_and_are_validated() {
     }
 }
 
+/// A group that plays a mid and a side microphone decoded to stereo keeps what the client needs to
+/// guard the decode and to take it down again. It round-trips whole, a group without one writes no
+/// field, and the server rejects a decode that names a channel twice, an unknown way of inverting,
+/// one missing what its way needs, and pans or mixes the hardware does not have.
+#[tokio::test]
+async fn mid_side_groups_round_trip_and_are_validated() {
+    let app = app();
+    let workspace = |mid_side: Value| json!({"version": 1, "groups": [], "links": [], "aliases": {}, "mixers": {"loopback-0": {"mixes": [], "groups": [{"id": "g1", "name": "M/S: Mid", "mid_side": mid_side}, {"id": "g2", "name": "Drums"}], "channels": []}}});
+    let good = json!({"mid": "a", "side": "b", "inverted": "c", "via": "preamp", "preamp": 2, "mid_source": {"group": 0, "channel": 0}, "side_source": {"group": 0, "channel": 1},
+        "pans": {"0": {"mid": 20, "side": 44}}, "side_group": "g2", "phase_invert": false,
+        "displaced_links": [{"id": "l1", "kind": "mixer", "mode": "absolute", "members": [{"device_id": "loopback-0", "channel": 6}, {"device_id": "loopback-0", "channel": 7}]}]});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(good.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    let groups = &body["mixers"]["loopback-0"]["groups"];
+    assert_eq!(groups[0]["mid_side"]["inverted"], "c");
+    assert_eq!(groups[0]["mid_side"]["pans"]["0"]["side"], 44);
+    assert_eq!(groups[0]["mid_side"]["displaced_links"][0]["members"][1]["channel"], 7);
+    assert_eq!(groups[0]["mid_side"]["phase_invert"], false);
+    assert_eq!(groups[0]["mid_side"]["chain"], Value::Null, "what the preamp way does not use is left out");
+    assert_eq!(groups[1].get("mid_side"), None, "a plain group writes no field, so an older version still reads it");
+
+    let effect = json!({"mid": "a", "side": "b", "inverted": "c", "via": "effect", "chain": 3, "effect_type": 7, "effect_inst": 0, "mid_source": {"group": 0, "channel": 0}, "side_source": {"group": 0, "channel": 1}, "returns_muted": [0]});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(effect)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let with = |change: fn(&mut Value)| {
+        let mut bad = good.clone();
+        change(&mut bad);
+        bad
+    };
+    for (why, mid_side) in [
+        ("the side channel is the mid channel", with(|v| v["side"] = json!("a"))),
+        ("the inverted copy is the side channel", with(|v| v["inverted"] = json!("b"))),
+        ("an unknown way of inverting", with(|v| v["via"] = json!("cable"))),
+        ("the preamp way with no preamp", with(|v| v["preamp"] = Value::Null)),
+        ("the effect way with no chain", with(|v| v["via"] = json!("effect"))),
+        ("a pan outside the range", with(|v| v["pans"]["0"]["side"] = json!(63))),
+        ("a mix the device does not have", with(|v| v["pans"] = json!({"4": {"mid": 32, "side": 32}}))),
+        ("a muted return in a mix the device does not have", with(|v| v["returns_muted"] = json!([4]))),
+        ("a displaced link of an unknown kind", with(|v| v["displaced_links"][0]["kind"] = json!("fader"))),
+    ] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(mid_side)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+    }
+}
+
 /// Mixer layouts the user saves live in the workspace, per device model, so any
 /// device of that model can start from them. They hold a whole mixer layout, validated like one.
 #[tokio::test]

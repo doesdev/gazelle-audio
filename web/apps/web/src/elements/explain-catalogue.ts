@@ -288,6 +288,12 @@ export const CATALOGUE: Catalogue = {
     what: "This channel's input is the playback channel a cable dedicated to the phase measurement keeps for itself, as the Routing page marks it. Its tooltip names the cable.",
     effect: "The short burst the driver plays into that playback channel at the start of every session then plays in this channel's mixes too. The Aggregate page says the phase path is broken and offers to put it back.",
   },
+  "strip.mid-side": {
+    title: "Part of a mid-side decode",
+    what: "This channel is one of the three that play a mid and a side microphone as stereo: M is the mid, centred; S is the side, hard left; -S is the inverted copy of the side, hard right at the same level. Left is mid plus side, right is mid minus side.",
+    effect: "It turns to the warning colour when something has broken the decode in this mix, and its tooltip says what. The Mixer page lists it with Put it back.",
+    watch: "Move the side level with the decode's Width, or either side fader: the two are linked. Changing a pan, or one side strip alone, breaks the decode.",
+  },
   "strip.doubled": {
     title: "Summed twice",
     what: "The same audio reaches this mix twice: two channels on one input, or a channel whose empty effect chain passes the other's input straight through.",
@@ -456,6 +462,47 @@ export const CATALOGUE: Catalogue = {
     what: "Shows or hides the Quadro's effect returns: AFX Out 1 to 6, which the vendor keeps on slots 1 to 6 of every mix, as slim strips with a fader, mute and solo. They show by themselves while one of them is playing or soloed.",
     effect: "Showing or hiding them is remembered per device in this browser and sends nothing. Their controls send the same mixer command as any strip.",
   },
+  "mixer.mid-side": {
+    title: "Monitor as M/S",
+    what: "Shown while exactly two channels are selected. It sets the two up as a mid and a side microphone heard decoded to stereo in this mix: the mid centred, the side hard left, and an inverted copy of the side hard right at the same level. The first channel selected is the mid; the confirm can swap them.",
+    effect: "It opens a list of every change and makes none until you confirm. What is recorded does not change: both microphones still reach your DAW raw.",
+    watch: "A strip has no polarity switch, so the inverted copy needs a source that inverts: a second preamp fed by a split of the side microphone, or an effect chain, which has not been checked on a device for delay.",
+  },
+  "mid-side.width": {
+    title: "Width",
+    name: "this decode",
+    what: "How loud the side signal is against the mid in {name}, in this mix: 0 dB puts the side strips level with the mid, lower is narrower, higher is wider.",
+    effect: "It moves the side strip, and its link moves the inverted copy with it, so the two always match. The mid's fader is never moved. Arrow keys and the wheel move it a step at a time, Page Up and Page Down in bigger steps. A double-click does nothing here: a jump in width is a jump in loudness.",
+    watch: "The side strips cannot go above 0 dB, so with the mid near the top there is little room to widen: bring the mid down instead.",
+  },
+  "mid-side.add": {
+    title: "Play it in this mix too",
+    what: "Sets the decode up in the mix shown as it is in its first: the three channels sent here, panned centre, hard left and hard right, the inverted copy at the side's level.",
+    effect: "It lists every change first and makes none until you confirm. The pans this mix has now are kept, so removing the decode puts them back.",
+  },
+  "mid-side.remove": {
+    title: "Remove the decode",
+    what: "Takes the decode down in every mix it plays in: pans back where they were, the inverted copy's channel removed, the links and the second preamp's polarity or the effect chain put back, and the group removed.",
+    effect: "It lists every change first and makes none until you confirm. The mid and side channels stay, and nothing recorded changes.",
+  },
+  "mid-side.repair": {
+    title: "Put it back",
+    what: "Mends what the warning lists: a pan moved off its side, the side strips' levels or mutes apart, the link between them gone, the inverted copy no longer inverted, or the inputs swapped.",
+    effect: "It lists the changes first and makes none until you confirm.",
+  },
+  "mid-side.swap": { title: "Swap mid and side", what: "Makes the other channel the mid. The side is the one that gets the inverted copy and the hard pans, so it must be the figure-of-eight microphone's channel. " + NOTHING_SENT },
+  "mid-side.way": {
+    title: "Where the inverted copy comes from",
+    what: "A second preamp fed by a split (a Y cable) of the side microphone, with its polarity switched and its gain linked to the side preamp's; or an effect chain fed by the side input, holding one effect with its polarity switch on.",
+    effect: "Choosing only changes the list below. " + NOTHING_SENT,
+    watch: "The preamp always works and costs a preamp, a cable and one more recorded input. The effect chain costs nothing, but nobody has measured whether a chain delays what passes through it, and any delay against the dry side signal makes the decode sound thin or hollow. Try it and listen.",
+  },
+  "mid-side.confirm": {
+    title: "Confirm",
+    what: "Makes the listed changes, in the order listed.",
+    effect: "Pans and levels are mixer commands, a new channel is a routing write, a polarity switch is a preamp command, and the links and the group are saved in the workspace. If a change cannot be made it stops there and says so.",
+  },
+  "mid-side.cancel": { title: "Cancel", what: "Closes the list without changing anything. " + NOTHING_SENT },
   "mixer.show-all": {
     title: "Show all channels",
     what: "Off, the page shows only the channels routed to the chosen mix. On, it shows every channel you have made, with the ones outside this mix dimmed and unmetered, so you can move one in from its head.",

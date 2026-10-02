@@ -9,8 +9,9 @@
 // the fader, from the field that meters that kind of input or, for an input the interface does not
 // meter by type, from its own mixer channel meters (the store's `stripMeter`).
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
-// name and the doubled and Phase badges, without pan, send, link or the peak readout. The Phase
-// badge marks a strip whose input a cable dedicated to the phase measurement keeps.
+// name and the doubled, Phase and mid-side badges, without pan, send, link or the peak readout. The
+// Phase badge marks a strip whose input a cable dedicated to the phase measurement keeps; the
+// mid-side badge (M, S or -S) marks the three channels of a decode (store/mid-side.ts).
 // A channel strip's name bar selects its channel for the soft link (`selectable`), and its fader,
 // pan, mute and solo move the soft-linked channels with it, on the Mixer page and in the dock alike.
 // Attributes are read when the strip renders: change them by replacing the strip.
@@ -19,7 +20,7 @@ import { h } from "../core/dom.ts";
 import { animateMeter, METER_FLOOR } from "./meter-motion.ts";
 import { faderPosition, formatLevel, formatPan, panAtPosition, formatSend, LEVEL_MAX, levelAtFaderPosition, meterDeflection, METER_MARKS, PAN_CENTRE, PAN_MAX, PAN_MIN, SEND_MAX, type StripId } from "../store/mixer.ts";
 import { bindControl, levelReset } from "./controls.ts";
-import { GaElement, phaseGuard, sheet, useStore } from "./element.ts";
+import { GaElement, midSideGuard, phaseGuard, sheet, useStore } from "./element.ts";
 import { linkButton } from "./link-bar.ts";
 
 /** Where a double-click puts a fader or a send: -20 dB, a safe level (the user, 2026-09-18). Ctrl+click is unity. */
@@ -158,6 +159,9 @@ export class GaStrip extends GaElement {
       :host([compact]) .doubled { padding: 0 3px; font-size: 9px; }
       /* An input kept for the phase measurement: the Routing page's Phase badge, in its colour. */
       .doubled.phase { background: var(--ga-state-solo); font-size: 8px; font-weight: 700; }
+      /* A part of a mid-side decode: quiet while the decode is sound, the warning colour once it is not. */
+      .doubled.decode { background: var(--ga-accent); color: var(--ga-accent-text); font-weight: 700; }
+      .doubled.decode[data-warning] { background: var(--ga-notice-warning); color: var(--ga-surface-inset); }
     `),
   ];
 
@@ -294,6 +298,20 @@ export class GaStrip extends GaElement {
         kept.hidden = why === undefined;
         kept.title = why ?? "";
         kept.setAttribute("aria-label", why ?? "");
+      });
+      // A strip of a mid-side decode says which part it is, and turns to the warning colour once
+      // something has broken the decode in this mix, with what in its title.
+      const part = h("div", { class: "doubled decode", "data-testid": `mid-side-${testId}`, hidden: "", "data-explain": "strip.mid-side" });
+      top.unshift(part);
+      this.watch(() => {
+        const found = midSideGuard()?.strip(deviceId, Number(this.getAttribute("mixer") ?? "0"), id);
+        part.hidden = found === undefined;
+        if (found === undefined) return;
+        part.textContent = found.role === "mid" ? "M" : found.role === "side" ? "S" : "-S";
+        part.toggleAttribute("data-warning", found.warning !== undefined);
+        const what = found.role === "mid" ? "The mid channel" : found.role === "side" ? "The side channel" : "The inverted copy of the side channel";
+        part.title = `${what} of ${found.name}${found.warning === undefined ? "" : `. ${found.warning}`}`;
+        part.setAttribute("aria-label", part.title);
       });
       this.watch(() => {
         const message = doubled.value;

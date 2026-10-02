@@ -10,7 +10,7 @@
 // its current routing: one channel per slot that is routed (not MUTE) in any mix.
 
 import { computed, signal, type ReadonlySignal, type Signal } from "../core/signal.ts";
-import type { DeviceMixer, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
+import type { DeviceMixer, MidSide, MixConfig, MixerChannel, MixerGroup, RouteSource, SavedLayout, Topology, TopologyGroup } from "gazelle-audio-client";
 import { channelSpan, type Through } from "./cables.ts";
 import { LEVEL_MAX, PAN_CENTRE } from "./mixer.ts";
 import { groupName } from "./names.ts";
@@ -455,6 +455,11 @@ export class ChannelsModel {
     return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? { ...g, name } : g)) }));
   }
 
+  /** Marks a group as a mid-side decode (`store/mid-side.ts`), changes what it holds, or clears it (undefined). */
+  setMidSide(id: string, decode: MidSide | undefined): boolean {
+    return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? withOptional(g, "mid_side", decode) : g)) }));
+  }
+
   toggleGroup(id: string): boolean {
     return this.#context.edit((layout) => ({ ...layout, groups: layout.groups.map((g) => (g.id === id ? { ...g, collapsed: !g.collapsed } : g)) }));
   }
@@ -580,7 +585,10 @@ export class ChannelsModel {
     const same = (a: string) => a.trim().toLowerCase() === trimmed.toLowerCase();
     if (taken !== undefined && taken.id !== replace && !(target !== undefined && same(target.name))) throw new RangeError(`a layout called ${taken.name} is saved already`);
     const id = target?.id ?? this.#newId("layout");
-    const layout = { id, name: trimmed, family: this.#context.family, mixer: structuredClone(this.layout.peek()) };
+    // A mid-side decode is this device's own setup (a preamp's polarity, links, an effect chain),
+    // which a layout does not carry: its group is saved as a plain group.
+    const mixer = structuredClone(this.layout.peek());
+    const layout = { id, name: trimmed, family: this.#context.family, mixer: { ...mixer, groups: mixer.groups.map(({ mid_side: _decode, ...group }) => group) } };
     return this.#context.editSaved((layouts) => (target === undefined ? [...layouts, layout] : layouts.map((l) => (l.id === id ? layout : l)))) ? id : undefined;
   }
 
@@ -594,7 +602,7 @@ export class ChannelsModel {
       const renamed = group === undefined ? undefined : groupIds.get(group);
       return { ...rest, id: this.#newId(), ...(renamed === undefined ? {} : { group: renamed }) };
     });
-    return this.#startFrom({ mixes: structuredClone(saved.mixer.mixes), groups: saved.mixer.groups.map((g) => ({ ...g, id: groupIds.get(g.id) as string })), channels });
+    return this.#startFrom({ mixes: structuredClone(saved.mixer.mixes), groups: saved.mixer.groups.map(({ mid_side: _decode, ...g }) => ({ ...g, id: groupIds.get(g.id) as string })), channels });
   }
 
   /** Whether a mix is summed to mono. Reading it is reactive. */

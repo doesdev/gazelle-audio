@@ -12,6 +12,18 @@ version that has not been published yet.
 
 ### Added
 
+- **Hear a mid-side pair decoded while you track.** On the Mixer, select the mid channel and then
+  the side channel and press Monitor as M/S: the mid is centred, the side goes hard left, and an
+  inverted copy of the side goes hard right at the same level, so the mix plays the decoded stereo
+  while both microphones are still recorded raw. The inverted copy comes from a second preamp fed
+  by a split of the side microphone, with its polarity switched and its gain linked, or from an
+  effect chain with a polarity switch where one is free (not yet checked on a device for delay, and
+  it says so). Every change is listed first and nothing is made until you confirm. One Width
+  control sets the side level against the mid, the decode can be added to another mix, and Remove
+  puts the pans, links and the extra channel back. If something breaks the decode (a side level or
+  mute apart, a pan moved, the copy no longer inverted, the inputs swapped) the group says so and
+  offers to put it back.
+
 - **A trim for every rate and buffer size.** A trim is only right at the rate and buffer size it
   was measured at, so each interface now keeps one per setup, and the aggregate uses the one for
   the rate and buffer size a session actually runs at. Writing a measured trim keeps it for the
