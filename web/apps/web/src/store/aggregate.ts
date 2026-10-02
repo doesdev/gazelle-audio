@@ -596,13 +596,22 @@ function mixName(layout: DeviceMixer | undefined, mix: number): string {
 
 /**
  * Every hardware output of one interface, in the order outputs are named by, and which of its USB
- * playback channels reach each one: directly, through a mix, both, or none.
+ * playback channels reach each one: directly, through a mix, through an effect, several of those, or
+ * none.
+ *
+ * What feeds an output is followed back as far as the routing says it: a mix's output is every slot
+ * of that mix's input group, and an effect's output (AFX Out k) is whatever feeds its input (AFX In
+ * k), on both models alike; the Quadro's effect returns on every mix's first six slots are AFX Out
+ * sources in the mix's input group like any other. So a channel can arrive through an effect
+ * ("through AFX 1"), through an effect that is in a mix ("through AFX 1 then Mix 1"), or the other
+ * way round, each said in the order the audio takes. A way round that comes back to where it has
+ * been is followed once. Only routing is read: whether a strip is muted or a chain is empty is not.
  *
  * A pair of sockets is one line ("Monitor"); a larger group is a line per channel ("Line Out 3").
- * "Nothing from the DAW reaches it" is said only once the output's group, and the mix input behind
- * any mix feeding it, have been read, the same rule the names follow; before that it is not read
- * yet. An output nothing reaches offers a button that sends it the first free run of USB playback
- * channels of its width, where free is reaching nothing, being in no mix and feeding no effect, once
+ * "Nothing from the DAW reaches it" is said only once the output's group, and the mix inputs and
+ * the effect inputs behind whatever feeds it, have been read, the same rule the names follow; before
+ * that it is not read yet. An output nothing reaches offers a button that sends it the first free
+ * run of USB playback channels of its width, where free is reaching nothing, being in no mix and feeding no effect, once
  * every group the page reads has been read: a pair takes a free pair that starts on an odd channel
  * from one, and a single socket a single free channel.
  */
@@ -630,37 +639,80 @@ export function playbackOutputs(naming: InterfaceNaming | undefined): PlaybackOu
   const used = new Set<number>();
   for (const at of readGroups(topology)) for (const slot of routing[at] ?? []) if (slot.source === groups.playbackPosition) used.add(slot.channel);
 
-  return units.map(({ group, destination, label, channels }): PlaybackOutput => {
+  const effectsIn = topology.outputs.findIndex((one) => one.type === "AFX_IN");
+  /** One thing a channel passes through on its way to an output: an effect, or a mix. */
+  type Hop = { effect: number } | { mix: number };
+  /** One USB playback channel arriving somewhere, with what it passed through, in the order the audio takes. */
+  interface Arrival {
+    channel: number;
+    hops: Hop[];
+  }
+
+  return units.map(({ destination, label, channels }): PlaybackOutput => {
     const slots = routing[destination];
     const base = { label, destination, channels };
     if (slots === undefined) return { ...base, state: "unread", text: "not read yet" };
-    const direct: number[] = [];
-    const mixes = new Map<number, number[]>();
     const feeds: string[] = [];
     let unread = false;
+    // Every USB playback channel that reaches a source, followed back through the mixes and effects
+    // behind it. `seen` is what this way round has already been through, so a loop ends.
+    const arriving = (slot: RouteSlot | undefined, seen: readonly string[]): Arrival[] => {
+      const from = slot === undefined ? undefined : topology.inputs[slot.source];
+      if (slot === undefined || from === undefined || from.type === "MUTE") return [];
+      if (slot.source === groups.playbackPosition) return [{ channel: slot.channel, hops: [] }];
+      if (from.type === "AFX_OUT") {
+        const key = `effect ${slot.channel}`;
+        if (effectsIn < 0 || seen.includes(key)) return [];
+        const feeding = routing[effectsIn];
+        if (feeding === undefined) {
+          unread = true;
+          return [];
+        }
+        return arriving(feeding[slot.channel], [...seen, key]).map((one) => ({ channel: one.channel, hops: [...one.hops, { effect: slot.channel }] }));
+      }
+      const mix = topology.mixers.outputGroups.indexOf(from.id);
+      const key = `mix ${mix}`;
+      if (mix < 0 || seen.includes(key)) return [];
+      const inMix = routing[topology.outputs.findIndex((one) => one.id === topology.mixers.inputGroups[mix])];
+      if (inMix === undefined) {
+        unread = true;
+        return [];
+      }
+      return inMix.slice(0, topology.mixers.channels).flatMap((one) => arriving(one, [...seen, key]).map((found) => ({ channel: found.channel, hops: [...found.hops, { mix }] })));
+    };
+    // The ways in, each with the channels that take it. Two channels through two effects into the
+    // two sides of a pair are one way, "through AFX 1 to 2".
+    const ways = new Map<string, { hops: Hop[]; channels: number[]; effects: number[][] }>();
     for (const channel of channels) {
       const slot = slots[channel];
       const from = slot === undefined ? undefined : topology.inputs[slot.source];
       if (slot === undefined || from === undefined || from.type === "MUTE") continue;
-      if (slot.source === groups.playbackPosition) {
-        direct.push(slot.channel);
-        if (!feeds.includes(usb([slot.channel]))) feeds.push(usb([slot.channel]));
-        continue;
-      }
       const mix = topology.mixers.outputGroups.indexOf(from.id);
-      const feed = mix >= 0 ? mixName(naming.layout, mix) : sourceLabel(topology, { group: slot.source, channel: slot.channel });
+      const feed = slot.source === groups.playbackPosition ? usb([slot.channel]) : mix >= 0 ? mixName(naming.layout, mix) : sourceLabel(topology, { group: slot.source, channel: slot.channel });
       if (!feeds.includes(feed)) feeds.push(feed);
-      if (mix < 0) continue;
-      const input = topology.outputs.findIndex((one) => one.id === topology.mixers.inputGroups[mix]);
-      const inMix = routing[input];
-      if (inMix === undefined) {
-        unread = true;
-        continue;
+      for (const { channel: playing, hops } of arriving(slot, [])) {
+        const key = hops.map((hop) => ("mix" in hop ? `mix ${hop.mix}` : "effect")).join(", ");
+        const way = ways.get(key) ?? { hops, channels: [], effects: hops.map(() => []) };
+        way.channels.push(playing);
+        for (const [at, hop] of hops.entries()) if ("effect" in hop) way.effects[at]?.push(hop.effect);
+        ways.set(key, way);
       }
-      const playing = inMix.filter((one) => one.source === groups.playbackPosition).map((one) => one.channel);
-      if (playing.length > 0) mixes.set(mix, [...(mixes.get(mix) ?? []), ...playing]);
     }
-    const parts = [...[...mixes.entries()].sort(([x], [y]) => x - y).map(([mix, playing]) => `${usb(playing)}, through ${mixName(naming.layout, mix)}`), ...(direct.length === 0 ? [] : [`${usb(direct)}, directly`])];
+    // Through one mix first, in the mixes' order, then directly, as they always were; then the ways
+    // through an effect or more than one mix, the shortest first.
+    const rank = (hops: readonly Hop[]): [number, number] => {
+      const only = hops[0];
+      if (hops.length === 0) return [1, 0];
+      return hops.length === 1 && only !== undefined && "mix" in only ? [0, only.mix] : [2, hops.length];
+    };
+    const parts = [...ways.entries()]
+      .map(([key, way]) => ({ key, way, rank: rank(way.hops) }))
+      .sort((x, y) => x.rank[0] - y.rank[0] || x.rank[1] - y.rank[1] || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0))
+      .map(({ way }) => {
+        if (way.hops.length === 0) return `${usb(way.channels)}, directly`;
+        const through = way.hops.map((hop, at) => ("mix" in hop ? mixName(naming.layout, hop.mix) : `AFX ${channelRuns(way.effects[at] ?? [])}`));
+        return `${usb(way.channels)}, through ${through.join(" then ")}`;
+      });
     if (parts.length > 0) return { ...base, state: "reached", text: parts.join("; ") };
     if (unread) return { ...base, state: "unread", text: "not read yet" };
 

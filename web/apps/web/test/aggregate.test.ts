@@ -1827,12 +1827,12 @@ test("an output nothing reaches offers the first free run of its width, and says
 });
 
 test("a USB playback channel that only feeds an effect is in use, and is not offered as free", () => {
-  // USB 1 Play 3 and 4 go into AFX 1 and 2 and nowhere else, and the effects' output goes on into Mix 3.
+  // USB 1 Play 3 and 4 go into AFX 1 and 2 and nowhere else, and the effects' output goes on into Mix 4, which nothing plays.
   const effect: [string, number, string, number][] = [
     ["AFX_IN0", 0, "COM_PLAY0", 2],
     ["AFX_IN0", 1, "COM_PLAY0", 3],
-    ["MIXER_IN2", 0, "AFX_OUT0", 0],
-    ["MIXER_IN2", 1, "AFX_OUT0", 1],
+    ["MIXER_IN3", 0, "AFX_OUT0", 0],
+    ["MIXER_IN3", 1, "AFX_OUT0", 1],
   ];
   const { config, naming, groups } = namingWith("quadro", [...OWNER, ...effect]);
   const line = playbackOutputs(naming).find((one) => one.label === "Line Out");
@@ -1844,6 +1844,121 @@ test("a USB playback channel that only feeds an effect is in use, and is not off
   const notKnown = playbackOutputs(unread).find((one) => one.label === "Line Out");
   assert.equal(notKnown?.send, undefined);
   assert.match(String(notKnown?.noSend), /not known until the routing has been read/);
+});
+
+test("a USB playback channel reaches an output through an effect, and is said to", () => {
+  // USB 1 Play 5 and 6 into AFX 1 and 2, whose outputs go straight to S/PDIF Out; USB 1 Play 7 into AFX 3, and that to HP2's left.
+  const effect: [string, number, string, number][] = [
+    ["AFX_IN0", 0, "COM_PLAY0", 4],
+    ["AFX_IN0", 1, "COM_PLAY0", 5],
+    ["AFX_IN0", 2, "COM_PLAY0", 6],
+    ["SPDIF_OUT0", 0, "AFX_OUT0", 0],
+    ["SPDIF_OUT0", 1, "AFX_OUT0", 1],
+    ["HEADPHONES1", 0, "AFX_OUT0", 2],
+    ["HEADPHONES1", 1, "COM_PLAY0", 8],
+  ];
+  const lines = playbackOutputs(namingWith("quadro", [...OWNER, ...effect]).naming);
+  const line = (label: string) => lines.find((one) => one.label === label);
+  assert.deepEqual([line("S/PDIF Out")?.state, line("S/PDIF Out")?.text], ["reached", "USB 1 Play 5 to 6, through AFX 1 to 2"]);
+  assert.equal(line("S/PDIF Out")?.send, undefined, "something from the DAW reaches it, so there is nothing to send");
+  assert.equal(line("S/PDIF Out")?.noSend, undefined);
+  assert.equal(line("HP2")?.text, "USB 1 Play 9, directly; USB 1 Play 7, through AFX 3", "directly first, then through the effect");
+  // An effect nothing from the DAW feeds carries nothing from the DAW.
+  const idle = playbackOutputs(namingWith("quadro", [...OWNER, ["AFX_IN0", 3, "PREAMP0", 0], ["SPDIF_OUT0", 0, "AFX_OUT0", 3], ["SPDIF_OUT0", 1, "AFX_OUT0", 4]]).naming).find((one) => one.label === "S/PDIF Out");
+  assert.deepEqual([idle?.state, idle?.text], ["nothing", "nothing from the DAW reaches it"]);
+  assert.equal(idle?.send?.title, "S/PDIF Out stops playing AFX Out 4 and AFX Out 5, and plays USB 1 Play 3 to 4 instead");
+});
+
+test("a USB playback channel reaches an output through an effect that is in a mix, on both models", () => {
+  // The Quadro keeps AFX Out 1 to 6 on the first six slots of every mix. USB 1 Play 3 and 4 feed AFX 1
+  // and 2, so they reach the line outs through Mix 3, which nothing else from the DAW enters.
+  const returns = (mix: string): [string, number, string, number][] => Array.from({ length: 6 }, (_, slot): [string, number, string, number] => [mix, slot, "AFX_OUT0", slot]);
+  const quadro = playbackOutputs(namingWith("quadro", [...OWNER, ...returns("MIXER_IN0"), ...returns("MIXER_IN2"), ["AFX_IN0", 0, "COM_PLAY0", 2], ["AFX_IN0", 1, "COM_PLAY0", 3]]).naming);
+  const lineOut = quadro.find((one) => one.label === "Line Out");
+  assert.deepEqual([lineOut?.state, lineOut?.text], ["reached", "USB 1 Play 3 to 4, through AFX 1 to 2 then Mix 3"]);
+  assert.equal(lineOut?.send, undefined);
+  assert.equal(quadro.find((one) => one.label === "Monitor")?.text, "USB 1 Play 1 to 2, through Mix 1; USB 1 Play 3 to 4, through AFX 1 to 2 then Mix 1", "the mix alone first, then the effect in it");
+  // The person's name for the mix.
+  const named = playbackOutputs(namingWith("quadro", [...OWNER, ...returns("MIXER_IN2"), ["AFX_IN0", 0, "COM_PLAY0", 2]], { mixes: [{}, {}, { name: "Stage" }], groups: [], channels: [] }).naming);
+  assert.equal(named.find((one) => one.label === "Line Out")?.text, "USB 1 Play 3, through AFX 1 then Stage");
+
+  // The Studio+ has no slots of its own for effects: an effect's output is a source like any other,
+  // straight to a socket or on any mix slot.
+  const studio = playbackOutputs(
+    namingWith("studio", [
+      ["AFX_IN0", 8, "USB_PLAY0", 4],
+      ["AFX_IN0", 9, "USB_PLAY0", 5],
+      ["LINE_OUT0", 2, "AFX_OUT0", 8],
+      ["MIXER_IN1", 20, "AFX_OUT0", 9],
+      ["MONITOR0", 0, "MIXER_OUT1", 0],
+      ["MONITOR0", 1, "MIXER_OUT1", 1],
+    ]).naming,
+  );
+  const studioLine = (label: string) => studio.find((one) => one.label === label);
+  assert.deepEqual([studioLine("Line Out 3")?.state, studioLine("Line Out 3")?.text, studioLine("Line Out 3")?.send], ["reached", "USB Play 5, through AFX 9", undefined]);
+  assert.deepEqual([studioLine("Monitor")?.state, studioLine("Monitor")?.text, studioLine("Monitor")?.send], ["reached", "USB Play 6, through AFX 10 then Mix 2", undefined]);
+  assert.equal(studioLine("Line Out 1")?.state, "nothing");
+});
+
+test("more than one effect or mix on the way is followed as far as the routing says, and a loop ends", () => {
+  // USB 1 Play 5 into AFX 1, AFX 1 into AFX 2, AFX 2 to S/PDIF Out's left: two effects, in the order the audio takes.
+  // Mix 1, which the DAW plays into, goes on through AFX 5 and 6 to HP2: the mix, then the effects.
+  const lines = playbackOutputs(
+    namingWith("quadro", [
+      ...OWNER,
+      ["AFX_IN0", 0, "COM_PLAY0", 4],
+      ["AFX_IN0", 1, "AFX_OUT0", 0],
+      ["SPDIF_OUT0", 0, "AFX_OUT0", 1],
+      ["AFX_IN0", 4, "MIXER_OUT0", 0],
+      ["AFX_IN0", 5, "MIXER_OUT0", 1],
+      ["HEADPHONES1", 0, "AFX_OUT0", 4],
+      ["HEADPHONES1", 1, "AFX_OUT0", 5],
+    ]).naming,
+  );
+  assert.equal(lines.find((one) => one.label === "S/PDIF Out")?.text, "USB 1 Play 5, through AFX 1 then AFX 2");
+  assert.equal(lines.find((one) => one.label === "HP2")?.text, "USB 1 Play 1 to 2, through Mix 1 then AFX 5 to 6");
+  // An effect fed by its own output, and a mix fed through an effect by its own output, go round once and stop.
+  const loop = playbackOutputs(
+    namingWith("quadro", [
+      ["AFX_IN0", 0, "AFX_OUT0", 0],
+      ["SPDIF_OUT0", 0, "AFX_OUT0", 0],
+      ["MIXER_IN2", 0, "AFX_OUT0", 1],
+      ["MIXER_IN2", 9, "COM_PLAY0", 6],
+      ["AFX_IN0", 1, "MIXER_OUT2", 0],
+      ["LINE_OUT0", 0, "MIXER_OUT2", 0],
+    ]).naming,
+  );
+  assert.equal(loop.find((one) => one.label === "S/PDIF Out")?.state, "nothing");
+  assert.equal(loop.find((one) => one.label === "Line Out")?.text, "USB 1 Play 7, through Mix 3");
+});
+
+test("an output fed by an effect is not called unreached until the effect inputs have been read", () => {
+  const effect: [string, number, string, number][] = [
+    ["AFX_IN0", 0, "COM_PLAY0", 4],
+    ["SPDIF_OUT0", 0, "AFX_OUT0", 0],
+    ["MIXER_IN2", 0, "AFX_OUT0", 0],
+  ];
+  const { config, groups } = namingWith("quadro", [...OWNER, ...effect]);
+  const afx = topologies.quadro.outputs.findIndex((group) => group.id === "AFX_IN0");
+  const unread = aggregateNaming(config, answer({ devices: [report("quadro", { index: 0, device_id: "serial:Q" })] }), { devices: attached, routing: (_, g) => (g === afx ? undefined : groups.get(g)) })[0];
+  const before = playbackOutputs(unread);
+  const line = (lines: typeof before, label: string) => lines.find((one) => one.label === label);
+  assert.deepEqual([line(before, "S/PDIF Out")?.state, line(before, "S/PDIF Out")?.text, line(before, "S/PDIF Out")?.send], ["unread", "not read yet", undefined], "straight from the effect");
+  assert.deepEqual([line(before, "Line Out")?.state, line(before, "Line Out")?.text, line(before, "Line Out")?.send], ["unread", "not read yet", undefined], "from a mix the effect is in");
+  // What is already known to reach an output is still said, and an output no effect feeds is not held up.
+  assert.equal(line(before, "Monitor")?.text, "USB 1 Play 1 to 2, through Mix 1");
+  assert.equal(line(before, "HP2")?.state, "nothing");
+  // Read, they say what reaches them.
+  const after = playbackOutputs(namingWith("quadro", [...OWNER, ...effect]).naming);
+  assert.equal(line(after, "S/PDIF Out")?.text, "USB 1 Play 5, through AFX 1");
+  assert.equal(line(after, "Line Out")?.text, "USB 1 Play 5, through AFX 1 then Mix 3");
+  // The Studio+ the same.
+  const studioRoutes: [string, number, string, number][] = [["AFX_IN0", 0, "USB_PLAY0", 0], ["REAMP0", 0, "AFX_OUT0", 0]];
+  const studio = namingWith("studio", studioRoutes);
+  const studioAfx = topologies.studio.outputs.findIndex((group) => group.id === "AFX_IN0");
+  const studioUnread = aggregateNaming(studio.config, answer({ devices: [report("studio", { index: 0, device_id: "serial:S" })] }), { devices: attached, routing: (_, g) => (g === studioAfx ? undefined : studio.groups.get(g)) })[0];
+  assert.equal(line(playbackOutputs(studioUnread), "Reamp")?.state, "unread");
+  assert.equal(line(playbackOutputs(studio.naming), "Reamp")?.text, "USB Play 1, through AFX 1");
 });
 
 test("pressing send is one routing write of the output's group, changing only its own slots", async () => {
@@ -1874,7 +1989,7 @@ test("pressing send is one routing write of the output's group, changing only it
 });
 
 test("nothing the playback list writes carries an en or em dash", () => {
-  for (const line of playbackOutputs(namingWith("quadro", OWNER).naming)) {
+  for (const line of playbackOutputs(namingWith("quadro", [...OWNER, ["AFX_IN0", 0, "COM_PLAY0", 4], ["SPDIF_OUT0", 0, "AFX_OUT0", 0], ["MIXER_IN2", 0, "AFX_OUT0", 0]]).naming)) {
     for (const text of [line.label, line.text, line.send?.label ?? "", line.send?.title ?? "", line.noSend ?? ""]) assert.doesNotMatch(text, DASHES, text);
   }
 });
