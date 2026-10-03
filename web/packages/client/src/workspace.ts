@@ -67,27 +67,44 @@ export interface MixerGroup {
 
 /**
  * A mid and a side microphone played as stereo in the hardware mix: the mid channel centred, the
- * side channel hard left and an inverted copy of it hard right at the same level. The strips have
- * no polarity switch, so the copy is a channel of its own on a source that inverts: a second preamp
- * fed by a split of the side microphone, with its polarity switched (`preamp`), or an effect chain
- * holding one effect with its polarity switch on (`effect`).
+ * side signal hard left and an inverted copy of it hard right at the same level. The strips have
+ * no polarity switch, so both side strips come from effect chains fed by the side input, each
+ * holding the same effect at the same settings, the inverted copy's with its polarity switch on, so
+ * the two carry the same delay (`effect`, with `left` and `left_chain`). The side channel itself is
+ * muted where the decode plays.
  *
- * Besides the three channels it holds what the app needs to notice the decode broken (the inputs
- * as they were set up) and to put back what setting it up changed.
+ * Two earlier ways still load, and the app offers only to remove them: `preamp`, a second preamp fed
+ * by a split of the side microphone with its polarity switched, and `effect` with no `left`, one
+ * chain for the inverted copy against the dry side channel.
+ *
+ * Besides the channels it holds what the app needs to notice the decode broken (the inputs as they
+ * were set up) and to put back what setting it up changed.
  */
 export interface MidSide {
   /** `MixerChannel` ids. */
   mid: string;
+  /** The side microphone's own channel. */
   side: string;
+  /** The channel that carries the side signal through its chain, hard left. */
+  left?: string;
   /** The channel that carries the inverted copy. */
   inverted: string;
   via: "preamp" | "effect";
-  /** The second preamp, from 0, when `via` is `preamp`. */
+  /** The second preamp, from 0, when `via` is the retired `preamp`. */
   preamp?: number;
-  /** The effect chain, from 0, and the effect in it, when `via` is `effect`. */
+  /** The inverted copy's effect chain, from 0, and the effect in it, when `via` is `effect`. */
   chain?: number;
   effect_type?: number;
   effect_inst?: number;
+  /** The hard-left side strip's effect chain and its instance of the same effect type. */
+  left_chain?: number;
+  left_effect_inst?: number;
+  /** What routing fed the hard-left chain before; absent when it was muted. */
+  left_chain_input?: RouteSource;
+  /** Mixes whose effect return strip for the hard-left chain was muted. */
+  left_returns_muted?: number[];
+  /** Mixes the side channel was muted in, to unmute again. */
+  side_muted?: number[];
   mid_source: RouteSource;
   side_source: RouteSource;
   /** Per mix it plays in, by mix: the pans the mid and side channels had before. */
@@ -97,7 +114,7 @@ export interface MidSide {
   side_group?: string;
   /** Links its own links took channels out of, to make again. */
   displaced_links?: Link[];
-  /** The second preamp's polarity switch before. */
+  /** The second preamp's polarity switch before, for the retired `preamp` way. */
   phase_invert?: boolean;
   /** What routing fed the effect chain before; absent when it was muted. */
   chain_input?: RouteSource;

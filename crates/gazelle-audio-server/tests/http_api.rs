@@ -185,9 +185,36 @@ async fn mid_side_groups_round_trip_and_are_validated() {
     assert_eq!(groups[0]["mid_side"]["chain"], Value::Null, "what the preamp way does not use is left out");
     assert_eq!(groups[1].get("mid_side"), None, "a plain group writes no field, so an older version still reads it");
 
+    // One chain for the copy alone, as an earlier build saved it: still accepted.
     let effect = json!({"mid": "a", "side": "b", "inverted": "c", "via": "effect", "chain": 3, "effect_type": 7, "effect_inst": 0, "mid_source": {"group": 0, "channel": 0}, "side_source": {"group": 0, "channel": 1}, "returns_muted": [0]});
     let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(effect)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Both side strips through chains of their own, the side channel muted.
+    let chains = json!({"mid": "a", "side": "b", "left": "d", "inverted": "c", "via": "effect", "chain": 3, "effect_type": 7, "effect_inst": 1, "left_chain": 2, "left_effect_inst": 0,
+        "left_chain_input": {"group": 1, "channel": 4}, "mid_source": {"group": 0, "channel": 0}, "side_source": {"group": 0, "channel": 1}, "returns_muted": [0], "left_returns_muted": [0], "side_muted": [0, 1]});
+    let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(chains.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = get(app.clone(), "/api/v1/workspace").await;
+    let saved = &body["mixers"]["loopback-0"]["groups"][0]["mid_side"];
+    assert_eq!((saved["left"].clone(), saved["left_chain"].clone(), saved["left_effect_inst"].clone(), saved["side_muted"].clone()), (json!("d"), json!(2), json!(0), json!([0, 1])));
+    assert_eq!(saved["left_chain_input"]["channel"], 4);
+    let chained = |change: fn(&mut Value)| {
+        let mut bad = chains.clone();
+        change(&mut bad);
+        bad
+    };
+    for (why, mid_side) in [
+        ("the hard-left strip is the inverted copy", chained(|v| v["left"] = json!("c"))),
+        ("the hard-left strip with no chain", chained(|v| v["left_chain"] = Value::Null)),
+        ("the hard-left chain with no effect", chained(|v| v["left_effect_inst"] = Value::Null)),
+        ("both side strips on one chain", chained(|v| v["left_chain"] = json!(3))),
+        ("the side channel muted in a mix the device does not have", chained(|v| v["side_muted"] = json!([4]))),
+        ("a hard-left return muted in a mix the device does not have", chained(|v| v["left_returns_muted"] = json!([4]))),
+    ] {
+        let (status, body) = send(app.clone(), "PUT", "/api/v1/workspace", workspace(mid_side)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+    }
 
     let with = |change: fn(&mut Value)| {
         let mut bad = good.clone();

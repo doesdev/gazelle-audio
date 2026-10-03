@@ -1,8 +1,9 @@
 // Monitoring a mid and a side microphone as stereo (store/mid-side.ts): the plan lists every change
-// and sends nothing until it is applied, both ways of making the inverted copy, the Width, what the
-// guard notices and how it is mended, and removal putting everything back. Tested against a fake
-// Quadro that keeps routing, strips, preamps, chains and effect settings, so what is read back
-// after a change is the device's.
+// and sends nothing until it is applied, both side strips made through matching effect chains (one
+// inverting) with the side channel muted, the refusal without two free chains, the Width, what the
+// guard notices and how it is mended, removal putting everything back, and decodes saved by earlier
+// ways still loading. Tested against a fake Quadro that keeps routing, strips, chains and effect
+// settings, so what is read back after a change is the device's.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,32 +12,40 @@ import type { MidSide, MixerChannel, Workspace } from "gazelle-audio-client";
 
 import { ManualTimers } from "../../../packages/client/test/fakes.ts";
 import { loadCatalogue } from "../src/store/effect-parameters.ts";
-import { addToMixPlan, decodeOf, decodes, midSideGuard, problems, removePlan, repairPlan, setupPlan, setWidth, UndoneError, ways, width, type Planned, type Plan } from "../src/store/mid-side.ts";
+import { addToMixPlan, decodeOf, decodes, freeChains, midSideGuard, problems, removePlan, repairPlan, setupPlan, setWidth, UndoneError, width, type Planned, type Plan } from "../src/store/mid-side.ts";
 import type { RouteSlot } from "../src/store/routing.ts";
 import { Store } from "../src/store/store.ts";
 import { builtInThemes, device, FakeClient, flush, MemoryStorage } from "./fake-client.ts";
 
-// The effect way reads the inverting effect's settings, which needs the catalogue the Effects page fetches.
+// The effects' settings are read, which needs the catalogue the Effects page fetches.
 await loadCatalogue();
 
 const Q = "loopback-0";
 /** Quadro topology positions, as `refs/schemas/quadro_topology.json` lists them. */
 const PREAMP = 0;
-const USB1 = 1;
 const AFX_OUT = 5;
 const MUTE = 10;
 const AFX_IN = 7;
 const MIX_IN = [8, 9, 10, 11];
-/** The BAE-1073: the first effect with a polarity switch. */
-const BAE = 7;
+/** The BAE-1084: the first effect with a polarity switch that is tried. */
+const BAE = 25;
+const BAE_1073 = 7;
+/** Each equaliser's command name and its starting values, as its set command carries them (polarity apart). */
+const EQUALISERS: Record<number, { name: string; flat: Record<string, number> }> = {
+  25: { name: "neve_1084", flat: { gain: 0, high_freq: 0, high_gain: 50, peak_freq: 0, peak_gain: 50, low_freq: 0, low_gain: 50, high_pass: 0, low_pass: 0, hi_q: 0 } },
+  24: { name: "neve_1023", flat: { gain: 0, high_freq: 0, high_gain: 50, peak_freq: 0, peak_gain: 50, low_freq: 0, low_gain: 50, high_pass: 0 } },
+  7: { name: "neve_1073", flat: { gain: 0, high_shelf: 8, peak_freq: 0, peak_gain: 8, low_freq: 0, low_gain: 8, high_pass: 0 } },
+};
+const FLAT = (EQUALISERS[BAE] as { flat: Record<string, number> }).flat;
+const equaliser = (command: string) => Number(Object.entries(EQUALISERS).find(([, e]) => command === `get_${e.name}_conf` || command === `set_${e.name}_conf`)?.[0] ?? -1);
 
 interface Bench {
   /** Each chain's effects as `[type, inst]`; a chain not named is empty. */
   chains?: Record<number, [number, number][]>;
   /** Mix 1's pans by slot, and levels, as the device holds them. */
   strips?: Record<string, { level?: number; pan?: number; mute?: boolean }>;
-  /** Preamps as reported: type, gain and polarity. */
-  preamps?: { type: number; gain: number; phase: number }[];
+  /** Free instances by type, as the device counts them; not answered when absent. */
+  instances?: Record<number, number>;
   links?: Workspace["links"];
   groups?: Workspace["mixers"][string]["groups"];
   channels?: MixerChannel[];
@@ -59,12 +68,10 @@ async function bench(options: Bench = {}) {
   for (const [key, values] of Object.entries(options.strips ?? {})) Object.assign(stripOf(0, Number(key)), values);
   const chains: Record<number, [number, number][]> = { ...options.chains };
   const settings: Record<string, Record<string, number>> = {};
-  const preamps = options.preamps ?? [0, 1, 2, 3].map(() => ({ type: 0, gain: 30, phase: 0 }));
   const channels = options.channels ?? [channel("m", "Mid", 6, 0), channel("s", "Side", 7, 1)];
   // The device routes what the layout says: each channel's input on its slot, in its mixes.
   for (const c of channels) for (const mix of [c.main_mix, ...c.sends]) if (mix !== undefined && c.source !== undefined) group(MIX_IN[mix] as number)[c.slot] = { source: c.source.group, channel: c.source.channel };
   if (options.returns === true) for (let k = 0; k < 6; k++) group(MIX_IN[0] as number)[k] = { source: AFX_OUT, channel: k };
-  const report = () => client.cyclic.get(`${Q}|0x73`)?.({ preamps: preamps.map((p) => ({ type: p.type, phantom: 0, hpf: 0, phase_inv: p.phase, zero_cross: 0 })), preamp_gains: new Uint8Array(preamps.map((p) => p.gain & 0xff)) });
   client.respond = async (call) => {
     const args = (call.args ?? {}) as Record<string, unknown>;
     const ext3 = Number(call.options?.["ext3"]);
@@ -97,24 +104,20 @@ async function bench(options: Bench = {}) {
         case "get_afx_links":
           response = { entries: Array.from({ length: 7 }, () => ({ linked: 0 })) };
           break;
-        case "get_neve_1073_conf":
-          response = { entries: [{ enabled: 1, gain: 0, high_shelf: 8, peak_freq: 0, peak_gain: 8, low_freq: 0, low_gain: 8, high_pass: 0, phase_inv: 0, ...settings[`${BAE}:${Number(args["id"])}`] }] };
+        case "get_afx_available_instances":
+          if (options.instances !== undefined) response = { entries: Object.entries(options.instances).map(([type, count]) => ({ type_id: Number(type), inst_count: count })) };
           break;
-        case "set_neve_1073_conf": {
-          const { type_id: _type, inst_id, ...values } = args as Record<string, number>;
-          settings[`${BAE}:${inst_id}`] = values;
-          break;
+        default: {
+          // The equalisers' settings, by type and instance.
+          const type = equaliser(call.command);
+          if (type < 0) break;
+          if (call.command.startsWith("get_")) {
+            response = { entries: [{ enabled: 1, ...EQUALISERS[type]?.flat, phase_inv: 0, ...settings[`${type}:${Number(args["id"])}`] }] };
+          } else {
+            const { type_id: _type, inst_id, ...values } = args as Record<string, number>;
+            settings[`${type}:${inst_id}`] = values;
+          }
         }
-        case "set_pre_phase_inv":
-          (preamps[Number(args["id"])] as { phase: number }).phase = Number(args["phase_inv"]);
-          break;
-        case "set_pre_gain":
-          (preamps[Number(args["id"])] as { gain: number }).gain = Number(args["gain"]);
-          break;
-        case "set_pre_type":
-          (preamps[Number(args["id"])] as { type: number }).type = Number(args["pretype"]);
-          break;
-        default:
       }
     }
     return { device_id: call.deviceId, command: call.command, sent_hex: "70", sent_len: 1, dry_run: dryRun, response, response_error: null };
@@ -122,9 +125,7 @@ async function bench(options: Bench = {}) {
   client.stored = { version: 1, groups: [], links: options.links ?? [], aliases: {}, mixers: { [Q]: { mixes: [{ name: "Tracking" }, { name: "Cue" }], groups: options.groups ?? [], channels } } };
   const store = new Store(client, { timers: new ManualTimers(), storage: new MemoryStorage(), requestFrame: (callback) => callback(), themeSources: builtInThemes });
   await store.start();
-  // What the Mixer page reads as it opens: the mixes, the routing and the chains; and it follows the status report.
-  store.inputs(Q).activate();
-  if (!dryRun) report();
+  // What the Mixer page reads as it opens: the mixes, the routing and the chains.
   await store.readMixes(Q);
   await store.readRoutes(Q);
   await store.effects(Q).readChainsOnce();
@@ -134,10 +135,9 @@ async function bench(options: Bench = {}) {
   const sent = () => client.invocations.splice(0).filter((c) => c.command.startsWith("set_"));
   const settle = async () => {
     for (let i = 0; i < 5; i++) await flush();
-    if (!dryRun) report();
   };
   const layout = () => store.channels(Q).layout.peek();
-  return { client, store, routes, strips: stripOf, chains, settings, preamps, sent, settle, layout, report };
+  return { client, store, routes, strips: stripOf, chains, settings, sent, settle, layout };
 }
 
 function ok(planned: Planned): Plan {
@@ -147,79 +147,143 @@ function ok(planned: Planned): Plan {
 
 const texts = (store: Store, group: string, mix = 0) => problems(store, Q, group, mix).map((p) => p.text);
 
-/** A decode through the second preamp, set up on a fresh bench: Mid on Preamp 1, Side on Preamp 2, the copy on Preamp 3. */
+/** A decode set up on a fresh bench: Mid on Preamp 1 at slot 6, Side on Preamp 2 at slot 7, Side L through AFX In 1 on slot 8, Side Ø through AFX In 2 on slot 9. */
 async function decoded(options: Bench = {}) {
   const made = await bench(options);
-  await ok(setupPlan(made.store, Q, 0, "m", "s", { via: "preamp", preamp: 2 })).apply();
+  await ok(setupPlan(made.store, Q, 0, "m", "s")).apply();
   await made.settle();
   made.sent();
   const found = decodes(made.store, Q)[0];
   assert.ok(found, "the decode is in the layout");
-  return { ...made, group: found.group.id, copy: found.inverted as MixerChannel };
+  return { ...made, group: found.group.id, left: found.left as MixerChannel, copy: found.inverted as MixerChannel };
 }
 
-test("the second preamp way lists every change in order, and sends nothing until it is applied", async () => {
+test("both side strips go through free chains holding the same effect, one inverting, the side channel is muted, and nothing is sent until it is applied", async () => {
   const pair = { id: "l0", kind: "mixer" as const, mode: "absolute" as const, members: [{ device_id: Q, channel: 6 }, { device_id: Q, channel: 7 }] };
-  const { store, strips, sent, settle, layout } = await bench({
-    strips: { 6: { pan: 20 }, 7: { pan: 44, level: 6 } },
-    preamps: [{ type: 0, gain: 30, phase: 0 }, { type: 0, gain: 34, phase: 0 }, { type: 1, gain: 10, phase: 0 }, { type: 0, gain: 0, phase: 0 }],
-    links: [pair],
-  });
-  const plan = ok(setupPlan(store, Q, 0, "m", "s", { via: "preamp", preamp: 2 }));
+  const { client, store, routes, strips, chains, settings, sent, settle, layout } = await bench({ chains: { 0: [[9, 0]] }, returns: true, strips: { 6: { pan: 20 }, 7: { pan: 44, level: 6 } }, links: [pair] });
+  const side = layout().channels[1] as MixerChannel;
+  assert.deepEqual(freeChains(store, Q, side), { chains: [1, 2], type: BAE, label: "BAE-1084 in AFX In 2 and AFX In 3" }, "AFX In 1 holds an effect, so the next two are taken");
+
+  const plan = ok(setupPlan(store, Q, 0, "m", "s"));
   assert.deepEqual(plan.lines, [
-    "Set Preamp 3 to Mic, as Preamp 2 is",
-    "Set Preamp 3's gain to 34 dB, as Preamp 2's is",
-    "Link Preamp 3 to Preamp 2, so its gain, type and 48V follow",
-    "Switch Preamp 3's polarity (Ø) on",
+    "Route Preamp 2 into AFX In 2 as well, in place of Mute",
+    "Route Preamp 2 into AFX In 3 as well, in place of Mute",
+    "Add BAE-1084 to AFX In 2, which is empty, with every setting at its starting value",
+    "Add BAE-1084 to AFX In 3, which is empty, with the same settings and its polarity switch on",
+    "Mute the effect return AFX Out 2 on slot 2 of Tracking, which would play the side signal a second time",
+    "Mute the effect return AFX Out 3 on slot 3 of Tracking, which would play the inverted copy a second time",
     "Pan Mid to the centre in Tracking (it is at L 40%)",
-    "Pan Side hard left in Tracking (it is at R 40%)",
-    "Add a channel, Side Ø, on Preamp 3 to Tracking: the inverted copy, panned hard right at Side's level, -6 dB",
-    "Link Side and Side Ø, so their levels, mutes and solos always match; Side leaves its link with Mid",
-    'Group the three as "M/S: Mid"',
+    "Add a channel, Side L, on AFX Out 2 to Tracking: the side signal, panned hard left at Side's level, -6 dB",
+    "Add a channel, Side Ø, on AFX Out 3 to Tracking: the inverted copy, panned hard right at the same level",
+    "Mute Side in Tracking while the decode plays there: Side L carries the side signal instead, with the same delay as Side Ø",
+    "Link Side L and Side Ø, so their levels, mutes and solos always match",
+    'Group the four as "M/S: Mid"',
   ]);
-  assert.deepEqual(plan.notes, [
-    "Feed Preamp 3 from a split (a Y cable) of the side microphone.",
-    "What is recorded does not change: Preamp 1 and Preamp 2 reach your DAW raw, as they do now, for decoding later. Only the mix hears the decoded stereo.",
-    "Preamp 3 is one more input your DAW can record: the side microphone again, inverted. It can be ignored.",
-  ]);
+  assert.match(plan.notes[0] ?? "", /^Measured on a Quadro at 96 kHz, at a modest level: BAE-1084 at its starting values delays by 4 samples \(42 microseconds\) and leaves the level as it is; an empty chain adds nothing\. Louder signals may add some saturation\./);
+  assert.match(plan.notes[0] ?? "", /leaves the mono sum untouched\. To check by ear, mute the mid and switch the mix to mono: the side strips should cancel to near silence\.$/);
+  assert.match(plan.notes[1] ?? "", /^What is recorded does not change: Preamp 1 and Preamp 2 reach your DAW raw/);
   await settle();
   assert.deepEqual(sent(), [], "working the plan out sends nothing");
   assert.deepEqual([layout().groups, layout().channels.length, store.links.links.peek()], [[], 2, [pair]], "and changes nothing in the workspace");
 
   await plan.apply();
   await settle();
-  const commands = sent();
-  assert.deepEqual(commands.filter((c) => c.command.startsWith("set_pre")).map((c) => [c.command, c.args]), [
-    ["set_pre_type", { id: 2, pretype: 0 }],
-    ["set_pre_gain", { id: 2, gain: 34 }],
-    ["set_pre_phase_inv", { id: 2, phase_inv: 1 }],
-  ], "only the second preamp is touched: the side preamp is recorded as it was");
-  assert.deepEqual([strips(0, 6).pan, strips(0, 7).pan, strips(0, 8)], [32, 2, { level: 6, pan: 62, mute: false, solo: false }], "centre, hard left, and the copy hard right at the side's level");
+  assert.deepEqual([chains[1], chains[2]], [[[BAE, 0]], [[BAE, 1]]], "one instance each");
+  assert.deepEqual([settings[`${BAE}:0`], settings[`${BAE}:1`]], [{ ...FLAT, phase_inv: 0 }, { ...FLAT, phase_inv: 1 }], "both flat, the second inverting");
+  assert.deepEqual([routes[AFX_IN]?.[1], routes[AFX_IN]?.[2]], [{ source: PREAMP, channel: 1 }, { source: PREAMP, channel: 1 }]);
+  assert.deepEqual([strips(0, 1).mute, strips(0, 2).mute], [true, true], "both effect returns are muted in this mix");
+  assert.deepEqual([strips(0, 6).pan, strips(0, 7), strips(0, 8), strips(0, 9)], [32, { level: 6, pan: 44, mute: true, solo: false }, { level: 6, pan: 2, mute: false, solo: false }, { level: 6, pan: 62, mute: false, solo: false }], "the mid centred, the side muted where it was, and the two side strips hard left and right at its level");
+  assert.equal(client.invocations.some((c) => c.command.startsWith("set_pre")), false, "no preamp is touched");
 
   const { groups, channels } = layout();
+  const left = channels.find((c) => c.name === "Side L");
   const copy = channels.find((c) => c.name === "Side Ø");
-  assert.deepEqual({ slot: copy?.slot, source: copy?.source, main_mix: copy?.main_mix }, { slot: 8, source: { group: PREAMP, channel: 2 }, main_mix: 0 });
-  assert.deepEqual(channels.map((c) => [c.id, c.group]), [["m", groups[0]?.id], ["s", groups[0]?.id], [copy?.id, groups[0]?.id]], "the three sit together in the group, in order");
-  assert.equal(groups[0]?.name, "M/S: Mid");
-  const expected: MidSide = { mid: "m", side: "s", inverted: copy?.id ?? "", via: "preamp", preamp: 2, mid_source: { group: PREAMP, channel: 0 }, side_source: { group: PREAMP, channel: 1 }, pans: { "0": { mid: 20, side: 44 } }, phase_invert: false, displaced_links: [pair] };
+  assert.deepEqual([left?.slot, left?.source, copy?.slot, copy?.source], [8, { group: AFX_OUT, channel: 1 }, 9, { group: AFX_OUT, channel: 2 }]);
+  assert.deepEqual(channels.map((c) => [c.id, c.group]), [["m", groups[0]?.id], ["s", groups[0]?.id], [left?.id, groups[0]?.id], [copy?.id, groups[0]?.id]], "the four sit together in the group, in order");
+  const expected: MidSide = {
+    mid: "m",
+    side: "s",
+    left: left?.id ?? "",
+    inverted: copy?.id ?? "",
+    via: "effect",
+    chain: 2,
+    effect_type: BAE,
+    effect_inst: 1,
+    left_chain: 1,
+    left_effect_inst: 0,
+    mid_source: { group: PREAMP, channel: 0 },
+    side_source: { group: PREAMP, channel: 1 },
+    pans: { "0": { mid: 20, side: 44 } },
+    left_returns_muted: [0],
+    returns_muted: [0],
+    side_muted: [0],
+  };
   assert.deepEqual(groups[0]?.mid_side, expected);
-  const links = store.links.links.peek().map((l) => [l.kind, l.mode, l.members.map((m) => m.channel)]);
-  assert.deepEqual(links, [["preamp", "absolute", [1, 2]], ["mixer", "absolute", [7, 8]]], "the side strips are tied, the second preamp follows the side's, and Mid is out of Side's old link");
-  assert.deepEqual(texts(store, groups[0]?.id ?? ""), [], "a decode just set up is sound");
+  assert.deepEqual(store.links.links.peek().map((l) => [l.kind, l.mode, l.members.map((m) => m.channel)]), [["mixer", "absolute", [6, 7]], ["mixer", "absolute", [8, 9]]], "the side strips are tied, and Mid and Side keep their link");
+  const group = groups[0]?.id ?? "";
+  assert.deepEqual(texts(store, group), [], "a decode just set up is sound");
 });
 
-test("a preamp already matched and inverted needs no change, and a side preamp with its own polarity on gets the opposite", async () => {
-  const same = await bench({ preamps: [{ type: 0, gain: 30, phase: 0 }, { type: 0, gain: 34, phase: 0 }, { type: 0, gain: 34, phase: 1 }, { type: 0, gain: 0, phase: 0 }] });
-  const lines = ok(setupPlan(same.store, Q, 0, "m", "s", { via: "preamp", preamp: 2 })).lines;
-  assert.equal(lines.some((line) => /Set Preamp 3|polarity/.test(line)), false, `nothing to set on a preamp that already matches: ${lines.join(" | ")}`);
-
-  const flipped = await bench({ preamps: [{ type: 0, gain: 30, phase: 0 }, { type: 0, gain: 30, phase: 1 }, { type: 0, gain: 30, phase: 1 }, { type: 0, gain: 0, phase: 0 }] });
-  const plan = ok(setupPlan(flipped.store, Q, 0, "m", "s", { via: "preamp", preamp: 2 }));
-  assert.ok(plan.lines.includes("Switch Preamp 3's polarity (Ø) off, the opposite of Preamp 2's"));
+test("the guard: an effect bypassed, its polarity switch off, the two set apart, a chain rerouted, a return or the dry side playing; each is mended", async () => {
+  const { store, group, settings, settle } = await decoded({ returns: true });
+  const effects = store.effects(Q);
+  const mixer = store.mixer(Q, 0);
+  effects.setBypass(1, 0, true);
+  effects.setParameter(1, 0, "phase_inv", 0);
+  effects.setParameter(0, 0, "gain", 3);
+  effects.setParameter(0, 0, "high_pass", 2);
+  await store.routing(Q).route(AFX_IN, 0, { source: PREAMP, channel: 3 });
+  await mixer.setAlone(1, { mute: false });
+  await mixer.setAlone(7, { mute: false });
+  await settle();
+  assert.deepEqual(texts(store, group), [
+    "AFX In 1 takes Preamp 4, not Preamp 2, the side microphone.",
+    "BAE-1084 in AFX In 2 is bypassed, so the side does not cancel in mono.",
+    "BAE-1084's polarity switch in AFX In 2 is off, so the copy is not inverted.",
+    "BAE-1084 in AFX In 2 is not set like the one in AFX In 1 (Gain, High pass), so the two side strips do not match.",
+    "The effect return AFX Out 2 also plays in Tracking, so the inverted copy is heard twice.",
+    "Side plays dry in Tracking as well, ahead of the side strips, so the side does not cancel in mono.",
+  ]);
+  assert.equal(midSideGuard(store).strip(Q, 0, 7)?.role, "dry");
+  assert.equal(midSideGuard(store).strip(Q, 0, 8)?.role, "side");
+  const plan = ok(repairPlan(store, Q, group, 0));
+  assert.deepEqual(plan.lines, [
+    "Route Preamp 2 into AFX In 1 again",
+    "Let BAE-1084 in AFX In 2 process again",
+    "Switch BAE-1084's polarity in AFX In 2 on again",
+    "Set BAE-1084 in AFX In 2 like the one in AFX In 1, polarity apart",
+    "Mute the effect return AFX Out 2 in Tracking",
+    "Mute Side in Tracking",
+  ]);
   await plan.apply();
-  await flipped.settle();
-  assert.deepEqual(flipped.preamps.map((p) => p.phase), [0, 1, 0, 0], "inverted against the side preamp, whichever way that is set");
-  assert.deepEqual(texts(flipped.store, decodes(flipped.store, Q)[0]?.group.id ?? ""), []);
+  await settle();
+  assert.deepEqual(texts(store, group), []);
+  assert.deepEqual(settings[`${BAE}:1`], { ...FLAT, gain: 3, high_pass: 2, phase_inv: 1 }, "set like the first, and inverting");
+
+  // The polarity switched on where it should be off: both strips inverted, which a decode cannot tell from right.
+  effects.setParameter(0, 0, "phase_inv", 1);
+  await settle();
+  assert.deepEqual(texts(store, group), ["BAE-1084's polarity switch in AFX In 1 is on, so both side strips are inverted."]);
+  await ok(repairPlan(store, Q, group, 0)).apply();
+  await settle();
+  assert.equal(settings[`${BAE}:0`]?.["phase_inv"], 0);
+
+  // An effect taken out of its chain is put back set like the other, and another effect added is taken out.
+  effects.removeEffect(1, 0);
+  await settle();
+  assert.deepEqual(texts(store, group), ["AFX In 2 is empty, not the BAE-1084 that inverts the copy, so the side does not cancel in mono."]);
+  const mend = ok(repairPlan(store, Q, group, 0));
+  assert.deepEqual(mend.lines, ["Add BAE-1084 to AFX In 2 again, set like the one in AFX In 1 but with its polarity switch on"]);
+  await mend.apply();
+  await settle();
+  assert.deepEqual(settings[`${BAE}:1`], { ...FLAT, gain: 3, high_pass: 2, phase_inv: 1 });
+  assert.deepEqual(texts(store, group), []);
+  effects.addEffect(0, 9);
+  await settle();
+  assert.deepEqual(texts(store, group), ["AFX In 1 also holds FET-A76, so the two side strips no longer match."]);
+  await ok(repairPlan(store, Q, group, 0)).apply();
+  await settle();
+  assert.deepEqual(texts(store, group), []);
 });
 
 test("the Width moves both side strips through their link, and never the mid", async () => {
@@ -227,51 +291,50 @@ test("the Width moves both side strips through their link, and never the mid", a
   assert.equal(width(store, Q, group, 0), 4, "the side strips at 0 dB sit 4 dB above a mid at -4 dB");
   setWidth(store, Q, group, 0, -5);
   await settle();
-  assert.deepEqual(sent().map((c) => [c.args?.["channel"], c.args?.["level"]]), [[8, 9], [9, 9]], "one command each for the side strip and its inverted copy");
-  assert.deepEqual([strips(0, 6).level, strips(0, 7).level, strips(0, 8).level], [4, 9, 9]);
+  assert.deepEqual(sent().map((c) => [c.args?.["channel"], c.args?.["level"]]), [[9, 9], [10, 9]], "one command each for the two side strips");
+  assert.deepEqual([strips(0, 6).level, strips(0, 8).level, strips(0, 9).level], [4, 9, 9]);
   assert.equal(width(store, Q, group, 0), -5);
   setWidth(store, Q, group, 0, 30);
   await settle();
-  assert.deepEqual([strips(0, 7).level, strips(0, 8).level], [0, 0], "held at the top of the fader");
+  assert.deepEqual([strips(0, 8).level, strips(0, 9).level], [0, 0], "held at the top of the fader");
   assert.equal(width(store, Q, group, 0), 4);
   assert.equal(width(store, Q, group, 1), undefined, "it does not play in the Cue mix");
   assert.deepEqual(texts(store, group), []);
 });
 
-test("the guard: side levels and mutes apart, a pan off its side, and the link gone are each named and mended", async () => {
+test("the guard: side strips' levels and mutes apart, a pan off its side, and the link gone are each named and mended", async () => {
   const { store, group, strips, settle } = await decoded();
   const mixer = store.mixer(Q, 0);
-  // Linked, the copy follows the side strip: no drift.
-  mixer.setLevel(7, 12, true);
-  mixer.toggleMute(7, true);
+  // Linked, the copy follows the hard-left strip: no drift.
+  mixer.setLevel(8, 12, true);
+  mixer.toggleMute(8, true);
   await settle();
-  assert.deepEqual([strips(0, 8).level, strips(0, 8).mute], [12, true]);
+  assert.deepEqual([strips(0, 9).level, strips(0, 9).mute], [12, true]);
   assert.deepEqual(texts(store, group), []);
-  mixer.toggleMute(7, true);
+  mixer.toggleMute(8, true);
 
-  // The link removed by hand, then one side moved and muted alone, and both pans touched.
-  store.links.removeMember("mixer", Q, 8);
-  mixer.setLevel(8, 20, true);
-  await mixer.setAlone(8, { mute: true });
-  mixer.setPan(7, 10);
-  mixer.setPan(8, 2);
+  // The link removed by hand, then one strip moved and muted alone, and the pans touched.
+  store.links.removeMember("mixer", Q, 9);
+  mixer.setLevel(9, 20, true);
+  await mixer.setAlone(9, { mute: true });
+  mixer.setPan(8, 10);
+  mixer.setPan(9, 2);
   mixer.setPan(6, 40);
   assert.deepEqual(texts(store, group), [
-    "Side and Side Ø are no longer linked, so their levels and mutes can drift apart.",
-    "Side is panned L 73% in Tracking, not hard left, so left and right no longer decode.",
+    "Side L and Side Ø are no longer linked, so their levels and mutes can drift apart.",
+    "Side L is panned L 73% in Tracking, not hard left, so left and right no longer decode.",
     "Side Ø is panned hard left in Tracking, not hard right, so left and right no longer decode.",
     "Mid is panned R 27% in Tracking, not centre, so the image leans to one side.",
-    "Side is at -12 dB and Side Ø at -20 dB in Tracking: the two must match.",
-    "Side Ø is muted in Tracking and Side is not, so only one side plays.",
+    "Side L is at -12 dB and Side Ø at -20 dB in Tracking: the two must match.",
+    "Side Ø is muted in Tracking and Side L is not, so only one side plays.",
   ]);
-  assert.deepEqual(midSideGuard(store).strip(Q, 0, 8)?.role, "inverted");
   assert.match(midSideGuard(store).strip(Q, 0, 6)?.warning ?? "", /no longer linked/);
   assert.match(midSideGuard(store).group(Q, 0, group) ?? "", /the two must match/);
 
   const plan = ok(repairPlan(store, Q, group, 0));
   assert.deepEqual(plan.lines, [
-    "Link Side and Side Ø again, each taking the same value",
-    "Pan Side hard left in Tracking",
+    "Link Side L and Side Ø again, each taking the same value",
+    "Pan Side L hard left in Tracking",
     "Pan Side Ø hard right in Tracking",
     "Pan Mid to the centre in Tracking",
     "Set Side Ø to -12 dB in Tracking",
@@ -279,69 +342,21 @@ test("the guard: side levels and mutes apart, a pan off its side, and the link g
   ]);
   await plan.apply();
   await settle();
-  assert.deepEqual([strips(0, 6).pan, strips(0, 7), strips(0, 8)], [32, { level: 12, pan: 2, mute: false, solo: false }, { level: 12, pan: 62, mute: false, solo: false }]);
+  assert.deepEqual([strips(0, 6).pan, strips(0, 8), strips(0, 9)], [32, { level: 12, pan: 2, mute: false, solo: false }, { level: 12, pan: 62, mute: false, solo: false }]);
   assert.deepEqual(texts(store, group), []);
-  assert.equal(midSideGuard(store).strip(Q, 0, 7)?.warning, undefined);
   assert.equal(repairPlan(store, Q, group, 0).ok, false, "nothing left to put back");
 });
 
-test("the guard: the copy losing its inversion, by its own switch or through the preamp link, and a gain apart", async () => {
-  const { store, group, preamps, sent, settle } = await decoded();
-  const inputs = store.inputs(Q);
-  assert.deepEqual(preamps.map((p) => p.phase), [0, 0, 1, 0]);
-
-  // The second preamp's own switch turned off.
-  inputs.setPhaseInvert(2, false, false);
-  await settle();
-  assert.deepEqual(texts(store, group), ["Preamp 3's polarity (Ø) is off, the same as Preamp 2's, so the copy is not inverted: left and right play the same thing."]);
-  await ok(repairPlan(store, Q, group, 0)).apply();
-  await settle();
-  assert.deepEqual(preamps.map((p) => p.phase), [0, 0, 1, 0]);
-  assert.deepEqual(texts(store, group), []);
-
-  // The side preamp's switch, as its channel head sends it: the link copies it to the second preamp.
-  sent();
-  inputs.setPhaseInvert(1, true);
-  await settle();
-  assert.deepEqual(preamps.map((p) => p.phase), [0, 1, 1, 0], "the link made them the same");
-  assert.deepEqual(texts(store, group), ["Preamp 3's polarity (Ø) is on, the same as Preamp 2's, so the copy is not inverted: left and right play the same thing."]);
-  const plan = ok(repairPlan(store, Q, group, 0));
-  assert.deepEqual(plan.lines, ["Switch Preamp 3's polarity (Ø) off"]);
-  sent();
-  await plan.apply();
-  await settle();
-  assert.deepEqual(sent().map((c) => [c.command, c.args]), [["set_pre_phase_inv", { id: 2, phase_inv: 0 }]], "the side preamp, which is recorded, is left as the person set it");
-  assert.deepEqual(texts(store, group), []);
-
-  // The second preamp's gain moved alone, and its link to the side preamp removed.
-  store.links.removeMember("preamp", Q, 2);
-  inputs.setGain(2, 12, false);
-  await settle();
-  assert.deepEqual(texts(store, group), ["Preamp 3 is at 12 dB and Preamp 2 at 30 dB, so the two side copies do not match.", "Preamp 3's gain no longer follows Preamp 2's."]);
-  await ok(repairPlan(store, Q, group, 0)).apply();
-  await settle();
-  assert.equal(preamps[2]?.gain, 30);
-  assert.deepEqual(store.links.linkOf("preamp", Q, 1)?.members.map((m) => m.channel), [1, 2]);
-  assert.deepEqual(texts(store, group), []);
-});
-
-test("the guard: swapped inputs, a channel taken out of the mix, a channel removed, and a mono mix left alone", async () => {
-  const { store, group, copy, routes, settle } = await decoded();
+test("the guard: an input changed, a channel taken out of the mix, a channel removed, and a mono mix left alone", async () => {
+  const { store, group, left, copy, settle } = await decoded();
   const channels = store.channels(Q);
 
   await channels.setSource("m", { group: PREAMP, channel: 1 });
-  await channels.setSource("s", { group: PREAMP, channel: 0 });
-  assert.deepEqual(texts(store, group), ["Mid and Side have swapped inputs, so the side strips carry the mid microphone."]);
-  const plan = ok(repairPlan(store, Q, group, 0));
-  assert.deepEqual(plan.lines, ["Put Mid back on Preamp 1 and Side back on Preamp 2"]);
-  await plan.apply();
-  await settle();
-  assert.deepEqual([routes[MIX_IN[0] as number]?.[6], routes[MIX_IN[0] as number]?.[7]], [{ source: PREAMP, channel: 0 }, { source: PREAMP, channel: 1 }]);
-  assert.deepEqual(texts(store, group), []);
-
-  await channels.setSource("s", { group: USB1, channel: 4 });
-  assert.deepEqual(texts(store, group), ["Side is on USB 1 Play 5, not Preamp 2, which its inverted copy is made from."]);
+  await channels.setSource(copy.id, { group: AFX_OUT, channel: 4 });
+  assert.deepEqual(texts(store, group), ["Mid is on Preamp 2, not Preamp 1, the mid microphone.", "Side Ø is on AFX Out 5, not AFX Out 2, which carries the inverted copy."]);
   await ok(repairPlan(store, Q, group, 0)).apply();
+  await settle();
+  assert.deepEqual(texts(store, group), []);
 
   // Mono centres every pan and remembers where each returns to: the decode is still sound.
   channels.setMono(0, true);
@@ -349,7 +364,6 @@ test("the guard: swapped inputs, a channel taken out of the mix, a channel remov
   assert.deepEqual(texts(store, group), [], "a mono mix is not a broken decode");
   channels.setMono(0, false);
   await settle();
-  assert.deepEqual(texts(store, group), []);
 
   await channels.setMainMix(copy.id, 1);
   assert.deepEqual(texts(store, group), ["Side Ø is not in Tracking, so the decode is incomplete here."]);
@@ -357,211 +371,207 @@ test("the guard: swapped inputs, a channel taken out of the mix, a channel remov
   await settle();
   assert.deepEqual(decodeOf(store, Q, group)?.inverted?.sends, [0]);
 
-  await channels.remove("m");
-  assert.deepEqual(texts(store, group), ["The mid channel has been removed, so nothing is decoded any more. Remove this decode to put the rest back."]);
+  // The side channel itself is not needed for the decode: removing it breaks nothing.
+  await channels.remove("s");
+  assert.deepEqual(texts(store, group), []);
+  await channels.remove(left.id);
+  assert.deepEqual(texts(store, group), ["The hard-left side channel has been removed, so nothing is decoded any more. Remove this decode to put the rest back."]);
   assert.equal(repairPlan(store, Q, group, 0).ok, false, "only removing it is left");
   assert.equal(removePlan(store, Q, group).ok, true);
 });
 
-test("removing a decode puts back the pans, the links, the second preamp's polarity and the groups, and takes the extra channel out", async () => {
-  const pair = { id: "l0", kind: "mixer" as const, mode: "absolute" as const, members: [{ device_id: Q, channel: 6 }, { device_id: Q, channel: 7 }] };
-  const { store, group, copy, strips, preamps, routes, sent, settle, layout } = await decoded({
+test("removing a decode puts back the pans, the side channel's mute, the links, both chains and the groups, and takes the side strips out", async () => {
+  const stale = { id: "l9", kind: "mixer" as const, mode: "absolute" as const, members: [{ device_id: Q, channel: 8 }, { device_id: Q, channel: 12 }] };
+  const { store, group, left, copy, strips, chains, routes, sent, settle, layout } = await decoded({
     strips: { 6: { pan: 20 }, 7: { pan: 44 } },
-    links: [pair],
+    links: [stale],
+    returns: true,
     groups: [{ id: "g0", name: "Room", collapsed: false }],
     channels: [channel("m", "Mid", 6, 0, { group: "g0" }), channel("s", "Side", 7, 1, { group: "g0" })],
   });
+  assert.deepEqual([chains[0], chains[1]], [[[BAE, 0]], [[BAE, 1]]]);
   const plan = ok(removePlan(store, Q, group));
   assert.deepEqual(plan.lines, [
     "Pan Mid back to L 40% in Tracking",
-    "Pan Side back to R 40% in Tracking",
-    "Unlink Side and Side Ø",
+    "Unlink Side L and Side Ø",
+    "Remove the channel Side L, the side signal through its effect chain",
     "Remove the channel Side Ø, the inverted copy",
-    "Unlink Preamp 3 from Preamp 2",
-    "Switch Preamp 3's polarity (Ø) back off",
-    "Link Mid and Side again",
+    "Unmute Side in Tracking",
+    "Remove BAE-1084 from AFX In 1",
+    "Route Mute into AFX In 1 again",
+    "Unmute the effect return AFX Out 1 in Tracking",
+    "Remove BAE-1084 from AFX In 2",
+    "Route Mute into AFX In 2 again",
+    "Unmute the effect return AFX Out 2 in Tracking",
+    "Link Side L and strip 13 again",
     'Remove the group "M/S: Mid"; its channels stay, and Mid goes back to the group Room, and Side goes back to the group Room',
   ]);
   await settle();
   assert.deepEqual(sent(), [], "nothing is sent until it is confirmed");
-  assert.equal(layout().channels.length, 3, "and nothing is taken out");
+  assert.equal(layout().channels.length, 4, "and nothing is taken out");
   await plan.apply();
   await settle();
-  assert.deepEqual([strips(0, 6).pan, strips(0, 7).pan], [20, 44]);
-  assert.equal(preamps[2]?.phase, 0);
-  assert.deepEqual(routes[MIX_IN[0] as number]?.[copy.slot], { source: MUTE, channel: 0 }, "the copy's slot is muted, as removing any channel leaves it");
+  assert.deepEqual([strips(0, 6).pan, strips(0, 7).pan, strips(0, 7).mute], [20, 44, false]);
+  assert.deepEqual([chains[0], chains[1]], [[], []], "both chains are empty again");
+  assert.deepEqual([routes[AFX_IN]?.[0], routes[AFX_IN]?.[1]], [{ source: MUTE, channel: 0 }, { source: MUTE, channel: 0 }]);
+  assert.deepEqual([strips(0, 0).mute, strips(0, 1).mute], [false, false]);
+  assert.deepEqual([routes[MIX_IN[0] as number]?.[left.slot], routes[MIX_IN[0] as number]?.[copy.slot]], [{ source: MUTE, channel: 0 }, { source: MUTE, channel: 0 }], "the side strips' slots are muted, as removing any channel leaves them");
   assert.deepEqual(layout().channels.map((c) => [c.id, c.group]), [["m", "g0"], ["s", "g0"]]);
   assert.deepEqual(layout().groups.map((g) => g.id), ["g0"]);
-  assert.deepEqual(store.links.links.peek().map((l) => [l.kind, l.members.map((m) => m.channel)]), [["mixer", [6, 7]]], "Mid and Side are linked as they were, and nothing else is");
+  assert.deepEqual(store.links.links.peek().map((l) => [l.kind, l.members.map((m) => m.channel)]), [["mixer", [8, 12]]], "the link an earlier channel left on the free slot is as it was, and nothing else is linked");
   assert.deepEqual(decodes(store, Q), []);
 });
 
-test("a decode can be played in another mix the same way, and removing it puts both mixes' pans back", async () => {
-  const { store, group, copy, strips, settle, layout } = await decoded({ channels: [channel("m", "Mid", 6, 0, { sends: [1] }), channel("s", "Side", 7, 1)] });
+test("a decode can be played in another mix the same way, and removing it puts both mixes back", async () => {
+  const { store, group, left, copy, strips, settle, layout } = await decoded({ channels: [channel("m", "Mid", 6, 0, { sends: [1] }), channel("s", "Side", 7, 1, { sends: [1] })] });
   const cue = store.mixer(Q, 1);
   cue.setPan(6, 12);
-  cue.setLevel(7, 15);
+  cue.setLevel(8, 15);
   await settle();
   assert.equal(strips(1, copy.slot).level, 15, "the link holds in every mix, so the copy's level there already matches");
   assert.deepEqual(texts(store, group, 1), [], "nothing is said about a mix it does not play in");
   const plan = ok(addToMixPlan(store, Q, group, 1));
   assert.deepEqual(plan.lines, [
-    "Send Side to Cue too",
+    "Send Side L to Cue too",
     "Send Side Ø to Cue too",
     "Pan Mid to the centre in Cue (it is at L 67%)",
-    "Pan Side hard left in Cue (it is at C)",
+    "Pan Side L hard left in Cue (it is at C)",
     "Pan Side Ø hard right in Cue (it is at C)",
-    "Remember Cue's pans, so removing the decode puts them back",
+    "Mute Side in Cue while the decode plays there: Side L carries the side signal instead",
+    "Remember Cue's pans and mutes, so removing the decode puts them back",
   ]);
   await plan.apply();
   await settle();
-  assert.deepEqual([strips(1, 6).pan, strips(1, 7), strips(1, copy.slot)], [32, { level: 15, pan: 2, mute: false, solo: false }, { level: 15, pan: 62, mute: false, solo: false }]);
-  assert.deepEqual(layout().groups[0]?.mid_side?.pans, { "0": { mid: 32, side: 32 }, "1": { mid: 12, side: 32 } });
+  assert.deepEqual([strips(1, 6).pan, strips(1, 7).mute, strips(1, left.slot), strips(1, copy.slot)], [32, true, { level: 15, pan: 2, mute: false, solo: false }, { level: 15, pan: 62, mute: false, solo: false }]);
+  const saved = layout().groups[0]?.mid_side;
+  assert.deepEqual([saved?.pans, saved?.side_muted], [{ "0": { mid: 32, side: 32 }, "1": { mid: 12, side: 32 } }, [0, 1]]);
   assert.deepEqual(texts(store, group, 1), []);
   assert.equal(addToMixPlan(store, Q, group, 1).ok, false, "it already plays there");
   assert.equal(width(store, Q, group, 1), -15);
 
   await ok(removePlan(store, Q, group)).apply();
   await settle();
-  assert.deepEqual([strips(0, 6).pan, strips(0, 7).pan, strips(1, 6).pan, strips(1, 7).pan], [32, 32, 12, 32]);
+  assert.deepEqual([strips(0, 6).pan, strips(1, 6).pan, strips(0, 7).mute, strips(1, 7).mute], [32, 12, false, false]);
 });
 
-test("the effect way: an empty chain fed by the side input, holding one effect with its polarity switch on, and said not to be checked", async () => {
-  const { client, store, routes, strips, chains, settings, sent, settle, layout } = await bench({ chains: { 0: [[9, 0]] }, returns: true });
-  const [mid, side] = layout().channels as [MixerChannel, MixerChannel];
-  const offered = ways(store, Q, mid, side);
-  assert.deepEqual(offered.preamps.map((p) => p.label), ["Preamp 3", "Preamp 4"], "every preamp but the mid's and the side's own");
-  assert.deepEqual(offered.effect, { chain: 1, type: BAE, label: "BAE-1073 in AFX In 2" }, "AFX In 1 holds an effect, so the first empty chain is taken");
-
-  const plan = ok(setupPlan(store, Q, 0, "m", "s", { via: "effect", chain: 1, type: BAE }));
-  assert.deepEqual(plan.lines, [
-    "Route Preamp 2 into AFX In 2 as well, in place of Mute",
-    "Add BAE-1073 to AFX In 2, which is empty, with its polarity switch on and every other setting at its starting value",
-    "Mute the effect return AFX Out 2 on slot 2 of Tracking, which would play the inverted copy a second time",
-    "Pan Side hard left in Tracking (it is at C)",
-    "Add a channel, Side Ø, on AFX Out 2 to Tracking: the inverted copy, panned hard right at Side's level, 0 dB",
-    "Link Side and Side Ø, so their levels, mutes and solos always match",
-    'Group the three as "M/S: Mid"',
-  ]);
-  assert.match(plan.notes[0] ?? "", /^Not checked on a device: whether an effect chain delays or colours what passes through it\./);
-  assert.equal(plan.notes.some((note) => /one more input/.test(note)), false, "no extra recorded input this way");
-  await settle();
-  assert.deepEqual(sent(), [], "nothing is sent until it is confirmed");
-
-  await plan.apply();
-  await settle();
-  assert.deepEqual(chains[1], [[BAE, 0]]);
-  assert.deepEqual(settings[`${BAE}:0`], { gain: 0, high_shelf: 8, peak_freq: 0, peak_gain: 8, low_freq: 0, low_gain: 8, high_pass: 0, phase_inv: 1 }, "flat, with the polarity switch on");
-  assert.deepEqual(routes[AFX_IN]?.[1], { source: PREAMP, channel: 1 });
-  assert.equal(strips(0, 1).mute, true, "its effect return is muted in this mix");
-  const decode = layout().groups[0]?.mid_side;
-  assert.deepEqual({ via: decode?.via, chain: decode?.chain, type: decode?.effect_type, inst: decode?.effect_inst, input: decode?.chain_input, returns: decode?.returns_muted }, { via: "effect", chain: 1, type: BAE, inst: 0, input: undefined, returns: [0] });
-  const copy = layout().channels.find((c) => c.name === "Side Ø");
-  assert.deepEqual(copy?.source, { group: AFX_OUT, channel: 1 });
-  const group = layout().groups[0]?.id ?? "";
-  assert.deepEqual(texts(store, group), []);
-  assert.equal(client.invocations.some((c) => c.command.startsWith("set_pre")), false, "no preamp is touched");
-  sent();
-
-  // The guard: the effect bypassed, its polarity switch off, the chain rerouted, its return unmuted.
-  const effects = store.effects(Q);
-  effects.setBypass(1, 0, true);
-  effects.setParameter(1, 0, "phase_inv", 0);
-  await store.routing(Q).route(AFX_IN, 1, { source: PREAMP, channel: 3 });
-  await store.mixer(Q, 0).setAlone(1, { mute: false });
-  await settle();
-  assert.deepEqual(texts(store, group), [
-    "BAE-1073 in AFX In 2 is bypassed, so the copy is not inverted.",
-    "BAE-1073's polarity switch in AFX In 2 is off, so the copy is not inverted.",
-    "AFX In 2 takes Preamp 4, not Preamp 2, so the copy is not the side signal.",
-    "The effect return AFX Out 2 also plays in Tracking, so the inverted copy is heard twice.",
-  ]);
-  await ok(repairPlan(store, Q, group, 0)).apply();
-  await settle();
-  assert.deepEqual(texts(store, group), []);
-  assert.equal(settings[`${BAE}:0`]?.["phase_inv"], 1);
-
-  // The effect taken out of the chain: an empty chain passes the side signal straight through.
-  effects.removeEffect(1, 0);
-  await settle();
-  assert.deepEqual(texts(store, group), ["AFX In 2 is empty, not the BAE-1073 that inverts the copy, so the copy is not inverted."]);
-  const mend = ok(repairPlan(store, Q, group, 0));
-  assert.deepEqual(mend.lines, ["Add BAE-1073 to AFX In 2 again with its polarity switch on"]);
-  await mend.apply();
-  await settle();
-  assert.deepEqual(chains[1], [[BAE, 0]]);
-  assert.deepEqual(texts(store, group), []);
-
-  const remove = ok(removePlan(store, Q, group));
-  assert.deepEqual(remove.lines, [
-    "Pan Side back to centre in Tracking",
-    "Unlink Side and Side Ø",
-    "Remove the channel Side Ø, the inverted copy",
-    "Remove BAE-1073 from AFX In 2",
-    "Route Mute into AFX In 2 again",
-    "Unmute the effect return AFX Out 2 in Tracking",
-    'Remove the group "M/S: Mid"; its channels stay',
-  ]);
-  await remove.apply();
-  await settle();
-  assert.deepEqual(chains[1], []);
-  assert.deepEqual(routes[AFX_IN]?.[1], { source: MUTE, channel: 0 });
-  assert.equal(strips(0, 1).mute, false);
-  assert.deepEqual(layout().groups, []);
-  assert.deepEqual(layout().channels.map((c) => c.id), ["m", "s"]);
-});
-
-test("the effect way is not offered without an empty, unused chain, or before the chains are read, and says why", async () => {
+test("without two free chains, or two free instances of one inverting effect, or before the chains are read, it is refused with why and what to free up", async () => {
   const full = await bench({ chains: Object.fromEntries([0, 1, 2, 3, 4, 5].map((k) => [k, [[9, k]] as [number, number][]])) });
-  const [mid, side] = full.layout().channels as [MixerChannel, MixerChannel];
-  const offered = ways(full.store, Q, mid, side).effect;
-  assert.match("why" in offered ? offered.why : "", /^Every effect chain holds an effect/);
-  const refused = setupPlan(full.store, Q, 0, "m", "s", { via: "effect", chain: 1, type: BAE });
-  assert.equal(refused.ok, false, "and a plan through one is refused rather than made on a guess");
+  const refused = setupPlan(full.store, Q, 0, "m", "s");
+  assert.equal(
+    refused.ok ? "" : refused.why,
+    "The side signal goes through two effect chains, one for each side strip, and none is free: the others hold an effect, are linked, are fed by another input or have a channel on their output. Free two first: on the Effects page take every effect out of a chain and unlink it, route Mute into it, and take any mixer channel off its AFX Out.",
+  );
+
+  // One free chain is not enough; nor is a chain with a channel on its output.
+  const one = await bench({ chains: Object.fromEntries([1, 2, 3, 4, 5].map((k) => [k, [[9, k]] as [number, number][]])) });
+  const why = setupPlan(one.store, Q, 0, "m", "s");
+  assert.match(why.ok ? "" : why.why, /and only AFX In 1 is free: .* Free one more first:/);
+  const used = await bench({ chains: Object.fromEntries([2, 3, 4, 5].map((k) => [k, [[9, k]] as [number, number][]])), channels: [channel("m", "Mid", 6, 0), channel("s", "Side", 7, 1), channel("x", "Return", 9, 0, { source: { group: AFX_OUT, channel: 0 } })] });
+  const taken = setupPlan(used.store, Q, 0, "m", "s");
+  assert.match(taken.ok ? "" : taken.why, /only AFX In 2 is free/, "AFX Out 1 already has a channel on it");
+
+  // The most transparent with two instances free is taken: the BAE-1084, else the BAE-1023, else the BAE-1073.
+  const short = await bench({ instances: { 7: 16, 24: 2, 25: 1 } });
+  await short.store.effects(Q).load();
+  const fallback = freeChains(short.store, Q, short.layout().channels[1] as MixerChannel);
+  assert.equal("label" in fallback ? fallback.label : fallback.why, "BAE-1023 in AFX In 1 and AFX In 2");
+
+  const spent = await bench({ instances: { 7: 1, 24: 0, 25: 1, 9: 16 } });
+  await spent.store.effects(Q).load();
+  const none = setupPlan(spent.store, Q, 0, "m", "s");
+  assert.equal(none.ok ? "" : none.why, "AFX In 1 and AFX In 2 are free, but two instances of one of BAE-1084, BAE-1023 or BAE-1073 are needed, one for each side strip, and no two of one are left. Take some out of other chains on the Effects page first.");
 
   const dry = await bench({ dryRun: true });
-  const [dryMid, drySide] = dry.layout().channels as [MixerChannel, MixerChannel];
-  const unread = ways(dry.store, Q, dryMid, drySide).effect;
-  assert.match("why" in unread ? unread.why : "", /have not been read/);
-  // The second preamp still works there, and says the gain could not be matched.
-  const plan = ok(setupPlan(dry.store, Q, 0, "m", "s", { via: "preamp", preamp: 3 }));
-  assert.match(plan.notes[0] ?? "", /have not been reported yet, so Preamp 4's gain is not matched here/);
-  assert.ok(plan.lines.includes("Switch Preamp 4's polarity (Ø) on"));
+  const unread = setupPlan(dry.store, Q, 0, "m", "s");
+  assert.match(unread.ok ? "" : unread.why, /have not been read/);
 });
 
-test("an effect whose settings cannot be read is taken out again, and nothing else is changed", async () => {
+test("an effect whose settings cannot be read is taken out again, with the other, and nothing else is changed", async () => {
   const { client, store, chains, routes, strips, settle, layout } = await bench({ strips: { 6: { pan: 20 } } });
   const respond = client.respond;
-  client.respond = async (call) => (call.command === "get_neve_1073_conf" ? { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 1, dry_run: false, response: null, response_error: "timeout" } : respond(call));
-  const plan = ok(setupPlan(store, Q, 0, "m", "s", { via: "effect", chain: 0, type: BAE }));
+  // The first effect reads; the second does not.
+  client.respond = async (call) => ((call.args as Record<string, unknown> | undefined)?.["id"] === 1 && call.command === "get_neve_1084_conf" ? { device_id: call.deviceId, command: call.command, sent_hex: "74", sent_len: 1, dry_run: false, response: null, response_error: "timeout" } : respond(call));
+  const plan = ok(setupPlan(store, Q, 0, "m", "s"));
   await assert.rejects(plan.apply(), (error: unknown) => {
     assert.ok(error instanceof UndoneError, "it says nothing was left behind");
-    assert.equal(error.message, "BAE-1073's settings could not be read, so its polarity switch could not be set. The chain is as it was, and nothing else was changed.");
+    assert.equal(error.message, "BAE-1084's settings in AFX In 2 could not be read, so they could not be set. The chains are as they were, and nothing else was changed.");
     return true;
   });
   await settle();
-  assert.deepEqual(chains[0], [], "a chain is never left holding an effect that does not invert");
-  assert.deepEqual(routes[AFX_IN]?.[0], { source: MUTE, channel: 0 }, "and the side input is routed out of it again");
-  assert.equal(strips(0, 6).pan, 20, "the pans come after it, so they were not moved");
+  assert.deepEqual([chains[0], chains[1]], [[], []], "a chain is never left holding half a decode");
+  assert.deepEqual([routes[AFX_IN]?.[0], routes[AFX_IN]?.[1]], [{ source: MUTE, channel: 0 }, { source: MUTE, channel: 0 }], "and the side input is routed out of both again");
+  assert.deepEqual([strips(0, 6).pan, strips(0, 7).mute], [20, false], "the pans and mutes come after it, so they were not changed");
   assert.deepEqual(layout().groups, []);
   assert.deepEqual(layout().channels.map((c) => c.id), ["m", "s"]);
 });
 
 test("two channels that cannot be a mid and a side are refused, with the reason", async () => {
-  const { store, group } = await decoded({ channels: [channel("m", "Mid", 6, 0), channel("s", "Side", 7, 1), channel("x", "Other", 9, 0), channel("y", "Cue only", 10, 3, { main_mix: 1 })] });
-  const why = (mid: string, side: string, preamp = 3) => {
-    const planned = setupPlan(store, Q, 0, mid, side, { via: "preamp", preamp });
+  const { store, group } = await decoded({ channels: [channel("m", "Mid", 6, 0), channel("s", "Side", 7, 1), channel("x", "Other", 10, 0), channel("y", "Cue only", 11, 3, { main_mix: 1 })] });
+  const why = (mid: string, side: string) => {
+    const planned = setupPlan(store, Q, 0, mid, side);
     return planned.ok ? "planned" : planned.why;
   };
   assert.match(why("m", "x"), /^M\/S: Mid already uses one of these channels/);
   assert.match(why("x", "x"), /^Select two channels/);
   assert.match(why("x", "y"), /need an input and a place in this mix/);
   await store.channels(Q).setMainMix("y", 0);
-  assert.match(why("x", "y", 0), /Choose a preamp other than the mid's and the side's own/);
-  assert.equal(why("x", "y", 1), "planned");
+  assert.equal(why("x", "y"), "planned", "AFX In 1 and 2 carry the first decode, so the next two chains are taken");
   await store.channels(Q).setSource("y", { group: PREAMP, channel: 0 });
-  assert.match(why("x", "y", 1), /same input/);
+  assert.match(why("x", "y"), /same input/);
   assert.deepEqual(texts(store, group), []);
+});
+
+test("decodes saved by earlier ways still load, say they are no longer supported, and can only be removed", async () => {
+  const preampLink = { id: "p0", kind: "preamp" as const, mode: "absolute" as const, members: [{ device_id: Q, channel: 1 }, { device_id: Q, channel: 2 }] };
+  const sideLink = { id: "l1", kind: "mixer" as const, mode: "absolute" as const, members: [{ device_id: Q, channel: 7 }, { device_id: Q, channel: 8 }] };
+  const old: MidSide = { mid: "m", side: "s", inverted: "c", via: "preamp", preamp: 2, mid_source: { group: PREAMP, channel: 0 }, side_source: { group: PREAMP, channel: 1 }, pans: { "0": { mid: 20, side: 44 } }, phase_invert: false };
+  const { store, sent, settle, layout } = await bench({
+    strips: { 6: { pan: 32 }, 7: { pan: 2 }, 8: { pan: 62 } },
+    links: [preampLink, sideLink],
+    groups: [{ id: "ms", name: "M/S: Mid", collapsed: false, mid_side: old }],
+    channels: [channel("m", "Mid", 6, 0, { group: "ms" }), channel("s", "Side", 7, 1, { group: "ms" }), channel("c", "Side Ø", 8, 2, { group: "ms" })],
+  });
+  const retiredText = "This decode makes its inverted copy with a second preamp, which Gazelle no longer supports, so it is not checked any more. Remove it to put the pans, links and channels back.";
+  assert.deepEqual(texts(store, "ms"), [retiredText]);
+  assert.deepEqual([midSideGuard(store).strip(Q, 0, 7)?.role, midSideGuard(store).strip(Q, 0, 8)?.role], ["side", "inverted"], "its strips are still marked");
+  assert.equal(midSideGuard(store).strip(Q, 0, 7)?.warning, retiredText);
+  assert.equal(repairPlan(store, Q, "ms", 0).ok, false, "nothing to put back");
+  const elsewhere = addToMixPlan(store, Q, "ms", 1);
+  assert.equal(elsewhere.ok ? "" : elsewhere.why, retiredText);
+  assert.equal(width(store, Q, "ms", 0), undefined, "and no Width");
+
+  const plan = ok(removePlan(store, Q, "ms"));
+  assert.deepEqual(plan.lines, [
+    "Pan Mid back to L 40% in Tracking",
+    "Pan Side back to R 40% in Tracking",
+    "Unlink Side and Side Ø",
+    "Remove the channel Side Ø, the inverted copy",
+    'Remove the group "M/S: Mid"; its channels stay',
+  ]);
+  assert.match(plan.notes[1] ?? "", /^Preamp 3 is left as it is, with its polarity \(Ø\) and any link to the side preamp: check it on the Inputs page/);
+  await plan.apply();
+  await settle();
+  assert.equal(sent().some((c) => c.command.startsWith("set_pre")), false, "the preamp is not touched");
+  assert.deepEqual(layout().groups, []);
+  assert.deepEqual(layout().channels.map((c) => c.id), ["m", "s"]);
+  assert.deepEqual(store.links.links.peek().map((l) => l.kind), ["preamp"], "the preamp link is left for the person to undo");
+
+  // One chain for the copy alone, against the dry side: its chain is put back on removal.
+  const single: MidSide = { mid: "m", side: "s", inverted: "c", via: "effect", chain: 1, effect_type: BAE_1073, effect_inst: 0, mid_source: { group: PREAMP, channel: 0 }, side_source: { group: PREAMP, channel: 1 }, pans: { "0": { mid: 32, side: 32 } }, returns_muted: [0] };
+  const one = await bench({
+    chains: { 1: [[BAE_1073, 0]] },
+    groups: [{ id: "ms", name: "M/S: Mid", collapsed: false, mid_side: single }],
+    channels: [channel("m", "Mid", 6, 0, { group: "ms" }), channel("s", "Side", 7, 1, { group: "ms" }), channel("c", "Side Ø", 8, 0, { source: { group: AFX_OUT, channel: 1 }, group: "ms" })],
+  });
+  await one.store.routing(Q).route(AFX_IN, 1, { source: PREAMP, channel: 1 });
+  assert.match(texts(one.store, "ms")[0] ?? "", /^This decode sends only the inverted copy through an effect chain, against the dry side/);
+  assert.deepEqual(ok(removePlan(one.store, Q, "ms")).lines, [
+    "Remove the channel Side Ø, the inverted copy",
+    "Remove BAE-1073 from AFX In 2",
+    "Route Mute into AFX In 2 again",
+    "Unmute the effect return AFX Out 2 in Tracking",
+    'Remove the group "M/S: Mid"; its channels stay',
+  ]);
 });
 
 test("a saved layout carries the group but not the decode, which is this device's own setup", async () => {

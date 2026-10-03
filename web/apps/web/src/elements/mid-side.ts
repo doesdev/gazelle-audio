@@ -3,20 +3,23 @@
 // (lazy.ts), like the mix notice beside it.
 //
 // - Started from the top bar's "Monitor as M/S" while exactly two channels are selected, the first
-//   as the mid and the second as the side, it shows a confirm: the two roles with Swap, where the
-//   inverted copy comes from (a second preamp, or an effect chain where one is free, which says it
-//   has not been checked on a device), every change it would make, and what is recorded. Nothing is
-//   sent until Confirm.
+//   as the mid and the second as the side, it shows a confirm: the two roles with Swap, every change
+//   it would make (both side strips go through free effect chains holding the same effect, one
+//   inverting), what has been measured of that effect's delay, and what is recorded. Nothing is sent
+//   until Confirm. Without two free chains and two free instances of an inverting effect it says
+//   why, and what to free up, and offers nothing else.
 // - Each decode then has one line: its name, a Width control (the side strips' level against the
 //   mid's, which moves both side strips through their link), what is recorded, and Remove, which
 //   lists what it puts back and waits for Confirm too. In a mix the decode does not play in, the
 //   line offers to play it there the same way.
 // - Whatever would quietly break the decode in the mix shown is listed in the warning colour, as
-//   the mix notice lists a stray, with "Put it back" behind the same kind of confirm.
+//   the mix notice lists a stray, with "Put it back" behind the same kind of confirm. A decode saved
+//   by an earlier way (a second preamp, or one chain) says it is no longer supported and offers only
+//   Remove.
 
 import { h } from "../core/dom.ts";
 import { effect, signal, untracked } from "../core/signal.ts";
-import { addToMixPlan, decodes, invertedSource, playsIn, problems, removePlan, repairPlan, setupPlan, setWidth, UndoneError, ways, width, WIDTH_RANGE, type Plan, type Planned, type Way } from "../store/mid-side.ts";
+import { addToMixPlan, decodes, playsIn, problems, removePlan, repairPlan, retired, setupPlan, setWidth, UndoneError, width, WIDTH_RANGE, type Plan, type Planned } from "../store/mid-side.ts";
 import { bindControl, TOUCH_RISE_PER_S } from "./controls.ts";
 import { GaElement, sheet, useStore } from "./element.ts";
 
@@ -38,7 +41,6 @@ export class GaMidSide extends GaElement {
       .line { --ga-field-height: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
       .title { font-weight: 600; }
       .recorded { flex: 1; min-width: 12ch; color: var(--ga-text-secondary); font-size: 11px; }
-      .caption { font-size: 11px; color: var(--ga-text-secondary); }
       .bar { position: relative; flex: 0 0 150px; height: 18px; border: 1px solid var(--ga-border-subtle); border-radius: 2px; background: var(--ga-surface-inset); cursor: ew-resize; outline: none; }
       .bar:focus-visible { outline: 2px solid var(--ga-focus); outline-offset: 1px; }
       .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--ga-accent); opacity: 0.6; }
@@ -60,8 +62,6 @@ export class GaMidSide extends GaElement {
     const channels = store.channels(deviceId);
     const effects = store.effects(deviceId);
     const asking = store.view<MidSideAsk | undefined>(`mid-side:${deviceId}:ask`, undefined);
-    // Where the inverted copy comes from, as chosen in the confirm: undefined takes the first offered.
-    const chosen = signal<string | undefined>(undefined);
     const said = signal<{ text: string; problem: boolean } | undefined>(undefined);
     const busy = signal(false);
     const rows = h("div", { class: "rows" });
@@ -90,15 +90,18 @@ export class GaMidSide extends GaElement {
       });
     };
 
-    // An effect's settings are known only once read: a decode through one has them read here, so the
-    // guard can tell a polarity switch turned off from one it has simply not seen.
+    // An effect's settings are known only once read: a decode's two effects have them read here, so
+    // the guard can tell a polarity switch turned off, or settings apart, from ones it has not seen.
     const read = new Set<string>();
     this.watch(() => {
       for (const { decode } of decodes(store, deviceId)) {
-        const { effect_type: type, effect_inst: inst } = decode;
-        if (decode.via !== "effect" || type === undefined || inst === undefined || read.has(`${type}:${inst}`) || !store.connected.value) continue;
-        read.add(`${type}:${inst}`);
-        untracked(() => void effects.loadCatalogue().then(() => effects.readParameters(type, inst)));
+        const type = decode.effect_type;
+        if (retired(decode) || type === undefined || !store.connected.value) continue;
+        for (const inst of [decode.left_effect_inst, decode.effect_inst]) {
+          if (inst === undefined || read.has(`${type}:${inst}`)) continue;
+          read.add(`${type}:${inst}`);
+          untracked(() => void effects.loadCatalogue().then(() => effects.readParameters(type, inst)));
+        }
       }
     });
 
@@ -115,13 +118,12 @@ export class GaMidSide extends GaElement {
         id: d.group.id,
         title: d.group.name,
         plays: playsIn(store, deviceId, d, mix),
-        whole: d.mid !== undefined && d.side !== undefined && d.inverted !== undefined,
+        retired: retired(d.decode),
+        whole: d.mid !== undefined && d.left !== undefined && d.inverted !== undefined,
         problems: problems(store, deviceId, d.group.id, mix),
-        recorded:
-          `Recorded raw: ${channels.sourceLabel(d.decode.mid_source)} and ${channels.sourceLabel(d.decode.side_source)}` +
-          (d.decode.via === "preamp" ? `. ${channels.sourceLabel(invertedSource(store, deviceId, d.decode))} is the inverted split, one more input that can be ignored.` : ". The inverted copy is an effect chain's output and is not recorded."),
+        recorded: `Recorded raw: ${channels.sourceLabel(d.decode.mid_source)} and ${channels.sourceLabel(d.decode.side_source)}` + (retired(d.decode) ? "." : ". The two side strips are effect chains' outputs and are not recorded."),
       }));
-      const key = JSON.stringify([mix, mixName, connected, open, found.map((d) => [d.id, d.title, d.plays, d.whole, d.recorded, d.problems.map((p) => [p.text, p.fix?.line])])]);
+      const key = JSON.stringify([mix, mixName, connected, open, found.map((d) => [d.id, d.title, d.plays, d.retired, d.whole, d.recorded, d.problems.map((p) => [p.text, p.fix?.line])])]);
       if (key === built) return;
       built = key;
       untracked(() => {
@@ -129,7 +131,8 @@ export class GaMidSide extends GaElement {
         rows.replaceChildren(
           ...found.map((d) => {
             const line = h("div", { class: "line" }, h("span", { class: "title" }, d.title));
-            if (d.plays && d.whole) {
+            // A decode saved by an earlier way is not checked any more: it offers nothing but Remove.
+            if (!d.retired && d.plays && d.whole) {
               const fill = h("div", { class: "fill" });
               const value = h("span", { class: "value" });
               const bar = h("div", { class: "bar", role: "slider", tabindex: 0, "aria-label": `${d.title} width`, "aria-valuemin": -WIDTH_RANGE, "aria-valuemax": WIDTH_RANGE, "data-testid": `mid-side-width-${d.id}`, "data-explain": "mid-side.width", "data-explain-name": d.title }, h("div", { class: "centre" }), fill, value);
@@ -164,7 +167,7 @@ export class GaMidSide extends GaElement {
                 }),
               );
               line.append(bar);
-            } else if (d.whole) {
+            } else if (!d.retired && d.whole) {
               const add = h("button", { type: "button", "data-testid": `mid-side-add-${d.id}`, "data-explain": "mid-side.add", title: `List what playing ${d.title} decoded in ${mixName} would change, then do it if you confirm`, "on:click": () => (asking.value = { kind: "add", group: d.id }) }, `Play in ${mixName} too...`);
               add.disabled = !connected || open !== undefined;
               line.append(add);
@@ -176,7 +179,7 @@ export class GaMidSide extends GaElement {
             const row = h("div", { class: "row", "data-testid": `mid-side-row-${d.id}` }, line);
             if (d.problems.length > 0) {
               row.setAttribute("data-warning", "");
-              row.append(h("div", { class: "title" }, `${d.title} is not decoding properly${d.plays ? ` in ${mixName}` : ""}`), h("ul", { "data-testid": `mid-side-problems-${d.id}` }, d.problems.map((p) => h("li", {}, p.text))));
+              row.append(h("div", { class: "title" }, d.retired ? `${d.title} is no longer supported` : `${d.title} is not decoding properly${d.plays ? ` in ${mixName}` : ""}`), h("ul",{ "data-testid": `mid-side-problems-${d.id}` }, d.problems.map((p) => h("li", {}, p.text))));
               if (d.problems.some((p) => p.fix !== undefined)) {
                 const repair = h("button", { type: "button", "data-testid": `mid-side-repair-${d.id}`, "data-explain": "mid-side.repair", title: "List the changes that would mend this, then make them if you confirm", "on:click": () => (asking.value = { kind: "repair", group: d.id }) }, "Put it back...");
                 repair.disabled = !connected || open !== undefined;
@@ -223,26 +226,9 @@ export class GaMidSide extends GaElement {
         if (mid === undefined || side === undefined) {
           planned = { ok: false, why: "One of the two channels has been removed." };
         } else {
-          const offered = ways(store, deviceId, mid, side);
-          const values = [...offered.preamps.map((p) => `preamp:${p.preamp}`), ...("why" in offered.effect ? [] : ["effect"])];
-          // A preamp no channel uses first: the second preamp is the sure way, the effect the one to try.
-          const first = offered.preamps.find((p) => p.used === undefined) ?? offered.preamps[0];
-          const pick = chosen.value !== undefined && values.includes(chosen.value) ? chosen.value : first !== undefined ? `preamp:${first.preamp}` : values[0];
-          const way: Way | undefined = pick === undefined ? undefined : pick === "effect" && !("why" in offered.effect) ? { via: "effect", chain: offered.effect.chain, type: offered.effect.type } : { via: "preamp", preamp: Number(pick.slice("preamp:".length)) };
-          planned = way === undefined ? { ok: false, why: "There is no spare preamp and no free effect chain to make the inverted copy from." } : setupPlan(store, deviceId, mix, mid.id, side.id, way);
+          planned = setupPlan(store, deviceId, mix, mid.id, side.id);
           const swap = h("button", { type: "button", "data-testid": "mid-side-swap", "data-explain": "mid-side.swap", title: "Make the other channel the mid", "on:click": () => (asking.value = { kind: "setup", mid: ask.side, side: ask.mid }) }, "Swap");
-          const select = h(
-            "select",
-            { "aria-label": "Where the inverted copy comes from", "data-testid": "mid-side-way", "data-explain": "mid-side.way", "on:change": () => (chosen.value = select.value) },
-            h("optgroup", { label: "A second preamp, fed by a split of the side microphone" }, offered.preamps.map((p) => h("option", { value: `preamp:${p.preamp}` }, p.used === undefined ? p.label : `${p.label} (${p.used} is on it)`))),
-            h("optgroup", { label: "An effect chain, with no preamp spent (not checked on a device)" }, "why" in offered.effect ? h("option", { value: "effect", disabled: true }, "None free") : h("option", { value: "effect" }, offered.effect.label)),
-          );
-          if (pick !== undefined) select.value = pick;
-          options.push(
-            h("div", { class: "line" }, h("span", { "data-testid": "mid-side-roles" }, `Mid: ${name(ask.mid)}. Side: ${name(ask.side)}.`), swap),
-            h("label", { class: "line" }, h("span", { class: "caption" }, "Inverted copy from"), select),
-          );
-          if ("why" in offered.effect) options.push(h("p", { class: "why", "data-testid": "mid-side-effect-why" }, `An effect chain cannot make the copy here: ${offered.effect.why}`));
+          options.push(h("div", { class: "line" }, h("span", { "data-testid": "mid-side-roles" }, `Mid: ${name(ask.mid)}. Side: ${name(ask.side)}.`), swap));
         }
       } else {
         const title = decodes(store, deviceId).find((d) => d.group.id === ask.group)?.group.name ?? "This decode";
