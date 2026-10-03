@@ -98,10 +98,15 @@ async function workspace(): Promise<void> {
       // Two channels on one input in one mix: the doubled badge. A group with a band.
       [QUADRO]: {
         mixes: [{ name: "Monitors" }, { name: "Cue" }],
-        // And a mid-side decode through an effect chain: its line with the Width, and its strips' marks.
+        // And a mid-side decode through two effect chains: its line with the Width, and its strips' marks.
         groups: [
           { id: "g", name: "Drums", collapsed: false, color: "#b5473a" },
-          { id: "ms", name: "M/S: Room mid", collapsed: false, mid_side: { mid: "d", side: "e", inverted: "f", via: "effect", chain: 2, effect_type: 7, effect_inst: 0, mid_source: { group: 0, channel: 2 }, side_source: { group: 0, channel: 3 }, pans: { "0": { mid: 32, side: 32 } } } },
+          {
+            id: "ms",
+            name: "M/S: Room mid",
+            collapsed: false,
+            mid_side: { mid: "d", side: "e", left: "h", inverted: "f", via: "effect", chain: 3, effect_type: 25, effect_inst: 1, left_chain: 2, left_effect_inst: 0, mid_source: { group: 0, channel: 2 }, side_source: { group: 0, channel: 3 }, pans: { "0": { mid: 32, side: 32 } }, side_muted: [0] },
+          },
         ],
         channels: [
           { ...channel("a", "Kick", 6, 0, 0, [1]), group: "g" },
@@ -109,7 +114,8 @@ async function workspace(): Promise<void> {
           channel("c", "Vox", 8, 1, 0),
           { ...channel("d", "Room mid", 10, 2, 0), group: "ms" },
           { ...channel("e", "Room side", 11, 3, 0), group: "ms" },
-          { ...channel("f", "Room side inverted", 12, 0, 0), source: { group: 5, channel: 2 }, group: "ms" },
+          { ...channel("h", "Room side L", 12, 0, 0), source: { group: 5, channel: 2 }, group: "ms" },
+          { ...channel("f", "Room side inverted", 13, 0, 0), source: { group: 5, channel: 3 }, group: "ms" },
         ],
       },
       // Nothing set up: the starting layouts.
@@ -330,12 +336,13 @@ test("every control, readout, badge and heading on every page carries a key the 
   await page.getByTestId("layout-save").click();
   await expect(page.locator("ga-notices .notice").first()).toBeVisible();
   await check(page, `mixer ${QUADRO} with a notice`);
-  // Two channels selected: Monitor as M/S, and its confirm with the roles, the way and the list.
+  // Two channels selected: Monitor as M/S, and its confirm with the roles and, every loopback chain
+  // being loaded, why it cannot be made.
   await expect(page.locator("ga-mid-side").getByTestId("mid-side-row-ms")).toBeVisible();
   await page.getByTestId("select-6").click();
   await page.getByTestId("select-8").click({ modifiers: ["Control"] });
   await page.getByTestId("mid-side-start").click();
-  await expect(page.getByTestId("mid-side-go")).toBeVisible();
+  await expect(page.getByTestId("mid-side-refused")).toBeVisible();
   await check(page, `mixer ${QUADRO} with a mid-side confirm`);
   await page.getByTestId("mid-side-cancel").click();
   await page.keyboard.press("Escape");

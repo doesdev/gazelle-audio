@@ -585,7 +585,7 @@ export class ChannelsModel {
     const same = (a: string) => a.trim().toLowerCase() === trimmed.toLowerCase();
     if (taken !== undefined && taken.id !== replace && !(target !== undefined && same(target.name))) throw new RangeError(`a layout called ${taken.name} is saved already`);
     const id = target?.id ?? this.#newId("layout");
-    // A mid-side decode is this device's own setup (a preamp's polarity, links, an effect chain),
+    // A mid-side decode is this device's own setup (links, effect chains, a muted strip),
     // which a layout does not carry: its group is saved as a plain group.
     const mixer = structuredClone(this.layout.peek());
     const layout = { id, name: trimmed, family: this.#context.family, mixer: { ...mixer, groups: mixer.groups.map(({ mid_side: _decode, ...group }) => group) } };

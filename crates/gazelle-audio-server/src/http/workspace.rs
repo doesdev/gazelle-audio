@@ -255,19 +255,27 @@ fn check_layouts(layouts: &[crate::workspace::model::SavedLayout]) -> Result<(),
     Ok(())
 }
 
-/// A mid-side decode names three different channels, a known way of inverting with what that way
-/// needs, and pans and mixes the hardware has.
+/// A mid-side decode names different channels (three, or four with the hard-left side strip), a
+/// known way of inverting with what that way needs, and pans and mixes the hardware has.
 fn check_mid_side(mid_side: &MidSide) -> Result<(), String> {
     use crate::workspace::model::{PAN_MAX, PAN_MIN};
-    let ids = [&mid_side.mid, &mid_side.side, &mid_side.inverted];
-    if ids.iter().any(|id| id.is_empty()) || ids[0] == ids[1] || ids[0] == ids[2] || ids[1] == ids[2] {
-        return Err("needs three different channels".into());
+    let mut ids = vec![&mid_side.mid, &mid_side.side, &mid_side.inverted];
+    ids.extend(mid_side.left.as_ref());
+    let distinct = ids.iter().enumerate().all(|(i, id)| !id.is_empty() && !ids[..i].contains(id));
+    if !distinct {
+        return Err(format!("needs {} different channels", ids.len()));
     }
     match mid_side.via.as_str() {
         "preamp" if mid_side.preamp.is_none() => return Err("through a preamp needs the preamp".into()),
         "effect" if mid_side.chain.is_none() || mid_side.effect_type.is_none() || mid_side.effect_inst.is_none() => return Err("through an effect needs the chain and the effect".into()),
+        "effect" if mid_side.left.is_some() != mid_side.left_chain.is_some() || mid_side.left_chain.is_some() != mid_side.left_effect_inst.is_some() => {
+            return Err("the hard-left side strip needs its channel, its chain and its effect".into())
+        }
         "preamp" | "effect" => {}
         other => return Err(format!("via must be one of {}, not {other:?}", MID_SIDE_VIAS.join(", "))),
+    }
+    if mid_side.left_chain.is_some() && mid_side.left_chain == mid_side.chain {
+        return Err("the two side strips need two different chains".into());
     }
     for (&mix, pans) in &mid_side.pans {
         if mix >= MIXER_COUNT {
@@ -277,8 +285,11 @@ fn check_mid_side(mid_side: &MidSide) -> Result<(), String> {
             return Err(format!("pans for mix {mix} are outside {PAN_MIN}..{PAN_MAX}"));
         }
     }
-    if mid_side.returns_muted.iter().any(|&mix| mix >= MIXER_COUNT) {
+    if mid_side.returns_muted.iter().chain(&mid_side.left_returns_muted).any(|&mix| mix >= MIXER_COUNT) {
         return Err(format!("muted returns name a mix outside 0..{}", MIXER_COUNT - 1));
+    }
+    if mid_side.side_muted.iter().any(|&mix| mix >= MIXER_COUNT) {
+        return Err(format!("the side channel is muted in a mix outside 0..{}", MIXER_COUNT - 1));
     }
     for link in &mid_side.displaced_links {
         if !LINK_KINDS.contains(&link.kind.as_str()) || !LINK_MODES.contains(&link.mode.as_str()) {

@@ -11,7 +11,8 @@
 // `compact` is the mixer dock's slim strip: fader, meter with its clip light, mute and solo, level,
 // name and the doubled, Phase and mid-side badges, without pan, send, link or the peak readout. The
 // Phase badge marks a strip whose input a cable dedicated to the phase measurement keeps; the
-// mid-side badge (M, S or -S) marks the three channels of a decode (store/mid-side.ts).
+// mid-side badge (M, S, -S, and S dry on the side microphone's own muted channel) marks the channels
+// of a decode (store/mid-side.ts).
 // A channel strip's name bar selects its channel for the soft link (`selectable`), and its fader,
 // pan, mute and solo move the soft-linked channels with it, on the Mixer page and in the dock alike.
 // Attributes are read when the strip renders: change them by replacing the strip.
@@ -307,9 +308,9 @@ export class GaStrip extends GaElement {
         const found = midSideGuard()?.strip(deviceId, Number(this.getAttribute("mixer") ?? "0"), id);
         part.hidden = found === undefined;
         if (found === undefined) return;
-        part.textContent = found.role === "mid" ? "M" : found.role === "side" ? "S" : "-S";
+        part.textContent = found.role === "mid" ? "M" : found.role === "side" ? "S" : found.role === "dry" ? "S dry" : "-S";
         part.toggleAttribute("data-warning", found.warning !== undefined);
-        const what = found.role === "mid" ? "The mid channel" : found.role === "side" ? "The side channel" : "The inverted copy of the side channel";
+        const what = found.role === "mid" ? "The mid channel" : found.role === "side" ? "The side signal" : found.role === "dry" ? "The side microphone's own channel, muted where the decode plays," : "The inverted copy of the side signal";
         part.title = `${what} of ${found.name}${found.warning === undefined ? "" : `. ${found.warning}`}`;
         part.setAttribute("aria-label", part.title);
       });

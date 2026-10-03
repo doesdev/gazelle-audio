@@ -558,15 +558,19 @@ pub struct MixerGroup {
     pub mid_side: Option<MidSide>,
 }
 
-/// How the inverted copy of the side signal is made: a second preamp fed by a split of the side
-/// microphone with its polarity switched, or an effect chain holding one effect with its polarity
-/// switch on.
+/// How the side strips are made: `effect`, the side input through two effect chains holding the
+/// same effect, the inverted copy's with its polarity switch on. `preamp` (a second preamp fed by a
+/// split of the side microphone with its polarity switched) is a way the client no longer sets up,
+/// and so is `effect` with no `left` (one chain for the copy against the dry side). Both are still
+/// accepted, because the client writes the whole workspace back, so a decode saved either way must
+/// not stop every later save.
 pub const MID_SIDE_VIAS: &[&str] = &["preamp", "effect"];
 
 /// A mid and a side microphone played as stereo in the hardware mix: the mid channel centred, the
-/// side channel hard left and an inverted copy of it hard right at the same level, so the left is
+/// side signal hard left and an inverted copy of it hard right at the same level, so the left is
 /// mid plus side and the right is mid minus side. The strips have no polarity switch, so the copy is
-/// a channel of its own on a source that inverts (see [`MID_SIDE_VIAS`]).
+/// a channel of its own on a source that inverts (see [`MID_SIDE_VIAS`]), and the side signal goes
+/// through a matching one so the two carry the same delay; the side channel itself is muted.
 ///
 /// The client sets it up and takes it down; this is what it needs to notice the decode has been
 /// broken and to put back what it changed. The channel ids are not checked against the layout: a
@@ -575,21 +579,39 @@ pub const MID_SIDE_VIAS: &[&str] = &["preamp", "effect"];
 pub struct MidSide {
     /// [`MixerChannel`] ids.
     pub mid: String,
+    /// The side microphone's own channel.
     pub side: String,
+    /// The channel that carries the side signal through its chain, hard left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
     /// The channel that carries the inverted copy.
     pub inverted: String,
     /// One of [`MID_SIDE_VIAS`].
     pub via: String,
-    /// The second preamp, from 0, when `via` is `preamp`.
+    /// The second preamp, from 0, when `via` is the retired `preamp`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preamp: Option<u32>,
-    /// The effect chain, from 0, and the effect in it, when `via` is `effect`.
+    /// The inverted copy's effect chain, from 0, and the effect in it, when `via` is `effect`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_type: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_inst: Option<u32>,
+    /// The hard-left side strip's effect chain, from 0, and its instance of the same effect type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_chain: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_effect_inst: Option<u32>,
+    /// What routing fed the hard-left chain before; none when it was muted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_chain_input: Option<RouteSource>,
+    /// Mixes whose effect return strip for the hard-left chain was muted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_returns_muted: Vec<u32>,
+    /// Mixes the side channel was muted in while the decode plays there, to unmute again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_muted: Vec<u32>,
     /// The inputs the mid and side channels had when it was set up, to notice them swapped.
     pub mid_source: RouteSource,
     pub side_source: RouteSource,
@@ -604,7 +626,7 @@ pub struct MidSide {
     /// Links its own links took channels out of, to make again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub displaced_links: Vec<ChannelLink>,
-    /// The second preamp's polarity switch before.
+    /// The second preamp's polarity switch before, for the retired `preamp` way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase_invert: Option<bool>,
     /// What routing fed the effect chain before; none when it was muted.
