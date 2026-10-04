@@ -164,6 +164,8 @@ Both side strips go through an effect because an effect delays what passes throu
 
 A dry side against an inverted copy through an effect cancels by only about 3 dB, because of that delay: the side would leak into mono. Two strips through the same effect at the same settings carry the same delay and level, so the side cancels in mono. The mid does not go through an effect, so it reaches the mix about 42 microseconds before the side, on the left and the right alike. That leaves the mono sum untouched.
 
+The helper was first used on a real session on the Quadro on 2026-10-03, recording with the metronome, and the decode monitored as intended.
+
 The Gyratec IX also has a polarity switch, but Gazelle does not use it: it colours the sound, lifts the level by 2.2 dB and delays by about 10 samples.
 
 It needs two free chains: each with no effects in it, not linked, fed by nothing (Mute) or by the side input already, and with no mixer channel on its AFX Out. It also needs two free instances of one of those three effects. If either is missing, the confirm says which and what to free up on the [Effects page](11-effects-page.md), and offers nothing else.
