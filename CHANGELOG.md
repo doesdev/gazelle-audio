@@ -10,6 +10,12 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-03
+
+Hear a mid-side pair decoded while you track, keep a trim for every rate and buffer size and
+measure them all in one go, and let Gazelle check that the interfaces stay lined up through every
+take. Inputs and outputs are now named in plain case, in Gazelle and in your DAW.
+
 ### Added
 
 - **Hear a mid-side pair decoded while you track.** On the Mixer, select the mid channel and then
@@ -24,7 +30,6 @@ version that has not been published yet.
   chains and channels back. If something breaks the decode (a side level or mute apart, a pan
   moved, an effect bypassed or set differently from the other, the copy no longer inverted) the
   group says so and offers to put it back.
-
 - **A trim for every rate and buffer size.** A trim is only right at the rate and buffer size it
   was measured at, so each interface now keeps one per setup, and the aggregate uses the one for
   the rate and buffer size a session actually runs at. Writing a measured trim keeps it for the
@@ -81,9 +86,6 @@ version that has not been published yet.
   going ahead.
 - **The built-in emulator's devices show 48 kHz.** With `--loopback-cyclic-ms`, the sidebar could
   show an emulated device at a rate no interface runs at, such as 791.3 kHz.
-- **A preamp is Preamp 1 all over the Aggregate page.** Where the DAW can record said Preamp 1
-  while the channel names, the cabling and the warnings said PREAMP 1. They all say Preamp 1 now,
-  and so do the channel names the DAW shows for the aggregate.
 - **A USB playback channel that only feeds an effect is no longer offered as free.** On the
   Aggregate page, Send here could pick a channel routed into an effect and send it to an output
   as well, so the DAW would have played it in two places.
