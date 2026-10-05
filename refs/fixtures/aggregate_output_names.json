@@ -1,5 +1,5 @@
 {
-  "about": "What the Aggregate page and the server's export call an aggregate output, for routings given as [destination group, channel, source group, source channel] over a device whose every other slot is MUTE. Both sides' tests read this file, so the two cannot name an output differently.",
+  "about": "What the Aggregate page and the server's export call an aggregate output, for routings given as [destination group, channel, source group, source channel] over a device whose every other slot is MUTE, the effect inputs included. Both sides' tests read this file, so the two cannot name an output differently.",
   "cases": [
     {
       "what": "the owner's Quadro: USB 1 Play 1 and 2 into Mix 1, and Mix 1 out to the monitors and HP1",
@@ -39,6 +39,110 @@
         ["ADAT_OUT0", 3, "USB_PLAY0", 1]
       ],
       "names": { "0": "HP1 L +1, USB Play 1", "1": "ADAT Out 4 +1, USB Play 2" }
+    },
+    {
+      "what": "a Quadro channel only into AFX 1, whose output goes to Monitor L and HP1 L: named for the monitor, with the effect marked",
+      "family": "quadro",
+      "routes": [
+        ["AFX_IN0", 0, "COM_PLAY0", 4],
+        ["HEADPHONES0", 0, "AFX_OUT0", 0],
+        ["MONITOR0", 0, "AFX_OUT0", 0]
+      ],
+      "names": { "4": "Monitor L via AFX 1 +1, USB 1 Play 5", "5": "USB 1 Play 6, not routed" }
+    },
+    {
+      "what": "a Quadro channel straight to HP2 R and into AFX 2, which goes to HP2 L and Line Out L: the socket order ranks them however each is reached; and one straight to HP1 L whose effect goes nowhere",
+      "family": "quadro",
+      "routes": [
+        ["AFX_IN0", 1, "COM_PLAY0", 6],
+        ["HEADPHONES1", 1, "COM_PLAY0", 6],
+        ["HEADPHONES1", 0, "AFX_OUT0", 1],
+        ["LINE_OUT0", 0, "AFX_OUT0", 1],
+        ["AFX_IN0", 2, "COM_PLAY0", 7],
+        ["HEADPHONES0", 0, "COM_PLAY0", 7]
+      ],
+      "names": { "6": "Line Out L via AFX 2 +2, USB 1 Play 7", "7": "HP1 L, USB 1 Play 8" }
+    },
+    {
+      "what": "Quadro channels through an effect into a mix: the mix channel while the mix goes nowhere, the socket on the channel's own side once it does",
+      "family": "quadro",
+      "routes": [
+        ["AFX_IN0", 0, "COM_PLAY0", 4],
+        ["MIXER_IN2", 0, "AFX_OUT0", 0],
+        ["AFX_IN0", 3, "COM_PLAY0", 9],
+        ["MIXER_IN0", 3, "AFX_OUT0", 3],
+        ["MONITOR0", 0, "MIXER_OUT0", 0],
+        ["MONITOR0", 1, "MIXER_OUT0", 1]
+      ],
+      "names": { "4": "Ch 1 in Mix 3 via AFX 1, USB 1 Play 5", "9": "Monitor R via AFX 4, USB 1 Play 10" }
+    },
+    {
+      "what": "a Quadro channel into Mix 2 both directly and through AFX 3, and Mix 2 out to HP1: reached without the effect as well, it is not marked",
+      "family": "quadro",
+      "routes": [
+        ["MIXER_IN1", 8, "COM_PLAY0", 10],
+        ["AFX_IN0", 2, "COM_PLAY0", 10],
+        ["MIXER_IN1", 2, "AFX_OUT0", 2],
+        ["HEADPHONES0", 0, "MIXER_OUT1", 0],
+        ["HEADPHONES0", 1, "MIXER_OUT1", 1]
+      ],
+      "names": { "10": "HP1 L, USB 1 Play 11" }
+    },
+    {
+      "what": "a Quadro channel through Mix 2 into AFX 5 and on into AFX 6, which goes to S/PDIF Out: the first effect on the way is the mark",
+      "family": "quadro",
+      "routes": [
+        ["MIXER_IN1", 8, "COM_PLAY0", 2],
+        ["AFX_IN0", 4, "MIXER_OUT1", 0],
+        ["AFX_IN0", 5, "AFX_OUT0", 4],
+        ["SPDIF_OUT0", 1, "AFX_OUT0", 5]
+      ],
+      "names": { "2": "S/PDIF Out R via AFX 5, USB 1 Play 3" }
+    },
+    {
+      "what": "one Quadro mix into another: the first mix landed in while neither goes anywhere, with a mix fed back into itself, and round through an effect, followed once",
+      "family": "quadro",
+      "routes": [
+        ["MIXER_IN2", 9, "COM_PLAY0", 4],
+        ["MIXER_IN0", 10, "MIXER_OUT2", 0],
+        ["MIXER_IN2", 11, "MIXER_OUT2", 0],
+        ["AFX_IN0", 5, "MIXER_OUT2", 0],
+        ["MIXER_IN2", 0, "AFX_OUT0", 5]
+      ],
+      "names": { "4": "Ch 10 in Mix 3, USB 1 Play 5" }
+    },
+    {
+      "what": "one Quadro mix into another that goes to the line outs: named for the socket",
+      "family": "quadro",
+      "routes": [
+        ["MIXER_IN2", 9, "COM_PLAY0", 4],
+        ["MIXER_IN0", 10, "MIXER_OUT2", 0],
+        ["LINE_OUT0", 0, "MIXER_OUT0", 0]
+      ],
+      "names": { "4": "Line Out L, USB 1 Play 5" }
+    },
+    {
+      "what": "Quadro channels feeding effects whose outputs go nowhere, one of them on into a second effect: the effect only, not not routed, and not counted beside a real place",
+      "family": "quadro",
+      "routes": [
+        ["AFX_IN0", 0, "COM_PLAY0", 4],
+        ["AFX_IN0", 2, "COM_PLAY0", 4],
+        ["AFX_IN0", 3, "COM_PLAY0", 5],
+        ["AFX_IN0", 4, "AFX_OUT0", 3],
+        ["AFX_IN0", 1, "COM_PLAY0", 6],
+        ["MONITOR0", 1, "COM_PLAY0", 6]
+      ],
+      "names": { "4": "AFX 1 +1 only, USB 1 Play 5", "5": "AFX 4 only, USB 1 Play 6", "6": "Monitor R, USB 1 Play 7" }
+    },
+    {
+      "what": "a Studio+ channel only into AFX 16, whose output goes to the reamp and ADAT Out 1",
+      "family": "studio",
+      "routes": [
+        ["AFX_IN0", 15, "USB_PLAY0", 23],
+        ["REAMP0", 0, "AFX_OUT0", 15],
+        ["ADAT_OUT0", 0, "AFX_OUT0", 15]
+      ],
+      "names": { "23": "ADAT Out 1 via AFX 16 +1, USB Play 24" }
     }
   ]
 }

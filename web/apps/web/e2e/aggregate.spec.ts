@@ -1677,6 +1677,31 @@ test.describe("the owner's Quadro, and where the DAW can play", () => {
     // HP2 is still fed by nothing, and the channel in the effect is not one it is offered.
     await expect(page.getByTestId("device-0-play-3-text")).toHaveText("nothing from the DAW reaches it");
     await expect(page.getByTestId("device-0-play-3-send")).toHaveText("Send USB 1 Play 3 to 4 here");
+    // The channel's own name follows the same route: the line outs outrank S/PDIF Out, and the mix is not said.
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-out-4-name")).toHaveText("Line Out L via AFX 1 +1, USB 1 Play 5");
+  });
+
+  test("a DAW channel that only feeds an effect is named for where the effect goes, in Channels and in the DAW alike", async ({ page }) => {
+    // USB 1 Play 5 into AFX 1, whose output goes to HP2's left, and USB 1 Play 6 into AFX 2, whose output goes nowhere.
+    await ownersRouting();
+    await route(AFX_IN, { 0: [COM_PLAY, 4], 1: [COM_PLAY, 5] });
+    await route(HP2, { 0: [AFX_OUT, 0] });
+    await putWorkspace(owner, { aliases: OWN_NAMES, aggregate: { devices: [{ key: "Zen Quadro Synergy Core", device_id: "loopback-0" }] } });
+    await fakeAggregate(page, answer({ devices: [deviceReport("Quadro", { is_master: true })] }));
+    await page.goto(`${owner.url}/#/aggregate`);
+
+    await expect(page.getByTestId("device-0-play-3")).toContainText("HP2", { timeout: 5000 });
+    await expect(page.getByTestId("device-0-play-3-text")).toHaveText("USB 1 Play 5, through AFX 1");
+    // Channels names it for the same place, and the DAW's line is that label with the driver's reference.
+    await page.getByTestId("device-0-channels-open").click();
+    await expect(page.getByTestId("device-0-out-4-name")).toHaveText("HP2 L via AFX 1, USB 1 Play 5");
+    await expect(page.getByTestId("device-0-out-4-daw")).toHaveText("In a DAW: ... (Quadro 5)");
+    // Feeding an effect that goes nowhere is routed, and is said as the effect only, in both.
+    await expect(page.getByTestId("device-0-out-5-name")).toHaveText("AFX 2 only, USB 1 Play 6");
+    await expect(page.getByTestId("device-0-out-5-daw")).toHaveText("In a DAW: ... (Quadro 6)");
+    await expect(page.getByTestId("device-0-out-2-name")).toHaveText("USB 1 Play 3, not routed");
+    await expect(page.getByTestId("device-0-out-2-daw")).toHaveText("In a DAW: Not routed (Quadro 3)");
   });
 });
 

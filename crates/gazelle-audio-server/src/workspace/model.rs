@@ -284,7 +284,7 @@ pub struct AggregateKnown {
     /// The routing groups its channels are named from, by topology id (`COM_REC0`, `MONITOR0`,
     /// `MIXER_IN0`, ...), each as its slots by channel from zero, `[source group position, channel]`,
     /// which is the pair a routing slot is: its USB record group, for what feeds each input, and its
-    /// outputs and mix inputs, for where each USB playback channel ends up. A group is here once it
+    /// outputs, mix inputs and effect inputs, for where each USB playback channel ends up. A group is here once it
     /// has been read or written through Gazelle.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub routing: BTreeMap<String, Vec<[u8; 2]>>,

@@ -493,12 +493,47 @@ function mixChannel(layout: DeviceMixer | undefined, mix: number, slot: number):
   return `${channel === undefined ? `Ch ${slot + 1}` : plain(channel.name)} in ${mixName === undefined || mixName === "" ? `Mix ${mix + 1}` : plain(mixName)}`;
 }
 
+/** A place an output reaches, with the first effect chain the audio went through to get there, when it went through one. */
+interface OutputPlace {
+  name: string;
+  via?: number;
+}
+
+/** What one routing source reaches, followed as far as the routing read so far says. */
+interface OutputReach {
+  /** Each socket, with where it ranks: its kind, then the device's own order, then its side. */
+  hardware: (OutputPlace & { rank: [number, number, number] })[];
+  /** Each mix channel landed in whose mix reaches no socket, in the order found. */
+  mixed: OutputPlace[];
+  /** The effect chains fed whose output reaches neither. */
+  effects: number[];
+}
+
+/** Note a place once by its name. A way with no effect in it is kept over one through an effect, and of two effects the lower numbered. */
+function notePlace<T extends OutputPlace>(places: T[], place: T): void {
+  const known = places.find((one) => one.name === place.name);
+  if (known === undefined) places.push(place);
+  else if (place.via === undefined) delete known.via;
+  else if (known.via !== undefined && place.via < known.via) known.via = place.via;
+}
+
+/** A place as its name says it: "Monitor L", or "Monitor L via AFX 1" when the audio gets there only through that effect chain. */
+const markedPlace = (place: OutputPlace): string => (place.via === undefined ? place.name : `${place.name} via AFX ${place.via + 1}`);
+
 /**
  * Where the routing sends one USB playback channel, as the server works it out for the driver: a
  * hardware output it reaches, directly or through a mix, first ("Monitor L"; through a mix the side
  * is the channel's own within its pair); else the mix channel it lands in ("Click in Cue"); several
  * places are the first and a count of the rest ("Monitor L +2"); nowhere is said only once every
  * group it could reach has been read.
+ *
+ * The route is followed through effect chains and from one mix into another as well, each way round
+ * once, as the "Where the DAW can play" list follows it. A place reached only through an effect
+ * chain is marked with the first chain on the way ("Monitor L via AFX 1", "Ch 1 in Mix 3 via AFX
+ * 1") and ranks as the place it is; a mix on the way is not said, as it never was. A channel that
+ * feeds an effect chain whose output goes nowhere, and reaches nothing else, is "AFX 1 only": it is
+ * routed, so it is not called not routed, and nothing plays it. While the effect inputs have not
+ * been read, effects are not followed and the name is what the rest of the routing gives.
  */
 function outputPlaces(topology: Topology, groups: UsbGroups, naming: InterfaceNaming, channel: number): OutputPlaces {
   const routing = naming.routing ?? {};
@@ -508,36 +543,49 @@ function outputPlaces(topology: Topology, groups: UsbGroups, naming: InterfaceNa
       if (slots === undefined) return [];
       return Array.from({ length: group.channels }, (_, c) => c).filter((c) => slots[c]?.source === source && slots[c]?.channel === from).map((c): [TopologyGroup, number, number] => [group, at, c]);
     });
-  // Each socket reached, with where it ranks: its kind, then the device's own order, then its side.
-  const hardware: { rank: [number, number, number]; name: string }[] = [];
-  const mixed: string[] = [];
-  const reach = (group: TopologyGroup, position: number, at: number) => {
-    const socket = hardwareName(group);
-    if (socket === undefined) return;
-    const name = `${socket} ${side(at, group.channels)}`;
-    if (!hardware.some((one) => one.name === name)) hardware.push({ rank: [hardwareRank(group), position, at], name });
+  const effectsOut = topology.inputs.findIndex((one) => one.type === "AFX_OUT");
+  // Where one source goes. `via` is the first effect chain the audio has been through so far, and
+  // `seen` every mix and effect on this way round, so a route that comes back on itself ends.
+  const reach = (source: number, from: number, via: number | undefined, seen: readonly string[]): OutputReach => {
+    const found: OutputReach = { hardware: [], mixed: [], effects: [] };
+    const marked = via === undefined ? {} : { via };
+    for (const [group, position, at] of taking(source, from)) {
+      const socket = hardwareName(group);
+      if (socket !== undefined) {
+        notePlace(found.hardware, { name: `${socket} ${side(at, group.channels)}`, rank: [hardwareRank(group), position, at], ...marked });
+        continue;
+      }
+      const mix = topology.mixers.inputGroups.indexOf(group.id);
+      if (mix >= 0) {
+        if (seen.includes(`mix ${mix}`)) continue;
+        // Where that mix goes: its output group, on the side this channel takes in its pair.
+        const outId = topology.mixers.outputGroups[mix];
+        const out = topology.inputs.findIndex((one) => one.id === outId);
+        const outGroup = topology.inputs[out];
+        const beyond = outGroup === undefined ? undefined : reach(out, outGroup.channels >= 2 ? channel % 2 : 0, via, [...seen, `mix ${mix}`]);
+        if (beyond === undefined || beyond.hardware.length === 0) notePlace(found.mixed, { name: mixChannel(naming.layout, mix, at), ...marked });
+        else for (const one of beyond.hardware) notePlace(found.hardware, one);
+        continue;
+      }
+      if (group.type !== "AFX_IN" || effectsOut < 0 || seen.includes(`effect ${at}`)) continue;
+      const beyond = reach(effectsOut, at, via ?? at, [...seen, `effect ${at}`]);
+      if (beyond.hardware.length === 0 && beyond.mixed.length === 0) {
+        if (!found.effects.includes(at)) found.effects.push(at);
+        continue;
+      }
+      for (const one of beyond.hardware) notePlace(found.hardware, one);
+      for (const one of beyond.mixed) notePlace(found.mixed, one);
+    }
+    return found;
   };
-  for (const [group, position, at] of taking(groups.playbackPosition, channel)) {
-    if (hardwareName(group) !== undefined) {
-      reach(group, position, at);
-      continue;
-    }
-    const mix = topology.mixers.inputGroups.indexOf(group.id);
-    if (mix < 0) continue;
-    const outId = topology.mixers.outputGroups[mix];
-    const out = topology.inputs.findIndex((one) => one.id === outId);
-    const outGroup = topology.inputs[out];
-    const beyond = outGroup === undefined ? [] : taking(out, outGroup.channels >= 2 ? channel % 2 : 0).filter(([g]) => hardwareName(g) !== undefined);
-    if (beyond.length === 0) {
-      const name = mixChannel(naming.layout, mix, at);
-      if (!mixed.includes(name)) mixed.push(name);
-    }
-    for (const [g, p, c] of beyond) reach(g, p, c);
-  }
+  const { hardware, mixed, effects } = reach(groups.playbackPosition, channel, undefined, []);
   hardware.sort((x, y) => x.rank[0] - y.rank[0] || x.rank[1] - y.rank[1] || x.rank[2] - y.rank[2]);
-  const places = [...hardware.map((one) => one.name), ...mixed];
+  const counted = (first: string, all: number): string => (all > 1 ? `${first} +${all - 1}` : first);
+  const places = [...hardware, ...mixed].map(markedPlace);
   const first = places[0];
-  if (first !== undefined) return { routed: places.length > 1 ? `${first} +${places.length - 1}` : first, unrouted: false };
+  if (first !== undefined) return { routed: counted(first, places.length), unrouted: false };
+  const effect = [...effects].sort((x, y) => x - y)[0];
+  if (effect !== undefined) return { routed: `${counted(`AFX ${effect + 1}`, effects.length)} only`, unrouted: false };
   const allRead = namingGroups(topology).every((at) => at === groups.recordPosition || routing[at] !== undefined);
   return { unrouted: allRead };
 }

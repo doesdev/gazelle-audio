@@ -19,6 +19,7 @@
 //! "Vocal mic, USB A Rec 1". An output is named for where the routing sends its playback channel:
 //! the hardware output it reaches, directly or through a mix ("Monitor L, USB 1 Play 1"), else the
 //! mix channel it lands in ("Click in Cue, USB 1 Play 3"), else nowhere ("USB 1 Play 5, not routed").
+//! One that gets there only through an effect chain says so ("Monitor L via AFX 1, USB 1 Play 5").
 //! The devices' own names are shown in plain case throughout ([`Group::display_name`]).
 //! Re-routing changes the name, which is the point: it says where the audio goes.
 //!
@@ -89,8 +90,9 @@ pub fn usb_groups(family: &str) -> Option<UsbGroups> {
 }
 
 /// Every routing group a model's channel names are worked out from, as `(topology id, wire
-/// position)`: its USB record group, its hardware outputs and its mix inputs. These are the groups
-/// the server reads, once each, when it has not seen them.
+/// position)`: its USB record group, its hardware outputs, its mix inputs, and its effect inputs,
+/// which say where a playback channel that feeds an effect chain ends up. These are the groups the
+/// server reads, once each, when it has not seen them.
 pub fn naming_groups(family: &str) -> Vec<(String, u32)> {
     let Some(groups) = usb_groups(family) else { return Vec::new() };
     let mixes = topology::mix_inputs(family).unwrap_or_default();
@@ -98,7 +100,7 @@ pub fn naming_groups(family: &str) -> Vec<(String, u32)> {
         .unwrap_or_default()
         .iter()
         .enumerate()
-        .filter(|(_, group)| group.id == groups.record.id || hardware_name(group).is_some() || mixes.contains(&group.id))
+        .filter(|(_, group)| group.id == groups.record.id || hardware_name(group).is_some() || mixes.contains(&group.id) || group.kind == "AFX_IN")
         .map(|(at, group)| (group.id.clone(), at as u32))
         .collect()
 }
@@ -315,6 +317,111 @@ fn taking<'a>(destinations: &'a [Group], routing: &Routing, source: [u8; 2]) -> 
         .collect()
 }
 
+/// One thing an output's audio passes through on its way: a mix, or an effect chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hop {
+    Mix(usize),
+    Effect(u32),
+}
+
+/// A place reached, with the first effect chain the audio went through to get there, when it went
+/// through one.
+type Place<K> = (K, String, Option<u32>);
+
+/// What one routing source reaches, followed as far as the routing seen so far says.
+#[derive(Default)]
+struct Reached {
+    /// Each socket, with where it ranks: its kind, then the device's own order, then its side.
+    hardware: Vec<Place<(usize, usize, u32)>>,
+    /// Each mix channel landed in whose mix reaches no socket, in the order found.
+    mixed: Vec<Place<()>>,
+    /// The effect chains fed whose output reaches neither.
+    effects: Vec<u32>,
+}
+
+/// Note a place once by its name. A way with no effect in it is kept over one through an effect,
+/// and of two effects the lower numbered.
+fn place<K>(places: &mut Vec<Place<K>>, key: K, name: String, via: Option<u32>) {
+    match places.iter_mut().find(|(_, known, _)| *known == name) {
+        Some(known) => known.2 = known.2.min(via),
+        None => places.push((key, name, via)),
+    }
+}
+
+/// A place as its name says it: "Monitor L", or "Monitor L via AFX 1" when the audio gets there
+/// only through that effect chain.
+fn marked(name: &str, via: Option<u32>) -> String {
+    via.map_or_else(|| name.to_string(), |effect| format!("{name} via AFX {}", effect + 1))
+}
+
+/// Everything one output's route is followed through.
+struct Trace<'a> {
+    destinations: &'a [Group],
+    sources: &'a [Group],
+    mix_inputs: &'a [String],
+    mix_outputs: &'a [String],
+    routing: &'a Routing,
+    mixer: Option<&'a DeviceMixer>,
+    /// The playback channel being named, whose side in its pair is the side it takes in a mix.
+    channel: u32,
+}
+
+impl Trace<'_> {
+    /// Where one source goes. `via` is the first effect chain the audio has been through so far, and
+    /// `seen` every mix and effect on this way round, so a route that comes back on itself ends.
+    ///
+    /// A mix's output is followed on the side the playback channel takes in its pair; an effect
+    /// chain's output (AFX Out k) carries whatever feeds its input (AFX In k). The effect inputs are
+    /// followed only once they have been seen: until then nothing is said to go through an effect.
+    fn from(&self, source: [u8; 2], via: Option<u32>, seen: &[Hop]) -> Reached {
+        let mut found = Reached::default();
+        for (position, group, at) in taking(self.destinations, self.routing, source) {
+            if let (Some(rank), Some(name)) = (hardware_rank(group), hardware_channel(group, at)) {
+                place(&mut found.hardware, (rank, position, at), name, via);
+                continue;
+            }
+            if let Some(mix) = self.mix_inputs.iter().position(|id| *id == group.id) {
+                if seen.contains(&Hop::Mix(mix)) {
+                    continue;
+                }
+                // Where that mix goes: its output group, on the side this channel takes in its pair.
+                let out = self.mix_outputs.get(mix).and_then(|id| self.sources.iter().position(|g| g.id == *id));
+                let beyond = out.map(|out| {
+                    let side = if self.sources[out].channels >= 2 { self.channel % 2 } else { 0 };
+                    self.from([out as u8, side as u8], via, &[seen, &[Hop::Mix(mix)]].concat())
+                });
+                match beyond {
+                    Some(beyond) if !beyond.hardware.is_empty() => {
+                        for (key, name, via) in beyond.hardware {
+                            place(&mut found.hardware, key, name, via);
+                        }
+                    }
+                    _ => place(&mut found.mixed, (), mix_channel(self.mixer, mix, at), via),
+                }
+                continue;
+            }
+            if group.kind != "AFX_IN" || seen.contains(&Hop::Effect(at)) {
+                continue;
+            }
+            let Some(out) = self.sources.iter().position(|g| g.kind == "AFX_OUT") else { continue };
+            let beyond = self.from([out as u8, at as u8], via.or(Some(at)), &[seen, &[Hop::Effect(at)]].concat());
+            if beyond.hardware.is_empty() && beyond.mixed.is_empty() {
+                if !found.effects.contains(&at) {
+                    found.effects.push(at);
+                }
+                continue;
+            }
+            for (key, name, via) in beyond.hardware {
+                place(&mut found.hardware, key, name, via);
+            }
+            for (key, name, via) in beyond.mixed {
+                place(&mut found.mixed, key, name, via);
+            }
+        }
+        found
+    }
+}
+
 /// Aggregate output `channel`: its USB playback channel, which is a routing source, named for where
 /// the routing sends it.
 ///
@@ -326,6 +433,14 @@ fn taking<'a>(destinations: &'a [Group], routing: &Routing, source: [u8; 2]) -> 
 /// them. Several places are the first and a count of the rest: "Monitor L +2". Nowhere, once every
 /// group it could go to has been seen, is said as not routed; anything less is not known yet, and
 /// the channel is its USB channel alone.
+///
+/// The route is followed through effect chains and from one mix into another as well, each way
+/// round once. A place reached only through an effect chain is marked with the first chain on the
+/// way, "Monitor L via AFX 1" or "Ch 1 in Mix 3 via AFX 1", and ranks as the place it is; a mix on
+/// the way is not said, as it never was. A channel that feeds an effect chain whose output goes
+/// nowhere, and reaches nothing else, is "AFX 1 only": it is routed, so it is not called not routed,
+/// and nothing plays it. While the effect inputs have not been seen, effects are not followed and
+/// the name is what the rest of the routing gives.
 pub fn output_channel(family: &str, channel: u32, routing: &Routing, mixer: Option<&DeviceMixer>) -> Option<ChannelName> {
     let groups = usb_groups(family)?;
     if channel >= groups.playback.channels {
@@ -333,49 +448,18 @@ pub fn output_channel(family: &str, channel: u32, routing: &Routing, mixer: Opti
     }
     let usb = group_channel(&groups.playback, channel);
     let destinations = topology::destination_groups_whole(family).unwrap_or_default();
-    let sources = topology::source_groups(family).unwrap_or_default();
     let mix_inputs = topology::mix_inputs(family).unwrap_or_default();
-    let mix_outputs = topology::mix_outputs(family).unwrap_or_default();
-    let reached = |source: [u8; 2]| taking(destinations, routing, source);
-
-    // Each socket reached, with where it ranks: its kind, then the device's own order, then its side.
-    let mut hardware: Vec<((usize, usize, u32), String)> = Vec::new();
-    let mut mixed: Vec<String> = Vec::new();
-    let reach = |hardware: &mut Vec<((usize, usize, u32), String)>, position: usize, group: &Group, at: u32| {
-        if let (Some(rank), Some(name)) = (hardware_rank(group), hardware_channel(group, at)) {
-            if !hardware.iter().any(|(_, known)| *known == name) {
-                hardware.push(((rank, position, at), name));
-            }
-        }
+    let trace = Trace { destinations, sources: topology::source_groups(family).unwrap_or_default(), mix_inputs, mix_outputs: topology::mix_outputs(family).unwrap_or_default(), routing, mixer, channel };
+    let Reached { mut hardware, mixed, mut effects } = trace.from([groups.playback_position as u8, channel as u8], None, &[]);
+    hardware.sort_by_key(|(rank, _, _)| *rank);
+    let places: Vec<String> = hardware.iter().map(|(_, name, via)| marked(name, *via)).chain(mixed.iter().map(|(_, name, via)| marked(name, *via))).collect();
+    let count = |first: &str, all: usize| if all > 1 { format!("{first} +{}", all - 1) } else { first.to_string() };
+    effects.sort_unstable();
+    let carries = match (places.first(), effects.first()) {
+        (Some(first), _) => Some(count(first, places.len())),
+        (None, Some(effect)) => Some(format!("{} only", count(&format!("AFX {}", effect + 1), effects.len()))),
+        (None, None) => None,
     };
-    let own = [groups.playback_position as u8, channel as u8];
-    for (position, group, at) in reached(own) {
-        if hardware_rank(group).is_some() {
-            reach(&mut hardware, position, group, at);
-            continue;
-        }
-        let Some(mix) = mix_inputs.iter().position(|id| *id == group.id) else { continue };
-        // Where that mix goes: its output group, on the side this channel takes in its pair.
-        let out = mix_outputs.get(mix).and_then(|id| sources.iter().position(|g| g.id == *id).map(|at| (at, &sources[at])));
-        let beyond: Vec<(usize, &Group, u32)> = out
-            .map(|(position, group)| {
-                let side = if group.channels >= 2 { channel % 2 } else { 0 };
-                reached([position as u8, side as u8]).into_iter().filter(|(_, g, _)| hardware_rank(g).is_some()).collect()
-            })
-            .unwrap_or_default();
-        if beyond.is_empty() {
-            let name = mix_channel(mixer, mix, at);
-            if !mixed.contains(&name) {
-                mixed.push(name);
-            }
-        }
-        for (position, group, at) in beyond {
-            reach(&mut hardware, position, group, at);
-        }
-    }
-    hardware.sort_by_key(|(rank, _)| *rank);
-    let places: Vec<String> = hardware.into_iter().map(|(_, name)| name).chain(mixed).collect();
-    let carries = places.first().map(|first| if places.len() > 1 { format!("{first} +{}", places.len() - 1) } else { first.clone() });
     // Not routed is said only once every group it could reach has been seen.
     let all_seen = destinations.iter().filter(|g| hardware_name(g).is_some() || mix_inputs.contains(&g.id)).all(|g| routing.contains_key(&g.id));
     Some(ChannelName { unrouted: carries.is_none() && all_seen, carries, usb })
@@ -479,9 +563,9 @@ mod tests {
     }
 
     #[test]
-    fn the_groups_read_for_names_are_the_record_group_the_outputs_and_the_mix_inputs() {
+    fn the_groups_read_for_names_are_the_record_group_the_outputs_the_mix_inputs_and_the_effect_inputs() {
         let ids: Vec<String> = naming_groups("quadro").into_iter().map(|(id, _)| id).collect();
-        assert_eq!(ids, ["LINE_OUT0", "HEADPHONES0", "HEADPHONES1", "MONITOR0", "COM_REC0", "SPDIF_OUT0", "MIXER_IN0", "MIXER_IN1", "MIXER_IN2", "MIXER_IN3"]);
+        assert_eq!(ids, ["LINE_OUT0", "HEADPHONES0", "HEADPHONES1", "MONITOR0", "COM_REC0", "SPDIF_OUT0", "AFX_IN0", "MIXER_IN0", "MIXER_IN1", "MIXER_IN2", "MIXER_IN3"]);
         let studio: Vec<String> = naming_groups("studio").into_iter().map(|(id, _)| id).collect();
         assert!(studio.contains(&"REAMP0".to_string()) && studio.contains(&"ADAT_OUT0".to_string()) && studio.contains(&"USB_REC0".to_string()));
         assert!(!studio.contains(&"TB_REC0".to_string()), "Thunderbolt is not what the aggregate uses");
@@ -634,6 +718,115 @@ mod tests {
         assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "Line Out L +3");
         routing.get_mut("LINE_OUT0").unwrap()[0] = [source("quadro", "MUTE0"), 0];
         assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().label(), "HP1 L +2", "HP1 before HP2");
+    }
+
+    /// A playback channel that only feeds an effect chain is named for where the chain's output goes.
+    #[test]
+    fn an_output_reaching_a_place_only_through_an_effect_is_named_for_it_with_the_effect_marked() {
+        let play = source("quadro", "COM_PLAY0");
+        let afx = source("quadro", "AFX_OUT0");
+        let mix1 = source("quadro", "MIXER_OUT0");
+        let mix3 = source("quadro", "MIXER_OUT2");
+        let mut routing = silent("quadro");
+        // USB 1 Play 5 into AFX 1, and AFX 1's output straight to Monitor L.
+        route(&mut routing, "AFX_IN0", 0, [play, 4]);
+        route(&mut routing, "MONITOR0", 0, [afx, 0]);
+        let through = output_channel("quadro", 4, &routing, None).unwrap();
+        assert_eq!(through.text(), "Monitor L via AFX 1, USB 1 Play 5");
+        assert_eq!(through.label(), "Monitor L via AFX 1");
+        // Other places beside it are counted as ever; a socket reached directly as well is not marked.
+        route(&mut routing, "MONITOR0", 1, [play, 4]);
+        route(&mut routing, "HEADPHONES0", 0, [afx, 0]);
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().label(), "Monitor L via AFX 1 +2", "the socket order ranks them, whichever way each is reached");
+        route(&mut routing, "MONITOR0", 0, [play, 4]);
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().label(), "Monitor L +2", "a socket fed directly is named plainly");
+        // Through an effect that is in a mix: the mix is not said, as it never was.
+        let mut routing = silent("quadro");
+        route(&mut routing, "AFX_IN0", 1, [play, 5]);
+        route(&mut routing, "MIXER_IN2", 1, [afx, 1]);
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().text(), "Ch 2 in Mix 3 via AFX 2, USB 1 Play 6", "a mix that goes nowhere is where it lands");
+        route(&mut routing, "LINE_OUT0", 1, [mix3, 1]);
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().text(), "Line Out R via AFX 2, USB 1 Play 6", "on the channel's own side of the mix");
+        route(&mut routing, "MIXER_IN2", 8, [play, 5]);
+        assert_eq!(output_channel("quadro", 5, &routing, None).unwrap().text(), "Line Out R, USB 1 Play 6", "reached without the effect as well, it is not marked");
+        // Through a mix and then an effect, and one effect into another: the first effect is the mark.
+        let mut routing = silent("quadro");
+        route(&mut routing, "MIXER_IN0", 8, [play, 0]);
+        route(&mut routing, "AFX_IN0", 2, [mix1, 0]);
+        route(&mut routing, "AFX_IN0", 3, [afx, 2]);
+        route(&mut routing, "HEADPHONES1", 1, [afx, 3]);
+        assert_eq!(output_channel("quadro", 0, &routing, None).unwrap().text(), "HP2 R via AFX 3, USB 1 Play 1");
+    }
+
+    #[test]
+    fn an_output_through_one_mix_into_another_is_named_for_where_the_second_goes() {
+        let play = source("quadro", "COM_PLAY0");
+        let mut routing = silent("quadro");
+        route(&mut routing, "MIXER_IN2", 9, [play, 2]);
+        route(&mut routing, "MIXER_IN0", 10, [source("quadro", "MIXER_OUT2"), 0]);
+        assert_eq!(output_channel("quadro", 2, &routing, None).unwrap().text(), "Ch 10 in Mix 3, USB 1 Play 3", "the first mix it lands in, while neither goes anywhere");
+        route(&mut routing, "MONITOR0", 0, [source("quadro", "MIXER_OUT0"), 0]);
+        assert_eq!(output_channel("quadro", 2, &routing, None).unwrap().text(), "Monitor L, USB 1 Play 3");
+        // A mix fed back into itself is followed once.
+        route(&mut routing, "MIXER_IN2", 11, [source("quadro", "MIXER_OUT2"), 0]);
+        assert_eq!(output_channel("quadro", 2, &routing, None).unwrap().text(), "Monitor L, USB 1 Play 3");
+    }
+
+    /// Routed, and heard nowhere: it is said to feed the effect only, not to be not routed.
+    #[test]
+    fn an_output_feeding_only_an_effect_that_goes_nowhere_says_the_effect_only() {
+        let play = source("quadro", "COM_PLAY0");
+        let afx = source("quadro", "AFX_OUT0");
+        let mut routing = silent("quadro");
+        route(&mut routing, "AFX_IN0", 0, [play, 4]);
+        let only = output_channel("quadro", 4, &routing, None).unwrap();
+        assert_eq!(only.text(), "AFX 1 only, USB 1 Play 5");
+        assert_eq!(only.label(), "AFX 1 only");
+        assert!(!only.unrouted);
+        route(&mut routing, "AFX_IN0", 3, [play, 4]);
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().label(), "AFX 1 +1 only");
+        // One effect into another that goes nowhere is the first of them.
+        route(&mut routing, "AFX_IN0", 3, [afx, 0]);
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().label(), "AFX 1 only");
+        // A way round through a mix and an effect and back into the mix is followed once.
+        route(&mut routing, "MIXER_IN2", 9, [play, 8]);
+        route(&mut routing, "AFX_IN0", 5, [source("quadro", "MIXER_OUT2"), 0]);
+        route(&mut routing, "MIXER_IN2", 0, [afx, 5]);
+        assert_eq!(output_channel("quadro", 8, &routing, None).unwrap().label(), "Ch 10 in Mix 3");
+        // Anywhere else it reaches is its name, and the effect that goes nowhere is not counted.
+        route(&mut routing, "HEADPHONES0", 1, [play, 4]);
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().label(), "HP1 R");
+    }
+
+    /// Before the effect inputs have been seen, nothing is guessed: the name is what it was.
+    #[test]
+    fn with_the_effect_inputs_not_seen_an_output_keeps_the_name_the_rest_of_the_routing_gives() {
+        let afx = source("quadro", "AFX_OUT0");
+        let mut routing = silent("quadro");
+        route(&mut routing, "AFX_IN0", 0, [source("quadro", "COM_PLAY0"), 4]);
+        route(&mut routing, "MONITOR0", 0, [afx, 0]);
+        routing.remove("AFX_IN0");
+        assert_eq!(output_channel("quadro", 4, &routing, None).unwrap().text(), "USB 1 Play 5, not routed");
+        // And the driver is given the marked name once what is known of the device has them.
+        let mut device = entry("Zen Quadro Synergy Core", "quadro", "Q");
+        device.known.as_mut().unwrap().routing = routing.clone();
+        assert_eq!(driver_labels(&device, &Workspace::default()).1[&4], "Not routed");
+        routing.insert("AFX_IN0".into(), vec![[source("quadro", "COM_PLAY0"), 4]]);
+        device.known.as_mut().unwrap().routing = routing;
+        assert_eq!(driver_labels(&device, &Workspace::default()).1[&4], "Monitor L via AFX 1");
+    }
+
+    /// A marked name is still a label the interface carries, and fits beside a short reference.
+    #[test]
+    fn a_name_marked_with_an_effect_fits_what_the_interface_carries() {
+        let play = source("studio", "USB_PLAY0");
+        let mut routing = silent("studio");
+        route(&mut routing, "AFX_IN0", 15, [play, 23]);
+        route(&mut routing, "SPDIF_OUT0", 0, [source("studio", "AFX_OUT0"), 15]);
+        let label = output_channel("studio", 23, &routing, None).unwrap().label();
+        assert_eq!(label, "S/PDIF Out L via AFX 16");
+        assert!(label.chars().count() <= CHANNEL_NAME_MAX);
+        assert!("Monitor L via AFX 1 (Quadro 16)".chars().count() <= CHANNEL_NAME_MAX);
     }
 
     /// The cases the web page is held to as well, from one file both sides read.

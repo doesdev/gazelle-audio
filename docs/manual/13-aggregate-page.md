@@ -102,9 +102,11 @@ So the count is known as soon as Gazelle knows which device an interface is, wit
 - It reaches an output socket, directly or through a mix: that output and side, **Monitor L, USB 1 Play 1**. Through a mix, the first channel of a pair is the left side and the second the right, which is how a DAW's stereo pairs land in a stereo mix.
 - It lands in a mix whose output goes nowhere: the mix channel, with your names for the channel and the mix where you gave them, **Click in Cue, USB 1 Play 3**, else **Ch 11 in Mix 3, USB 1 Play 3**.
 - It reaches several places: the most important socket it reaches and how many more, **Monitor L +1, USB 1 Play 1**. Sockets rank in this order, whatever order the interface lists them in: Monitor, Line Out, the headphones (HP1 before HP2), S/PDIF Out, ADAT Out, and Reamp last. So a channel feeding a mix that goes to both the monitors and HP1 is named for the monitors.
+- It gets there only through an effect: the same name with the effect after it, **Monitor L via AFX 1, USB 1 Play 5**, or **Ch 2 in Mix 3 via AFX 1, USB 1 Play 5** when the effect is in a mix whose output goes nowhere. The route is followed as the list below follows it, through effects and from one mix into another, and the effect named is the first one on the way. A place the channel also reaches without the effect is named plainly, and a mix on the way is never said.
+- It feeds an effect whose output goes nowhere, and nothing else: **AFX 1 only, USB 1 Play 5**. It is routed, so it is not called not routed, but nothing plays it.
 - It goes nowhere: **USB 1 Play 5, not routed**.
 
-Until Gazelle has read the routing the name depends on, a channel is just its USB channel. Gazelle reads each routing group it needs once, when it first needs it.
+Until Gazelle has read the routing the name depends on, a channel is just its USB channel, and until it has read the effects' inputs, a channel is named without following any effect. Gazelle reads each routing group it needs once, when it first needs it.
 
 ### Where the DAW can play
 

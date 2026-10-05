@@ -10,6 +10,13 @@ version that has not been published yet.
 
 ## [Unreleased]
 
+### Fixed
+
+- An aggregate output that reaches a socket or a mix only through an effect is now named for where
+  it ends up, on the Aggregate page and in your DAW: **Monitor L via AFX 1** where it used to say
+  not routed. One that feeds an effect whose output goes nowhere reads **AFX 1 only**. Outputs
+  routed directly or through a single mix keep the names they had.
+
 ## [2.2.0] - 2026-10-03
 
 Hear a mid-side pair decoded while you track, keep a trim for every rate and buffer size and
