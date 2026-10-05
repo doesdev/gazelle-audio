@@ -8,7 +8,7 @@
 //! a device. It also follows each device's own status reports for the rate it runs at, which the
 //! file carries when the setup leaves the rate to the interfaces, waking only when that rate
 //! changes. The only thing it ever asks a device is a routing group the names come from (its USB record
-//! group, its outputs and its mix inputs), each once, when an interface of the aggregate is there
+//! group, its outputs, its mix inputs and its effect inputs), each once, when an interface of the aggregate is there
 //! and Gazelle has not seen that group since it was attached.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -169,7 +169,7 @@ mod tests {
         let workspace = setup(&["Q", "elsewhere"]);
         let position = usb_groups("quadro").unwrap().record_position;
         let wanted = wanted_reads(&workspace, &devices);
-        assert_eq!(wanted.len(), 10, "its record group, five outputs and four mix inputs: {wanted:?}");
+        assert_eq!(wanted.len(), 11, "its record group, five outputs, its effect inputs and four mix inputs: {wanted:?}");
         assert!(wanted.iter().all(|(id, _)| id == &DeviceId::from_serial("Q")), "only the connected one");
 
         let handle = devices.handle(&DeviceId::from_serial("Q")).unwrap();

@@ -1737,6 +1737,35 @@ test("outputs are named by the same cases the server is held to, the monitors fi
   }
 });
 
+test("an output that reaches a place only through an effect is named for it, with the effect marked", () => {
+  const named = (routes: [string, number, string, number][], channel: number) => {
+    const { config, naming } = namingWith("quadro", routes);
+    return channelName(config.devices[0], naming, false, channel);
+  };
+  const through: [string, number, string, number][] = [
+    ["AFX_IN0", 0, "COM_PLAY0", 4],
+    ["MONITOR0", 0, "AFX_OUT0", 0],
+  ];
+  assert.deepEqual(named(through, 4), { usb: "USB 1 Play 5", carries: "Monitor L via AFX 1", text: "Monitor L via AFX 1, USB 1 Play 5", automatic: "Monitor L via AFX 1" });
+  assert.equal(dawLine("Quadro", 4, named(through, 4)), "... (Quadro 5)", "the DAW's name is the same label with the driver's reference");
+  // The list beside it follows the same route.
+  const lines = playbackOutputs(namingWith("quadro", through).naming);
+  assert.equal(lines.find((line) => line.label === "Monitor")?.text, "USB 1 Play 5, through AFX 1");
+  // An effect whose output goes nowhere: the effect only, and never beside a real place.
+  const only = named([["AFX_IN0", 0, "COM_PLAY0", 4]], 4);
+  assert.deepEqual([only.text, only.automatic], ["AFX 1 only, USB 1 Play 5", "AFX 1 only"]);
+  assert.equal(named([["AFX_IN0", 0, "COM_PLAY0", 4], ["HEADPHONES0", 1, "COM_PLAY0", 4]], 4).text, "HP1 R, USB 1 Play 5");
+});
+
+test("with the effect inputs not read, an output keeps the name the rest of the routing gives", () => {
+  // `quadroRouting` reads only the groups the names always came from, so the effect inputs are not read.
+  const routing = quadroRouting([
+    ["AFX_IN0", 0, "COM_PLAY0", 4],
+    ["MONITOR0", 0, "AFX_OUT0", 0],
+  ]);
+  assert.equal(quadroOutput(routing, 4).text, "USB 1 Play 5, not routed");
+});
+
 test("channels are listed as runs", () => {
   assert.equal(channelRuns([0, 1]), "1 to 2");
   assert.equal(channelRuns([6]), "7");
