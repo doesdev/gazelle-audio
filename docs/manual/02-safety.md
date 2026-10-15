@@ -2,7 +2,7 @@
 
 Software that controls an audio interface can make it very loud, very suddenly. A fader, a gain, a route or a preset reaches your monitors and headphones as fast as the device can apply it, and a monitor amplifier or a pair of headphones does not know the change was a mistake. This chapter names the real risks, says what Gazelle does about each, and says what you can do.
 
-Manufacturers' own manuals and apps rarely spell this out, and anyone who has worked with audio for long has a story about a burst of noise from equipment behaving badly, first-party software included. Gazelle is new, independently written and tested on one person's two units ([how well it has been tested](01-about.md#how-well-it-has-been-tested)), so it owes you more candour, not less.
+Anyone who has worked with audio for long has a story about a sudden burst of noise. Gazelle is new, independently written and tested on one person's two units ([how well it has been tested](01-about.md#how-well-it-has-been-tested)), so it says plainly where the risks are.
 
 ## The short version
 
