@@ -6,7 +6,7 @@ Gazelle is a control app for two Antelope Audio USB interfaces: the **Zen Quadro
 
 ## Why it exists
 
-The vendor's software gives each interface its own panel application, so two interfaces mean two applications and a lot of switching. Gazelle was written by one person who owns both models and wanted something lighter and clearer:
+Gazelle was written by one person who owns both models, uses them side by side, and wanted to control both from one place:
 
 - **One app for every device.** Each attached interface appears in the sidebar; a click switches the page to it. Cross-device *surfaces* put strips from both interfaces side by side.
 - **A plain mixer.** Channels are named, coloured and grouped. You choose each channel's input, the mix it plays in and the other mixes it is sent to, and Gazelle does the routing that implies.
