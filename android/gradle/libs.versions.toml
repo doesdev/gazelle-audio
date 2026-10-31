@@ -10,13 +10,13 @@
 # rendered on the JVM and compared with the images under app/src/test/screenshots.
 
 [versions]
-agp = "9.4.1"
+agp = "9.5.0"
 activity = "1.13.0"
-core = "1.18.0"
+core = "1.19.1"
 codeScanner = "16.1.0"
 junit = "4.13.2"
 robolectric = "4.17"
-roborazzi = "1.75.0"
+roborazzi = "1.77.0"
 
 [libraries]
 androidx-activity = { module = "androidx.activity:activity", version.ref = "activity" }
