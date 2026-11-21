@@ -49,7 +49,7 @@ semver = "1"
 # CSPRNG through `getrandom`, which axum's WebSocket support already brings into the tree; stored
 # token hashes are compared with `subtle`, which the signature checking already brings in. Neither
 # adds a package.
-getrandom = "0.3"
+getrandom = "0.4"
 subtle = { version = "2.6", default-features = false }
 # The pairing QR code: kennytm's encoder (MIT or Apache-2.0), with its default features off, which
 # leaves it with no dependencies at all. The server hands the page the module grid and the page
